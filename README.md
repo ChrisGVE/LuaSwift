@@ -2,9 +2,13 @@
 
 A lightweight Swift wrapper for Lua 5.4, designed for embedding Lua scripting in iOS and macOS applications.
 
+[![Swift](https://img.shields.io/badge/Swift-5.9+-orange.svg)](https://swift.org)
+[![Platform](https://img.shields.io/badge/Platform-iOS%2015%2B%20%7C%20macOS%2012%2B-blue.svg)](https://developer.apple.com)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 ## Features
 
-- **Lua 5.4** - Latest stable Lua release
+- **Lua 5.4.7 Bundled** - Complete Lua source included, no external dependencies
 - **Type-Safe** - Swift enums for Lua values
 - **Value Servers** - Expose Swift data to Lua via protocol
 - **Sandboxing** - Remove dangerous functions for security
@@ -220,6 +224,17 @@ do {
 MIT License. See [LICENSE](LICENSE) for details.
 
 Lua is also MIT licensed. See https://www.lua.org/license.html
+
+## App Store Compliance
+
+LuaSwift is designed to be App Store compliant:
+
+- **Bundled interpreter**: Lua source is compiled into your app (no downloading code)
+- **Sandboxing**: Dangerous functions (`os.execute`, `io.*`, `debug.*`) are disabled by default
+- **No JIT**: Uses standard Lua interpreter, not LuaJIT
+- Scripts cannot escape sandbox or modify other apps
+
+Per Apple's [App Store Review Guidelines 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements), apps may include interpreters as long as they don't download code, don't let users distribute apps, and have no escape mechanisms.
 
 ## Acknowledgments
 

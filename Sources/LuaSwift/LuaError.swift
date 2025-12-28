@@ -36,6 +36,9 @@ public enum LuaError: Error, LocalizedError {
     /// Attempted to use a prohibited function
     case prohibitedFunction(name: String)
 
+    /// Attempted to write to a read-only path
+    case readOnlyAccess(path: String)
+
     /// Unknown error
     case unknown(code: Int, message: String?)
 
@@ -57,6 +60,8 @@ public enum LuaError: Error, LocalizedError {
             return "Failed to resolve path: \(path)"
         case .prohibitedFunction(let name):
             return "Attempted to use prohibited function: \(name)"
+        case .readOnlyAccess(let path):
+            return "Attempted to write to read-only path: \(path)"
         case .unknown(let code, let message):
             if let message = message {
                 return "Lua error (code \(code)): \(message)"

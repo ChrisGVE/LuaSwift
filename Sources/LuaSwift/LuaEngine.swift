@@ -170,7 +170,7 @@ public final class LuaEngine {
         // Load the code
         let loadResult = luaL_loadstring(L, code)
         if loadResult != LUA_OK {
-            let message = String(cString: lua_tostring(L, -1))
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
             throw LuaError.syntaxError(message)
         }
@@ -178,7 +178,7 @@ public final class LuaEngine {
         // Execute
         let callResult = lua_pcall(L, 0, 1, 0)
         if callResult != LUA_OK {
-            let message = String(cString: lua_tostring(L, -1))
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
             throw errorFromCode(callResult, message: message)
         }
@@ -309,7 +309,8 @@ public final class LuaEngine {
             return .number(lua_tonumber(L, index))
 
         case LUA_TSTRING:
-            return .string(String(cString: lua_tostring(L, index)))
+            guard let cstr = lua_tostring(L, index) else { return .nil }
+            return .string(String(cString: cstr))
 
         case LUA_TTABLE:
             return tableFromStack(at: index)
@@ -348,8 +349,10 @@ public final class LuaEngine {
                 }
             } else if keyType == LUA_TSTRING {
                 isArray = false
-                let key = String(cString: lua_tostring(L, -2))
-                dict[key] = value
+                if let keyStr = lua_tostring(L, -2) {
+                    let key = String(cString: keyStr)
+                    dict[key] = value
+                }
             }
 
             lua_pop(L, 1)  // Pop value, keep key for next iteration
@@ -406,7 +409,7 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
 
     // Get the key being accessed
     guard lua_isstring(L, 2) != 0 else { return 0 }
-    let key = String(cString: lua_tostring(L, 2))
+    let key = String(cString: lua_tostring(L, 2)!)
 
     // Get metatable to access _engine and _namespace
     guard lua_getmetatable(L, 1) != 0 else { return 0 }
@@ -422,11 +425,11 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
 
     // Get namespace
     lua_getfield(L, -1, "_namespace")
-    guard lua_isstring(L, -1) != 0 else {
+    guard lua_isstring(L, -1) != 0, let nsStr = lua_tostring(L, -1) else {
         lua_pop(L, 2)
         return 0
     }
-    let namespace = String(cString: lua_tostring(L, -1))
+    let namespace = String(cString: nsStr)
     lua_pop(L, 2)  // Pop namespace and metatable
 
     // Get path from table (stored during traversal)
@@ -436,8 +439,8 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
         // Iterate path array
         lua_pushnil(L)
         while lua_next(L, -2) != 0 {
-            if lua_isstring(L, -1) != 0 {
-                path.append(String(cString: lua_tostring(L, -1)))
+            if lua_isstring(L, -1) != 0, let pStr = lua_tostring(L, -1) {
+                path.append(String(cString: pStr))
             }
             lua_pop(L, 1)
         }

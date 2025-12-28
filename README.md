@@ -9,11 +9,11 @@ A lightweight Swift wrapper for Lua 5.4, designed for embedding Lua scripting in
 ## Features
 
 - **Lua 5.4.7 Bundled** - Complete Lua source included, no external dependencies
-- **Type-Safe** - Swift enums for Lua values
-- **Value Servers** - Expose Swift data to Lua via protocol
+- **Type-Safe** - Swift enums for Lua values with convenient accessors
+- **Value Servers** - Expose Swift data to Lua with read/write support
 - **Sandboxing** - Remove dangerous functions for security
 - **Thread-Safe** - Safe for concurrent access
-- **Minimal API** - Simple interface for common use cases
+- **Minimal API** - Two methods: `run()` and `evaluate()`
 
 ## Requirements
 
@@ -45,21 +45,24 @@ import LuaSwift
 // Create engine (sandboxed by default)
 let engine = try LuaEngine()
 
-// Execute Lua code
-let result = try engine.execute("return 1 + 2")
+// Evaluate Lua code and get result
+let result = try engine.evaluate("return 1 + 2")
 print(result.numberValue!) // 3.0
 
-// Execute returning a table
-let table = try engine.executeForTable("""
+// Run Lua code without needing a result
+try engine.run("print('Hello from Lua!')")
+
+// Evaluate returning a table
+let user = try engine.evaluate("""
     return {
         name = "John",
         age = 30
     }
 """)
-print(table["name"]?.stringValue) // Optional("John")
+print(user.tableValue?["name"]?.stringValue) // Optional("John")
 ```
 
-### Value Servers
+### Value Servers (Read-Only)
 
 Expose your application data to Lua:
 
@@ -73,20 +76,18 @@ class AppServer: LuaValueServer {
         switch path[0] {
         case "version":
             return .string("1.0.0")
-        case "settings":
-            return resolveSettings(path: Array(path.dropFirst()))
+        case "user":
+            guard path.count > 1 else { return .nil }
+            return resolveUser(key: path[1])
         default:
             return .nil
         }
     }
 
-    private func resolveSettings(path: [String]) -> LuaValue {
-        guard let key = path.first else {
-            return .table(["theme": "dark", "language": "en"])
-        }
+    private func resolveUser(key: String) -> LuaValue {
         switch key {
-        case "theme": return .string("dark")
-        case "language": return .string("en")
+        case "name": return .string("John")
+        case "level": return .number(42)
         default: return .nil
         }
     }
@@ -97,14 +98,57 @@ let server = AppServer()
 engine.register(server: server)
 
 // Access from Lua
-let theme = try engine.execute("return App.settings.theme")
-print(theme.stringValue!) // "dark"
+let name = try engine.evaluate("return App.user.name")
+print(name.stringValue!) // "John"
+```
+
+### Value Servers (Read/Write)
+
+Enable Lua scripts to write back to your application:
+
+```swift
+class CacheServer: LuaValueServer {
+    let namespace = "Cache"
+    var storage: [String: LuaValue] = [:]
+
+    func resolve(path: [String]) -> LuaValue {
+        guard path.count > 0 else { return .nil }
+        let key = path.joined(separator: ".")
+        return storage[key] ?? .nil
+    }
+
+    func canWrite(path: [String]) -> Bool {
+        return true  // All paths are writable
+    }
+
+    func write(path: [String], value: LuaValue) throws {
+        let key = path.joined(separator: ".")
+        storage[key] = value
+    }
+}
+
+let cache = CacheServer()
+engine.register(server: cache)
+
+// Lua can now write values
+try engine.run("""
+    Cache.result = 42
+    Cache.message = "Calculation complete"
+    Cache.data = { x = 10, y = 20 }
+""")
+
+// Read back in Swift
+print(cache.storage["result"]?.numberValue)  // Optional(42.0)
+print(cache.storage["message"]?.stringValue) // Optional("Calculation complete")
 ```
 
 ### Problem Generation Example
 
 ```swift
-let problem = try engine.executeForTable("""
+// Seed for reproducible results
+try engine.seed(42)
+
+let problem = try engine.evaluate("""
     local a = math.random(1, 10)
     local b = math.random(1, 10)
 
@@ -118,21 +162,86 @@ let problem = try engine.executeForTable("""
     }
 """)
 
-print(problem["question"]?.stringValue)  // "What is 7 + 3?"
-print(problem["answer"]?.numberValue)    // 10.0
+print(problem.tableValue?["question"]?.stringValue)  // "What is 7 + 3?"
+print(problem.tableValue?["answer"]?.numberValue)    // 10.0
 ```
 
-### Reproducible Testing
+## API Reference
+
+### LuaEngine
 
 ```swift
-// Set fixed seed for reproducible results
-try engine.seed(12345)
+// Create engine
+let engine = try LuaEngine()                           // Sandboxed
+let engine = try LuaEngine(configuration: .default)    // Sandboxed
+let engine = try LuaEngine(configuration: .unrestricted)
 
-// All math.random() calls will produce the same sequence
-let result1 = try engine.execute("return math.random(1, 100)")
-let result2 = try engine.execute("return math.random(1, 100)")
-// Always the same values for seed 12345
+// Execute Lua code
+try engine.run("print('no return value')")             // Discard result
+let value = try engine.evaluate("return 42")           // Return LuaValue
+
+// Random seeding
+try engine.seed(12345)                                 // Reproducible math.random()
+
+// Value servers
+engine.register(server: myServer)
+engine.unregister(namespace: "MyServer")
 ```
+
+### LuaValue
+
+The `LuaValue` enum represents all Lua types:
+
+```swift
+public enum LuaValue {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case table([String: LuaValue])
+    case array([LuaValue])
+    case `nil`
+}
+```
+
+#### Convenience Accessors
+
+```swift
+let value: LuaValue = .number(42)
+
+value.numberValue   // Optional(42.0)
+value.intValue      // Optional(42)
+value.stringValue   // nil
+value.boolValue     // nil
+value.tableValue    // nil
+value.arrayValue    // nil
+value.asString      // "42" (always succeeds)
+value.isTruthy      // true
+value.isNil         // false
+```
+
+#### Literals
+
+```swift
+let str: LuaValue = "hello"
+let num: LuaValue = 42
+let float: LuaValue = 3.14
+let bool: LuaValue = true
+let arr: LuaValue = [1, 2, 3]
+let dict: LuaValue = ["key": "value"]
+```
+
+### LuaValueServer Protocol
+
+```swift
+protocol LuaValueServer: AnyObject {
+    var namespace: String { get }
+    func resolve(path: [String]) -> LuaValue
+    func canWrite(path: [String]) -> Bool      // Default: false
+    func write(path: [String], value: LuaValue) throws  // Default: throws
+}
+```
+
+**Important**: For write support to work, `resolve()` must return `.nil` for intermediate paths. This creates proxy tables with metamethods that intercept writes.
 
 ## Configuration
 
@@ -161,54 +270,21 @@ let engine = try LuaEngine(configuration: config)
 let engine = try LuaEngine(configuration: .unrestricted)
 ```
 
-## LuaValue Type
-
-The `LuaValue` enum represents all Lua types:
-
-```swift
-public enum LuaValue {
-    case string(String)
-    case number(Double)
-    case bool(Bool)
-    case table([String: LuaValue])
-    case array([LuaValue])
-    case `nil`
-}
-```
-
-### Convenience Accessors
-
-```swift
-let value: LuaValue = .number(42)
-
-value.numberValue   // Optional(42.0)
-value.intValue      // Optional(42)
-value.stringValue   // nil
-value.asString      // "42" (always succeeds)
-value.isTruthy      // true
-```
-
-### Literals
-
-```swift
-let str: LuaValue = "hello"
-let num: LuaValue = 42
-let bool: LuaValue = true
-let arr: LuaValue = [1, 2, 3]
-let dict: LuaValue = ["key": "value"]
-```
-
 ## Error Handling
 
 ```swift
 do {
-    let result = try engine.execute("invalid lua code here")
+    try engine.run("Cache.readOnly = 'value'")
 } catch let error as LuaError {
     switch error {
     case .syntaxError(let message):
         print("Syntax error: \(message)")
     case .runtimeError(let message):
         print("Runtime error: \(message)")
+    case .readOnlyAccess(let path):
+        print("Cannot write to: \(path)")
+    case .typeError(let expected, let actual):
+        print("Expected \(expected), got \(actual)")
     default:
         print("Error: \(error.localizedDescription)")
     }
@@ -218,12 +294,6 @@ do {
 ## Thread Safety
 
 `LuaEngine` is thread-safe for all public methods. However, for best performance with concurrent access, consider using a pool of engines or serializing access.
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
-
-Lua is also MIT licensed. See https://www.lua.org/license.html
 
 ## App Store Compliance
 
@@ -235,6 +305,12 @@ LuaSwift is designed to be App Store compliant:
 - Scripts cannot escape sandbox or modify other apps
 
 Per Apple's [App Store Review Guidelines 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements), apps may include interpreters as long as they don't download code, don't let users distribute apps, and have no escape mechanisms.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
+
+Lua is also MIT licensed. See https://www.lua.org/license.html
 
 ## Acknowledgments
 

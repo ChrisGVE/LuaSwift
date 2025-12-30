@@ -65,7 +65,11 @@ let package = Package(
         .target(
             name: "LuaSwift",
             dependencies: ["CLua"],
-            path: "Sources/LuaSwift"
+            path: "Sources/LuaSwift",
+            exclude: ["LuaModules"],
+            resources: [
+                .copy("LuaModules")
+            ]
         ),
         // Tests
         .testTarget(

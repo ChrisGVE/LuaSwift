@@ -11,9 +11,11 @@ A lightweight Swift wrapper for Lua 5.4, designed for embedding Lua scripting in
 - **Lua 5.4.7 Bundled** - Complete Lua source included, no external dependencies
 - **Type-Safe** - Swift enums for Lua values with convenient accessors
 - **Value Servers** - Expose Swift data to Lua with read/write support
+- **Swift Callbacks** - Register Swift functions callable from Lua
+- **Coroutines** - Create, resume, and manage Lua coroutines from Swift
 - **Sandboxing** - Remove dangerous functions for security
 - **Thread-Safe** - Safe for concurrent access
-- **Minimal API** - Two methods: `run()` and `evaluate()`
+- **Bundled Lua Modules** - SVG generation, math expressions, slide rule modeling
 
 ## Requirements
 
@@ -142,6 +144,144 @@ print(cache.storage["result"]?.numberValue)  // Optional(42.0)
 print(cache.storage["message"]?.stringValue) // Optional("Calculation complete")
 ```
 
+### Swift Callbacks
+
+Register Swift functions that Lua can call:
+
+```swift
+// Register a simple callback
+engine.registerFunction(name: "greet") { args in
+    let name = args.first?.stringValue ?? "World"
+    return .string("Hello, \(name)!")
+}
+
+// Use from Lua
+let result = try engine.evaluate("return greet('Swift')")
+print(result.stringValue!) // "Hello, Swift!"
+
+// Callback with multiple arguments
+engine.registerFunction(name: "add") { args in
+    let a = args[0].numberValue ?? 0
+    let b = args[1].numberValue ?? 0
+    return .number(a + b)
+}
+
+try engine.run("print(add(10, 32))")  // Prints: 42.0
+
+// Unregister when done
+engine.unregisterFunction(name: "greet")
+```
+
+### Coroutines
+
+Create and manage Lua coroutines from Swift:
+
+```swift
+// Create a coroutine
+let handle = try engine.createCoroutine(code: """
+    local x = coroutine.yield(1)
+    local y = coroutine.yield(x + 1)
+    return y * 2
+""")
+
+// First resume - yields 1
+let r1 = try engine.resume(handle)
+if case .yielded(let values) = r1 {
+    print(values[0].numberValue!) // 1.0
+}
+
+// Second resume - pass 10, yields 11
+let r2 = try engine.resume(handle, with: [.number(10)])
+if case .yielded(let values) = r2 {
+    print(values[0].numberValue!) // 11.0
+}
+
+// Third resume - pass 5, returns 10
+let r3 = try engine.resume(handle, with: [.number(5)])
+if case .completed(let value) = r3 {
+    print(value.numberValue!) // 10.0
+}
+
+// Clean up
+engine.destroy(handle)
+
+// Check status before resume
+let status = engine.coroutineStatus(handle) // .dead after completion
+```
+
+### Bundled Lua Modules
+
+LuaSwift includes pure Lua modules for common tasks:
+
+#### SVG Generation
+
+```swift
+// Configure package path to find modules
+try engine.run("""
+    local svg = require("svg")
+    local drawing = svg.create(800, 600)
+
+    -- Basic shapes
+    drawing:rect(10, 10, 100, 50, {fill = "blue"})
+    drawing:circle(200, 200, 50, {stroke = "red", fill = "none"})
+    drawing:text("Hello SVG!", 100, 100, {font_size = 20})
+
+    -- Greek letters supported
+    drawing:text("θ = 45°", 150, 150)
+
+    -- Chart helpers
+    local points = {{x=0,y=0}, {x=100,y=50}, {x=200,y=25}}
+    drawing:linePlot(points, {stroke = "green"})
+
+    return drawing:render()
+""")
+```
+
+#### Math Expressions
+
+```swift
+let result = try engine.evaluate("""
+    local math_expr = require("math_expr")
+
+    -- Basic evaluation
+    local r1 = math_expr.eval("2 + 3 * 4")  -- 14
+
+    -- With variables
+    local r2 = math_expr.eval("x^2 + 2*x", {x = 3})  -- 15
+
+    -- Functions
+    local r3 = math_expr.eval("sin(pi/2)")  -- 1.0
+
+    -- Step-by-step solving
+    local steps = math_expr.solve("(2 + 3) * 4", {show_steps = true})
+    -- Returns table of intermediate steps
+
+    return r1
+""")
+```
+
+#### Slide Rule Modeling
+
+```swift
+let result = try engine.evaluate("""
+    local sliderule = require("sliderule")
+
+    -- Create a standard slide rule
+    local rule = sliderule.StandardRule()
+
+    -- Get available scales
+    local scales = rule:getScales()  -- {"C", "D", "A", "B", "K", "S", "T", ...}
+
+    -- Convert position to value on C scale
+    local value = sliderule.scales.C.positionToValue(0.5)  -- 3.16...
+
+    -- Check supported operations
+    local ops = rule:getOperations()  -- {"multiply", "divide", "square", ...}
+
+    return value
+""")
+```
+
 ### Problem Generation Example
 
 ```swift
@@ -186,6 +326,38 @@ try engine.seed(12345)                                 // Reproducible math.rand
 // Value servers
 engine.register(server: myServer)
 engine.unregister(namespace: "MyServer")
+
+// Swift callbacks
+engine.registerFunction(name: "myFunc") { args in return .nil }
+engine.unregisterFunction(name: "myFunc")
+
+// Coroutines
+let handle = try engine.createCoroutine(code: "...")
+let result = try engine.resume(handle)                 // CoroutineResult
+let result = try engine.resume(handle, with: [.number(42)])
+let status = engine.coroutineStatus(handle)            // CoroutineStatus
+engine.destroy(handle)
+```
+
+### CoroutineResult
+
+```swift
+public enum CoroutineResult {
+    case yielded([LuaValue])    // Coroutine yielded values
+    case completed(LuaValue)    // Coroutine finished
+    case error(LuaError)        // Error occurred
+}
+```
+
+### CoroutineStatus
+
+```swift
+public enum CoroutineStatus {
+    case suspended  // Waiting to be resumed
+    case running    // Currently executing
+    case dead       // Finished or errored
+    case normal     // Resumed another coroutine
+}
 ```
 
 ### LuaValue

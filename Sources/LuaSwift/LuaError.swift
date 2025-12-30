@@ -39,6 +39,9 @@ public enum LuaError: Error, LocalizedError {
     /// Attempted to write to a read-only path
     case readOnlyAccess(path: String)
 
+    /// Error occurred in Swift callback
+    case callbackError(String)
+
     /// Unknown error
     case unknown(code: Int, message: String?)
 
@@ -62,6 +65,8 @@ public enum LuaError: Error, LocalizedError {
             return "Attempted to use prohibited function: \(name)"
         case .readOnlyAccess(let path):
             return "Attempted to write to read-only path: \(path)"
+        case .callbackError(let message):
+            return "Swift callback error: \(message)"
         case .unknown(let code, let message):
             if let message = message {
                 return "Lua error (code \(code)): \(message)"

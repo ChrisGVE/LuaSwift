@@ -24,6 +24,12 @@ let LUA_REGISTRYINDEX: Int32 = -LUAI_MAXSTACK - 1000
 /// Multiple return values (replaces LUA_MULTRET macro)
 let LUA_MULTRET: Int32 = -1
 
+/// Thread status: coroutine yielded (from lua.h)
+let LUA_YIELD: Int32 = 1
+
+/// Thread type constant (from lua.h)
+let LUA_TTHREAD: Int32 = 8
+
 // MARK: - Stack Manipulation
 
 /// Pop n elements from the stack (replaces lua_pop macro)
@@ -101,6 +107,12 @@ func lua_isfunction(_ L: OpaquePointer?, _ index: Int32) -> Bool {
 @inline(__always)
 func lua_islightuserdata(_ L: OpaquePointer?, _ index: Int32) -> Int32 {
     return lua_type(L, index) == LUA_TLIGHTUSERDATA ? 1 : 0
+}
+
+/// Check if value at index is a thread (replaces lua_isthread macro)
+@inline(__always)
+func lua_isthread(_ L: OpaquePointer?, _ index: Int32) -> Bool {
+    return lua_type(L, index) == LUA_TTHREAD
 }
 
 // MARK: - Function Calls

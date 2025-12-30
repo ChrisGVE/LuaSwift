@@ -42,6 +42,9 @@ public enum LuaError: Error, LocalizedError {
     /// Error occurred in Swift callback
     case callbackError(String)
 
+    /// Error related to coroutine operations
+    case coroutineError(String)
+
     /// Unknown error
     case unknown(code: Int, message: String?)
 
@@ -67,6 +70,8 @@ public enum LuaError: Error, LocalizedError {
             return "Attempted to write to read-only path: \(path)"
         case .callbackError(let message):
             return "Swift callback error: \(message)"
+        case .coroutineError(let message):
+            return "Lua coroutine error: \(message)"
         case .unknown(let code, let message):
             if let message = message {
                 return "Lua error (code \(code)): \(message)"

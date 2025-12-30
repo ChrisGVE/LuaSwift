@@ -85,6 +85,9 @@ public final class LuaEngine {
     /// Registered callbacks
     private var callbacks: [String: ([LuaValue]) throws -> LuaValue] = [:]
 
+    /// Active coroutines (UUID -> registry reference for GC protection)
+    private var coroutines: [UUID: Int32] = [:]
+
     /// Configuration
     public let configuration: LuaEngineConfiguration
 
@@ -289,6 +292,282 @@ public final class LuaEngine {
     /// - Parameter seed: The seed value
     public func seed(_ seed: Int) throws {
         try run("math.randomseed(\(seed))")
+    }
+
+    // MARK: - Coroutines
+
+    /// Create a new coroutine from Lua code.
+    ///
+    /// The coroutine starts in a suspended state. Use `resume(_:with:)` to begin
+    /// execution. The coroutine can yield values using `coroutine.yield()` in Lua.
+    ///
+    /// - Parameter code: The Lua code to execute in the coroutine
+    /// - Returns: A handle to the coroutine
+    /// - Throws: `LuaError` if the code cannot be loaded
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// let handle = try engine.createCoroutine(code: """
+    ///     local x = coroutine.yield(1)
+    ///     local y = coroutine.yield(x + 1)
+    ///     return y * 2
+    /// """)
+    /// ```
+    public func createCoroutine(code: String) throws -> CoroutineHandle {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let L = L else {
+            throw LuaError.initializationFailed
+        }
+
+        // Create a new Lua thread
+        guard let thread = lua_newthread(L) else {
+            throw LuaError.coroutineError("Failed to create thread")
+        }
+
+        // Load the code into the thread
+        let loadResult = luaL_loadstring(thread, code)
+        if loadResult != LUA_OK {
+            let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(L, 1)  // Pop the thread from main state
+            throw LuaError.syntaxError(message)
+        }
+
+        // Store the thread in the registry to prevent garbage collection
+        // Thread is on top of main state stack
+        let ref = luaL_ref(L, LUA_REGISTRYINDEX)
+
+        let id = UUID()
+        coroutines[id] = ref
+
+        return CoroutineHandle(id: id, thread: thread)
+    }
+
+    /// Resume a suspended coroutine.
+    ///
+    /// Call this to start a new coroutine or continue one that yielded.
+    ///
+    /// - Parameters:
+    ///   - handle: The coroutine handle from `createCoroutine`
+    ///   - values: Optional values to pass to the coroutine. On first resume,
+    ///             these become the function arguments. On subsequent resumes,
+    ///             they become the return values of `coroutine.yield()`.
+    /// - Returns: The result of the resume operation
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// // First resume starts the coroutine
+    /// let result1 = try engine.resume(handle)
+    /// // result1 == .yielded([.number(1.0)])
+    ///
+    /// // Pass a value back into the coroutine
+    /// let result2 = try engine.resume(handle, with: [.number(10.0)])
+    /// // result2 == .yielded([.number(11.0)])
+    /// ```
+    public func resume(_ handle: CoroutineHandle, with values: [LuaValue] = []) throws -> CoroutineResult {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard coroutines[handle.id] != nil else {
+            throw LuaError.coroutineError("Coroutine not found or already destroyed")
+        }
+
+        let thread = handle.threadPointer
+
+        // Push values onto the thread's stack
+        for value in values {
+            pushValueOnThread(thread, value)
+        }
+
+        // Resume the coroutine
+        var nresults: Int32 = 0
+        let status = lua_resume(thread, L, Int32(values.count), &nresults)
+
+        switch status {
+        case LUA_OK:
+            // Coroutine completed normally
+            let result = valueFromThread(thread, at: -1)
+            if nresults > 0 {
+                lua_pop(thread, nresults)
+            }
+            return .completed(result)
+
+        case LUA_YIELD:
+            // Coroutine yielded
+            var yieldedValues: [LuaValue] = []
+            if nresults > 0 {
+                // Read from bottom of result section to top: -nresults, ..., -1
+                for i in 0..<nresults {
+                    yieldedValues.append(valueFromThread(thread, at: -nresults + i))
+                }
+                lua_pop(thread, nresults)
+            }
+            return .yielded(yieldedValues)
+
+        default:
+            // Error occurred
+            let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(thread, 1)
+            return .error(LuaError.coroutineError(message))
+        }
+    }
+
+    /// Get the status of a coroutine.
+    ///
+    /// - Parameter handle: The coroutine handle
+    /// - Returns: The current status of the coroutine
+    public func coroutineStatus(_ handle: CoroutineHandle) -> CoroutineStatus {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard coroutines[handle.id] != nil else {
+            return .dead
+        }
+
+        let thread = handle.threadPointer
+        let status = lua_status(thread)
+
+        switch status {
+        case LUA_OK:
+            // Need to check if it's dead (finished) or suspended
+            // A thread with status OK is either new (suspended) or dead (finished)
+            // We check the stack: if empty and status OK after a resume, it's dead
+            let top = lua_gettop(thread)
+            if top == 0 {
+                // Check if there's a function to run
+                return .dead
+            }
+            return .suspended
+
+        case LUA_YIELD:
+            return .suspended
+
+        default:
+            return .dead
+        }
+    }
+
+    /// Destroy a coroutine and release its resources.
+    ///
+    /// After calling this, the handle is no longer valid. It's safe to call
+    /// this on an already-destroyed or completed coroutine.
+    ///
+    /// - Parameter handle: The coroutine handle to destroy
+    public func destroy(_ handle: CoroutineHandle) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let L = L, let ref = coroutines[handle.id] else {
+            return
+        }
+
+        // Remove from registry (allows garbage collection)
+        luaL_unref(L, LUA_REGISTRYINDEX, ref)
+        coroutines.removeValue(forKey: handle.id)
+    }
+
+    // MARK: - Private Coroutine Helpers
+
+    private func pushValueOnThread(_ thread: OpaquePointer, _ value: LuaValue) {
+        switch value {
+        case .string(let str):
+            lua_pushstring(thread, str)
+        case .number(let num):
+            lua_pushnumber(thread, num)
+        case .bool(let b):
+            lua_pushboolean(thread, b ? 1 : 0)
+        case .nil:
+            lua_pushnil(thread)
+        case .table(let dict):
+            lua_newtable(thread)
+            for (k, v) in dict {
+                lua_pushstring(thread, k)
+                pushValueOnThread(thread, v)
+                lua_settable(thread, -3)
+            }
+        case .array(let arr):
+            lua_newtable(thread)
+            for (i, v) in arr.enumerated() {
+                pushValueOnThread(thread, v)
+                lua_rawseti(thread, -2, lua_Integer(i + 1))
+            }
+        }
+    }
+
+    private func valueFromThread(_ thread: OpaquePointer, at index: Int32) -> LuaValue {
+        let type = lua_type(thread, index)
+
+        switch type {
+        case LUA_TNIL:
+            return .nil
+
+        case LUA_TBOOLEAN:
+            return .bool(lua_toboolean(thread, index) != 0)
+
+        case LUA_TNUMBER:
+            return .number(lua_tonumber(thread, index))
+
+        case LUA_TSTRING:
+            guard let cstr = lua_tostring(thread, index) else { return .nil }
+            return .string(String(cString: cstr))
+
+        case LUA_TTABLE:
+            return tableFromThread(thread, at: index)
+
+        default:
+            return .nil
+        }
+    }
+
+    private func tableFromThread(_ thread: OpaquePointer, at index: Int32) -> LuaValue {
+        var isArray = true
+        var arrayIndex = 1
+        var dict: [String: LuaValue] = [:]
+        var arr: [LuaValue] = []
+
+        // Normalize index to absolute
+        let absIndex = index < 0 ? lua_gettop(thread) + index + 1 : index
+
+        lua_pushnil(thread)
+        while lua_next(thread, absIndex) != 0 {
+            let keyType = lua_type(thread, -2)
+            let value = valueFromThread(thread, at: -1)
+
+            if keyType == LUA_TNUMBER {
+                let keyNum = Int(lua_tonumber(thread, -2))
+                if keyNum == arrayIndex {
+                    arr.append(value)
+                    arrayIndex += 1
+                } else {
+                    isArray = false
+                    dict[String(keyNum)] = value
+                }
+            } else if keyType == LUA_TSTRING {
+                isArray = false
+                if let keyStr = lua_tostring(thread, -2) {
+                    let key = String(cString: keyStr)
+                    dict[key] = value
+                }
+            }
+
+            lua_pop(thread, 1)
+        }
+
+        if isArray && !arr.isEmpty {
+            return .array(arr)
+        } else if !dict.isEmpty {
+            for (i, val) in arr.enumerated() {
+                dict[String(i + 1)] = val
+            }
+            return .table(dict)
+        } else if !arr.isEmpty {
+            return .array(arr)
+        }
+
+        return .table([:])
     }
 
     // MARK: - Private Methods

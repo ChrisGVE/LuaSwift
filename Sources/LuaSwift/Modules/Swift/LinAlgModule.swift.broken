@@ -1,0 +1,837 @@
+//
+//  LinAlgModule.swift
+//  LuaSwift
+//
+//  Created by Christian C. Berclaz on 2025-12-31.
+//  Copyright © 2025 Christian C. Berclaz. All rights reserved.
+//
+//  Licensed under the MIT License.
+//
+
+import Foundation
+import Accelerate
+
+/// Swift-backed linear algebra module for LuaSwift.
+///
+/// Provides vector and matrix operations using the Accelerate framework for performance.
+///
+/// ## Lua API
+///
+/// ```lua
+/// local linalg = require("luaswift.linalg")
+///
+/// -- Vector creation
+/// local v = linalg.vector({1, 2, 3, 4})
+/// local v = linalg.zeros(4)
+/// local v = linalg.ones(4)
+/// local v = linalg.linspace(0, 10, 5)
+///
+/// -- Matrix creation
+/// local m = linalg.matrix({{1,2},{3,4}})
+/// local m = linalg.zeros(3, 3)
+/// local m = linalg.ones(2, 4)
+/// local m = linalg.eye(3)
+/// local m = linalg.diag({1,2,3})
+///
+/// -- Matrix operations
+/// local rows, cols = m:rows(), m:cols()
+/// local shape = m:shape()  -- {rows, cols}
+/// local val = m:get(1, 2)
+/// m:set(1, 2, 5.0)
+/// local mt = m:transpose()  -- or m:T()
+///
+/// -- Arithmetic
+/// local sum = m1 + m2
+/// local diff = m1 - m2
+/// local scaled = m * 2.5
+/// local divided = m / 2.0
+/// local product = m1:dot(m2)
+/// local hadamard = m1:hadamard(m2)
+///
+/// -- Linear algebra
+/// local d = m:det()
+/// local inv = m:inv()
+/// local tr = m:trace()
+/// local n = m:norm(2)
+///
+/// -- Solving
+/// local x = linalg.solve(A, b)
+/// ```
+public struct LinAlgModule {
+    /// Register the linear algebra module with a LuaEngine.
+    ///
+    /// This creates a global table `luaswift` with a nested `linalg` table containing
+    /// vector and matrix creation functions, along with operations.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        // Register vector creation functions
+        engine.registerFunction(name: "_luaswift_linalg_vector", callback: vectorCallback)
+        engine.registerFunction(name: "_luaswift_linalg_zeros", callback: zerosCallback)
+        engine.registerFunction(name: "_luaswift_linalg_ones", callback: onesCallback)
+        engine.registerFunction(name: "_luaswift_linalg_linspace", callback: linspaceCallback)
+        engine.registerFunction(name: "_luaswift_linalg_range", callback: rangeCallback)
+
+        // Register matrix creation functions
+        engine.registerFunction(name: "_luaswift_linalg_matrix", callback: matrixCallback)
+        engine.registerFunction(name: "_luaswift_linalg_eye", callback: eyeCallback)
+        engine.registerFunction(name: "_luaswift_linalg_diag", callback: diagCallback)
+
+        // Register matrix operation functions
+        engine.registerFunction(name: "_luaswift_linalg_get", callback: getCallback)
+        engine.registerFunction(name: "_luaswift_linalg_set", callback: setCallback)
+        engine.registerFunction(name: "_luaswift_linalg_rows", callback: rowsCallback)
+        engine.registerFunction(name: "_luaswift_linalg_cols", callback: colsCallback)
+        engine.registerFunction(name: "_luaswift_linalg_shape", callback: shapeCallback)
+        engine.registerFunction(name: "_luaswift_linalg_transpose", callback: transposeCallback)
+
+        // Register arithmetic operations
+        engine.registerFunction(name: "_luaswift_linalg_add", callback: addCallback)
+        engine.registerFunction(name: "_luaswift_linalg_sub", callback: subCallback)
+        engine.registerFunction(name: "_luaswift_linalg_mul_scalar", callback: mulScalarCallback)
+        engine.registerFunction(name: "_luaswift_linalg_div_scalar", callback: divScalarCallback)
+        engine.registerFunction(name: "_luaswift_linalg_dot", callback: dotCallback)
+        engine.registerFunction(name: "_luaswift_linalg_hadamard", callback: hadamardCallback)
+
+        // Register linear algebra operations
+        engine.registerFunction(name: "_luaswift_linalg_det", callback: detCallback)
+        engine.registerFunction(name: "_luaswift_linalg_inv", callback: invCallback)
+        engine.registerFunction(name: "_luaswift_linalg_trace", callback: traceCallback)
+        engine.registerFunction(name: "_luaswift_linalg_norm", callback: normCallback)
+
+        // Register solving
+        engine.registerFunction(name: "_luaswift_linalg_solve", callback: solveCallback)
+
+        // Set up the luaswift.linalg namespace
+        do {
+            try engine.run("""
+                if not luaswift then luaswift = {} end
+
+                -- Matrix metatable
+                local matrix_mt = {
+                    __add = function(a, b) return _luaswift_linalg_add(a, b) end,
+                    __sub = function(a, b) return _luaswift_linalg_sub(a, b) end,
+                    __mul = function(a, b)
+                        if type(a) == "number" then
+                            return _luaswift_linalg_mul_scalar(b, a)
+                        elseif type(b) == "number" then
+                            return _luaswift_linalg_mul_scalar(a, b)
+                        else
+                            error("Use :dot() for matrix multiplication")
+                        end
+                    end,
+                    __div = function(a, b)
+                        if type(b) == "number" then
+                            return _luaswift_linalg_div_scalar(a, b)
+                        else
+                            error("Can only divide matrix by scalar")
+                        end
+                    end,
+                    __index = {
+                        get = function(self, i, j) return _luaswift_linalg_get(self, i, j) end,
+                        set = function(self, i, j, val) return _luaswift_linalg_set(self, i, j, val) end,
+                        rows = function(self) return _luaswift_linalg_rows(self) end,
+                        cols = function(self) return _luaswift_linalg_cols(self) end,
+                        shape = function(self) return _luaswift_linalg_shape(self) end,
+                        transpose = function(self) return _luaswift_linalg_transpose(self) end,
+                        T = function(self) return _luaswift_linalg_transpose(self) end,
+                        dot = function(self, other) return _luaswift_linalg_dot(self, other) end,
+                        hadamard = function(self, other) return _luaswift_linalg_hadamard(self, other) end,
+                        det = function(self) return _luaswift_linalg_det(self) end,
+                        inv = function(self) return _luaswift_linalg_inv(self) end,
+                        trace = function(self) return _luaswift_linalg_trace(self) end,
+                        norm = function(self, p) return _luaswift_linalg_norm(self, p) end,
+                    },
+                    __tostring = function(self)
+                        local r, c = self:rows(), self:cols()
+                        return string.format("Matrix(%dx%d)", r, c)
+                    end
+                }
+
+                luaswift.linalg = {
+                    -- Vector creation
+                    vector = function(data) return _luaswift_linalg_vector(data) end,
+                    zeros = function(rows, cols) return _luaswift_linalg_zeros(rows, cols) end,
+                    ones = function(rows, cols) return _luaswift_linalg_ones(rows, cols) end,
+                    linspace = function(start, stop, n) return _luaswift_linalg_linspace(start, stop, n) end,
+                    range = function(start, stop, step) return _luaswift_linalg_range(start, stop, step) end,
+
+                    -- Matrix creation
+                    matrix = function(data) return _luaswift_linalg_matrix(data) end,
+                    eye = function(n) return _luaswift_linalg_eye(n) end,
+                    diag = function(data) return _luaswift_linalg_diag(data) end,
+
+                    -- Solving
+                    solve = function(A, b) return _luaswift_linalg_solve(A, b) end,
+
+                    -- Matrix metatable (exported for advanced use)
+                    _matrix_mt = matrix_mt
+                }
+
+                -- Clean up global namespace
+                _luaswift_linalg_vector = nil
+                _luaswift_linalg_zeros = nil
+                _luaswift_linalg_ones = nil
+                _luaswift_linalg_linspace = nil
+                _luaswift_linalg_range = nil
+                _luaswift_linalg_matrix = nil
+                _luaswift_linalg_eye = nil
+                _luaswift_linalg_diag = nil
+                _luaswift_linalg_get = nil
+                _luaswift_linalg_set = nil
+                _luaswift_linalg_rows = nil
+                _luaswift_linalg_cols = nil
+                _luaswift_linalg_shape = nil
+                _luaswift_linalg_transpose = nil
+                _luaswift_linalg_add = nil
+                _luaswift_linalg_sub = nil
+                _luaswift_linalg_mul_scalar = nil
+                _luaswift_linalg_div_scalar = nil
+                _luaswift_linalg_dot = nil
+                _luaswift_linalg_hadamard = nil
+                _luaswift_linalg_det = nil
+                _luaswift_linalg_inv = nil
+                _luaswift_linalg_trace = nil
+                _luaswift_linalg_norm = nil
+                _luaswift_linalg_solve = nil
+                """)
+        } catch {
+            // Silently fail if setup fails - callbacks are still registered
+        }
+    }
+
+    // MARK: - Vector Creation Callbacks
+
+    /// Create a vector from a Lua array
+    private static func vectorCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let data = args.first?.arrayValue else {
+            throw LinAlgError.invalidArgument("vector() requires an array argument")
+        }
+
+        let values = try data.map { value -> Double in
+            guard let num = value.numberValue else {
+                throw LinAlgError.invalidArgument("vector() requires numeric values")
+            }
+            return num
+        }
+
+        return createMatrixValue(rows: values.count, cols: 1, data: values)
+    }
+
+    /// Create a zero vector or matrix
+    private static func zerosCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let rows = args.first?.intValue else {
+            throw LinAlgError.invalidArgument("zeros() requires at least one dimension")
+        }
+
+        let cols = args.count > 1 ? (args[1].intValue ?? 1) : 1
+
+        guard rows > 0 && cols > 0 else {
+            throw LinAlgError.invalidArgument("Dimensions must be positive")
+        }
+
+        let data = [Double](repeating: 0.0, count: rows * cols)
+        return createMatrixValue(rows: rows, cols: cols, data: data)
+    }
+
+    /// Create a ones vector or matrix
+    private static func onesCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let rows = args.first?.intValue else {
+            throw LinAlgError.invalidArgument("ones() requires at least one dimension")
+        }
+
+        let cols = args.count > 1 ? (args[1].intValue ?? 1) : 1
+
+        guard rows > 0 && cols > 0 else {
+            throw LinAlgError.invalidArgument("Dimensions must be positive")
+        }
+
+        let data = [Double](repeating: 1.0, count: rows * cols)
+        return createMatrixValue(rows: rows, cols: cols, data: data)
+    }
+
+    /// Create evenly spaced values
+    private static func linspaceCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 3,
+              let start = args[0].numberValue,
+              let stop = args[1].numberValue,
+              let n = args[2].intValue,
+              n > 0 else {
+            throw LinAlgError.invalidArgument("linspace() requires (start, stop, n) with n > 0")
+        }
+
+        guard n > 1 else {
+            return createMatrixValue(rows: 1, cols: 1, data: [start])
+        }
+
+        let step = (stop - start) / Double(n - 1)
+        let data = (0..<n).map { i in start + Double(i) * step }
+
+        return createMatrixValue(rows: n, cols: 1, data: data)
+    }
+
+    /// Create range of values
+    private static func rangeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let start = args[0].numberValue,
+              let stop = args[1].numberValue else {
+            throw LinAlgError.invalidArgument("range() requires at least (start, stop)")
+        }
+
+        let step = args.count > 2 ? (args[2].numberValue ?? 1.0) : 1.0
+
+        guard step != 0 else {
+            throw LinAlgError.invalidArgument("range() step cannot be zero")
+        }
+
+        var data: [Double] = []
+        var current = start
+
+        if step > 0 {
+            while current < stop {
+                data.append(current)
+                current += step
+            }
+        } else {
+            while current > stop {
+                data.append(current)
+                current += step
+            }
+        }
+
+        return createMatrixValue(rows: data.count, cols: 1, data: data)
+    }
+
+    // MARK: - Matrix Creation Callbacks
+
+    /// Create a matrix from a 2D Lua array
+    private static func matrixCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let rows = args.first?.arrayValue else {
+            throw LinAlgError.invalidArgument("matrix() requires a 2D array argument")
+        }
+
+        guard !rows.isEmpty else {
+            throw LinAlgError.invalidArgument("matrix() requires non-empty array")
+        }
+
+        let numRows = rows.count
+        var numCols = 0
+        var data: [Double] = []
+
+        for (i, row) in rows.enumerated() {
+            guard let rowArray = row.arrayValue else {
+                throw LinAlgError.invalidArgument("matrix() requires 2D array (row \(i+1) is not an array)")
+            }
+
+            if i == 0 {
+                numCols = rowArray.count
+                guard numCols > 0 else {
+                    throw LinAlgError.invalidArgument("matrix() requires non-empty rows")
+                }
+            } else if rowArray.count != numCols {
+                throw LinAlgError.invalidArgument("matrix() requires all rows to have same length")
+            }
+
+            for (j, value) in rowArray.enumerated() {
+                guard let num = value.numberValue else {
+                    throw LinAlgError.invalidArgument("matrix() requires numeric values at [\(i+1)][\(j+1)]")
+                }
+                data.append(num)
+            }
+        }
+
+        return createMatrixValue(rows: numRows, cols: numCols, data: data)
+    }
+
+    /// Create an identity matrix
+    private static func eyeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let n = args.first?.intValue, n > 0 else {
+            throw LinAlgError.invalidArgument("eye() requires a positive integer")
+        }
+
+        var data = [Double](repeating: 0.0, count: n * n)
+        for i in 0..<n {
+            data[i * n + i] = 1.0
+        }
+
+        return createMatrixValue(rows: n, cols: n, data: data)
+    }
+
+    /// Create a diagonal matrix from a vector
+    private static func diagCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let diagonal = args.first?.arrayValue else {
+            throw LinAlgError.invalidArgument("diag() requires an array argument")
+        }
+
+        let values = try diagonal.map { value -> Double in
+            guard let num = value.numberValue else {
+                throw LinAlgError.invalidArgument("diag() requires numeric values")
+            }
+            return num
+        }
+
+        let n = values.count
+        var data = [Double](repeating: 0.0, count: n * n)
+        for (i, val) in values.enumerated() {
+            data[i * n + i] = val
+        }
+
+        return createMatrixValue(rows: n, cols: n, data: data)
+    }
+
+    // MARK: - Matrix Property Callbacks
+
+    /// Get matrix element
+    private static func getCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let (matrix, i, j) = try extractMatrixAndIndices(args)
+
+        guard i >= 0 && i < matrix.rows && j >= 0 && j < matrix.cols else {
+            throw LinAlgError.indexOutOfBounds("Index [\(i+1)][\(j+1)] out of bounds for \(matrix.rows)x\(matrix.cols) matrix")
+        }
+
+        let value = matrix.data[i * matrix.cols + j]
+        return .number(value)
+    }
+
+    /// Set matrix element
+    private static func setCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 4 else {
+            throw LinAlgError.invalidArgument("set() requires (matrix, i, j, value)")
+        }
+
+        var (matrix, i, j) = try extractMatrixAndIndices(Array(args.prefix(3)))
+
+        guard let value = args[3].numberValue else {
+            throw LinAlgError.invalidArgument("set() requires numeric value")
+        }
+
+        guard i >= 0 && i < matrix.rows && j >= 0 && j < matrix.cols else {
+            throw LinAlgError.indexOutOfBounds("Index [\(i+1)][\(j+1)] out of bounds for \(matrix.rows)x\(matrix.cols) matrix")
+        }
+
+        matrix.data[i * matrix.cols + j] = value
+        return createMatrixValue(rows: matrix.rows, cols: matrix.cols, data: matrix.data)
+    }
+
+    /// Get number of rows
+    private static func rowsCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix(args)
+        return .number(Double(matrix.rows))
+    }
+
+    /// Get number of columns
+    private static func colsCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix(args)
+        return .number(Double(matrix.cols))
+    }
+
+    /// Get shape as array {rows, cols}
+    private static func shapeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix(args)
+        return .array([.number(Double(matrix.rows)), .number(Double(matrix.cols))])
+    }
+
+    /// Transpose matrix
+    private static func transposeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix(args)
+
+        var result = [Double](repeating: 0.0, count: matrix.rows * matrix.cols)
+
+        // Use vDSP for efficient transpose
+        vDSP_mtransD(
+            matrix.data, 1,
+            &result, 1,
+            vDSP_Length(matrix.cols),
+            vDSP_Length(matrix.rows)
+        )
+
+        return createMatrixValue(rows: matrix.cols, cols: matrix.rows, data: result)
+    }
+
+    // MARK: - Arithmetic Callbacks
+
+    /// Add two matrices
+    private static func addCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let (a, b) = try extractTwoMatrices(args)
+
+        guard a.rows == b.rows && a.cols == b.cols else {
+            throw LinAlgError.dimensionMismatch("Cannot add matrices of different dimensions")
+        }
+
+        var result = [Double](repeating: 0.0, count: a.data.count)
+
+        vDSP_vaddD(a.data, 1, b.data, 1, &result, 1, vDSP_Length(a.data.count))
+
+        return createMatrixValue(rows: a.rows, cols: a.cols, data: result)
+    }
+
+    /// Subtract two matrices
+    private static func subCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let (a, b) = try extractTwoMatrices(args)
+
+        guard a.rows == b.rows && a.cols == b.cols else {
+            throw LinAlgError.dimensionMismatch("Cannot subtract matrices of different dimensions")
+        }
+
+        var result = [Double](repeating: 0.0, count: a.data.count)
+
+        vDSP_vsubD(b.data, 1, a.data, 1, &result, 1, vDSP_Length(a.data.count))
+
+        return createMatrixValue(rows: a.rows, cols: a.cols, data: result)
+    }
+
+    /// Multiply matrix by scalar
+    private static func mulScalarCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LinAlgError.invalidArgument("Scalar multiplication requires (matrix, scalar)")
+        }
+
+        let matrix = try extractMatrix([args[0]])
+        guard let scalar = args[1].numberValue else {
+            throw LinAlgError.invalidArgument("Scalar must be a number")
+        }
+
+        var result = [Double](repeating: 0.0, count: matrix.data.count)
+        var scalarValue = scalar
+
+        vDSP_vsmulD(matrix.data, 1, &scalarValue, &result, 1, vDSP_Length(matrix.data.count))
+
+        return createMatrixValue(rows: matrix.rows, cols: matrix.cols, data: result)
+    }
+
+    /// Divide matrix by scalar
+    private static func divScalarCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LinAlgError.invalidArgument("Scalar division requires (matrix, scalar)")
+        }
+
+        let matrix = try extractMatrix([args[0]])
+        guard let scalar = args[1].numberValue else {
+            throw LinAlgError.invalidArgument("Scalar must be a number")
+        }
+
+        guard scalar != 0 else {
+            throw LinAlgError.invalidArgument("Division by zero")
+        }
+
+        var result = [Double](repeating: 0.0, count: matrix.data.count)
+        var scalarValue = scalar
+
+        vDSP_vsdivD(matrix.data, 1, &scalarValue, &result, 1, vDSP_Length(matrix.data.count))
+
+        return createMatrixValue(rows: matrix.rows, cols: matrix.cols, data: result)
+    }
+
+    /// Matrix multiplication (dot product)
+    private static func dotCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let (a, b) = try extractTwoMatrices(args)
+
+        guard a.cols == b.rows else {
+            throw LinAlgError.dimensionMismatch("Cannot multiply \(a.rows)x\(a.cols) by \(b.rows)x\(b.cols) matrix")
+        }
+
+        var result = [Double](repeating: 0.0, count: a.rows * b.cols)
+
+        // Use BLAS for matrix multiplication: C = A * B
+        cblas_dgemm(
+            CblasRowMajor,
+            CblasNoTrans, CblasNoTrans,
+            Int32(a.rows), Int32(b.cols), Int32(a.cols),
+            1.0,
+            a.data, Int32(a.cols),
+            b.data, Int32(b.cols),
+            0.0,
+            &result, Int32(b.cols)
+        )
+
+        return createMatrixValue(rows: a.rows, cols: b.cols, data: result)
+    }
+
+    /// Element-wise multiplication (Hadamard product)
+    private static func hadamardCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let (a, b) = try extractTwoMatrices(args)
+
+        guard a.rows == b.rows && a.cols == b.cols else {
+            throw LinAlgError.dimensionMismatch("Hadamard product requires same dimensions")
+        }
+
+        var result = [Double](repeating: 0.0, count: a.data.count)
+
+        vDSP_vmulD(a.data, 1, b.data, 1, &result, 1, vDSP_Length(a.data.count))
+
+        return createMatrixValue(rows: a.rows, cols: a.cols, data: result)
+    }
+
+    // MARK: - Linear Algebra Callbacks
+
+    /// Calculate determinant
+    private static func detCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix(args)
+
+        guard matrix.rows == matrix.cols else {
+            throw LinAlgError.dimensionMismatch("Determinant requires square matrix")
+        }
+
+        let n = matrix.rows
+
+        // Special cases
+        if n == 1 {
+            return .number(matrix.data[0])
+        }
+
+        if n == 2 {
+            let det = matrix.data[0] * matrix.data[3] - matrix.data[1] * matrix.data[2]
+            return .number(det)
+        }
+
+        // Use LU decomposition for larger matrices
+        var a = matrix.data
+        var ipiv = [__CLPK_integer](repeating: 0, count: n)
+        var info: __CLPK_integer = 0
+        var n32 = __CLPK_integer(n)
+
+        // Perform LU decomposition
+        dgetrf_(&n32, &n32, &a, &n32, &ipiv, &info)
+
+        guard info == 0 else {
+            throw LinAlgError.computationFailed("LU decomposition failed")
+        }
+
+        // Calculate determinant from diagonal of U
+        var det = 1.0
+        for i in 0..<n {
+            det *= a[i * n + i]
+            // Account for row swaps
+            if ipiv[i] != i + 1 {
+                det = -det
+            }
+        }
+
+        return .number(det)
+    }
+
+    /// Calculate matrix inverse
+    private static func invCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix(args)
+
+        guard matrix.rows == matrix.cols else {
+            throw LinAlgError.dimensionMismatch("Inverse requires square matrix")
+        }
+
+        let n = matrix.rows
+        var a = matrix.data
+        var ipiv = [__CLPK_integer](repeating: 0, count: n)
+        var info: __CLPK_integer = 0
+        var n32 = __CLPK_integer(n)
+
+        // Perform LU decomposition
+        dgetrf_(&n32, &n32, &a, &n32, &ipiv, &info)
+
+        guard info == 0 else {
+            throw LinAlgError.computationFailed("Matrix is singular")
+        }
+
+        // Calculate optimal workspace size
+        var lwork: __CLPK_integer = -1
+        var workSize: Double = 0
+        dgetri_(&n32, &a, &n32, &ipiv, &workSize, &lwork, &info)
+
+        lwork = __CLPK_integer(workSize)
+        var work = [Double](repeating: 0.0, count: Int(lwork))
+
+        // Compute inverse
+        dgetri_(&n32, &a, &n32, &ipiv, &work, &lwork, &info)
+
+        guard info == 0 else {
+            throw LinAlgError.computationFailed("Matrix inversion failed")
+        }
+
+        return createMatrixValue(rows: n, cols: n, data: a)
+    }
+
+    /// Calculate matrix trace
+    private static func traceCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix(args)
+
+        guard matrix.rows == matrix.cols else {
+            throw LinAlgError.dimensionMismatch("Trace requires square matrix")
+        }
+
+        var trace = 0.0
+        for i in 0..<matrix.rows {
+            trace += matrix.data[i * matrix.cols + i]
+        }
+
+        return .number(trace)
+    }
+
+    /// Calculate matrix norm
+    private static func normCallback(_ args: [LuaValue]) throws -> LuaValue {
+        let matrix = try extractMatrix([args[0]])
+
+        let p = args.count > 1 ? (args[1].numberValue ?? 2.0) : 2.0
+
+        if p == 2.0 {
+            // Frobenius norm (L2)
+            var result = 0.0
+            vDSP_svesqD(matrix.data, 1, &result, vDSP_Length(matrix.data.count))
+            return .number(sqrt(result))
+        } else if p == 1.0 {
+            // L1 norm (sum of absolute values)
+            var result = 0.0
+            for value in matrix.data {
+                result += abs(value)
+            }
+            return .number(result)
+        } else if p == .infinity {
+            // Infinity norm (max absolute value)
+            var result = 0.0
+            vDSP_maxmgvD(matrix.data, 1, &result, vDSP_Length(matrix.data.count))
+            return .number(result)
+        } else {
+            throw LinAlgError.invalidArgument("Unsupported norm type (supported: 1, 2, inf)")
+        }
+    }
+
+    /// Solve linear system Ax = b
+    private static func solveCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LinAlgError.invalidArgument("solve() requires (A, b)")
+        }
+
+        let A = try extractMatrix([args[0]])
+        let b = try extractMatrix([args[1]])
+
+        guard A.rows == A.cols else {
+            throw LinAlgError.dimensionMismatch("A must be square matrix")
+        }
+
+        guard b.cols == 1 else {
+            throw LinAlgError.dimensionMismatch("b must be a column vector")
+        }
+
+        guard A.rows == b.rows else {
+            throw LinAlgError.dimensionMismatch("A and b must have same number of rows")
+        }
+
+        let n = A.rows
+        var a = A.data
+        var x = b.data
+        var ipiv = [__CLPK_integer](repeating: 0, count: n)
+        var info: __CLPK_integer = 0
+        var n32 = __CLPK_integer(n)
+        var nrhs: __CLPK_integer = 1
+
+        // Solve using LAPACK's dgesv (LU decomposition)
+        dgesv_(&n32, &nrhs, &a, &n32, &ipiv, &x, &n32, &info)
+
+        guard info == 0 else {
+            if info < 0 {
+                throw LinAlgError.computationFailed("Invalid argument at position \(-info)")
+            } else {
+                throw LinAlgError.computationFailed("Matrix is singular")
+            }
+        }
+
+        return createMatrixValue(rows: n, cols: 1, data: x)
+    }
+
+    // MARK: - Helper Functions
+
+    /// Matrix structure
+    private struct Matrix {
+        let rows: Int
+        let cols: Int
+        var data: [Double]
+    }
+
+    /// Create a LuaValue representing a matrix
+    private static func createMatrixValue(rows: Int, cols: Int, data: [Double]) -> LuaValue {
+        var dict: [String: LuaValue] = [:]
+        dict["_rows"] = .number(Double(rows))
+        dict["_cols"] = .number(Double(cols))
+        dict["_data"] = .array(data.map { .number($0) })
+        dict["_type"] = .string("matrix")
+        return .table(dict)
+    }
+
+    /// Extract matrix from LuaValue
+    private static func extractMatrix(_ args: [LuaValue]) throws -> Matrix {
+        guard let matrixTable = args.first?.tableValue else {
+            throw LinAlgError.invalidArgument("Expected matrix object")
+        }
+
+        guard matrixTable["_type"]?.stringValue == "matrix" else {
+            throw LinAlgError.invalidArgument("Not a matrix object")
+        }
+
+        guard let rows = matrixTable["_rows"]?.intValue,
+              let cols = matrixTable["_cols"]?.intValue,
+              let dataArray = matrixTable["_data"]?.arrayValue else {
+            throw LinAlgError.invalidArgument("Invalid matrix structure")
+        }
+
+        let data = try dataArray.map { value -> Double in
+            guard let num = value.numberValue else {
+                throw LinAlgError.invalidArgument("Matrix data must be numeric")
+            }
+            return num
+        }
+
+        guard data.count == rows * cols else {
+            throw LinAlgError.invalidArgument("Matrix data size mismatch")
+        }
+
+        return Matrix(rows: rows, cols: cols, data: data)
+    }
+
+    /// Extract matrix and indices from arguments
+    private static func extractMatrixAndIndices(_ args: [LuaValue]) throws -> (Matrix, Int, Int) {
+        guard args.count >= 3 else {
+            throw LinAlgError.invalidArgument("Expected (matrix, i, j)")
+        }
+
+        let matrix = try extractMatrix([args[0]])
+
+        guard let i = args[1].intValue, let j = args[2].intValue else {
+            throw LinAlgError.invalidArgument("Indices must be integers")
+        }
+
+        // Convert from 1-based (Lua) to 0-based (Swift)
+        return (matrix, i - 1, j - 1)
+    }
+
+    /// Extract two matrices from arguments
+    private static func extractTwoMatrices(_ args: [LuaValue]) throws -> (Matrix, Matrix) {
+        guard args.count >= 2 else {
+            throw LinAlgError.invalidArgument("Expected two matrix arguments")
+        }
+
+        let a = try extractMatrix([args[0]])
+        let b = try extractMatrix([args[1]])
+
+        return (a, b)
+    }
+}
+
+// MARK: - Errors
+
+private enum LinAlgError: Error, LocalizedError {
+    case invalidArgument(String)
+    case dimensionMismatch(String)
+    case indexOutOfBounds(String)
+    case computationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidArgument(let message):
+            return "Invalid argument: \(message)"
+        case .dimensionMismatch(let message):
+            return "Dimension mismatch: \(message)"
+        case .indexOutOfBounds(let message):
+            return "Index out of bounds: \(message)"
+        case .computationFailed(let message):
+            return "Computation failed: \(message)"
+        }
+    }
+}

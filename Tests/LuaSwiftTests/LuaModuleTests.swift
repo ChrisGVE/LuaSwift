@@ -1626,4 +1626,448 @@ final class LuaModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Complex Number Module Tests
+
+    func testComplexCreate() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(3, 4)
+            return {re = z.re, im = z.im}
+        """)
+
+        XCTAssertEqual(result.tableValue?["re"]?.numberValue, 3)
+        XCTAssertEqual(result.tableValue?["im"]?.numberValue, 4)
+    }
+
+    func testComplexPolar() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex.polar(5, math.pi/4)
+            local re = z.re
+            local im = z.im
+            -- Should be approximately (3.535, 3.535)
+            return math.abs(re - im) < 0.001
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testComplexParse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex.parse("3+4i")
+            local z2 = complex.parse("3-4i")
+            local z3 = complex.parse("5")
+            local z4 = complex.parse("2i")
+            return {
+                z1_re = z1.re, z1_im = z1.im,
+                z2_re = z2.re, z2_im = z2.im,
+                z3_re = z3.re, z3_im = z3.im,
+                z4_re = z4.re, z4_im = z4.im
+            }
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["z1_re"]?.numberValue, 3)
+        XCTAssertEqual(table["z1_im"]?.numberValue, 4)
+        XCTAssertEqual(table["z2_re"]?.numberValue, 3)
+        XCTAssertEqual(table["z2_im"]?.numberValue, -4)
+        XCTAssertEqual(table["z3_re"]?.numberValue, 5)
+        XCTAssertEqual(table["z3_im"]?.numberValue, 0)
+        XCTAssertEqual(table["z4_re"]?.numberValue, 0)
+        XCTAssertEqual(table["z4_im"]?.numberValue, 2)
+    }
+
+    func testComplexAbsArg() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(3, 4)
+            return {abs = z:abs(), arg = z:arg()}
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["abs"]?.numberValue, 5)
+        XCTAssertEqual(table["arg"]?.numberValue!, atan2(4, 3), accuracy: 0.0001)
+    }
+
+    func testComplexConjugate() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(3, 4)
+            local conj = z:conj()
+            return {re = conj.re, im = conj.im}
+        """)
+
+        XCTAssertEqual(result.tableValue?["re"]?.numberValue, 3)
+        XCTAssertEqual(result.tableValue?["im"]?.numberValue, -4)
+    }
+
+    func testComplexAddition() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex(1, 2)
+            local z2 = complex(3, 4)
+            local sum = z1 + z2
+            return {re = sum.re, im = sum.im}
+        """)
+
+        XCTAssertEqual(result.tableValue?["re"]?.numberValue, 4)
+        XCTAssertEqual(result.tableValue?["im"]?.numberValue, 6)
+    }
+
+    func testComplexSubtraction() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex(5, 7)
+            local z2 = complex(2, 3)
+            local diff = z1 - z2
+            return {re = diff.re, im = diff.im}
+        """)
+
+        XCTAssertEqual(result.tableValue?["re"]?.numberValue, 3)
+        XCTAssertEqual(result.tableValue?["im"]?.numberValue, 4)
+    }
+
+    func testComplexMultiplication() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex(1, 2)
+            local z2 = complex(3, 4)
+            -- (1+2i)(3+4i) = 3+4i+6i+8i^2 = 3+10i-8 = -5+10i
+            local prod = z1 * z2
+            return {re = prod.re, im = prod.im}
+        """)
+
+        XCTAssertEqual(result.tableValue?["re"]?.numberValue, -5)
+        XCTAssertEqual(result.tableValue?["im"]?.numberValue, 10)
+    }
+
+    func testComplexDivision() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex(1, 2)
+            local z2 = complex(3, 4)
+            local quot = z1 / z2
+            -- (1+2i)/(3+4i) = (1+2i)(3-4i)/25 = (3-4i+6i-8i^2)/25 = (11+2i)/25
+            return {re = quot.re, im = quot.im}
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]?.numberValue!, 11.0/25.0, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]?.numberValue!, 2.0/25.0, accuracy: 0.0001)
+    }
+
+    func testComplexNegation() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(3, 4)
+            local neg = -z
+            return {re = neg.re, im = neg.im}
+        """)
+
+        XCTAssertEqual(result.tableValue?["re"]?.numberValue, -3)
+        XCTAssertEqual(result.tableValue?["im"]?.numberValue, -4)
+    }
+
+    func testComplexPower() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(0, 1)  -- i
+            local z2 = z ^ 2  -- i^2 = -1
+            local z4 = z ^ 4  -- i^4 = 1
+            return {
+                z2_re = z2.re, z2_im = z2.im,
+                z4_re = z4.re, z4_im = z4.im
+            }
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["z2_re"]?.numberValue!, -1, accuracy: 0.0001)
+        XCTAssertEqual(table["z2_im"]?.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["z4_re"]?.numberValue!, 1, accuracy: 0.0001)
+        XCTAssertEqual(table["z4_im"]?.numberValue!, 0, accuracy: 0.0001)
+    }
+
+    func testComplexSqrt() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(-1, 0)  -- -1
+            local sqrt_z = complex.sqrt(z)  -- sqrt(-1) = i
+            return {re = sqrt_z.re, im = sqrt_z.im}
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]?.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]?.numberValue!, 1, accuracy: 0.0001)
+    }
+
+    func testComplexExp() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            -- e^(i*pi) = -1 (Euler's identity)
+            local z = complex(0, math.pi)
+            local exp_z = complex.exp(z)
+            return {re = exp_z.re, im = exp_z.im}
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]?.numberValue!, -1, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]?.numberValue!, 0, accuracy: 0.0001)
+    }
+
+    func testComplexLog() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local e = math.exp(1)
+            local z = complex(e, 0)
+            local log_z = complex.log(z)
+            return {re = log_z.re, im = log_z.im}
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]?.numberValue!, 1, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]?.numberValue!, 0, accuracy: 0.0001)
+    }
+
+    func testComplexTrigFunctions() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(1, 0)
+            local sin_z = complex.sin(z)
+            local cos_z = complex.cos(z)
+            -- sin^2 + cos^2 = 1
+            local sum = sin_z * sin_z + cos_z * cos_z
+            return {re = sum.re, im = sum.im}
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]?.numberValue!, 1, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]?.numberValue!, 0, accuracy: 0.0001)
+    }
+
+    func testComplexHyperbolicFunctions() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(1, 0)
+            -- sinh(z) = (exp(z) - exp(-z)) / 2
+            local sinh_z = complex.sinh(z)
+            local expected = (math.exp(1) - math.exp(-1)) / 2
+            return math.abs(sinh_z.re - expected) < 0.0001 and math.abs(sinh_z.im) < 0.0001
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testComplexTostring() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex(3, 4)
+            local z2 = complex(3, -4)
+            local z3 = complex(0, 4)
+            local z4 = complex(3, 0)
+            return {
+                s1 = tostring(z1),
+                s2 = tostring(z2),
+                s3 = tostring(z3),
+                s4 = tostring(z4)
+            }
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["s1"]?.stringValue, "3+4i")
+        XCTAssertEqual(table["s2"]?.stringValue, "3-4i")
+        XCTAssertEqual(table["s3"]?.stringValue, "4i")
+        XCTAssertEqual(table["s4"]?.stringValue, "3")
+    }
+
+    func testComplexEquality() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex(3, 4)
+            local z2 = complex(3, 4)
+            local z3 = complex(3, 5)
+            return {eq = z1 == z2, neq = z1 == z3}
+        """)
+
+        XCTAssertEqual(result.tableValue?["eq"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["neq"]?.boolValue, false)
+    }
+
+    func testComplexWithRealNumber() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(3, 4)
+            local sum = z + 5
+            local prod = z * 2
+            return {
+                sum_re = sum.re, sum_im = sum.im,
+                prod_re = prod.re, prod_im = prod.im
+            }
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["sum_re"]?.numberValue, 8)
+        XCTAssertEqual(table["sum_im"]?.numberValue, 4)
+        XCTAssertEqual(table["prod_re"]?.numberValue, 6)
+        XCTAssertEqual(table["prod_im"]?.numberValue, 8)
+    }
+
+    func testComplexInverseTrig() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(0.5, 0)
+            local asin_z = complex.asin(z)
+            local acos_z = complex.acos(z)
+            -- asin(0.5) + acos(0.5) should equal pi/2
+            local sum_re = asin_z.re + acos_z.re
+            return math.abs(sum_re - math.pi/2) < 0.0001
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testComplexDivisionByZero() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        XCTAssertThrowsError(try engine.evaluate("""
+            local complex = require('complex')
+            local z1 = complex(1, 2)
+            local z2 = complex(0, 0)
+            return z1 / z2
+        """)) { error in
+            guard case LuaError.runtimeError = error else {
+                XCTFail("Expected runtime error for division by zero")
+                return
+            }
+        }
+    }
+
+    func testComplexPolarConversion() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(3, 4)
+            local r, theta = z:polar()
+            return {r = r, theta = theta}
+        """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["r"]?.numberValue, 5)
+        XCTAssertEqual(table["theta"]?.numberValue!, atan2(4, 3), accuracy: 0.0001)
+    }
+
+    func testComplexTan() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(1, 0)
+            local tan_z = complex.tan(z)
+            local sin_z = complex.sin(z)
+            local cos_z = complex.cos(z)
+            local expected = sin_z / cos_z
+            -- tan should equal sin/cos
+            return math.abs(tan_z.re - expected.re) < 0.0001 and math.abs(tan_z.im - expected.im) < 0.0001
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testComplexTanh() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(1, 0)
+            local tanh_z = complex.tanh(z)
+            local sinh_z = complex.sinh(z)
+            local cosh_z = complex.cosh(z)
+            local expected = sinh_z / cosh_z
+            -- tanh should equal sinh/cosh
+            return math.abs(tanh_z.re - expected.re) < 0.0001 and math.abs(tanh_z.im - expected.im) < 0.0001
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testComplexAtan() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local complex = require('complex')
+            local z = complex(0.5, 0)
+            local atan_z = complex.atan(z)
+            -- atan of a real number should give a real result close to math.atan
+            return math.abs(atan_z.re - math.atan(0.5)) < 0.0001 and math.abs(atan_z.im) < 0.0001
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

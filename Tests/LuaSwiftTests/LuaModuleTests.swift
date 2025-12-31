@@ -812,4 +812,818 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertEqual(result.tableValue?["depth1"]?.numberValue, 3)  // {1, 2, {3, {4}}}
         XCTAssertEqual(result.tableValue?["depth2"]?.numberValue, 4)  // {1, 2, 3, {4}}
     }
+
+    // MARK: - String Utilities (stringx) Module Tests
+
+    func testStringxTrim() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.trim('  hello world  ')
+        """)
+
+        XCTAssertEqual(result.stringValue, "hello world")
+    }
+
+    func testStringxLtrimRtrim() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            local ltrimmed = stringx.ltrim('  hello  ')
+            local rtrimmed = stringx.rtrim('  hello  ')
+            return {ltrimmed = ltrimmed, rtrimmed = rtrimmed}
+        """)
+
+        XCTAssertEqual(result.tableValue?["ltrimmed"]?.stringValue, "hello  ")
+        XCTAssertEqual(result.tableValue?["rtrimmed"]?.stringValue, "  hello")
+    }
+
+    func testStringxStrip() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.strip('--hello--', '-')
+        """)
+
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testStringxCapitalize() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.capitalize('hELLO WORLD')
+        """)
+
+        XCTAssertEqual(result.stringValue, "Hello world")
+    }
+
+    func testStringxTitle() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.title('hello world')
+        """)
+
+        XCTAssertEqual(result.stringValue, "Hello World")
+    }
+
+    func testStringxSplit() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            local parts = stringx.split('a,b,c', ',')
+            return {first = parts[1], second = parts[2], third = parts[3], count = #parts}
+        """)
+
+        XCTAssertEqual(result.tableValue?["first"]?.stringValue, "a")
+        XCTAssertEqual(result.tableValue?["second"]?.stringValue, "b")
+        XCTAssertEqual(result.tableValue?["third"]?.stringValue, "c")
+        XCTAssertEqual(result.tableValue?["count"]?.numberValue, 3)
+    }
+
+    func testStringxSplitlines() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            local lines = stringx.splitlines('line1\\nline2\\nline3')
+            return {first = lines[1], count = #lines}
+        """)
+
+        XCTAssertEqual(result.tableValue?["first"]?.stringValue, "line1")
+        XCTAssertEqual(result.tableValue?["count"]?.numberValue, 3)
+    }
+
+    func testStringxJoin() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.join({'a', 'b', 'c'}, '-')
+        """)
+
+        XCTAssertEqual(result.stringValue, "a-b-c")
+    }
+
+    func testStringxStartswith() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                yes = stringx.startswith('hello world', 'hello'),
+                no = stringx.startswith('hello world', 'world')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no"]?.boolValue, false)
+    }
+
+    func testStringxEndswith() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                yes = stringx.endswith('hello world', 'world'),
+                no = stringx.endswith('hello world', 'hello')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no"]?.boolValue, false)
+    }
+
+    func testStringxContains() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                yes = stringx.contains('hello world', 'lo wo'),
+                no = stringx.contains('hello world', 'xyz')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no"]?.boolValue, false)
+    }
+
+    func testStringxCount() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.count('hello hello world hello', 'hello')
+        """)
+
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testStringxReplace() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                all = stringx.replace('aaa', 'a', 'b'),
+                limited = stringx.replace('aaa', 'a', 'b', 2)
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["all"]?.stringValue, "bbb")
+        XCTAssertEqual(result.tableValue?["limited"]?.stringValue, "bba")
+    }
+
+    func testStringxPadding() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                left = stringx.lpad('hi', 5, '*'),
+                right = stringx.rpad('hi', 5, '*'),
+                center = stringx.center('hi', 6, '*')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["left"]?.stringValue, "***hi")
+        XCTAssertEqual(result.tableValue?["right"]?.stringValue, "hi***")
+        XCTAssertEqual(result.tableValue?["center"]?.stringValue, "**hi**")
+    }
+
+    func testStringxIsalpha() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                yes = stringx.isalpha('hello'),
+                no = stringx.isalpha('hello123')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no"]?.boolValue, false)
+    }
+
+    func testStringxIsdigit() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                yes = stringx.isdigit('12345'),
+                no = stringx.isdigit('123abc')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no"]?.boolValue, false)
+    }
+
+    func testStringxIsalnum() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                yes = stringx.isalnum('hello123'),
+                no = stringx.isalnum('hello world')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no"]?.boolValue, false)
+    }
+
+    func testStringxIsspace() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                yes = stringx.isspace('   \\t\\n'),
+                no = stringx.isspace('  x  ')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no"]?.boolValue, false)
+    }
+
+    func testStringxIsemptyIsblank() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                empty_yes = stringx.isempty(''),
+                empty_no = stringx.isempty('   '),
+                blank_yes = stringx.isblank('   '),
+                blank_no = stringx.isblank('  x  ')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["empty_yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["empty_no"]?.boolValue, false)
+        XCTAssertEqual(result.tableValue?["blank_yes"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["blank_no"]?.boolValue, false)
+    }
+
+    func testStringxReverse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.reverse('hello')
+        """)
+
+        XCTAssertEqual(result.stringValue, "olleh")
+    }
+
+    func testStringxWrap() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            local wrapped = stringx.wrap('hello world this is a test', 10)
+            local lines = stringx.splitlines(wrapped)
+            return #lines
+        """)
+
+        XCTAssertTrue(result.numberValue! > 1)
+    }
+
+    func testStringxTruncate() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                default_suffix = stringx.truncate('hello world', 8),
+                custom = stringx.truncate('hello world', 8, '~')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["default_suffix"]?.stringValue, "hello...")
+        XCTAssertEqual(result.tableValue?["custom"]?.stringValue, "hello w~")
+    }
+
+    func testStringxSlug() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return stringx.slug('Hello World! This is a Test.')
+        """)
+
+        XCTAssertEqual(result.stringValue, "hello-world-this-is-a-test")
+    }
+
+    func testStringxNilHandling() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local stringx = require('stringx')
+            return {
+                trim_nil = stringx.trim(nil) == nil,
+                split_nil = #stringx.split(nil) == 0,
+                startswith_nil = stringx.startswith(nil, 'x') == false
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["trim_nil"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["split_nil"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["startswith_nil"]?.boolValue, true)
+    }
+
+    // MARK: - UTF8x Module Tests
+
+    func testUtf8xLen() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.len('Hello')
+        """)
+
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testUtf8xLenUnicode() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- "Hello" in Japanese (Konnichiwa) - 5 characters
+            return utf8x.len('こんにちは')
+        """)
+
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testUtf8xSubBasic() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.sub('Hello World', 1, 5)
+        """)
+
+        XCTAssertEqual(result.stringValue, "Hello")
+    }
+
+    func testUtf8xSubUnicode() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- Extract first 2 characters from Japanese string
+            return utf8x.sub('こんにちは', 1, 2)
+        """)
+
+        XCTAssertEqual(result.stringValue, "こん")
+    }
+
+    func testUtf8xSubNegativeIndex() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- Last 3 characters
+            return utf8x.sub('Hello', -3, -1)
+        """)
+
+        XCTAssertEqual(result.stringValue, "llo")
+    }
+
+    func testUtf8xReverse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.reverse('Hello')
+        """)
+
+        XCTAssertEqual(result.stringValue, "olleH")
+    }
+
+    func testUtf8xReverseUnicode() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.reverse('こんにちは')
+        """)
+
+        XCTAssertEqual(result.stringValue, "はちにんこ")
+    }
+
+    func testUtf8xUpperAscii() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.upper('hello world')
+        """)
+
+        XCTAssertEqual(result.stringValue, "HELLO WORLD")
+    }
+
+    func testUtf8xLowerAscii() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.lower('HELLO WORLD')
+        """)
+
+        XCTAssertEqual(result.stringValue, "hello world")
+    }
+
+    func testUtf8xUpperAccented() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.upper('cafe')
+        """)
+
+        XCTAssertEqual(result.stringValue, "CAFE")
+    }
+
+    func testUtf8xLowerAccented() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.lower('NAIVE')
+        """)
+
+        XCTAssertEqual(result.stringValue, "naive")
+    }
+
+    func testUtf8xWidthAscii() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.width('Hello')
+        """)
+
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testUtf8xWidthCJK() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- CJK characters are double-width
+            return utf8x.width('日本語')
+        """)
+
+        XCTAssertEqual(result.numberValue, 6)  // 3 chars * 2 width each
+    }
+
+    func testUtf8xWidthMixed() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- Mix of ASCII (width 1) and CJK (width 2)
+            return utf8x.width('Hi日本')
+        """)
+
+        XCTAssertEqual(result.numberValue, 6)  // 2 + 2 + 2
+    }
+
+    func testUtf8xIsalphaTrue() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local a = string.byte('A')
+            local z = string.byte('z')
+            return utf8x.isalpha(a) and utf8x.isalpha(z)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testUtf8xIsalphaFalse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local digit = string.byte('5')
+            local space = string.byte(' ')
+            return utf8x.isalpha(digit) or utf8x.isalpha(space)
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testUtf8xIsupperTrue() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local A = string.byte('A')
+            local Z = string.byte('Z')
+            return utf8x.isupper(A) and utf8x.isupper(Z)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testUtf8xIsupperFalse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local a = string.byte('a')
+            return utf8x.isupper(a)
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testUtf8xIslowerTrue() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local a = string.byte('a')
+            local z = string.byte('z')
+            return utf8x.islower(a) and utf8x.islower(z)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testUtf8xIslowerFalse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local A = string.byte('A')
+            return utf8x.islower(A)
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testUtf8xIsdigitTrue() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local zero = string.byte('0')
+            local nine = string.byte('9')
+            return utf8x.isdigit(zero) and utf8x.isdigit(nine)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testUtf8xIsdigitFalse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local a = string.byte('a')
+            return utf8x.isdigit(a)
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testUtf8xIsspaceTrue() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local space = string.byte(' ')
+            local tab = string.byte('\\t')
+            local newline = string.byte('\\n')
+            return utf8x.isspace(space) and utf8x.isspace(tab) and utf8x.isspace(newline)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testUtf8xIsspaceFalse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local a = string.byte('a')
+            return utf8x.isspace(a)
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testUtf8xCodepoint() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.codepoint('A')
+        """)
+
+        XCTAssertEqual(result.numberValue, 65)  // ASCII 'A'
+    }
+
+    func testUtf8xChar() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.char(72, 101, 108, 108, 111)
+        """)
+
+        XCTAssertEqual(result.stringValue, "Hello")
+    }
+
+    func testUtf8xCodes() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local codepoints = {}
+            for pos, cp in utf8x.codes('ABC') do
+                table.insert(codepoints, cp)
+            end
+            return #codepoints
+        """)
+
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testUtf8xOffset() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- Get byte offset of 2nd character in Japanese string
+            local s = 'こんにちは'
+            return utf8x.offset(s, 2)
+        """)
+
+        // Each Japanese hiragana is 3 bytes, so 2nd char starts at byte 4
+        XCTAssertEqual(result.numberValue, 4)
+    }
+
+    func testUtf8xEmptyString() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return {
+                len = utf8x.len(''),
+                sub = utf8x.sub('', 1, 5),
+                reverse = utf8x.reverse(''),
+                upper = utf8x.upper(''),
+                lower = utf8x.lower(''),
+                width = utf8x.width('')
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["len"]?.numberValue, 0)
+        XCTAssertEqual(result.tableValue?["sub"]?.stringValue, "")
+        XCTAssertEqual(result.tableValue?["reverse"]?.stringValue, "")
+        XCTAssertEqual(result.tableValue?["upper"]?.stringValue, "")
+        XCTAssertEqual(result.tableValue?["lower"]?.stringValue, "")
+        XCTAssertEqual(result.tableValue?["width"]?.numberValue, 0)
+    }
+
+    func testUtf8xSubOutOfRange() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            return utf8x.sub('Hello', 10, 20)
+        """)
+
+        XCTAssertEqual(result.stringValue, "")
+    }
+
+    func testUtf8xUpperLowerRoundTrip() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            local original = 'HeLLo WoRLd'
+            local lower = utf8x.lower(original)
+            local upper = utf8x.upper(lower)
+            return upper
+        """)
+
+        XCTAssertEqual(result.stringValue, "HELLO WORLD")
+    }
+
+    func testUtf8xWidthKorean() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- Korean characters are also double-width
+            return utf8x.width('한글')
+        """)
+
+        XCTAssertEqual(result.numberValue, 4)  // 2 chars * 2 width each
+    }
+
+    func testUtf8xIsalphaAccented() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- e with acute accent (e): U+00E9 = 233
+            return utf8x.isalpha(233)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testUtf8xIsspaceNonBreaking() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local utf8x = require('utf8x')
+            -- Non-breaking space: U+00A0 = 160
+            return utf8x.isspace(160)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

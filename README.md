@@ -15,7 +15,7 @@ A lightweight Swift wrapper for Lua 5.4, designed for embedding Lua scripting in
 - **Coroutines** - Create, resume, and manage Lua coroutines from Swift
 - **Sandboxing** - Remove dangerous functions for security
 - **Thread-Safe** - Safe for concurrent access
-- **Bundled Lua Modules** - SVG generation, math expressions, slide rule modeling
+- **Bundled Lua Modules** - SVG generation, math expressions
 
 ## Requirements
 
@@ -258,52 +258,6 @@ let result = try engine.evaluate("""
 
     return r1
 """)
-```
-
-#### Slide Rule Modeling
-
-```swift
-let result = try engine.evaluate("""
-    local sliderule = require("sliderule")
-
-    -- Create a standard slide rule
-    local rule = sliderule.StandardRule()
-
-    -- Get available scales
-    local scales = rule:getScales()  -- {"C", "D", "A", "B", "K", "S", "T", ...}
-
-    -- Convert position to value on C scale
-    local value = sliderule.scales.C.positionToValue(0.5)  -- 3.16...
-
-    -- Check supported operations
-    local ops = rule:getOperations()  -- {"multiply", "divide", "square", ...}
-
-    return value
-""")
-```
-
-### Problem Generation Example
-
-```swift
-// Seed for reproducible results
-try engine.seed(42)
-
-let problem = try engine.evaluate("""
-    local a = math.random(1, 10)
-    local b = math.random(1, 10)
-
-    return {
-        question = string.format("What is %d + %d?", a, b),
-        answer = a + b,
-        hints = {
-            "Think about counting",
-            "Use your fingers"
-        }
-    }
-""")
-
-print(problem.tableValue?["question"]?.stringValue)  // "What is 7 + 3?"
-print(problem.tableValue?["answer"]?.numberValue)    // 10.0
 ```
 
 ## API Reference

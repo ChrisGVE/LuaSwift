@@ -56,7 +56,6 @@ public struct ModuleRegistry {
     // Additional module registration methods will be added here as modules are implemented:
     // - installYAMLModule(in:)
     // - installTOMLModule(in:)
-    // - installMathModule(in:)
     // - installLinAlgModule(in:)
     // - installArrayModule(in:)
 }

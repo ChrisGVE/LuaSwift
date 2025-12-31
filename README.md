@@ -2,8 +2,8 @@
 
 A lightweight Swift wrapper for Lua 5.4, designed for embedding Lua scripting in iOS and macOS applications.
 
-[![Swift](https://img.shields.io/badge/Swift-5.9+-orange.svg)](https://swift.org)
-[![Platform](https://img.shields.io/badge/Platform-iOS%2015%2B%20%7C%20macOS%2012%2B-blue.svg)](https://developer.apple.com)
+[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FChrisGVE%2FLuaSwift%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/ChrisGVE/LuaSwift)
+[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FChrisGVE%2FLuaSwift%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/ChrisGVE/LuaSwift)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## Features
@@ -31,7 +31,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/chrisgve/LuaSwift.git", from: "1.0.0")
+    .package(url: "https://github.com/ChrisGVE/LuaSwift.git", from: "1.0.0")
 ]
 ```
 
@@ -211,13 +211,40 @@ let status = engine.coroutineStatus(handle) // .dead after completion
 
 ### Bundled Lua Modules
 
-LuaSwift includes pure Lua modules for common tasks:
+LuaSwift includes pure Lua modules for common tasks. To use them, you need to configure the package path to point to where the modules are located.
+
+#### Setting Up the Package Path
+
+```swift
+// Option 1: Configure via LuaEngineConfiguration
+let modulesPath = "/path/to/LuaModules"
+let config = LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: modulesPath,
+    memoryLimit: 0
+)
+let engine = try LuaEngine(configuration: config)
+
+// Option 2: Set package.path directly in Lua
+try engine.run("""
+    package.path = '/path/to/LuaModules/?.lua;' .. package.path
+""")
+
+// Option 3: Access bundled resources (in an app using LuaSwift)
+if let modulesURL = Bundle.module.url(forResource: "LuaModules", withExtension: nil) {
+    let config = LuaEngineConfiguration(
+        sandboxed: true,
+        packagePath: modulesURL.path,
+        memoryLimit: 0
+    )
+    let engine = try LuaEngine(configuration: config)
+}
+```
 
 #### SVG Generation
 
 ```swift
-// Configure package path to find modules
-try engine.run("""
+let result = try engine.evaluate("""
     local svg = require("svg")
     local drawing = svg.create(800, 600)
 
@@ -227,7 +254,7 @@ try engine.run("""
     drawing:text("Hello SVG!", 100, 100, {font_size = 20})
 
     -- Greek letters supported
-    drawing:text("θ = 45°", 150, 150)
+    drawing:text(svg.greek.theta .. " = 45°", 150, 150)
 
     -- Chart helpers
     local points = {{x=0,y=0}, {x=100,y=50}, {x=200,y=25}}
@@ -287,7 +314,7 @@ engine.unregisterFunction(name: "myFunc")
 
 // Coroutines
 let handle = try engine.createCoroutine(code: "...")
-let result = try engine.resume(handle)                 // CoroutineResult
+let result = try engine.resume(handle)                 // with: defaults to []
 let result = try engine.resume(handle, with: [.number(42)])
 let status = engine.coroutineStatus(handle)            // CoroutineStatus
 engine.destroy(handle)
@@ -334,16 +361,18 @@ public enum LuaValue {
 ```swift
 let value: LuaValue = .number(42)
 
-value.numberValue   // Optional(42.0)
-value.intValue      // Optional(42)
-value.stringValue   // nil
-value.boolValue     // nil
-value.tableValue    // nil
-value.arrayValue    // nil
-value.asString      // "42" (always succeeds)
-value.isTruthy      // true
-value.isNil         // false
+value.numberValue   // Optional(42.0) - nil if not a number
+value.intValue      // Optional(42) - nil if not a number
+value.stringValue   // nil - nil if not a string
+value.boolValue     // nil - nil if not a bool
+value.tableValue    // nil - nil if not a table
+value.arrayValue    // nil - nil if not an array
+value.asString      // "42" - always returns a String (never nil)
+value.isTruthy      // true - Lua truthiness: only nil and false are falsy
+value.isNil         // false - true only for .nil case
 ```
+
+**Note on `isTruthy`**: Follows Lua semantics where only `nil` and `false` are falsy. Numbers (including `0`), strings (including `""`), tables, and arrays are all truthy.
 
 #### Literals
 
@@ -362,30 +391,48 @@ let dict: LuaValue = ["key": "value"]
 protocol LuaValueServer: AnyObject {
     var namespace: String { get }
     func resolve(path: [String]) -> LuaValue
-    func canWrite(path: [String]) -> Bool      // Default: false
-    func write(path: [String], value: LuaValue) throws  // Default: throws
+    func canWrite(path: [String]) -> Bool      // Default: returns false (read-only)
+    func write(path: [String], value: LuaValue) throws  // Default: throws readOnlyAccess
 }
 ```
+
+**Default Behavior**:
+- `canWrite(path:)` returns `false` - all paths are read-only unless overridden
+- `write(path:value:)` throws `LuaError.readOnlyAccess` - must override for write support
 
 **Important**: For write support to work, `resolve()` must return `.nil` for intermediate paths. This creates proxy tables with metamethods that intercept writes.
 
 ## Configuration
 
+### LuaEngineConfiguration
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `sandboxed` | `Bool` | `true` | Remove dangerous functions for security |
+| `packagePath` | `String?` | `nil` | Custom path for `require()` to find Lua modules |
+| `memoryLimit` | `Int` | `0` | Memory limit in bytes (`0` = unlimited) |
+
 ### Default (Sandboxed)
 
 ```swift
-let engine = try LuaEngine() // Sandboxed by default
+let engine = try LuaEngine() // Uses .default configuration
+// Equivalent to:
+let engine = try LuaEngine(configuration: .default)
+// Which is:
+// LuaEngineConfiguration(sandboxed: true, packagePath: nil, memoryLimit: 0)
 ```
 
-Removes: `os.execute`, `os.exit`, `io.*`, `debug.*`, `loadfile`, `dofile`, `load`
+**Sandboxing removes**: `os.execute`, `os.exit`, `os.remove`, `os.rename`, `os.tmpname`, `os.getenv`, `os.setlocale`, `io.*`, `debug.*`, `loadfile`, `dofile`, `load`, `loadstring`
+
+**Safe libraries remain**: `math`, `string`, `table`, `coroutine`, `utf8`
 
 ### Custom Configuration
 
 ```swift
 let config = LuaEngineConfiguration(
-    sandboxed: true,
-    packagePath: "/path/to/lua/modules",
-    memoryLimit: 10_000_000  // 10MB (0 = unlimited)
+    sandboxed: true,                          // Default: true
+    packagePath: "/path/to/lua/modules",      // Default: nil
+    memoryLimit: 10_000_000                   // Default: 0 (unlimited)
 )
 let engine = try LuaEngine(configuration: config)
 ```
@@ -394,6 +441,8 @@ let engine = try LuaEngine(configuration: config)
 
 ```swift
 let engine = try LuaEngine(configuration: .unrestricted)
+// Which is:
+// LuaEngineConfiguration(sandboxed: false, packagePath: nil, memoryLimit: 0)
 ```
 
 ## Error Handling

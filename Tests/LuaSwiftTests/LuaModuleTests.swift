@@ -374,4 +374,442 @@ final class LuaModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Tablex Module Tests
+
+    func testTablexCopy() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local original = {a = 1, b = 2, c = 3}
+            local copy = tablex.copy(original)
+            -- Modify original, copy should be unaffected
+            original.a = 100
+            return copy.a
+        """)
+
+        XCTAssertEqual(result.numberValue, 1)
+    }
+
+    func testTablexDeepcopy() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local original = {nested = {value = 42}}
+            local copy = tablex.deepcopy(original)
+            -- Modify original nested table, copy should be unaffected
+            original.nested.value = 100
+            return copy.nested.value
+        """)
+
+        XCTAssertEqual(result.numberValue, 42)
+    }
+
+    func testTablexDeepcopyWithMetatable() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local mt = {__index = function(t, k) return "default" end}
+            local original = setmetatable({a = 1}, mt)
+            local copy = tablex.deepcopy(original)
+            -- Check metatable was preserved
+            return copy.nonexistent
+        """)
+
+        XCTAssertEqual(result.stringValue, "default")
+    }
+
+    func testTablexMerge() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t1 = {a = 1, b = 2}
+            local t2 = {b = 3, c = 4}
+            local merged = tablex.merge(t1, t2)
+            return {a = merged.a, b = merged.b, c = merged.c}
+        """)
+
+        XCTAssertEqual(result.tableValue?["a"]?.numberValue, 1)
+        XCTAssertEqual(result.tableValue?["b"]?.numberValue, 3)  // t2 overwrites
+        XCTAssertEqual(result.tableValue?["c"]?.numberValue, 4)
+    }
+
+    func testTablexDeepmerge() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t1 = {nested = {a = 1, b = 2}}
+            local t2 = {nested = {b = 3, c = 4}}
+            local merged = tablex.deepmerge(t1, t2)
+            return {
+                a = merged.nested.a,
+                b = merged.nested.b,
+                c = merged.nested.c
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["a"]?.numberValue, 1)
+        XCTAssertEqual(result.tableValue?["b"]?.numberValue, 3)  // t2 overwrites
+        XCTAssertEqual(result.tableValue?["c"]?.numberValue, 4)
+    }
+
+    func testTablexMap() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, 2, 3, 4, 5}
+            local doubled = tablex.map(t, function(v) return v * 2 end)
+            return doubled[3]
+        """)
+
+        XCTAssertEqual(result.numberValue, 6)
+    }
+
+    func testTablexFilter() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, 2, 3, 4, 5, 6}
+            local evens = tablex.filter(t, function(v) return v % 2 == 0 end)
+            return #evens
+        """)
+
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testTablexReduce() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, 2, 3, 4, 5}
+            local sum = tablex.reduce(t, function(acc, v) return acc + v end, 0)
+            return sum
+        """)
+
+        XCTAssertEqual(result.numberValue, 15)
+    }
+
+    func testTablexForeach() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {a = 1, b = 2, c = 3}
+            local count = 0
+            tablex.foreach(t, function(v, k) count = count + v end)
+            return count
+        """)
+
+        XCTAssertEqual(result.numberValue, 6)
+    }
+
+    func testTablexFind() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {'apple', 'banana', 'cherry'}
+            return tablex.find(t, 'banana')
+        """)
+
+        XCTAssertEqual(result.numberValue, 2)
+    }
+
+    func testTablexFindNotFound() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {'apple', 'banana', 'cherry'}
+            return tablex.find(t, 'orange')
+        """)
+
+        XCTAssertTrue(result == .nil)
+    }
+
+    func testTablexContains() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, 2, 3, 4, 5}
+            return tablex.contains(t, 3)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testTablexKeys() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {a = 1, b = 2, c = 3}
+            local keys = tablex.keys(t)
+            return #keys
+        """)
+
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testTablexValues() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {a = 1, b = 2, c = 3}
+            local values = tablex.values(t)
+            local sum = 0
+            for _, v in ipairs(values) do sum = sum + v end
+            return sum
+        """)
+
+        XCTAssertEqual(result.numberValue, 6)
+    }
+
+    func testTablexSize() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {a = 1, b = 2, c = 3, d = 4}
+            return tablex.size(t)
+        """)
+
+        XCTAssertEqual(result.numberValue, 4)
+    }
+
+    func testTablexIsempty() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local empty = {}
+            local nonEmpty = {1, 2, 3}
+            return tablex.isempty(empty) and not tablex.isempty(nonEmpty)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testTablexIsarray() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local array = {1, 2, 3, 4}
+            local dict = {a = 1, b = 2}
+            local mixed = {1, 2, a = 3}
+            return tablex.isarray(array) and not tablex.isarray(dict) and not tablex.isarray(mixed)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testTablexInvert() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {a = 1, b = 2, c = 3}
+            local inverted = tablex.invert(t)
+            return inverted[1]
+        """)
+
+        XCTAssertEqual(result.stringValue, "a")
+    }
+
+    func testTablexFlatten() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, {2, 3}, {4, {5, 6}}}
+            local flat = tablex.flatten(t)
+            return #flat
+        """)
+
+        XCTAssertEqual(result.numberValue, 6)
+    }
+
+    func testTablexSlice() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, 2, 3, 4, 5, 6}
+            local slice = tablex.slice(t, 2, 4)
+            return {first = slice[1], last = slice[3], len = #slice}
+        """)
+
+        XCTAssertEqual(result.tableValue?["first"]?.numberValue, 2)
+        XCTAssertEqual(result.tableValue?["last"]?.numberValue, 4)
+        XCTAssertEqual(result.tableValue?["len"]?.numberValue, 3)
+    }
+
+    func testTablexReverse() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, 2, 3, 4, 5}
+            local reversed = tablex.reverse(t)
+            return {first = reversed[1], last = reversed[5]}
+        """)
+
+        XCTAssertEqual(result.tableValue?["first"]?.numberValue, 5)
+        XCTAssertEqual(result.tableValue?["last"]?.numberValue, 1)
+    }
+
+    func testTablexUnion() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t1 = {1, 2, 3}
+            local t2 = {3, 4, 5}
+            local u = tablex.union(t1, t2)
+            return #u
+        """)
+
+        XCTAssertEqual(result.numberValue, 5)  // {1, 2, 3, 4, 5}
+    }
+
+    func testTablexIntersection() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t1 = {1, 2, 3, 4}
+            local t2 = {3, 4, 5, 6}
+            local inter = tablex.intersection(t1, t2)
+            return #inter
+        """)
+
+        XCTAssertEqual(result.numberValue, 2)  // {3, 4}
+    }
+
+    func testTablexDifference() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t1 = {1, 2, 3, 4}
+            local t2 = {3, 4, 5}
+            local diff = tablex.difference(t1, t2)
+            return #diff
+        """)
+
+        XCTAssertEqual(result.numberValue, 2)  // {1, 2}
+    }
+
+    func testTablexEquals() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t1 = {a = 1, b = 2}
+            local t2 = {a = 1, b = 2}
+            local t3 = {a = 1, b = 3}
+            return tablex.equals(t1, t2) and not tablex.equals(t1, t3)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testTablexDeepequals() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t1 = {nested = {a = 1, b = {c = 2}}}
+            local t2 = {nested = {a = 1, b = {c = 2}}}
+            local t3 = {nested = {a = 1, b = {c = 3}}}
+            return tablex.deepequals(t1, t2) and not tablex.deepequals(t1, t3)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testTablexCircularReference() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {value = 1}
+            t.self = t  -- Circular reference
+            local copy = tablex.deepcopy(t)
+            -- Check that it didn't infinite loop and value was copied
+            return copy.value
+        """)
+
+        XCTAssertEqual(result.numberValue, 1)
+    }
+
+    func testTablexSliceNegativeIndices() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, 2, 3, 4, 5}
+            local slice = tablex.slice(t, -3, -1)
+            return {first = slice[1], last = slice[3], len = #slice}
+        """)
+
+        XCTAssertEqual(result.tableValue?["first"]?.numberValue, 3)
+        XCTAssertEqual(result.tableValue?["last"]?.numberValue, 5)
+        XCTAssertEqual(result.tableValue?["len"]?.numberValue, 3)
+    }
+
+    func testTablexFlattenWithDepth() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = require('tablex')
+            local t = {1, {2, {3, {4}}}}
+            local flat1 = tablex.flatten(t, 1)
+            local flat2 = tablex.flatten(t, 2)
+            return {depth1 = #flat1, depth2 = #flat2}
+        """)
+
+        XCTAssertEqual(result.tableValue?["depth1"]?.numberValue, 3)  // {1, 2, {3, {4}}}
+        XCTAssertEqual(result.tableValue?["depth2"]?.numberValue, 4)  // {1, 2, 3, {4}}
+    }
 }

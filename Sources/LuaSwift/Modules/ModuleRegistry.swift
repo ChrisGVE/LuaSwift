@@ -29,11 +29,15 @@ public struct ModuleRegistry {
     ///
     /// This registers all available Swift-backed modules. Currently includes:
     /// - `luaswift.json`: JSON encoding/decoding
+    /// - `luaswift.yaml`: YAML encoding/decoding
+    /// - `luaswift.toml`: TOML encoding/decoding
     /// - `luaswift.regex`: Regular expression support
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
         installJSONModule(in: engine)
+        installYAMLModule(in: engine)
+        installTOMLModule(in: engine)
         installRegexModule(in: engine)
     }
 
@@ -42,6 +46,20 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installJSONModule(in engine: LuaEngine) {
         JSONModule.register(in: engine)
+    }
+
+    /// Install only the YAML module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installYAMLModule(in engine: LuaEngine) {
+        YAMLModule.register(in: engine)
+    }
+
+    /// Install only the TOML module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installTOMLModule(in engine: LuaEngine) {
+        TOMLModule.register(in: engine)
     }
 
     /// Install only the Regex module.
@@ -54,8 +72,6 @@ public struct ModuleRegistry {
     // MARK: - Future Module Registration
 
     // Additional module registration methods will be added here as modules are implemented:
-    // - installYAMLModule(in:)
-    // - installTOMLModule(in:)
     // - installLinAlgModule(in:)
     // - installArrayModule(in:)
 }

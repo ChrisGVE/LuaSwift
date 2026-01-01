@@ -1700,7 +1700,7 @@ final class LuaModuleTests: XCTestCase {
 
         let table = result.tableValue!
         XCTAssertEqual(table["abs"]?.numberValue, 5)
-        XCTAssertEqual(table["arg"]?.numberValue!, atan2(4, 3), accuracy: 0.0001)
+        XCTAssertEqual(table["arg"]!.numberValue!, atan2(4, 3), accuracy: 0.0001)
     }
 
     func testComplexConjugate() throws {
@@ -1781,8 +1781,8 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         let table = result.tableValue!
-        XCTAssertEqual(table["re"]?.numberValue!, 11.0/25.0, accuracy: 0.0001)
-        XCTAssertEqual(table["im"]?.numberValue!, 2.0/25.0, accuracy: 0.0001)
+        XCTAssertEqual(table["re"]!.numberValue!, 11.0/25.0, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]!.numberValue!, 2.0/25.0, accuracy: 0.0001)
     }
 
     func testComplexNegation() throws {
@@ -1816,10 +1816,10 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         let table = result.tableValue!
-        XCTAssertEqual(table["z2_re"]?.numberValue!, -1, accuracy: 0.0001)
-        XCTAssertEqual(table["z2_im"]?.numberValue!, 0, accuracy: 0.0001)
-        XCTAssertEqual(table["z4_re"]?.numberValue!, 1, accuracy: 0.0001)
-        XCTAssertEqual(table["z4_im"]?.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["z2_re"]!.numberValue!, -1, accuracy: 0.0001)
+        XCTAssertEqual(table["z2_im"]!.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["z4_re"]!.numberValue!, 1, accuracy: 0.0001)
+        XCTAssertEqual(table["z4_im"]!.numberValue!, 0, accuracy: 0.0001)
     }
 
     func testComplexSqrt() throws {
@@ -1834,8 +1834,8 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         let table = result.tableValue!
-        XCTAssertEqual(table["re"]?.numberValue!, 0, accuracy: 0.0001)
-        XCTAssertEqual(table["im"]?.numberValue!, 1, accuracy: 0.0001)
+        XCTAssertEqual(table["re"]!.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]!.numberValue!, 1, accuracy: 0.0001)
     }
 
     func testComplexExp() throws {
@@ -1851,8 +1851,8 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         let table = result.tableValue!
-        XCTAssertEqual(table["re"]?.numberValue!, -1, accuracy: 0.0001)
-        XCTAssertEqual(table["im"]?.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["re"]!.numberValue!, -1, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]!.numberValue!, 0, accuracy: 0.0001)
     }
 
     func testComplexLog() throws {
@@ -1868,8 +1868,8 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         let table = result.tableValue!
-        XCTAssertEqual(table["re"]?.numberValue!, 1, accuracy: 0.0001)
-        XCTAssertEqual(table["im"]?.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["re"]!.numberValue!, 1, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]!.numberValue!, 0, accuracy: 0.0001)
     }
 
     func testComplexTrigFunctions() throws {
@@ -1887,8 +1887,8 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         let table = result.tableValue!
-        XCTAssertEqual(table["re"]?.numberValue!, 1, accuracy: 0.0001)
-        XCTAssertEqual(table["im"]?.numberValue!, 0, accuracy: 0.0001)
+        XCTAssertEqual(table["re"]!.numberValue!, 1, accuracy: 0.0001)
+        XCTAssertEqual(table["im"]!.numberValue!, 0, accuracy: 0.0001)
     }
 
     func testComplexHyperbolicFunctions() throws {
@@ -2017,7 +2017,7 @@ final class LuaModuleTests: XCTestCase {
 
         let table = result.tableValue!
         XCTAssertEqual(table["r"]?.numberValue, 5)
-        XCTAssertEqual(table["theta"]?.numberValue!, atan2(4, 3), accuracy: 0.0001)
+        XCTAssertEqual(table["theta"]!.numberValue!, atan2(4, 3), accuracy: 0.0001)
     }
 
     func testComplexTan() throws {

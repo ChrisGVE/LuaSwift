@@ -523,10 +523,9 @@ public final class LuaEngine {
     }
 
     private func tableFromThread(_ thread: OpaquePointer, at index: Int32) -> LuaValue {
-        var isArray = true
-        var arrayIndex = 1
         var dict: [String: LuaValue] = [:]
-        var arr: [LuaValue] = []
+        var intKeyedValues: [Int: LuaValue] = [:]
+        var hasStringKeys = false
 
         // Normalize index to absolute
         let absIndex = index < 0 ? lua_gettop(thread) + index + 1 : index
@@ -538,15 +537,9 @@ public final class LuaEngine {
 
             if keyType == LUA_TNUMBER {
                 let keyNum = Int(lua_tonumber(thread, -2))
-                if keyNum == arrayIndex {
-                    arr.append(value)
-                    arrayIndex += 1
-                } else {
-                    isArray = false
-                    dict[String(keyNum)] = value
-                }
+                intKeyedValues[keyNum] = value
             } else if keyType == LUA_TSTRING {
-                isArray = false
+                hasStringKeys = true
                 if let keyStr = lua_tostring(thread, -2) {
                     let key = String(cString: keyStr)
                     dict[key] = value
@@ -556,15 +549,25 @@ public final class LuaEngine {
             lua_pop(thread, 1)
         }
 
-        if isArray && !arr.isEmpty {
-            return .array(arr)
-        } else if !dict.isEmpty {
-            for (i, val) in arr.enumerated() {
-                dict[String(i + 1)] = val
+        // Check if integer keys form a contiguous array starting at 1
+        if !hasStringKeys && !intKeyedValues.isEmpty {
+            let sortedKeys = intKeyedValues.keys.sorted()
+            let isContiguousArray = sortedKeys.first == 1 &&
+                sortedKeys.last == sortedKeys.count &&
+                sortedKeys.count == intKeyedValues.count
+
+            if isContiguousArray {
+                let arr = sortedKeys.map { intKeyedValues[$0]! }
+                return .array(arr)
+            }
+        }
+
+        // Not a pure array - merge all values into dict
+        if !intKeyedValues.isEmpty || !dict.isEmpty {
+            for (key, val) in intKeyedValues {
+                dict[String(key)] = val
             }
             return .table(dict)
-        } else if !arr.isEmpty {
-            return .array(arr)
         }
 
         return .table([:])
@@ -702,10 +705,9 @@ public final class LuaEngine {
     private func tableFromStack(at index: Int32) -> LuaValue {
         guard let L = L else { return .nil }
 
-        var isArray = true
-        var arrayIndex = 1
         var dict: [String: LuaValue] = [:]
-        var arr: [LuaValue] = []
+        var intKeyedValues: [Int: LuaValue] = [:]
+        var hasStringKeys = false
 
         // Normalize index to absolute
         let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
@@ -719,15 +721,9 @@ public final class LuaEngine {
 
             if keyType == LUA_TNUMBER {
                 let keyNum = Int(lua_tonumber(L, -2))
-                if keyNum == arrayIndex {
-                    arr.append(value)
-                    arrayIndex += 1
-                } else {
-                    isArray = false
-                    dict[String(keyNum)] = value
-                }
+                intKeyedValues[keyNum] = value
             } else if keyType == LUA_TSTRING {
-                isArray = false
+                hasStringKeys = true
                 if let keyStr = lua_tostring(L, -2) {
                     let key = String(cString: keyStr)
                     dict[key] = value
@@ -737,16 +733,25 @@ public final class LuaEngine {
             lua_pop(L, 1)  // Pop value, keep key for next iteration
         }
 
-        if isArray && !arr.isEmpty {
-            return .array(arr)
-        } else if !dict.isEmpty {
-            // Merge any array elements into dict
-            for (i, val) in arr.enumerated() {
-                dict[String(i + 1)] = val
+        // Check if integer keys form a contiguous array starting at 1
+        if !hasStringKeys && !intKeyedValues.isEmpty {
+            let sortedKeys = intKeyedValues.keys.sorted()
+            let isContiguousArray = sortedKeys.first == 1 &&
+                sortedKeys.last == sortedKeys.count &&
+                sortedKeys.count == intKeyedValues.count
+
+            if isContiguousArray {
+                let arr = sortedKeys.map { intKeyedValues[$0]! }
+                return .array(arr)
+            }
+        }
+
+        // Not a pure array - merge all values into dict
+        if !intKeyedValues.isEmpty || !dict.isEmpty {
+            for (key, val) in intKeyedValues {
+                dict[String(key)] = val
             }
             return .table(dict)
-        } else if !arr.isEmpty {
-            return .array(arr)
         }
 
         return .table([:])
@@ -1029,10 +1034,9 @@ private func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
 
 /// Get a table from the Lua stack (static version for use in callbacks)
 private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue {
-    var isArray = true
-    var arrayIndex = 1
     var dict: [String: LuaValue] = [:]
-    var arr: [LuaValue] = []
+    var intKeyedValues: [Int: LuaValue] = [:]
+    var hasStringKeys = false
 
     // Normalize index to absolute
     let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
@@ -1046,15 +1050,9 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
 
         if keyType == LUA_TNUMBER {
             let keyNum = Int(lua_tonumber(L, -2))
-            if keyNum == arrayIndex {
-                arr.append(value)
-                arrayIndex += 1
-            } else {
-                isArray = false
-                dict[String(keyNum)] = value
-            }
+            intKeyedValues[keyNum] = value
         } else if keyType == LUA_TSTRING {
-            isArray = false
+            hasStringKeys = true
             if let keyStr = lua_tostring(L, -2) {
                 let key = String(cString: keyStr)
                 dict[key] = value
@@ -1064,16 +1062,25 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
         lua_pop(L, 1)  // Pop value, keep key for next iteration
     }
 
-    if isArray && !arr.isEmpty {
-        return .array(arr)
-    } else if !dict.isEmpty {
-        // Merge any array elements into dict
-        for (i, val) in arr.enumerated() {
-            dict[String(i + 1)] = val
+    // Check if integer keys form a contiguous array starting at 1
+    if !hasStringKeys && !intKeyedValues.isEmpty {
+        let sortedKeys = intKeyedValues.keys.sorted()
+        let isContiguousArray = sortedKeys.first == 1 &&
+            sortedKeys.last == sortedKeys.count &&
+            sortedKeys.count == intKeyedValues.count
+
+        if isContiguousArray {
+            let arr = sortedKeys.map { intKeyedValues[$0]! }
+            return .array(arr)
+        }
+    }
+
+    // Not a pure array - merge all values into dict
+    if !intKeyedValues.isEmpty || !dict.isEmpty {
+        for (key, val) in intKeyedValues {
+            dict[String(key)] = val
         }
         return .table(dict)
-    } else if !arr.isEmpty {
-        return .array(arr)
     }
 
     return .table([:])

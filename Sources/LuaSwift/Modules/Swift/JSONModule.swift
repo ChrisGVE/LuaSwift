@@ -195,16 +195,12 @@ public struct JSONModule {
             return .nil
         }
 
-        if let bool = value as? Bool {
-            return .bool(bool)
-        }
-
+        // Check for NSNumber first with robust boolean detection
+        // Note: `value as? Bool` would incorrectly match NSNumber(1) as true
         if let number = value as? NSNumber {
-            // NSNumber can represent both integers and floats
-            // Check if it's a boolean first (NSNumber can also represent Bool)
-            let objCType = String(cString: number.objCType)
-            if objCType == "c" || objCType == "B" {
-                // Boolean type
+            // Use CFBooleanGetTypeID to reliably detect JSON booleans
+            // JSONSerialization creates CFBoolean for true/false, not NSNumber
+            if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
                 return .bool(number.boolValue)
             }
             return .number(number.doubleValue)

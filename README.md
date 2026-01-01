@@ -15,7 +15,21 @@ A lightweight Swift wrapper for Lua 5.4, designed for embedding Lua scripting in
 - **Coroutines** - Create, resume, and manage Lua coroutines from Swift
 - **Sandboxing** - Remove dangerous functions for security
 - **Thread-Safe** - Safe for concurrent access
-- **Bundled Lua Modules** - SVG generation, math expressions
+
+**Swift-Backed Modules** (high-performance, using Accelerate framework):
+- JSON, YAML, TOML encoding/decoding
+- Regular expressions (ICU)
+- Extended math and statistics
+- Linear algebra (BLAS/LAPACK)
+- NumPy-like N-dimensional arrays
+
+**Pure Lua Modules**:
+- Table and string extensions
+- UTF-8 string operations
+- Complex number arithmetic
+- 2D/3D geometry with vectors and quaternions
+- Lua version compatibility layer
+- SVG generation and math expressions
 
 ## Requirements
 
@@ -209,84 +223,6 @@ engine.destroy(handle)
 let status = engine.coroutineStatus(handle) // .dead after completion
 ```
 
-### Bundled Lua Modules
-
-LuaSwift includes pure Lua modules for common tasks. To use them, you need to configure the package path to point to where the modules are located.
-
-#### Setting Up the Package Path
-
-```swift
-// Option 1: Configure via LuaEngineConfiguration
-let modulesPath = "/path/to/LuaModules"
-let config = LuaEngineConfiguration(
-    sandboxed: true,
-    packagePath: modulesPath,
-    memoryLimit: 0
-)
-let engine = try LuaEngine(configuration: config)
-
-// Option 2: Set package.path directly in Lua
-try engine.run("""
-    package.path = '/path/to/LuaModules/?.lua;' .. package.path
-""")
-
-// Option 3: Access bundled resources (in an app using LuaSwift)
-if let modulesURL = Bundle.module.url(forResource: "LuaModules", withExtension: nil) {
-    let config = LuaEngineConfiguration(
-        sandboxed: true,
-        packagePath: modulesURL.path,
-        memoryLimit: 0
-    )
-    let engine = try LuaEngine(configuration: config)
-}
-```
-
-#### SVG Generation
-
-```swift
-let result = try engine.evaluate("""
-    local svg = require("svg")
-    local drawing = svg.create(800, 600)
-
-    -- Basic shapes
-    drawing:rect(10, 10, 100, 50, {fill = "blue"})
-    drawing:circle(200, 200, 50, {stroke = "red", fill = "none"})
-    drawing:text("Hello SVG!", 100, 100, {font_size = 20})
-
-    -- Greek letters supported
-    drawing:text(svg.greek.theta .. " = 45°", 150, 150)
-
-    -- Chart helpers
-    local points = {{x=0,y=0}, {x=100,y=50}, {x=200,y=25}}
-    drawing:linePlot(points, {stroke = "green"})
-
-    return drawing:render()
-""")
-```
-
-#### Math Expressions
-
-```swift
-let result = try engine.evaluate("""
-    local math_expr = require("math_expr")
-
-    -- Basic evaluation
-    local r1 = math_expr.eval("2 + 3 * 4")  -- 14
-
-    -- With variables
-    local r2 = math_expr.eval("x^2 + 2*x", {x = 3})  -- 15
-
-    -- Functions
-    local r3 = math_expr.eval("sin(pi/2)")  -- 1.0
-
-    -- Step-by-step solving
-    local steps = math_expr.solve("(2 + 3) * 4", {show_steps = true})
-    -- Returns table of intermediate steps
-
-    return r1
-""")
-```
-
 ## API Reference
 
 ### LuaEngine
@@ -445,6 +381,910 @@ let engine = try LuaEngine(configuration: .unrestricted)
 // LuaEngineConfiguration(sandboxed: false, packagePath: nil, memoryLimit: 0)
 ```
 
+## Bundled Modules
+
+LuaSwift includes both Swift-backed modules (high performance via Accelerate framework) and pure Lua modules. To use them, configure the package path:
+
+```swift
+// Option 1: Configure via LuaEngineConfiguration
+let modulesPath = "/path/to/LuaModules"
+let config = LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: modulesPath,
+    memoryLimit: 0
+)
+let engine = try LuaEngine(configuration: config)
+
+// Option 2: Set package.path directly in Lua
+try engine.run("""
+    package.path = '/path/to/LuaModules/?.lua;' .. package.path
+""")
+
+// Option 3: Access bundled resources (in an app using LuaSwift)
+if let modulesURL = Bundle.module.url(forResource: "LuaModules", withExtension: nil) {
+    let config = LuaEngineConfiguration(
+        sandboxed: true,
+        packagePath: modulesURL.path,
+        memoryLimit: 0
+    )
+    let engine = try LuaEngine(configuration: config)
+}
+```
+
+---
+
+## Swift-Backed Modules
+
+These modules are implemented in Swift for maximum performance, using Apple's Accelerate framework where applicable.
+
+### JSON Module
+
+**Namespace:** `luaswift.json`
+
+JSON encoding and decoding with support for nested structures, Unicode, and pretty printing.
+
+```lua
+local json = require("luaswift.json")
+
+-- Decode JSON string to Lua table
+local data = json.decode('{"name": "John", "age": 30}')
+print(data.name)  -- "John"
+
+-- Encode Lua table to JSON string
+local str = json.encode({items = {1, 2, 3}, active = true})
+-- '{"active":true,"items":[1,2,3]}'
+
+-- Pretty print with indentation
+local pretty = json.encode({a = 1, b = 2}, {pretty = true, indent = 2})
+
+-- Handle JSON null explicitly
+local with_null = json.decode('{"value": null}')
+if with_null.value == json.null then
+    print("Value is null")
+end
+```
+
+| Function | Description |
+|----------|-------------|
+| `decode(string)` | Parse JSON string to Lua value |
+| `encode(value, options?)` | Convert Lua value to JSON string |
+| `null` | Sentinel value for JSON null |
+
+**Options for encode:** `{pretty = bool, indent = number}`
+
+---
+
+### YAML Module
+
+**Namespace:** `luaswift.yaml`
+
+YAML encoding and decoding with multi-document support.
+
+```lua
+local yaml = require("luaswift.yaml")
+
+-- Decode YAML
+local config = yaml.decode([[
+server:
+  host: localhost
+  port: 8080
+]])
+print(config.server.port)  -- 8080
+
+-- Encode to YAML
+local str = yaml.encode({name = "test", values = {1, 2, 3}})
+
+-- Multi-document support
+local docs = yaml.decode_all([[
+---
+doc: 1
+---
+doc: 2
+]])
+print(#docs)  -- 2
+
+local multi = yaml.encode_all({{a = 1}, {b = 2}})
+-- "---\na: 1\n---\nb: 2\n"
+```
+
+| Function | Description |
+|----------|-------------|
+| `decode(string)` | Parse YAML string to Lua value |
+| `encode(value)` | Convert Lua value to YAML string |
+| `decode_all(string)` | Parse multi-document YAML to array |
+| `encode_all(array)` | Convert array to multi-document YAML |
+
+---
+
+### TOML Module
+
+**Namespace:** `luaswift.toml`
+
+TOML encoding and decoding for configuration files.
+
+```lua
+local toml = require("luaswift.toml")
+
+-- Decode TOML
+local config = toml.decode([[
+[database]
+server = "192.168.1.1"
+ports = [8001, 8002]
+enabled = true
+]])
+print(config.database.server)  -- "192.168.1.1"
+
+-- Encode to TOML
+local str = toml.encode({
+    title = "Config",
+    owner = {name = "John", age = 30}
+})
+```
+
+| Function | Description |
+|----------|-------------|
+| `decode(string)` | Parse TOML string to Lua table |
+| `encode(table)` | Convert Lua table to TOML string |
+
+**Note:** TOML requires the root value to be a table and does not support null values.
+
+---
+
+### Regex Module
+
+**Namespace:** `luaswift.regex`
+
+Regular expression support using ICU regex syntax via NSRegularExpression.
+
+```lua
+local regex = require("luaswift.regex")
+
+-- Compile a pattern
+local re = regex.compile("[a-z]+@[a-z]+\\.[a-z]+", "i")
+
+-- Test if string matches
+if re:test("user@example.com") then
+    print("Valid email format")
+end
+
+-- Find first match
+local match = re:match("Contact: user@example.com")
+if match then
+    print(match.text)   -- "user@example.com"
+    print(match.start)  -- 10 (1-based position)
+end
+
+-- Find all matches
+local emails = re:find_all("a@b.com and c@d.org")
+for _, m in ipairs(emails) do
+    print(m.text)
+end
+
+-- Replace
+local result = re:replace("Hello World", "world", "Lua")  -- First match
+local all = re:replace_all("a1b2c3", "\\d", "X")          -- "aXbXcX"
+
+-- Split by pattern
+local parts = regex.compile("\\s+"):split("a  b   c")     -- {"a", "b", "c"}
+
+-- Quick one-shot match (no compilation)
+local m = regex.match("test123", "\\d+")
+print(m.text)  -- "123"
+```
+
+| Function | Description |
+|----------|-------------|
+| `compile(pattern, flags?)` | Compile regex pattern |
+| `match(text, pattern)` | Quick one-shot match |
+
+**Compiled regex methods:** `match`, `find_all`, `test`, `replace`, `replace_all`, `split`
+
+**Flags:** `i` (case insensitive), `m` (multiline), `s` (dotall)
+
+**Match object:** `{start, stop, text, groups}`
+
+---
+
+### Extended Math Module
+
+**Namespace:** `luaswift.math`
+
+Extended mathematical functions and statistics beyond the standard Lua math library.
+
+```lua
+local mathx = require("luaswift.math")
+
+-- Hyperbolic functions
+print(mathx.sinh(1))   -- 1.1752...
+print(mathx.asinh(1))  -- 0.8813...
+
+-- Rounding
+print(mathx.round(3.14159, 2))  -- 3.14
+print(mathx.trunc(3.9))         -- 3
+print(mathx.sign(-5))           -- -1
+
+-- Statistics
+local data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+print(mathx.sum(data))          -- 55
+print(mathx.mean(data))         -- 5.5
+print(mathx.median(data))       -- 5.5
+print(mathx.stddev(data))       -- 2.872...
+print(mathx.percentile(data, 75)) -- 7.75
+
+-- Special functions
+print(mathx.factorial(5))  -- 120
+print(mathx.gamma(5))      -- 24 (= 4!)
+
+-- Coordinate conversions
+local x, y = table.unpack(mathx.polar_to_cart(1, math.pi/4))
+local r, theta = table.unpack(mathx.cart_to_polar(1, 1))
+
+-- Constants
+print(mathx.phi)  -- 1.618... (golden ratio)
+print(mathx.inf)  -- infinity
+```
+
+| Category | Functions |
+|----------|-----------|
+| Hyperbolic | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` |
+| Rounding | `round(x, places?)`, `trunc`, `sign` |
+| Logarithms | `log10`, `log2` |
+| Statistics | `sum`, `mean`, `median`, `variance`, `stddev`, `percentile` |
+| Special | `factorial`, `gamma`, `lgamma` |
+| Coordinates | `polar_to_cart`, `cart_to_polar`, `spherical_to_cart`, `cart_to_spherical` |
+| Constants | `phi`, `inf`, `nan` |
+
+---
+
+### Linear Algebra Module
+
+**Namespace:** `luaswift.linalg`
+
+Matrix and vector operations powered by Apple's Accelerate framework (BLAS/LAPACK).
+
+```lua
+local la = require("luaswift.linalg")
+
+-- Create vectors and matrices
+local v = la.vector({1, 2, 3})
+local m = la.matrix({{1, 2}, {3, 4}, {5, 6}})
+
+-- Special matrices
+local I = la.eye(3)           -- 3x3 identity
+local Z = la.zeros(2, 3)      -- 2x3 zeros
+local O = la.ones(3, 2)       -- 3x2 ones
+local D = la.diag({1, 2, 3})  -- diagonal matrix
+
+-- Properties
+print(m:rows(), m:cols())  -- 3, 2
+print(m:shape())           -- {3, 2}
+print(v:size())            -- 3
+
+-- Element access
+print(m:get(1, 2))         -- 2
+m:set(1, 2, 10)
+
+-- Arithmetic (operators: +, -, *, /)
+local sum = m + m
+local scaled = m * 2
+local product = la.matrix({{1,2},{3,4}}) * la.matrix({{5,6},{7,8}})
+
+-- Dot product
+local dot = la.vector({1,2,3}):dot(la.vector({4,5,6}))  -- 32
+
+-- Transpose
+local mt = m:transpose()  -- or m:T
+
+-- Linear algebra operations
+local A = la.matrix({{4, 2}, {3, 1}})
+print(A:det())      -- -2 (determinant)
+print(A:trace())    -- 5
+print(A:rank())     -- 2
+
+local Ainv = A:inv()  -- inverse
+
+-- Decompositions
+local L, U, P = A:lu()     -- LU decomposition
+local Q, R = A:qr()        -- QR decomposition
+local U, S, V = A:svd()    -- Singular value decomposition
+local vals, vecs = A:eig() -- Eigenvalues and eigenvectors
+
+-- Solve linear system Ax = b
+local A = la.matrix({{3, 1}, {1, 2}})
+local b = la.vector({9, 8})
+local x = la.solve(A, b)   -- x = {2, 3}
+
+-- Least squares (overdetermined system)
+local x = la.lstsq(A, b)
+```
+
+| Category | Functions |
+|----------|-----------|
+| Creation | `vector`, `matrix`, `zeros`, `ones`, `eye`, `diag`, `range`, `linspace` |
+| Properties | `rows`, `cols`, `shape`, `size`, `get`, `set`, `row`, `col` |
+| Arithmetic | `+`, `-`, `*`, `/`, `dot`, `hadamard` |
+| Operations | `transpose`/`T`, `det`, `inv`, `trace`, `norm`, `rank` |
+| Decompositions | `lu`, `qr`, `svd`, `eig`, `chol` |
+| Solvers | `solve`, `lstsq` |
+
+---
+
+### Array Module (NumPy-like)
+
+**Namespace:** `luaswift.array`
+
+N-dimensional arrays with NumPy-style broadcasting and operations.
+
+```lua
+local np = require("luaswift.array")
+
+-- Create arrays
+local a = np.array({1, 2, 3, 4, 5, 6})        -- 1D
+local b = np.array({{1, 2, 3}, {4, 5, 6}})    -- 2D (2x3)
+local c = np.zeros({2, 3, 4})                  -- 3D zeros
+local d = np.ones({3, 3})                      -- 3x3 ones
+local e = np.full({2, 2}, 7)                   -- 2x2 filled with 7
+
+-- Ranges
+local r = np.arange(0, 10, 2)      -- {0, 2, 4, 6, 8}
+local l = np.linspace(0, 1, 5)    -- {0, 0.25, 0.5, 0.75, 1}
+
+-- Random arrays
+local uniform = np.random.rand({3, 3})   -- uniform [0, 1)
+local normal = np.random.randn({3, 3})   -- normal distribution
+
+-- Properties
+print(b:shape())  -- {2, 3}
+print(b:ndim())   -- 2
+print(b:size())   -- 6
+
+-- Reshaping
+local flat = b:flatten()           -- 1D: {1,2,3,4,5,6}
+local reshaped = a:reshape({2, 3}) -- 2x3
+local expanded = a:expand_dims(1)  -- add dimension
+local squeezed = c:squeeze()       -- remove size-1 dimensions
+
+-- Element access (1-based indexing)
+print(b:get(1, 2))    -- 2
+b:set(1, 2, 10)
+
+-- Arithmetic with broadcasting
+local x = np.array({{1}, {2}, {3}})  -- 3x1
+local y = np.array({10, 20, 30})      -- 1x3
+local z = x + y  -- broadcasts to 3x3
+
+-- Scalar operations
+local doubled = b * 2
+local shifted = b + 10
+
+-- Element-wise math
+local sq = np.sqrt(b)
+local ex = np.exp(a)
+local logs = np.log(a)
+local sines = np.sin(a)
+
+-- Reductions
+print(b:sum())         -- 21 (all elements)
+print(b:sum(1))        -- sum along axis 0: {5, 7, 9}
+print(b:mean())        -- 3.5
+print(b:std())         -- standard deviation
+print(b:min(), b:max())
+print(b:argmax())      -- index of maximum (1-based)
+
+-- Comparisons (return boolean arrays)
+local mask = np.greater(a, 3)     -- {false, false, false, true, true, true}
+local result = np.where(mask, a, np.zeros({6}))  -- conditional select
+
+-- Matrix multiplication
+local m1 = np.array({{1, 2}, {3, 4}})
+local m2 = np.array({{5, 6}, {7, 8}})
+local prod = np.dot(m1, m2)  -- matrix multiplication
+
+-- Vector dot product
+local v1 = np.array({1, 2, 3})
+local v2 = np.array({4, 5, 6})
+print(np.dot(v1, v2))  -- 32 (scalar)
+
+-- Convert to Lua table
+local tbl = b:tolist()  -- nested Lua arrays
+```
+
+| Category | Functions |
+|----------|-----------|
+| Creation | `array`, `zeros`, `ones`, `full`, `arange`, `linspace`, `random.rand`, `random.randn` |
+| Properties | `shape`, `ndim`, `size`, `get`, `set` |
+| Reshaping | `reshape`, `flatten`, `squeeze`, `expand_dims`, `transpose`/`T`, `copy` |
+| Math | `abs`, `sqrt`, `exp`, `log`, `sin`, `cos`, `tan` |
+| Arithmetic | `+`, `-`, `*`, `/`, `^` (with broadcasting) |
+| Reductions | `sum`, `mean`, `std`, `var`, `min`, `max`, `argmin`, `argmax`, `prod` |
+| Comparison | `equal`, `greater`, `less`, `where` |
+| Linear Algebra | `dot` |
+
+**Broadcasting Rules:**
+- Dimensions aligned from right
+- Size-1 dimensions broadcast to match
+- Missing dimensions treated as size 1
+
+---
+
+## Pure Lua Modules
+
+These modules are implemented in pure Lua for portability.
+
+### Table Extensions (tablex)
+
+**Require:** `tablex`
+
+Extended table operations including functional programming utilities.
+
+```lua
+local tablex = require("tablex")
+
+-- Copying
+local t = {a = 1, b = {c = 2}}
+local shallow = tablex.copy(t)
+local deep = tablex.deepcopy(t)
+
+-- Merging
+local merged = tablex.merge({a = 1}, {b = 2})        -- {a=1, b=2}
+local deepm = tablex.deepmerge({a = {x = 1}}, {a = {y = 2}})
+
+-- Functional operations
+local doubled = tablex.map({1, 2, 3}, function(v) return v * 2 end)
+local evens = tablex.filter({1, 2, 3, 4}, function(v) return v % 2 == 0 end)
+local sum = tablex.reduce({1, 2, 3}, function(acc, v) return acc + v end, 0)
+
+-- Query functions
+local keys = tablex.keys({a = 1, b = 2})       -- {"a", "b"}
+local values = tablex.values({a = 1, b = 2})   -- {1, 2}
+local found = tablex.find({10, 20, 30}, 20)    -- 2 (key)
+print(tablex.contains({1, 2, 3}, 2))           -- true
+print(tablex.size({a = 1, b = 2}))             -- 2
+print(tablex.isarray({1, 2, 3}))               -- true
+
+-- Transformations
+local inverted = tablex.invert({a = 1, b = 2})  -- {[1]="a", [2]="b"}
+local flat = tablex.flatten({{1, 2}, {3, 4}})   -- {1, 2, 3, 4}
+local slice = tablex.slice({1,2,3,4,5}, 2, 4)   -- {2, 3, 4}
+local rev = tablex.reverse({1, 2, 3})           -- {3, 2, 1}
+
+-- Set operations
+local union = tablex.union({1, 2}, {2, 3})           -- {1, 2, 3}
+local inter = tablex.intersection({1, 2}, {2, 3})    -- {2}
+local diff = tablex.difference({1, 2, 3}, {2})       -- {1, 3}
+
+-- Comparison
+print(tablex.equals({1, 2}, {1, 2}))       -- true
+print(tablex.deepequals({a={1}}, {a={1}})) -- true
+```
+
+| Category | Functions |
+|----------|-----------|
+| Copying | `copy`, `deepcopy` |
+| Merging | `merge`, `deepmerge` |
+| Functional | `map`, `filter`, `reduce`, `foreach` |
+| Query | `find`, `contains`, `keys`, `values`, `size`, `isempty`, `isarray` |
+| Transform | `invert`, `flatten`, `slice`, `reverse` |
+| Sets | `union`, `intersection`, `difference` |
+| Comparison | `equals`, `deepequals` |
+
+---
+
+### String Extensions (stringx)
+
+**Require:** `stringx`
+
+Extended string manipulation utilities.
+
+```lua
+local stringx = require("stringx")
+
+-- Trimming
+print(stringx.trim("  hello  "))     -- "hello"
+print(stringx.ltrim("  hello"))      -- "hello"
+print(stringx.rtrim("hello  "))      -- "hello"
+print(stringx.strip("##hello##", "#")) -- "hello"
+
+-- Case conversion
+print(stringx.capitalize("hello world"))  -- "Hello world"
+print(stringx.title("hello world"))       -- "Hello World"
+
+-- Splitting and joining
+local parts = stringx.split("a,b,c", ",")  -- {"a", "b", "c"}
+local lines = stringx.splitlines("a\nb\nc") -- {"a", "b", "c"}
+print(stringx.join({"a", "b"}, "-"))        -- "a-b"
+
+-- Searching
+print(stringx.startswith("hello", "he"))   -- true
+print(stringx.endswith("hello", "lo"))     -- true
+print(stringx.contains("hello", "ell"))    -- true
+print(stringx.count("banana", "a"))        -- 3
+
+-- Replacing
+print(stringx.replace("hello", "l", "L"))     -- "heLLo"
+print(stringx.replace("hello", "l", "L", 1))  -- "heLlo" (limit 1)
+
+-- Padding
+print(stringx.lpad("42", 5, "0"))    -- "00042"
+print(stringx.rpad("hi", 5))         -- "hi   "
+print(stringx.center("hi", 6))       -- "  hi  "
+
+-- Testing
+print(stringx.isalpha("hello"))   -- true
+print(stringx.isdigit("123"))     -- true
+print(stringx.isalnum("abc123"))  -- true
+print(stringx.isspace("   "))     -- true
+print(stringx.isempty(""))        -- true
+print(stringx.isblank("  "))      -- true
+
+-- Transformation
+print(stringx.reverse("hello"))           -- "olleh"
+print(stringx.wrap("long text here", 5))  -- word wrapped
+print(stringx.truncate("hello world", 8)) -- "hello..."
+print(stringx.slug("Hello World!"))       -- "hello-world"
+```
+
+| Category | Functions |
+|----------|-----------|
+| Trimming | `trim`, `ltrim`, `rtrim`, `strip` |
+| Case | `capitalize`, `title` |
+| Split/Join | `split`, `splitlines`, `join` |
+| Search | `startswith`, `endswith`, `contains`, `count` |
+| Replace | `replace` |
+| Padding | `lpad`, `rpad`, `center` |
+| Testing | `isalpha`, `isdigit`, `isalnum`, `isspace`, `isempty`, `isblank` |
+| Transform | `reverse`, `wrap`, `truncate`, `slug` |
+
+---
+
+### UTF-8 Extensions (utf8x)
+
+**Require:** `utf8x`
+
+Extended UTF-8 string operations with Unicode awareness.
+
+```lua
+local utf8x = require("utf8x")
+
+-- Character-based substring (not byte-based)
+print(utf8x.sub("日本語", 1, 2))  -- "日本"
+
+-- Reverse UTF-8 string
+print(utf8x.reverse("hello"))  -- "olleh"
+print(utf8x.reverse("日本"))   -- "本日"
+
+-- Case conversion (Latin-1 support)
+print(utf8x.upper("café"))  -- "CAFÉ"
+print(utf8x.lower("NAÏVE")) -- "naïve"
+
+-- Display width (CJK = 2, others = 1)
+print(utf8x.width("hello"))  -- 5
+print(utf8x.width("日本語")) -- 6 (3 chars × 2)
+print(utf8x.width("Aあ"))    -- 3 (1 + 2)
+
+-- Character properties (pass codepoint)
+local cp = utf8.codepoint("A")
+print(utf8x.isalpha(cp))  -- true
+print(utf8x.isupper(cp))  -- true
+print(utf8x.islower(cp))  -- false
+print(utf8x.isdigit(utf8.codepoint("5")))  -- true
+print(utf8x.isspace(utf8.codepoint(" ")))  -- true
+
+-- Standard utf8 functions also available
+print(utf8x.len("日本語"))  -- 3 (character count)
+```
+
+| Function | Description |
+|----------|-------------|
+| `sub(s, i, j?)` | Character-based substring |
+| `reverse(s)` | Reverse UTF-8 string |
+| `upper(s)` | Uppercase (Latin-1 aware) |
+| `lower(s)` | Lowercase (Latin-1 aware) |
+| `width(s)` | Display width (CJK-aware) |
+| `isalpha(cp)` | Is alphabetic codepoint |
+| `isupper(cp)` | Is uppercase codepoint |
+| `islower(cp)` | Is lowercase codepoint |
+| `isdigit(cp)` | Is digit codepoint |
+| `isspace(cp)` | Is whitespace codepoint |
+
+---
+
+### Complex Numbers (complex)
+
+**Require:** `complex`
+
+Complex number arithmetic and mathematical functions.
+
+```lua
+local complex = require("complex")
+
+-- Creation
+local z1 = complex.new(3, 4)      -- 3 + 4i
+local z2 = complex(1, -2)         -- callable syntax
+local z3 = complex.polar(5, 0.9)  -- from polar form
+local z4 = complex.parse("3+4i")  -- from string
+
+-- Properties
+print(z1.re, z1.im)  -- 3, 4
+print(z1:abs())      -- 5 (magnitude)
+print(z1:arg())      -- 0.927... (angle in radians)
+
+-- Arithmetic (operators)
+local sum = z1 + z2
+local diff = z1 - z2
+local prod = z1 * z2
+local quot = z1 / z2
+local neg = -z1
+local pow = z1 ^ 2
+
+-- Methods
+local conj = z1:conj()           -- conjugate: 3 - 4i
+local r, theta = z1:polar()      -- to polar form
+print(z1:tostring())             -- "3+4i"
+
+-- Mathematical functions
+print(complex.sqrt(complex(-1, 0)))   -- 0+1i (i)
+print(complex.exp(complex(0, math.pi))) -- -1+0i (Euler's)
+print(complex.log(complex.new(1, 0))) -- 0+0i
+
+-- Trigonometric (complex domain)
+local sin_z = complex.sin(z1)
+local cos_z = complex.cos(z1)
+local tan_z = complex.tan(z1)
+
+-- Hyperbolic
+local sinh_z = complex.sinh(z1)
+local cosh_z = complex.cosh(z1)
+
+-- Inverse trigonometric
+local asin_z = complex.asin(z1)
+local acos_z = complex.acos(z1)
+local atan_z = complex.atan(z1)
+```
+
+| Category | Functions |
+|----------|-----------|
+| Creation | `new`, `polar`, `parse` |
+| Properties | `.re`, `.im`, `abs`, `arg`, `polar` |
+| Operators | `+`, `-`, `*`, `/`, `^`, `-` (unary), `==` |
+| Methods | `conj`, `clone`, `tostring` |
+| Functions | `sqrt`, `exp`, `log` |
+| Trigonometric | `sin`, `cos`, `tan`, `asin`, `acos`, `atan` |
+| Hyperbolic | `sinh`, `cosh`, `tanh` |
+
+---
+
+### Geometry (geo)
+
+**Require:** `geo`
+
+2D and 3D geometry with vectors, quaternions, and transformations.
+
+```lua
+local geo = require("geo")
+
+-- 2D Vectors
+local v1 = geo.vec2(3, 4)
+print(v1:length())      -- 5
+print(v1:normalize())   -- unit vector
+print(v1:angle())       -- angle in radians
+
+local v2 = geo.vec2(1, 0)
+print(v1:dot(v2))       -- dot product
+print(v1:cross(v2))     -- 2D cross (scalar)
+print(v1:rotate(math.pi/2))  -- rotate 90°
+print(v1:lerp(v2, 0.5)) -- linear interpolation
+
+-- Vector operators
+local sum = v1 + v2
+local scaled = v1 * 2
+local neg = -v1
+
+-- 3D Vectors
+local v3 = geo.vec3(1, 2, 3)
+local v4 = geo.vec3(4, 5, 6)
+print(v3:cross(v4))     -- 3D cross product (vec3)
+print(v3:rotate(geo.vec3(0,1,0), math.pi/4))  -- rotate around axis
+
+-- 2D Geometry functions
+local dist = geo.distance(v1, v2)
+local angle = geo.angle(p1, p2, p3)  -- angle at p2
+local area = geo.area_triangle(p1, p2, p3)
+local center = geo.centroid({p1, p2, p3})
+local inside = geo.point_in_polygon(point, polygon)
+local hull = geo.convex_hull(points)
+local intersect = geo.line_intersection({p1, p2}, {p3, p4})
+local circle = geo.circle_from_3_points(p1, p2, p3)
+
+-- 2D Transformations (chainable)
+local t = geo.transform2d()
+    :translate(10, 20)
+    :rotate(math.pi/4)
+    :scale(2)
+local transformed = t:apply(v1)
+
+-- Quaternions (3D rotations)
+local q = geo.quaternion.from_euler(yaw, pitch, roll)
+local q2 = geo.quaternion.from_axis_angle(geo.vec3(0,1,0), math.pi/2)
+local rotated = q:rotate(v3)       -- rotate vector
+local interpolated = q:slerp(q2, 0.5)  -- spherical lerp
+
+-- Quaternion conversions
+local yaw, pitch, roll = q:to_euler()
+local axis, angle = q:to_axis_angle()
+local matrix = q:to_matrix()
+
+-- 3D Geometry functions
+local plane = geo.plane_from_3_points(p1, p2, p3)
+local dist = geo.point_plane_distance(point, plane)
+local hit = geo.line_plane_intersection(line, plane)
+local sphere = geo.sphere_from_4_points(p1, p2, p3, p4)
+
+-- 3D Transformations
+local t3d = geo.transform3d()
+    :translate(1, 2, 3)
+    :rotate_x(math.pi/4)
+    :rotate_y(math.pi/4)
+    :scale(2)
+```
+
+| Category | Functions |
+|----------|-----------|
+| 2D Vectors | `vec2`, methods: `length`, `normalize`, `dot`, `cross`, `angle`, `rotate`, `lerp`, `project`, `reflect`, `perpendicular` |
+| 3D Vectors | `vec3`, same methods plus 3D cross product |
+| 2D Geometry | `distance`, `angle`, `area_triangle`, `centroid`, `point_in_polygon`, `line_intersection`, `convex_hull`, `circle_from_3_points` |
+| 3D Geometry | `plane_from_3_points`, `point_plane_distance`, `line_plane_intersection`, `sphere_from_4_points` |
+| 2D Transform | `transform2d`, methods: `translate`, `rotate`, `scale`, `apply`, `multiply`, `inverse` |
+| 3D Transform | `transform3d`, methods: `translate`, `rotate_x/y/z`, `rotate_axis`, `scale`, `apply`, `multiply` |
+| Quaternions | `quaternion`, `from_euler`, `from_axis_angle`, methods: `normalize`, `conjugate`, `inverse`, `rotate`, `slerp`, `to_euler`, `to_axis_angle`, `to_matrix` |
+
+---
+
+### Compatibility (compat)
+
+**Require:** `compat`
+
+Lua version compatibility layer for running legacy code on Lua 5.4.
+
+```lua
+local compat = require("compat")
+
+-- Version detection
+print(compat.version)    -- "5.4"
+print(compat.lua54)      -- true
+print(compat.lua53)      -- false
+print(compat.luajit)     -- false
+
+-- Feature detection
+if compat.features.bitwise_ops then
+    print("Native bitwise operators available")
+end
+
+-- bit32 library (removed in 5.4, provided here)
+print(compat.bit32.band(0xFF, 0x0F))    -- 15
+print(compat.bit32.bor(0x0F, 0xF0))     -- 255
+print(compat.bit32.bxor(0xFF, 0x0F))    -- 240
+print(compat.bit32.bnot(0))             -- 4294967295
+print(compat.bit32.lshift(1, 4))        -- 16
+print(compat.bit32.rshift(16, 2))       -- 4
+print(compat.bit32.lrotate(0x80000000, 1)) -- 1
+print(compat.bit32.extract(0xFF, 4, 4)) -- 15
+print(compat.bit32.replace(0, 15, 4, 4)) -- 240
+
+-- Legacy aliases
+local unpack = compat.unpack  -- table.unpack
+local loadstring = compat.loadstring  -- load
+
+-- Install globally (modifies _G)
+compat.install()  -- makes bit32, unpack, loadstring global
+
+-- Check for deprecated features in code
+local warnings = compat.check_deprecated([[
+    local x = setfenv(func, {})
+    module("mymodule")
+]])
+-- Returns {"setfenv is not supported...", "module() is deprecated..."}
+
+-- Version comparison
+if compat.version_at_least("5.3") then
+    print("Lua 5.3+ features available")
+end
+print(compat.version_compare("5.4", "5.3"))  -- 1 (5.4 > 5.3)
+```
+
+| Category | Functions |
+|----------|-----------|
+| Detection | `version`, `lua51`/`lua52`/`lua53`/`lua54`, `luajit`, `features` |
+| bit32 | `band`, `bor`, `bxor`, `bnot`, `lshift`, `rshift`, `arshift`, `lrotate`, `rrotate`, `btest`, `extract`, `replace` |
+| Aliases | `unpack`, `loadstring`, `setfenv`*, `getfenv`* |
+| Utilities | `install`, `check_deprecated`, `version_compare`, `version_at_least` |
+
+*`setfenv`/`getfenv` throw errors as they cannot be emulated in Lua 5.2+
+
+---
+
+### SVG Generation (svg)
+
+**Require:** `svg`
+
+Create SVG graphics programmatically.
+
+```lua
+local svg = require("svg")
+
+local drawing = svg.create(800, 600)
+
+-- Basic shapes
+drawing:rect(10, 10, 100, 50, {fill = "blue"})
+drawing:circle(200, 200, 50, {stroke = "red", fill = "none"})
+drawing:ellipse(400, 200, 60, 40, {fill = "green"})
+drawing:line(0, 0, 100, 100, {stroke = "black"})
+
+-- Polygons and paths
+drawing:polygon({{x=100,y=10}, {x=150,y=90}, {x=50,y=90}}, {fill = "yellow"})
+drawing:path("M 10 10 L 100 10 L 100 100 Z", {stroke = "purple"})
+
+-- Text with Unicode support
+drawing:text("Hello SVG!", 100, 100, {font_size = 20})
+drawing:text(svg.greek.alpha .. " = 45°", 150, 150)
+
+-- Groups and transforms
+local g = drawing:group(svg.translate(50, 50))
+g:circle(0, 0, 20, {fill = "red"})
+
+-- Charts
+drawing:linePlot({{x=0,y=0}, {x=50,y=30}, {x=100,y=10}}, {stroke = "blue"})
+drawing:scatterPlot({{x=10,y=10}, {x=50,y=50}}, 5, {fill = "red"})
+
+-- Render to string
+local svgString = drawing:render()
+```
+
+| Category | Functions |
+|----------|-----------|
+| Creation | `svg.create(width, height, options?)` |
+| Shapes | `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `path` |
+| Text | `text` |
+| Groups | `group` |
+| Charts | `linePlot`, `scatterPlot`, `barChart` |
+| Transforms | `svg.translate`, `svg.rotate`, `svg.scale` |
+| Constants | `svg.greek` (Greek letters and subscripts) |
+| Output | `render()` |
+
+---
+
+### Math Expressions (math_expr)
+
+**Require:** `math_expr`
+
+Parse and evaluate mathematical expressions.
+
+```lua
+local math_expr = require("math_expr")
+
+-- Basic evaluation
+print(math_expr.eval("2 + 3 * 4"))      -- 14
+print(math_expr.eval("sqrt(16)"))        -- 4
+print(math_expr.eval("sin(pi / 2)"))     -- 1
+
+-- With variables
+print(math_expr.eval("x^2 + 2*x + 1", {x = 3}))  -- 16
+print(math_expr.eval("a * b", {a = 5, b = 7}))   -- 35
+
+-- Step-by-step solving
+local result = math_expr.solve("(2 + 3) * 4", {show_steps = true})
+-- Returns table with intermediate steps
+```
+
+| Function | Description |
+|----------|-------------|
+| `eval(expr, vars?)` | Evaluate expression with optional variables |
+| `solve(expr, options?)` | Solve with optional step-by-step output |
+
+**Supported:** `+`, `-`, `*`, `/`, `^`, parentheses, `sin`, `cos`, `tan`, `sqrt`, `abs`, `log`, `ln`, `exp`, `pi`, `e`
+
+---
+
 ## Error Handling
 
 ```swift
@@ -490,4 +1330,6 @@ Lua is also MIT licensed. See https://www.lua.org/license.html
 ## Acknowledgments
 
 - [Lua](https://www.lua.org/) - The Lua programming language
+- [Yams](https://github.com/jpsim/Yams) - YAML parsing for Swift
+- [TOMLKit](https://github.com/LebJe/TOMLKit) - TOML parsing for Swift
 - Inspired by various Lua-Swift bridges in the community

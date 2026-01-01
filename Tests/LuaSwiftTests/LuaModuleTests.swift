@@ -2070,4 +2070,255 @@ final class LuaModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Compat Module Tests
+
+    func testCompatVersion() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.version
+        """)
+
+        XCTAssertEqual(result.stringValue, "5.4")
+    }
+
+    func testCompatVersionFlags() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return {
+                lua51 = compat.lua51,
+                lua52 = compat.lua52,
+                lua53 = compat.lua53,
+                lua54 = compat.lua54
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["lua51"]?.boolValue, false)
+        XCTAssertEqual(result.tableValue?["lua52"]?.boolValue, false)
+        XCTAssertEqual(result.tableValue?["lua53"]?.boolValue, false)
+        XCTAssertEqual(result.tableValue?["lua54"]?.boolValue, true)
+    }
+
+    func testCompatFeatures() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return {
+                table_unpack = compat.features.table_unpack,
+                utf8_library = compat.features.utf8_library,
+                bitwise_ops = compat.features.bitwise_ops
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["table_unpack"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["utf8_library"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["bitwise_ops"]?.boolValue, true)
+    }
+
+    func testCompatBit32Band() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.band(0xFF, 0x0F)
+        """)
+
+        XCTAssertEqual(result.numberValue, 0x0F)
+    }
+
+    func testCompatBit32Bor() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.bor(0xF0, 0x0F)
+        """)
+
+        XCTAssertEqual(result.numberValue, 0xFF)
+    }
+
+    func testCompatBit32Bxor() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.bxor(0xFF, 0x0F)
+        """)
+
+        XCTAssertEqual(result.numberValue, 0xF0)
+    }
+
+    func testCompatBit32Bnot() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.bnot(0)
+        """)
+
+        XCTAssertEqual(result.numberValue, 0xFFFFFFFF)
+    }
+
+    func testCompatBit32Lshift() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.lshift(1, 4)
+        """)
+
+        XCTAssertEqual(result.numberValue, 16)
+    }
+
+    func testCompatBit32Rshift() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.rshift(16, 4)
+        """)
+
+        XCTAssertEqual(result.numberValue, 1)
+    }
+
+    func testCompatBit32Lrotate() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.lrotate(0x80000000, 1)
+        """)
+
+        XCTAssertEqual(result.numberValue, 1)
+    }
+
+    func testCompatBit32Rrotate() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.rrotate(1, 1)
+        """)
+
+        XCTAssertEqual(result.numberValue, 0x80000000)
+    }
+
+    func testCompatBit32Btest() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return {
+                has_bit = compat.bit32.btest(0xFF, 0x01),
+                no_bit = compat.bit32.btest(0xF0, 0x01)
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["has_bit"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["no_bit"]?.boolValue, false)
+    }
+
+    func testCompatBit32Extract() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.extract(0xABCD, 4, 8)
+        """)
+
+        XCTAssertEqual(result.numberValue, 0xBC)
+    }
+
+    func testCompatBit32Replace() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return compat.bit32.replace(0xABCD, 0xFF, 4, 8)
+        """)
+
+        XCTAssertEqual(result.numberValue, 0xAFFD)
+    }
+
+    func testCompatVersionCompare() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return {
+                less = compat.version_compare("5.3", "5.4") < 0,
+                equal = compat.version_compare("5.4", "5.4") == 0,
+                greater = compat.version_compare("5.4", "5.3") > 0
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["less"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["equal"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["greater"]?.boolValue, true)
+    }
+
+    func testCompatVersionAtLeast() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            return {
+                at_least_53 = compat.version_at_least("5.3"),
+                at_least_54 = compat.version_at_least("5.4"),
+                at_least_55 = compat.version_at_least("5.5")
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["at_least_53"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["at_least_54"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["at_least_55"]?.boolValue, false)
+    }
+
+    func testCompatInstall() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            compat.install()
+            -- After install, bit32 should be available globally
+            return bit32 ~= nil and bit32.band(0xFF, 0x0F) == 0x0F
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCompatCheckDeprecated() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            local warnings = compat.check_deprecated("setfenv(1, {}) bit32.band(1,2)")
+            return #warnings
+        """)
+
+        XCTAssertEqual(result.numberValue, 2)
+    }
 }

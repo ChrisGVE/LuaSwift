@@ -32,6 +32,8 @@ public struct ModuleRegistry {
     /// - `luaswift.yaml`: YAML encoding/decoding
     /// - `luaswift.toml`: TOML encoding/decoding
     /// - `luaswift.regex`: Regular expression support
+    /// - `luaswift.linalg`: Linear algebra operations
+    /// - `luaswift.array`: NumPy-like N-dimensional arrays
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
@@ -39,6 +41,8 @@ public struct ModuleRegistry {
         installYAMLModule(in: engine)
         installTOMLModule(in: engine)
         installRegexModule(in: engine)
+        installLinAlgModule(in: engine)
+        installArrayModule(in: engine)
     }
 
     /// Install only the JSON module.
@@ -69,9 +73,24 @@ public struct ModuleRegistry {
         RegexModule.register(in: engine)
     }
 
-    // MARK: - Future Module Registration
+    /// Install only the Linear Algebra module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installLinAlgModule(in engine: LuaEngine) {
+        LinAlgModule.register(in: engine)
+    }
 
-    // Additional module registration methods will be added here as modules are implemented:
-    // - installLinAlgModule(in:)
-    // - installArrayModule(in:)
+    /// Install only the Math extension module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installMathModule(in engine: LuaEngine) {
+        MathXModule.register(in: engine)
+    }
+
+    /// Install only the Array module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installArrayModule(in engine: LuaEngine) {
+        ArrayModule.register(in: engine)
+    }
 }

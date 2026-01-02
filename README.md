@@ -45,7 +45,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ChrisGVE/LuaSwift.git", from: "1.1.0")
+    .package(url: "https://github.com/ChrisGVE/LuaSwift.git", from: "1.2.0")
 ]
 ```
 
@@ -404,6 +404,61 @@ LuaSwift includes both Swift-backed modules (high performance via Accelerate fra
 | [Compatibility](#compatibility-compat) | `compat` | Lua | Lua version compatibility layer |
 | [SVG](#svg-generation-svg) | `svg` | Lua | SVG graphics generation |
 | [Math Expressions](#math-expressions-math_expr) | `math_expr` | Lua | Expression parsing/evaluation |
+| [Types](#type-utilities-types) | `types` | Swift | Type detection and conversion |
+
+### Top-Level Globals
+
+All modules are available as top-level globals for convenience:
+
+```lua
+-- No require() needed - these are available immediately:
+json.encode({a = 1})
+complex.new(1, 2)
+geo.vec3(1, 2, 3)
+linalg.matrix({{1,2},{3,4}})
+array.zeros({3, 3})
+stringx.capitalize("hello")
+mathx.sign(-5)
+tablex.keys({a=1, b=2})
+types.typeof(complex.new(1, 2))
+```
+
+### Extending Standard Library
+
+You can inject LuaSwift functions into Lua's standard library for seamless integration:
+
+**Per-module import:**
+```lua
+-- Extend string library with stringx functions
+stringx.import()
+
+-- Now these work:
+string.capitalize("hello")  -- "Hello"
+("hello"):capitalize()      -- "Hello" (method syntax)
+("  hi  "):strip()          -- "hi"
+
+-- Same pattern for other modules:
+mathx.import()   -- extends math
+tablex.import()  -- extends table
+utf8x.import()   -- extends utf8
+```
+
+**Global extension:**
+```lua
+-- Extend everything at once
+luaswift.extend_stdlib()
+
+-- Now all extensions are in the standard library:
+math.sign(-5)                    -- -1
+math.factorial(5)                -- 120
+string.capitalize("hello")       -- "Hello"
+table.keys({a=1, b=2})           -- {"a", "b"}
+
+-- Plus specialized modules become math subnamespaces:
+math.complex.new(3, 4)           -- complex number
+math.linalg.vector({1, 2, 3})    -- linear algebra vector
+math.geo.vec2(1, 2)              -- geometry vector
+```
 
 ---
 
@@ -1131,6 +1186,58 @@ local t3d = geo.transform3d()
 | 2D Transform | `transform2d`, methods: `translate`, `rotate`, `scale`, `apply`, `multiply`, `inverse` |
 | 3D Transform | `transform3d`, methods: `translate`, `rotate_x/y/z`, `rotate_axis`, `scale`, `apply`, `multiply` |
 | Quaternions | `quaternion`, `from_euler`, `from_axis_angle`, methods: `normalize`, `conjugate`, `inverse`, `rotate`, `slerp`, `to_euler`, `to_axis_angle`, `to_matrix` |
+
+---
+
+### Type Utilities (types)
+
+**Require:** `types` or `luaswift.types`
+
+Type detection and conversion utilities for LuaSwift objects.
+
+```lua
+-- Type detection
+types.typeof(complex.new(1, 2))         -- "complex"
+types.typeof(geo.vec2(1, 2))            -- "vec2"
+types.typeof(linalg.matrix({{1,2}}))    -- "linalg.matrix"
+types.typeof({a = 1})                   -- "table"
+
+-- Type checking
+types.is(value, "complex")              -- true/false
+types.is_luaswift(value)                -- true if any LuaSwift type
+
+-- Category checks
+types.is_numeric(value)                 -- number or complex
+types.is_vector(value)                  -- vec2, vec3, or linalg.vector
+types.is_matrix(value)                  -- linalg.matrix or array
+types.is_geometry(value)                -- vec2, vec3, quaternion, transform3d
+
+-- Conversion
+types.to_complex(value)                 -- convert to complex
+types.to_vec2(value)                    -- convert to vec2
+types.to_vec3(value)                    -- convert to vec3
+types.to_array(value)                   -- convert to array
+types.to_vector(value)                  -- convert to linalg.vector
+types.to_matrix(value)                  -- convert to linalg.matrix
+
+-- Clone (deep copy preserving type)
+local copy = types.clone(complex.new(1, 2))
+
+-- List all LuaSwift types
+for _, t in ipairs(types.all_types()) do
+    print(t)  -- "complex", "vec2", "vec3", "array", etc.
+end
+```
+
+| Function | Description |
+|----------|-------------|
+| `typeof(value)` | Get type name (returns `__luaswift_type` for objects) |
+| `is(value, typename)` | Check if value is specific type |
+| `is_luaswift(value)` | Check if value is any LuaSwift type |
+| `is_numeric/vector/matrix/geometry(v)` | Category checks |
+| `to_complex/vec2/vec3/array/vector/matrix(v)` | Type conversions |
+| `clone(value)` | Deep clone preserving type |
+| `all_types()` | List all LuaSwift types |
 
 ---
 

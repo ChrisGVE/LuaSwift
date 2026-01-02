@@ -574,4 +574,107 @@ final class ArrayModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "array")
     }
+
+    // MARK: - DataServer Integration Tests
+
+    func testDataServerArrayIntegration() throws {
+        // Create a data server that returns array data
+        let dataServer = ArrayDataServer()
+        try engine.register(server: dataServer)
+
+        // Test 1: Pass 1D array data directly to array module
+        let result1D = try engine.evaluate("""
+            local data = Data.numbers1D
+            local a = luaswift.array.array(data)
+            return a:sum()
+            """)
+
+        XCTAssertEqual(result1D.numberValue, 15)  // 1+2+3+4+5 = 15
+    }
+
+    func testDataServerNestedArrayIntegration() throws {
+        let dataServer = ArrayDataServer()
+        try engine.register(server: dataServer)
+
+        // Test 2: Pass 2D array data directly to array module
+        let result2D = try engine.evaluate("""
+            local data = Data.numbers2D
+            local a = luaswift.array.array(data)
+            local shape = a:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+
+        XCTAssertEqual(result2D.numberValue, 23)  // 2 rows, 3 cols
+    }
+
+    func testDataServerArrayOperations() throws {
+        let dataServer = ArrayDataServer()
+        try engine.register(server: dataServer)
+
+        // Test 3: Perform operations on DataServer-sourced array
+        let result = try engine.evaluate("""
+            local data = Data.numbers1D
+            local a = luaswift.array.array(data)
+            local b = a * 2
+            return b:mean()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 6.0, accuracy: 1e-10)  // mean of {2,4,6,8,10} = 6
+    }
+
+    func testDataServerFloatArrayIntegration() throws {
+        let dataServer = ArrayDataServer()
+        try engine.register(server: dataServer)
+
+        // Test 4: Float data from DataServer
+        let result = try engine.evaluate("""
+            local data = Data.floats
+            local a = luaswift.array.array(data)
+            return a:sum()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 3.6, accuracy: 1e-10)  // 0.1+0.5+1.0+2.0 = 3.6
+    }
+}
+
+// MARK: - Test DataServer for Array Integration
+
+/// A DataServer that provides array-compatible data for testing
+final class ArrayDataServer: LuaValueServer {
+    let namespace = "Data"
+
+    func resolve(path: [String]) -> LuaValue {
+        guard let first = path.first else { return .nil }
+
+        switch first {
+        case "numbers1D":
+            // Return a 1D array of numbers
+            return .array([.number(1), .number(2), .number(3), .number(4), .number(5)])
+
+        case "numbers2D":
+            // Return a 2D array (nested arrays)
+            return .array([
+                .array([.number(1), .number(2), .number(3)]),
+                .array([.number(4), .number(5), .number(6)])
+            ])
+
+        case "floats":
+            // Return floating-point data
+            return .array([.number(0.1), .number(0.5), .number(1.0), .number(2.0)])
+
+        case "empty":
+            return .array([])
+
+        case "mixed":
+            // Return a table-style array
+            return .table([
+                "1": .number(10),
+                "2": .number(20),
+                "3": .number(30)
+            ])
+
+        default:
+            return .nil
+        }
+    }
 }

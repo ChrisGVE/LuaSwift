@@ -96,37 +96,15 @@ public struct TableXModule {
     private static func deepcopy(_ value: LuaValue, seen: inout [ObjectIdentifier: LuaValue]) -> LuaValue {
         switch value {
         case .table(let dict):
-            // Use object identity to detect cycles
-            let id = ObjectIdentifier(dict as AnyObject)
-            if seen[id] != nil {
-                // Return a marker for circular reference - we'll use an empty table
-                // Note: true circular references cannot be represented in Swift value types
-                return .table([:])
-            }
-
-            // Mark as seen before recursing to detect cycles
-            seen[id] = .table([:])
-
             // Recursively copy all entries
             var copy: [String: LuaValue] = [:]
             for (k, v) in dict {
                 copy[k] = deepcopy(v, seen: &seen)
             }
-
             return .table(copy)
 
         case .array(let arr):
-            // Use object identity to detect cycles
-            let id = ObjectIdentifier(arr as AnyObject)
-            if seen[id] != nil {
-                // Return a marker for circular reference - we'll use an empty array
-                // Note: true circular references cannot be represented in Swift value types
-                return .array([])
-            }
-
-            // Mark as seen before recursing to detect cycles
-            seen[id] = .array([])
-
+            // Recursively copy all elements
             let copy = arr.map { deepcopy($0, seen: &seen) }
             return .array(copy)
 

@@ -383,33 +383,27 @@ let engine = try LuaEngine(configuration: .unrestricted)
 
 ## Bundled Modules
 
-LuaSwift includes both Swift-backed modules (high performance via Accelerate framework) and pure Lua modules. To use them, configure the package path:
+LuaSwift includes both Swift-backed modules (high performance via Accelerate framework) and pure Lua modules. All modules are auto-loaded and available immediately.
 
-```swift
-// Option 1: Configure via LuaEngineConfiguration
-let modulesPath = "/path/to/LuaModules"
-let config = LuaEngineConfiguration(
-    sandboxed: true,
-    packagePath: modulesPath,
-    memoryLimit: 0
-)
-let engine = try LuaEngine(configuration: config)
+### Module Quick Reference
 
-// Option 2: Set package.path directly in Lua
-try engine.run("""
-    package.path = '/path/to/LuaModules/?.lua;' .. package.path
-""")
-
-// Option 3: Access bundled resources (in an app using LuaSwift)
-if let modulesURL = Bundle.module.url(forResource: "LuaModules", withExtension: nil) {
-    let config = LuaEngineConfiguration(
-        sandboxed: true,
-        packagePath: modulesURL.path,
-        memoryLimit: 0
-    )
-    let engine = try LuaEngine(configuration: config)
-}
-```
+| Module | Require | Type | Description |
+|--------|---------|------|-------------|
+| [JSON](#json-module) | `luaswift.json` | Swift | JSON encoding/decoding |
+| [YAML](#yaml-module) | `luaswift.yaml` | Swift | YAML with multi-document support |
+| [TOML](#toml-module) | `luaswift.toml` | Swift | TOML configuration parsing |
+| [Regex](#regex-module) | `luaswift.regex` | Swift | ICU regular expressions |
+| [Math](#extended-math-module) | `luaswift.math` | Swift | Statistics and extended math |
+| [Linear Algebra](#linear-algebra-module) | `luaswift.linalg` | Swift | BLAS/LAPACK matrix operations |
+| [Array](#array-module-numpy-like) | `luaswift.array` | Swift | NumPy-like N-dimensional arrays |
+| [Geometry](#geometry-geo) | `geo` | Swift | 2D/3D vectors, quaternions, SIMD |
+| [Table Extensions](#table-extensions-tablex) | `tablex` | Swift | Functional table operations |
+| [String Extensions](#string-extensions-stringx) | `stringx` | Swift | String manipulation utilities |
+| [UTF-8 Extensions](#utf-8-extensions-utf8x) | `utf8x` | Swift | Unicode-aware string ops |
+| [Complex Numbers](#complex-numbers-complex) | `complex` | Swift | Complex arithmetic |
+| [Compatibility](#compatibility-compat) | `compat` | Lua | Lua version compatibility layer |
+| [SVG](#svg-generation-svg) | `svg` | Lua | SVG graphics generation |
+| [Math Expressions](#math-expressions-math_expr) | `math_expr` | Lua | Expression parsing/evaluation |
 
 ---
 

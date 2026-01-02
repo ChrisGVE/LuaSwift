@@ -413,7 +413,10 @@ final class StringXModuleTests: XCTestCase {
     func testAllFunctionsAvailable() throws {
         let functions = [
             "strip", "lstrip", "rstrip", "split", "replace", "join",
-            "startswith", "endswith", "contains", "count"
+            "startswith", "endswith", "contains", "count",
+            "capitalize", "title", "lpad", "rpad", "center",
+            "isalpha", "isdigit", "isalnum", "isspace", "isempty", "isblank",
+            "splitlines", "wrap", "truncate"
         ]
 
         for functionName in functions {
@@ -423,5 +426,560 @@ final class StringXModuleTests: XCTestCase {
             XCTAssertEqual(result.stringValue, "function",
                           "Function \(functionName) should be available")
         }
+    }
+
+    // MARK: - capitalize() tests
+
+    func testCapitalizeBasic() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.capitalize("hello world")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello world")
+    }
+
+    func testCapitalizeAllUpper() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.capitalize("HELLO WORLD")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello world")
+    }
+
+    func testCapitalizeEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.capitalize("")
+            """)
+        XCTAssertEqual(result.stringValue, "")
+    }
+
+    func testCapitalizeSingleChar() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.capitalize("a")
+            """)
+        XCTAssertEqual(result.stringValue, "A")
+    }
+
+    func testCapitalizeUnicode() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.capitalize("ÜBER")
+            """)
+        XCTAssertEqual(result.stringValue, "Über")
+    }
+
+    // MARK: - title() tests
+
+    func testTitleBasic() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.title("hello world")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello World")
+    }
+
+    func testTitleAllUpper() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.title("HELLO WORLD")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello World")
+    }
+
+    func testTitleEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.title("")
+            """)
+        XCTAssertEqual(result.stringValue, "")
+    }
+
+    func testTitleMixedCase() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.title("hELLO wORLD")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello World")
+    }
+
+    func testTitleUnicode() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.title("über münchen")
+            """)
+        XCTAssertEqual(result.stringValue, "Über München")
+    }
+
+    // MARK: - lpad() tests
+
+    func testLpadBasic() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.lpad("hi", 5)
+            """)
+        XCTAssertEqual(result.stringValue, "   hi")
+    }
+
+    func testLpadCustomChar() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.lpad("42", 5, "0")
+            """)
+        XCTAssertEqual(result.stringValue, "00042")
+    }
+
+    func testLpadNoChange() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.lpad("hello", 3)
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testLpadExactWidth() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.lpad("hi", 2)
+            """)
+        XCTAssertEqual(result.stringValue, "hi")
+    }
+
+    func testLpadEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.lpad("", 3)
+            """)
+        XCTAssertEqual(result.stringValue, "   ")
+    }
+
+    func testLpadUnicode() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.lpad("日本", 5, "-")
+            """)
+        XCTAssertEqual(result.stringValue, "---日本")
+    }
+
+    // MARK: - rpad() tests
+
+    func testRpadBasic() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.rpad("hi", 5)
+            """)
+        XCTAssertEqual(result.stringValue, "hi   ")
+    }
+
+    func testRpadCustomChar() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.rpad("hi", 5, ".")
+            """)
+        XCTAssertEqual(result.stringValue, "hi...")
+    }
+
+    func testRpadNoChange() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.rpad("hello", 3)
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testRpadEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.rpad("", 3, "x")
+            """)
+        XCTAssertEqual(result.stringValue, "xxx")
+    }
+
+    // MARK: - center() tests
+
+    func testCenterBasic() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.center("hi", 6)
+            """)
+        XCTAssertEqual(result.stringValue, "  hi  ")
+    }
+
+    func testCenterOddPadding() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.center("hi", 7)
+            """)
+        XCTAssertEqual(result.stringValue, "  hi   ")
+    }
+
+    func testCenterCustomChar() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.center("hi", 6, "-")
+            """)
+        XCTAssertEqual(result.stringValue, "--hi--")
+    }
+
+    func testCenterNoChange() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.center("hello", 3)
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testCenterEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.center("", 4, "*")
+            """)
+        XCTAssertEqual(result.stringValue, "****")
+    }
+
+    // MARK: - isalpha() tests
+
+    func testIsalphaTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalpha("hello")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsalphaFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalpha("hello123")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsalphaWithSpace() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalpha("hello world")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsalphaEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalpha("")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsalphaUnicode() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalpha("über")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - isdigit() tests
+
+    func testIsdigitTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isdigit("12345")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsdigitFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isdigit("123abc")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsdigitWithDecimal() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isdigit("3.14")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsdigitEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isdigit("")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - isalnum() tests
+
+    func testIsalnumTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalnum("hello123")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsalnumLettersOnly() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalnum("hello")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsalnumDigitsOnly() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalnum("12345")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsalnumFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalnum("hello!")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsalnumEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isalnum("")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - isspace() tests
+
+    func testIsspaceTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isspace("   ")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsspaceTabs() throws {
+        let result = try engine.evaluate(#"""
+            return luaswift.stringx.isspace("\t\n ")
+            """#)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsspaceFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isspace("  x  ")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsspaceEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isspace("")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - isempty() tests
+
+    func testIsemptyTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isempty("")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsemptyFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isempty("hello")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsemptyWhitespace() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isempty("   ")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - isblank() tests
+
+    func testIsblankTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isblank("")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsblankWhitespace() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isblank("   ")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsblankMixed() throws {
+        let result = try engine.evaluate(#"""
+            return luaswift.stringx.isblank(" \t\n ")
+            """#)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsblankFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isblank("  x  ")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - splitlines() tests
+
+    func testSplitlinesUnix() throws {
+        let result = try engine.evaluate(#"""
+            local lines = luaswift.stringx.splitlines("a\nb\nc")
+            return lines[1] .. "," .. lines[2] .. "," .. lines[3]
+            """#)
+        XCTAssertEqual(result.stringValue, "a,b,c")
+    }
+
+    func testSplitlinesWindows() throws {
+        // Test Windows-style line endings (CR-LF)
+        // Note: Due to how escape sequences pass through Swift raw strings and Lua,
+        // testing \r\n as a two-byte sequence requires special handling.
+        // We verify CR-LF handling by checking the line count and content.
+
+        // Test 1: Verify that the string with \r\n has the expected length
+        let lengthResult = try engine.evaluate(#"""
+            return #("a\r\nb")
+            """#)
+        // 'a' + CR(1) + LF(1) + 'b' = 4 bytes
+        XCTAssertEqual(lengthResult.numberValue, 4)
+
+        // Test 2: Verify splitlines returns correct count
+        let result = try engine.evaluate(#"""
+            local lines = luaswift.stringx.splitlines("a\r\nb\r\nc")
+            return #lines
+            """#)
+        // CR-LF should be treated as a single line break, yielding 3 lines
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testSplitlinesMacClassic() throws {
+        // Test old Mac-style line endings (CR only)
+        // First verify the string length - if \r is interpreted as CR, length should be 5
+        let lengthResult = try engine.evaluate(#"""
+            return #("a\rb\rc")
+            """#)
+        // 'a' + CR + 'b' + CR + 'c' = 5 (if \r is carriage return)
+        // 'a' + '\' + 'r' + 'b' + '\' + 'r' + 'c' = 7 (if \r is literal)
+        XCTAssertEqual(lengthResult.numberValue, 5)
+
+        // Now test splitlines
+        let result = try engine.evaluate(#"""
+            local lines = luaswift.stringx.splitlines("a\rb\rc")
+            return #lines
+            """#)
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testSplitlinesMixed() throws {
+        // Mix of Unix (\n) and Mac (\r) line endings
+        // Simplified test without \r\n combination
+        let result = try engine.evaluate(#"""
+            local lines = luaswift.stringx.splitlines("a\nb\rc\nd")
+            return #lines
+            """#)
+        XCTAssertEqual(result.numberValue, 4)
+    }
+
+    func testSplitlinesEmpty() throws {
+        let result = try engine.evaluate("""
+            local lines = luaswift.stringx.splitlines("")
+            return #lines
+            """)
+        XCTAssertEqual(result.numberValue, 0)
+    }
+
+    func testSplitlinesTrailingNewline() throws {
+        let result = try engine.evaluate(#"""
+            local lines = luaswift.stringx.splitlines("a\nb\n")
+            return #lines .. ":" .. lines[3]
+            """#)
+        XCTAssertEqual(result.stringValue, "3:")
+    }
+
+    func testSplitlinesNoNewlines() throws {
+        let result = try engine.evaluate("""
+            local lines = luaswift.stringx.splitlines("hello")
+            return #lines .. ":" .. lines[1]
+            """)
+        XCTAssertEqual(result.stringValue, "1:hello")
+    }
+
+    // MARK: - wrap() tests
+
+    func testWrapBasic() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.wrap("hello world test", 10)
+            """)
+        XCTAssertEqual(result.stringValue, "hello\nworld test")
+    }
+
+    func testWrapLongWord() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.wrap("superlongword", 5)
+            """)
+        XCTAssertEqual(result.stringValue, "super\nlongw\nord")
+    }
+
+    func testWrapNoWrapNeeded() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.wrap("hi", 10)
+            """)
+        XCTAssertEqual(result.stringValue, "hi")
+    }
+
+    func testWrapEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.wrap("", 10)
+            """)
+        XCTAssertEqual(result.stringValue, "")
+    }
+
+    func testWrapMultipleSpaces() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.wrap("a b c d e", 3)
+            """)
+        // With width 3, "a b" fits, then "c d" fits on next, etc.
+        let lines = result.stringValue?.components(separatedBy: "\n") ?? []
+        XCTAssertEqual(lines.count, 3)
+    }
+
+    // MARK: - truncate() tests
+
+    func testTruncateBasic() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("hello world", 8)
+            """)
+        XCTAssertEqual(result.stringValue, "hello...")
+    }
+
+    func testTruncateCustomSuffix() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("hello world", 9, ">>")
+            """)
+        XCTAssertEqual(result.stringValue, "hello w>>")
+    }
+
+    func testTruncateNoChange() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("hello", 10)
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testTruncateExactWidth() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("hello", 5)
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testTruncateEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("", 5)
+            """)
+        XCTAssertEqual(result.stringValue, "")
+    }
+
+    func testTruncateShortWidth() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("hello world", 2)
+            """)
+        // Width is 2, suffix "..." is 3, so truncateLength = -1
+        // Should return truncated suffix: ".."
+        XCTAssertEqual(result.stringValue, "..")
+    }
+
+    func testTruncateUnicode() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("日本語のテキスト", 6)
+            """)
+        XCTAssertEqual(result.stringValue, "日本語...")
+    }
+
+    func testTruncateEmptySuffix() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.truncate("hello world", 5, "")
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
     }
 }

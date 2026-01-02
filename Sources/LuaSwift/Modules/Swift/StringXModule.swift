@@ -152,8 +152,71 @@ public struct StringXModule {
                     isblank = isblank_fn,
                     splitlines = splitlines_fn,
                     wrap = wrap_fn,
-                    truncate = truncate_fn
+                    truncate = truncate_fn,
+
+                    -- import() extends the string table and metatable
+                    import = function()
+                        -- Add functions to string table
+                        string.strip = strip_fn
+                        string.lstrip = lstrip_fn
+                        string.rstrip = rstrip_fn
+                        string.split = split_fn
+                        string.replace = replace_fn
+                        string.join = join_fn
+                        string.startswith = startswith_fn
+                        string.endswith = endswith_fn
+                        string.contains = contains_fn
+                        string.count = count_fn
+                        string.capitalize = capitalize_fn
+                        string.title = title_fn
+                        string.lpad = lpad_fn
+                        string.rpad = rpad_fn
+                        string.center = center_fn
+                        string.isalpha = isalpha_fn
+                        string.isdigit = isdigit_fn
+                        string.isalnum = isalnum_fn
+                        string.isspace = isspace_fn
+                        string.isempty = isempty_fn
+                        string.isblank = isblank_fn
+                        string.splitlines = splitlines_fn
+                        string.wrap = wrap_fn
+                        string.truncate = truncate_fn
+
+                        -- Add to string metatable for s:method() syntax
+                        local mt = getmetatable("")
+                        if mt and mt.__index then
+                            local idx = mt.__index
+                            if type(idx) == "table" then
+                                idx.strip = strip_fn
+                                idx.lstrip = lstrip_fn
+                                idx.rstrip = rstrip_fn
+                                idx.split = split_fn
+                                idx.replace = replace_fn
+                                idx.startswith = startswith_fn
+                                idx.endswith = endswith_fn
+                                idx.contains = contains_fn
+                                idx.count = count_fn
+                                idx.capitalize = capitalize_fn
+                                idx.title = title_fn
+                                idx.lpad = lpad_fn
+                                idx.rpad = rpad_fn
+                                idx.center = center_fn
+                                idx.isalpha = isalpha_fn
+                                idx.isdigit = isdigit_fn
+                                idx.isalnum = isalnum_fn
+                                idx.isspace = isspace_fn
+                                idx.isempty = isempty_fn
+                                idx.isblank = isblank_fn
+                                idx.splitlines = splitlines_fn
+                                idx.wrap = wrap_fn
+                                idx.truncate = truncate_fn
+                            end
+                        end
+                    end
                 }
+
+                -- Create top-level global alias
+                stringx = luaswift.stringx
 
                 -- Clean up global namespace
                 _luaswift_stringx_strip = nil

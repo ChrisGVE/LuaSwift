@@ -982,4 +982,70 @@ final class StringXModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.stringValue, "hello")
     }
+
+    // MARK: - Top-level Global Tests
+
+    func testTopLevelGlobalStringx() throws {
+        // stringx should be available as a top-level global
+        let result = try engine.evaluate("""
+            return stringx.capitalize("hello")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello")
+    }
+
+    func testTopLevelGlobalEqualsLuaswiftStringx() throws {
+        // stringx and luaswift.stringx should be the same table
+        let result = try engine.evaluate("""
+            return stringx == luaswift.stringx
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Import Function Tests
+
+    func testImportExtendsStringTable() throws {
+        // After import(), string.capitalize should work
+        let result = try engine.evaluate("""
+            stringx.import()
+            return string.capitalize("hello")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello")
+    }
+
+    func testImportExtendsStringMetatable() throws {
+        // After import(), s:capitalize() method syntax should work
+        let result = try engine.evaluate("""
+            stringx.import()
+            return ("hello"):capitalize()
+            """)
+        XCTAssertEqual(result.stringValue, "Hello")
+    }
+
+    func testImportMethodSyntaxTitle() throws {
+        // Test method syntax with title()
+        let result = try engine.evaluate("""
+            stringx.import()
+            return ("hello world"):title()
+            """)
+        XCTAssertEqual(result.stringValue, "Hello World")
+    }
+
+    func testImportMethodSyntaxStrip() throws {
+        // Test method syntax with strip()
+        let result = try engine.evaluate("""
+            stringx.import()
+            return ("  hello  "):strip()
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testImportMethodSyntaxSplit() throws {
+        // Test method syntax with split()
+        let result = try engine.evaluate("""
+            stringx.import()
+            local parts = ("a,b,c"):split(",")
+            return parts[2]
+            """)
+        XCTAssertEqual(result.stringValue, "b")
+    }
 }

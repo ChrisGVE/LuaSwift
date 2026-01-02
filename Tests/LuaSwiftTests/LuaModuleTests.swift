@@ -2321,4 +2321,151 @@ final class LuaModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue, 2)
     }
+
+    // MARK: - Stdlib Extension Tests
+
+    func testExtendStdlibExists() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            return type(luaswift.extend_stdlib) == "function"
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testExtendStdlibImportsStringx() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            luaswift.extend_stdlib()
+            return string.capitalize("hello")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello")
+    }
+
+    func testExtendStdlibImportsMathx() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            luaswift.extend_stdlib()
+            return math.sign(-5)
+            """)
+        XCTAssertEqual(result.numberValue, -1)
+    }
+
+    func testExtendStdlibImportsTablex() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            luaswift.extend_stdlib()
+            return table.keys({a = 1, b = 2})[1] ~= nil
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testExtendStdlibCreatesMathComplex() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            luaswift.extend_stdlib()
+            local c = math.complex.new(3, 4)
+            return c.re
+            """)
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testExtendStdlibCreatesMathLinalg() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            luaswift.extend_stdlib()
+            local v = math.linalg.vector({1, 2, 3})
+            return v:size()
+            """)
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testExtendStdlibCreatesMathGeo() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            luaswift.extend_stdlib()
+            local v = math.geo.vec2(3, 4)
+            return v.x
+            """)
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    // MARK: - Top-level Alias Tests
+
+    func testTopLevelAliasJson() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            return json.encode({a = 1})
+            """)
+        XCTAssertNotNil(result.stringValue)
+    }
+
+    func testTopLevelAliasComplex() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            local c = complex.new(1, 2)
+            return c.im
+            """)
+        XCTAssertEqual(result.numberValue, 2)
+    }
+
+    func testTopLevelAliasLinalg() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            local m = linalg.eye(3)
+            return m:get(1, 1)
+            """)
+        XCTAssertEqual(result.numberValue, 1)
+    }
+
+    func testTopLevelAliasGeo() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            local v = geo.vec3(1, 2, 3)
+            return v.z
+            """)
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testTopLevelAliasArray() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            local a = array.array({1, 2, 3})
+            return a:sum()
+            """)
+        XCTAssertEqual(result.numberValue, 6)
+    }
+
+    func testTopLevelAliasTypes() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            return types.typeof(complex.new(1, 2))
+            """)
+        XCTAssertEqual(result.stringValue, "complex")
+    }
 }

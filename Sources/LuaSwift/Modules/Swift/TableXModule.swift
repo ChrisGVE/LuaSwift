@@ -440,6 +440,38 @@ public struct TableXModule {
                     end
                     return true
                 end
+
+                -- import() extends the table library
+                function luaswift.tablex.import()
+                    table.deepcopy = luaswift.tablex.deepcopy
+                    table.deepmerge = luaswift.tablex.deepmerge
+                    table.flatten = luaswift.tablex.flatten
+                    table.keys = luaswift.tablex.keys
+                    table.values = luaswift.tablex.values
+                    table.invert = luaswift.tablex.invert
+                    table.copy = luaswift.tablex.copy
+                    table.map = luaswift.tablex.map
+                    table.filter = luaswift.tablex.filter
+                    table.reduce = luaswift.tablex.reduce
+                    table.foreach = luaswift.tablex.foreach
+                    table.find = luaswift.tablex.find
+                    table.contains = luaswift.tablex.contains
+                    table.size = luaswift.tablex.size
+                    table.isempty = luaswift.tablex.isempty
+                    table.isarray = luaswift.tablex.isarray
+                    table.slice = luaswift.tablex.slice
+                    table.reverse = luaswift.tablex.reverse
+                    table.unique = luaswift.tablex.unique
+                    table.union = luaswift.tablex.union
+                    table.intersection = luaswift.tablex.intersection
+                    table.difference = luaswift.tablex.difference
+                    table.equals = luaswift.tablex.equals
+                    table.deepequals = luaswift.tablex.deepequals
+                    -- Note: we don't override table.sort as it exists in Lua stdlib
+                end
+
+                -- Create top-level global alias
+                tablex = luaswift.tablex
                 """)
         } catch {
             // Silently fail if setup fails - callbacks are still registered

@@ -65,15 +65,40 @@ public struct UTF8XModule {
         do {
             try engine.run("""
                 if not luaswift then luaswift = {} end
+
+                -- Store references before cleanup
+                local width_fn = _luaswift_utf8x_width
+                local sub_fn = _luaswift_utf8x_sub
+                local reverse_fn = _luaswift_utf8x_reverse
+                local upper_fn = _luaswift_utf8x_upper
+                local lower_fn = _luaswift_utf8x_lower
+                local len_fn = _luaswift_utf8x_len
+                local chars_fn = _luaswift_utf8x_chars
+
                 luaswift.utf8x = {
-                    width = _luaswift_utf8x_width,
-                    sub = _luaswift_utf8x_sub,
-                    reverse = _luaswift_utf8x_reverse,
-                    upper = _luaswift_utf8x_upper,
-                    lower = _luaswift_utf8x_lower,
-                    len = _luaswift_utf8x_len,
-                    chars = _luaswift_utf8x_chars,
+                    width = width_fn,
+                    sub = sub_fn,
+                    reverse = reverse_fn,
+                    upper = upper_fn,
+                    lower = lower_fn,
+                    len = len_fn,
+                    chars = chars_fn,
+
+                    -- import() extends the utf8 library
+                    import = function()
+                        utf8.width = width_fn
+                        utf8.sub = sub_fn
+                        utf8.reverse = reverse_fn
+                        utf8.upper = upper_fn
+                        utf8.lower = lower_fn
+                        -- Note: utf8.len already exists in Lua, our version is compatible
+                        -- utf8.len = len_fn
+                        utf8.chars = chars_fn
+                    end
                 }
+
+                -- Create top-level global alias
+                utf8x = luaswift.utf8x
 
                 -- Clean up temporary globals
                 _luaswift_utf8x_width = nil

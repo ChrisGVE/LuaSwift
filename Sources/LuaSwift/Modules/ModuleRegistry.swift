@@ -32,15 +32,20 @@ public struct ModuleRegistry {
     /// - `luaswift.yaml`: YAML encoding/decoding
     /// - `luaswift.toml`: TOML encoding/decoding
     /// - `luaswift.regex`: Regular expression support
-    /// - `luaswift.math`: Extended math functions and statistics
+    /// - `luaswift.mathx`: Extended math functions and statistics
     /// - `luaswift.linalg`: Linear algebra operations
     /// - `luaswift.array`: NumPy-like N-dimensional arrays
-    /// - `luaswift.geometry`: Optimized 2D/3D geometry with SIMD
+    /// - `luaswift.geo`: Optimized 2D/3D geometry with SIMD
     /// - `luaswift.utf8x`: UTF-8 string utilities with Unicode support
     /// - `luaswift.stringx`: Swift-backed string utilities
     /// - `luaswift.tablex`: Swift-backed table utilities
     /// - `luaswift.complex`: Complex number arithmetic and functions
     /// - `luaswift.types`: Type detection and conversion utilities
+    ///
+    /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
+    /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`.
+    ///
+    /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
@@ -57,6 +62,74 @@ public struct ModuleRegistry {
         installTableXModule(in: engine)
         installComplexModule(in: engine)
         installTypesModule(in: engine)
+        installExtendStdlib(in: engine)
+    }
+
+    /// Install the extend_stdlib() helper function and top-level aliases.
+    ///
+    /// This creates:
+    /// - Top-level aliases for all modules (json, yaml, toml, regex, linalg, array, geo, complex, types)
+    /// - `luaswift.extend_stdlib()` which imports all extensions into standard library
+    ///
+    /// - Parameter engine: The Lua engine to install in
+    private static func installExtendStdlib(in engine: LuaEngine) {
+        do {
+            try engine.run("""
+                if not luaswift then luaswift = {} end
+
+                -- Create top-level global aliases for all modules
+                json = luaswift.json
+                yaml = luaswift.yaml
+                toml = luaswift.toml
+                regex = luaswift.regex
+                linalg = luaswift.linalg
+                array = luaswift.array
+                geo = luaswift.geometry
+                complex = luaswift.complex
+                types = luaswift.types
+
+                -- Also create luaswift.geo as alias
+                luaswift.geo = luaswift.geometry
+
+                -- extend_stdlib() imports all extensions into the standard library
+                function luaswift.extend_stdlib()
+                    -- Import stringx into string
+                    if luaswift.stringx and luaswift.stringx.import then
+                        luaswift.stringx.import()
+                    end
+
+                    -- Import mathx into math
+                    if luaswift.mathx and luaswift.mathx.import then
+                        luaswift.mathx.import()
+                    end
+
+                    -- Import tablex into table
+                    if luaswift.tablex and luaswift.tablex.import then
+                        luaswift.tablex.import()
+                    end
+
+                    -- Import utf8x into utf8
+                    if luaswift.utf8x and luaswift.utf8x.import then
+                        luaswift.utf8x.import()
+                    end
+
+                    -- Create math subnamespaces for specialized modules
+                    if luaswift.complex then
+                        math.complex = luaswift.complex
+                    end
+
+                    if luaswift.linalg then
+                        math.linalg = luaswift.linalg
+                    end
+
+                    if luaswift.geometry then
+                        math.geo = luaswift.geometry
+                    end
+                end
+                """)
+        } catch {
+            // Silently fail if setup fails
+        }
     }
 
     /// Install only the JSON module.

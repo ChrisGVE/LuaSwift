@@ -91,40 +91,67 @@ public struct MathXModule {
         engine.registerFunction(name: "_luaswift_math_spherical_to_cart", callback: sphericalToCartCallback)
         engine.registerFunction(name: "_luaswift_math_cart_to_spherical", callback: cartToSphericalCallback)
 
-        // Set up the luaswift.math namespace
+        // Set up the luaswift.mathx namespace
         do {
             try engine.run("""
                 if not luaswift then luaswift = {} end
-                luaswift.math = {
+
+                -- Store references before cleanup
+                local sinh_fn = _luaswift_math_sinh
+                local cosh_fn = _luaswift_math_cosh
+                local tanh_fn = _luaswift_math_tanh
+                local asinh_fn = _luaswift_math_asinh
+                local acosh_fn = _luaswift_math_acosh
+                local atanh_fn = _luaswift_math_atanh
+                local round_fn = _luaswift_math_round
+                local trunc_fn = _luaswift_math_trunc
+                local sign_fn = _luaswift_math_sign
+                local log10_fn = _luaswift_math_log10
+                local log2_fn = _luaswift_math_log2
+                local sum_fn = _luaswift_math_sum
+                local mean_fn = _luaswift_math_mean
+                local median_fn = _luaswift_math_median
+                local variance_fn = _luaswift_math_variance
+                local stddev_fn = _luaswift_math_stddev
+                local percentile_fn = _luaswift_math_percentile
+                local factorial_fn = _luaswift_math_factorial
+                local gamma_fn = _luaswift_math_gamma
+                local lgamma_fn = _luaswift_math_lgamma
+                local polar_to_cart_fn = _luaswift_math_polar_to_cart
+                local cart_to_polar_fn = _luaswift_math_cart_to_polar
+                local spherical_to_cart_fn = _luaswift_math_spherical_to_cart
+                local cart_to_spherical_fn = _luaswift_math_cart_to_spherical
+
+                luaswift.mathx = {
                     -- Hyperbolic functions
-                    sinh = _luaswift_math_sinh,
-                    cosh = _luaswift_math_cosh,
-                    tanh = _luaswift_math_tanh,
-                    asinh = _luaswift_math_asinh,
-                    acosh = _luaswift_math_acosh,
-                    atanh = _luaswift_math_atanh,
+                    sinh = sinh_fn,
+                    cosh = cosh_fn,
+                    tanh = tanh_fn,
+                    asinh = asinh_fn,
+                    acosh = acosh_fn,
+                    atanh = atanh_fn,
 
                     -- Rounding
-                    round = _luaswift_math_round,
-                    trunc = _luaswift_math_trunc,
-                    sign = _luaswift_math_sign,
+                    round = round_fn,
+                    trunc = trunc_fn,
+                    sign = sign_fn,
 
                     -- Logarithms
-                    log10 = _luaswift_math_log10,
-                    log2 = _luaswift_math_log2,
+                    log10 = log10_fn,
+                    log2 = log2_fn,
 
                     -- Statistics
-                    sum = _luaswift_math_sum,
-                    mean = _luaswift_math_mean,
-                    median = _luaswift_math_median,
-                    variance = _luaswift_math_variance,
-                    stddev = _luaswift_math_stddev,
-                    percentile = _luaswift_math_percentile,
+                    sum = sum_fn,
+                    mean = mean_fn,
+                    median = median_fn,
+                    variance = variance_fn,
+                    stddev = stddev_fn,
+                    percentile = percentile_fn,
 
                     -- Special functions
-                    factorial = _luaswift_math_factorial,
-                    gamma = _luaswift_math_gamma,
-                    lgamma = _luaswift_math_lgamma,
+                    factorial = factorial_fn,
+                    gamma = gamma_fn,
+                    lgamma = lgamma_fn,
 
                     -- Constants
                     phi = 1.618033988749895,
@@ -132,11 +159,46 @@ public struct MathXModule {
                     nan = 0/0,
 
                     -- Coordinate conversions
-                    polar_to_cart = _luaswift_math_polar_to_cart,
-                    cart_to_polar = _luaswift_math_cart_to_polar,
-                    spherical_to_cart = _luaswift_math_spherical_to_cart,
-                    cart_to_spherical = _luaswift_math_cart_to_spherical,
+                    polar_to_cart = polar_to_cart_fn,
+                    cart_to_polar = cart_to_polar_fn,
+                    spherical_to_cart = spherical_to_cart_fn,
+                    cart_to_spherical = cart_to_spherical_fn,
+
+                    -- import() extends the math table
+                    import = function()
+                        math.sinh = sinh_fn
+                        math.cosh = cosh_fn
+                        math.tanh = tanh_fn
+                        math.asinh = asinh_fn
+                        math.acosh = acosh_fn
+                        math.atanh = atanh_fn
+                        math.round = round_fn
+                        math.trunc = trunc_fn
+                        math.sign = sign_fn
+                        math.log10 = log10_fn
+                        math.log2 = log2_fn
+                        math.sum = sum_fn
+                        math.mean = mean_fn
+                        math.median = median_fn
+                        math.variance = variance_fn
+                        math.stddev = stddev_fn
+                        math.percentile = percentile_fn
+                        math.factorial = factorial_fn
+                        math.gamma = gamma_fn
+                        math.lgamma = lgamma_fn
+                        math.phi = 1.618033988749895
+                        math.polar_to_cart = polar_to_cart_fn
+                        math.cart_to_polar = cart_to_polar_fn
+                        math.spherical_to_cart = spherical_to_cart_fn
+                        math.cart_to_spherical = cart_to_spherical_fn
+                    end
                 }
+
+                -- Create top-level global alias
+                mathx = luaswift.mathx
+
+                -- Also keep luaswift.math as alias for backward compatibility
+                luaswift.math = luaswift.mathx
 
                 -- Clean up temporary globals
                 _luaswift_math_sinh = nil

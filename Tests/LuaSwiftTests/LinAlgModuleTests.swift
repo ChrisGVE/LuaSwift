@@ -462,4 +462,116 @@ final class LinAlgModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue, 20)
     }
+
+    // MARK: - Type Markers
+
+    func testVectorTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.vector({1, 2, 3})
+            return v.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.vector")
+    }
+
+    func testMatrixTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1, 2}, {3, 4}})
+            return m.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.matrix")
+    }
+
+    func testZerosVectorTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.zeros(5)
+            return v.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.vector")
+    }
+
+    func testZerosMatrixTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.zeros(3, 3)
+            return m.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.matrix")
+    }
+
+    func testOnesVectorTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.ones(4)
+            return v.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.vector")
+    }
+
+    func testOnesMatrixTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.ones(2, 3)
+            return m.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.matrix")
+    }
+
+    func testEyeTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.eye(3)
+            return m.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.matrix")
+    }
+
+    func testDiagTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.diag({1, 2, 3})
+            return m.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.matrix")
+    }
+
+    func testRangeTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.range(1, 10, 2)
+            return v.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.vector")
+    }
+
+    func testLinspaceTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.linspace(0, 1, 5)
+            return v.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.vector")
+    }
+
+    func testTransposePreservesMatrixType() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1, 2, 3}, {4, 5, 6}})
+            local t = m:transpose()
+            return t.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.matrix")
+    }
+
+    func testInversePreservesMatrixType() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{4, 7}, {2, 6}})
+            local inv = m:inv()
+            return inv.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "linalg.matrix")
+    }
 }

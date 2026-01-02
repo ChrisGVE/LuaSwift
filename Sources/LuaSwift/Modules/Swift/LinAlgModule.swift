@@ -254,7 +254,9 @@ public struct LinAlgModule {
 
                 luaswift.linalg = {
                     _wrap = function(data)
-                        return setmetatable({_data = data}, linalg_mt)
+                        local wrapped = setmetatable({_data = data}, linalg_mt)
+                        wrapped.__luaswift_type = data.type == "vector" and "linalg.vector" or "linalg.matrix"
+                        return wrapped
                     end,
                     vector = function(arr)
                         return luaswift.linalg._wrap(_vector(arr))

@@ -32,8 +32,14 @@ public struct ModuleRegistry {
     /// - `luaswift.yaml`: YAML encoding/decoding
     /// - `luaswift.toml`: TOML encoding/decoding
     /// - `luaswift.regex`: Regular expression support
+    /// - `luaswift.math`: Extended math functions and statistics
     /// - `luaswift.linalg`: Linear algebra operations
     /// - `luaswift.array`: NumPy-like N-dimensional arrays
+    /// - `luaswift.geometry`: Optimized 2D/3D geometry with SIMD
+    /// - `luaswift.utf8x`: UTF-8 string utilities with Unicode support
+    /// - `luaswift.stringx`: Swift-backed string utilities
+    /// - `luaswift.tablex`: Swift-backed table utilities
+    /// - `luaswift.complex`: Complex number arithmetic and functions
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
@@ -41,8 +47,14 @@ public struct ModuleRegistry {
         installYAMLModule(in: engine)
         installTOMLModule(in: engine)
         installRegexModule(in: engine)
+        installMathModule(in: engine)
         installLinAlgModule(in: engine)
         installArrayModule(in: engine)
+        installGeometryModule(in: engine)
+        installUTF8XModule(in: engine)
+        installStringXModule(in: engine)
+        installTableXModule(in: engine)
+        installComplexModule(in: engine)
     }
 
     /// Install only the JSON module.
@@ -92,5 +104,40 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installArrayModule(in engine: LuaEngine) {
         ArrayModule.register(in: engine)
+    }
+
+    /// Install only the Geometry module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installGeometryModule(in engine: LuaEngine) {
+        GeometryModule.register(in: engine)
+    }
+
+    /// Install only the UTF8X module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installUTF8XModule(in engine: LuaEngine) {
+        UTF8XModule.register(in: engine)
+    }
+
+    /// Install only the StringX module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installStringXModule(in engine: LuaEngine) {
+        StringXModule.register(in: engine)
+    }
+
+    /// Install only the TableX module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installTableXModule(in engine: LuaEngine) {
+        TableXModule.register(in: engine)
+    }
+
+    /// Install only the Complex module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installComplexModule(in engine: LuaEngine) {
+        ComplexModule.register(in: engine)
     }
 }

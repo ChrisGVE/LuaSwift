@@ -630,4 +630,50 @@ final class ComplexModuleTests: XCTestCase {
         XCTAssertTrue(eq)
         XCTAssertFalse(neq)
     }
+
+    // MARK: - Type Marker Tests
+
+    func testComplexTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local complex = require("luaswift.complex")
+            local z = complex.new(1, 2)
+            return z.__luaswift_type
+        """)
+
+        guard let typeMarker = result.stringValue else {
+            XCTFail("Expected string type marker")
+            return
+        }
+
+        XCTAssertEqual(typeMarker, "complex")
+    }
+
+    func testComplexFromPolarTypeMarker() throws {
+        let result = try engine.evaluate("""
+            local complex = require("luaswift.complex")
+            local z = complex.from_polar(5, math.pi / 4)
+            return z.__luaswift_type
+        """)
+
+        guard let typeMarker = result.stringValue else {
+            XCTFail("Expected string type marker")
+            return
+        }
+
+        XCTAssertEqual(typeMarker, "complex")
+    }
+
+    func testComplexConstantITypeMarker() throws {
+        let result = try engine.evaluate("""
+            local complex = require("luaswift.complex")
+            return complex.i.__luaswift_type
+        """)
+
+        guard let typeMarker = result.stringValue else {
+            XCTFail("Expected string type marker")
+            return
+        }
+
+        XCTAssertEqual(typeMarker, "complex")
+    }
 }

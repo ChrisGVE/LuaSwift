@@ -544,7 +544,7 @@ public struct ComplexModule {
 
     -- Factory function
     function complex.new(re, im)
-        local c = {re = re or 0, im = im or 0}
+        local c = {re = re or 0, im = im or 0, __luaswift_type = "complex"}
         setmetatable(c, complex_mt)
         return c
     end

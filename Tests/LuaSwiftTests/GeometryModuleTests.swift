@@ -515,4 +515,62 @@ struct GeometryModuleTests {
         #expect(abs(arr[2].numberValue! - 1.0) < 0.0001)
         #expect(abs(arr[3].numberValue!) < 0.0001)
     }
+
+    // MARK: - Type Marker Tests
+
+    @Test("Vec2 has __luaswift_type marker")
+    func vec2TypeMarker() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec2(1, 2)
+            return v.__luaswift_type
+        """)
+
+        #expect(result.stringValue == "vec2")
+    }
+
+    @Test("Vec3 has __luaswift_type marker")
+    func vec3TypeMarker() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec3(1, 2, 3)
+            return v.__luaswift_type
+        """)
+
+        #expect(result.stringValue == "vec3")
+    }
+
+    @Test("Quaternion has __luaswift_type marker")
+    func quaternionTypeMarker() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local q = geo.quaternion(1, 0, 0, 0)
+            return q.__luaswift_type
+        """)
+
+        #expect(result.stringValue == "quaternion")
+    }
+
+    @Test("Transform3D has __luaswift_type marker")
+    func transform3DTypeMarker() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local t = geo.transform3d()
+            return t.__luaswift_type
+        """)
+
+        #expect(result.stringValue == "transform3d")
+    }
 }

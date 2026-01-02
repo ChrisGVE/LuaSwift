@@ -1171,7 +1171,7 @@ public struct GeometryModule {
     }
 
     function geo.vec2(x, y)
-        local v = {x = x, y = y}
+        local v = {x = x, y = y, __luaswift_type = "vec2"}
         setmetatable(v, vec2_mt)
         return v
     end
@@ -1236,7 +1236,7 @@ public struct GeometryModule {
     }
 
     function geo.vec3(x, y, z)
-        local v = {x = x, y = y, z = z}
+        local v = {x = x, y = y, z = z, __luaswift_type = "vec3"}
         setmetatable(v, vec3_mt)
         return v
     end
@@ -1298,7 +1298,7 @@ public struct GeometryModule {
     }
 
     local function make_quaternion(w, x, y, z)
-        local q = {w = w, x = x, y = y, z = z}
+        local q = {w = w, x = x, y = y, z = z, __luaswift_type = "quaternion"}
         setmetatable(q, quat_mt)
         return q
     end
@@ -1370,7 +1370,7 @@ public struct GeometryModule {
     }
 
     function geo.transform3d(matrix)
-        local t = {_m = matrix or _mat4_identity(), _type = "transform3d"}
+        local t = {_m = matrix or _mat4_identity(), _type = "transform3d", __luaswift_type = "transform3d"}
         setmetatable(t, transform3d_mt)
         return t
     end

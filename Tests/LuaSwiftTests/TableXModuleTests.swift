@@ -320,4 +320,245 @@ final class TableXModuleTests: XCTestCase {
         XCTAssertEqual(table["has_y"]?.boolValue, true)
         // The nested table should be skipped, so only "x" and "y" keys exist
     }
+
+    // MARK: - Type-Aware Deepcopy Tests
+
+    func testDeepcopyPreservesComplexType() throws {
+        // Register required modules
+        ComplexModule.register(in: engine)
+        TypesModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local complex = luaswift.complex
+
+            local t = {
+                name = "test",
+                value = complex.new(3, 4)
+            }
+            local copy = tablex.deepcopy(t)
+
+            -- Verify the copy is independent
+            local orig_type = t.value.__luaswift_type
+            local copy_type = copy.value.__luaswift_type
+            local orig_re = t.value.re
+            local copy_re = copy.value.re
+
+            return {
+                orig_type = orig_type,
+                copy_type = copy_type,
+                orig_re = orig_re,
+                copy_re = copy_re,
+                types_match = orig_type == copy_type
+            }
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["orig_type"]?.stringValue, "complex")
+        XCTAssertEqual(table["copy_type"]?.stringValue, "complex")
+        XCTAssertEqual(table["orig_re"]?.numberValue, 3)
+        XCTAssertEqual(table["copy_re"]?.numberValue, 3)
+        XCTAssertEqual(table["types_match"]?.boolValue, true)
+    }
+
+    func testDeepcopyPreservesVec2Type() throws {
+        // Register required modules
+        GeometryModule.register(in: engine)
+        TypesModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local geo = luaswift.geometry
+
+            local t = {
+                name = "point",
+                pos = geo.vec2(10, 20)
+            }
+            local copy = tablex.deepcopy(t)
+
+            return {
+                orig_type = t.pos.__luaswift_type,
+                copy_type = copy.pos.__luaswift_type,
+                orig_x = t.pos.x,
+                copy_x = copy.pos.x,
+                orig_y = t.pos.y,
+                copy_y = copy.pos.y
+            }
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["orig_type"]?.stringValue, "vec2")
+        XCTAssertEqual(table["copy_type"]?.stringValue, "vec2")
+        XCTAssertEqual(table["orig_x"]?.numberValue, 10)
+        XCTAssertEqual(table["copy_x"]?.numberValue, 10)
+        XCTAssertEqual(table["orig_y"]?.numberValue, 20)
+        XCTAssertEqual(table["copy_y"]?.numberValue, 20)
+    }
+
+    func testDeepcopyPreservesVec3Type() throws {
+        // Register required modules
+        GeometryModule.register(in: engine)
+        TypesModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local geo = luaswift.geometry
+
+            local t = {
+                name = "point3d",
+                pos = geo.vec3(1, 2, 3)
+            }
+            local copy = tablex.deepcopy(t)
+
+            return {
+                orig_type = t.pos.__luaswift_type,
+                copy_type = copy.pos.__luaswift_type,
+                orig_x = t.pos.x,
+                copy_x = copy.pos.x,
+                orig_z = t.pos.z,
+                copy_z = copy.pos.z
+            }
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["orig_type"]?.stringValue, "vec3")
+        XCTAssertEqual(table["copy_type"]?.stringValue, "vec3")
+        XCTAssertEqual(table["orig_x"]?.numberValue, 1)
+        XCTAssertEqual(table["copy_x"]?.numberValue, 1)
+        XCTAssertEqual(table["orig_z"]?.numberValue, 3)
+        XCTAssertEqual(table["copy_z"]?.numberValue, 3)
+    }
+
+    func testDeepcopyNestedMixedTypes() throws {
+        // Register required modules
+        ComplexModule.register(in: engine)
+        GeometryModule.register(in: engine)
+        TypesModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local complex = luaswift.complex
+            local geo = luaswift.geometry
+
+            local t = {
+                name = "mixed",
+                data = {
+                    point = geo.vec2(5, 10),
+                    number = complex.new(1, 2),
+                    nested = {
+                        point3d = geo.vec3(1, 2, 3)
+                    }
+                }
+            }
+            local copy = tablex.deepcopy(t)
+
+            return {
+                point_type = copy.data.point.__luaswift_type,
+                number_type = copy.data.number.__luaswift_type,
+                nested_type = copy.data.nested.point3d.__luaswift_type,
+                point_x = copy.data.point.x,
+                number_re = copy.data.number.re,
+                nested_z = copy.data.nested.point3d.z
+            }
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["point_type"]?.stringValue, "vec2")
+        XCTAssertEqual(table["number_type"]?.stringValue, "complex")
+        XCTAssertEqual(table["nested_type"]?.stringValue, "vec3")
+        XCTAssertEqual(table["point_x"]?.numberValue, 5)
+        XCTAssertEqual(table["number_re"]?.numberValue, 1)
+        XCTAssertEqual(table["nested_z"]?.numberValue, 3)
+    }
+
+    // MARK: - Type-Aware Deepmerge Tests
+
+    func testDeepmergeReplacesTypedObjects() throws {
+        // Register required modules
+        ComplexModule.register(in: engine)
+        TypesModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local complex = luaswift.complex
+
+            local t1 = {
+                value = complex.new(1, 2)
+            }
+            local t2 = {
+                value = complex.new(3, 4)
+            }
+            local merged = tablex.deepmerge(t1, t2)
+
+            return {
+                merged_type = merged.value.__luaswift_type,
+                merged_re = merged.value.re,
+                merged_im = merged.value.im
+            }
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["merged_type"]?.stringValue, "complex")
+        XCTAssertEqual(table["merged_re"]?.numberValue, 3)
+        XCTAssertEqual(table["merged_im"]?.numberValue, 4)
+    }
+
+    func testDeepmergeTypedWithRegularTable() throws {
+        // Register required modules
+        GeometryModule.register(in: engine)
+        TypesModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local geo = luaswift.geometry
+
+            -- Merge where t1 has typed object and t2 has regular table
+            local t1 = {
+                pos = geo.vec2(1, 2)
+            }
+            local t2 = {
+                pos = {x = 10, y = 20, extra = "data"}
+            }
+            local merged = tablex.deepmerge(t1, t2)
+
+            -- The typed object should be replaced by the regular table
+            return {
+                has_extra = merged.pos.extra ~= nil,
+                pos_x = merged.pos.x,
+                pos_y = merged.pos.y,
+                -- Check that it's no longer a typed object
+                is_typed = rawget(merged.pos, "__luaswift_type") ~= nil
+            }
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["has_extra"]?.boolValue, true)
+        XCTAssertEqual(table["pos_x"]?.numberValue, 10)
+        XCTAssertEqual(table["pos_y"]?.numberValue, 20)
+        XCTAssertEqual(table["is_typed"]?.boolValue, false)
+    }
 }

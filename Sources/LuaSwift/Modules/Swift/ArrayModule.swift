@@ -312,7 +312,9 @@ public struct ArrayModule {
 
                 luaswift.array = {
                     _wrap = function(data)
-                        return setmetatable({_data = data}, array_mt)
+                        local wrapped = setmetatable({_data = data}, array_mt)
+                        wrapped.__luaswift_type = "array"
+                        return wrapped
                     end,
                     array = function(data)
                         return luaswift.array._wrap(_create(data))

@@ -554,4 +554,24 @@ final class ArrayModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "array(2, 3)")
     }
+
+    // MARK: - Type Marker
+
+    func testTypeMarkerArray() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            return a.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "array")
+    }
+
+    func testTypeMarkerZeros() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.zeros({2, 3})
+            return a.__luaswift_type
+            """)
+
+        XCTAssertEqual(result.stringValue, "array")
+    }
 }

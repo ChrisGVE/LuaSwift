@@ -40,6 +40,7 @@ public struct ModuleRegistry {
     /// - `luaswift.stringx`: Swift-backed string utilities
     /// - `luaswift.tablex`: Swift-backed table utilities
     /// - `luaswift.complex`: Complex number arithmetic and functions
+    /// - `luaswift.types`: Type detection and conversion utilities
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
@@ -55,6 +56,7 @@ public struct ModuleRegistry {
         installStringXModule(in: engine)
         installTableXModule(in: engine)
         installComplexModule(in: engine)
+        installTypesModule(in: engine)
     }
 
     /// Install only the JSON module.
@@ -139,5 +141,12 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installComplexModule(in engine: LuaEngine) {
         ComplexModule.register(in: engine)
+    }
+
+    /// Install only the Types module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installTypesModule(in engine: LuaEngine) {
+        TypesModule.register(in: engine)
     }
 }

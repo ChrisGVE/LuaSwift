@@ -12,30 +12,93 @@ import Foundation
 import CLua
 
 /// Configuration options for the Lua engine.
+///
+/// Use this structure to customize the behavior of ``LuaEngine``.
+/// The most common use case is choosing between sandboxed (safe) and
+/// unrestricted (full access) modes.
+///
+/// ## Creating a Configuration
+///
+/// ```swift
+/// // Use the default sandboxed configuration
+/// let engine1 = try LuaEngine()
+///
+/// // Or explicitly specify configuration
+/// let config = LuaEngineConfiguration(
+///     sandboxed: true,
+///     packagePath: "/path/to/lua/modules",
+///     memoryLimit: 0
+/// )
+/// let engine2 = try LuaEngine(configuration: config)
+/// ```
+///
+/// ## Sandboxing
+///
+/// When ``sandboxed`` is `true` (the default), the following functions are disabled:
+/// - `os.execute`, `os.exit`, `os.remove`, `os.rename`, `os.tmpname`, `os.getenv`, `os.setlocale`
+/// - `io.*` (all IO functions)
+/// - `debug.*` (all debug functions)
+/// - `loadfile`, `dofile`, `load`, `loadstring`
+///
+/// Safe libraries remain available: `math`, `string`, `table`, `coroutine`, `utf8`
 public struct LuaEngineConfiguration {
     /// Whether to remove dangerous functions (os.execute, io.*, etc.)
+    ///
+    /// When `true`, potentially dangerous functions that could access the
+    /// filesystem or execute system commands are removed from the Lua environment.
+    /// This is recommended for running untrusted code.
+    ///
+    /// Default: `true`
     public var sandboxed: Bool
 
-    /// Custom package path for require() (defaults to none)
+    /// Custom package path for `require()` statements.
+    ///
+    /// If set, this path is prepended to Lua's package.path, allowing
+    /// `require()` to find Lua modules in the specified directory.
+    ///
+    /// Example: Setting to `"/app/lua"` allows `require("mymodule")` to
+    /// find `/app/lua/mymodule.lua`.
+    ///
+    /// Default: `nil` (use Lua's default package path)
     public var packagePath: String?
 
-    /// Memory limit in bytes (0 = unlimited)
+    /// Memory limit in bytes (0 = unlimited).
+    ///
+    /// When set to a positive value, limits the total memory the Lua
+    /// state can allocate. Exceeding this limit will cause memory
+    /// allocation to fail.
+    ///
+    /// Default: `0` (unlimited)
     public var memoryLimit: Int
 
-    /// Default configuration with sandboxing enabled
+    /// Default configuration with sandboxing enabled.
+    ///
+    /// This is the recommended configuration for most use cases.
+    /// Dangerous functions are disabled but all safe standard libraries
+    /// are available.
     public static let `default` = LuaEngineConfiguration(
         sandboxed: true,
         packagePath: nil,
         memoryLimit: 0
     )
 
-    /// Configuration with no restrictions (use with caution)
+    /// Configuration with no restrictions (use with caution).
+    ///
+    /// - Warning: Only use this configuration with trusted Lua code.
+    ///   Unrestricted access allows file operations, system commands,
+    ///   and other potentially dangerous operations.
     public static let unrestricted = LuaEngineConfiguration(
         sandboxed: false,
         packagePath: nil,
         memoryLimit: 0
     )
 
+    /// Creates a new engine configuration.
+    ///
+    /// - Parameters:
+    ///   - sandboxed: Whether to disable dangerous functions. Default `true`.
+    ///   - packagePath: Custom path for Lua module loading. Default `nil`.
+    ///   - memoryLimit: Maximum memory in bytes (0 = unlimited). Default `0`.
     public init(sandboxed: Bool, packagePath: String?, memoryLimit: Int) {
         self.sandboxed = sandboxed
         self.packagePath = packagePath
@@ -45,11 +108,17 @@ public struct LuaEngineConfiguration {
 
 /// Main Lua execution engine.
 ///
-/// `LuaEngine` provides a Swift interface to the Lua 5.4 interpreter.
-/// It handles:
+/// `LuaEngine` provides a type-safe Swift interface to the Lua interpreter.
+/// It supports Lua 5.1 through 5.5, with the version selected at compile time.
+///
+/// ## Overview
+///
+/// The engine handles:
 /// - Creating and managing the Lua state
-/// - Registering value servers for data access (read and write)
-/// - Executing Lua code and retrieving results
+/// - Executing Lua code with ``run(_:)`` and ``evaluate(_:)``
+/// - Registering value servers for bidirectional data access
+/// - Registering Swift callbacks callable from Lua
+/// - Creating and managing coroutines
 /// - Sandboxing for security
 ///
 /// ## Basic Usage
@@ -59,22 +128,88 @@ public struct LuaEngineConfiguration {
 ///
 /// // Execute and get result
 /// let result = try engine.evaluate("return 1 + 2")
-/// print(result.numberValue) // Optional(3.0)
+/// print(result.numberValue!) // 3.0
 ///
 /// // Execute without needing result
-/// try engine.run("print('Hello')")
+/// try engine.run("x = 10")
 ///
-/// // Execute with a value server
-/// engine.register(server: myServer)
-/// let value = try engine.evaluate("return MyServer.User.name")
+/// // Access global variables
+/// let x = try engine.evaluate("return x")
 /// ```
 ///
-/// ## Writing to Value Servers
+/// ## Swift Callbacks
+///
+/// Register Swift functions that Lua code can call:
 ///
 /// ```swift
-/// // If server's canWrite returns true for the path:
-/// try engine.run("MyServer.Cache.result = 42")
+/// engine.registerFunction(name: "add") { args in
+///     guard let a = args[0].numberValue,
+///           let b = args[1].numberValue else {
+///         throw LuaError.callbackError("Expected two numbers")
+///     }
+///     return .number(a + b)
+/// }
+///
+/// let sum = try engine.evaluate("return add(3, 4)")
+/// // sum.numberValue == 7
 /// ```
+///
+/// ## Value Servers
+///
+/// Expose Swift data structures to Lua with ``LuaValueServer``:
+///
+/// ```swift
+/// engine.register(server: myDataServer)
+/// let value = try engine.evaluate("return MyData.user.name")
+///
+/// // If server supports writing:
+/// try engine.run("MyData.cache.result = 42")
+/// ```
+///
+/// ## Coroutines
+///
+/// Create and manage Lua coroutines:
+///
+/// ```swift
+/// let handle = try engine.createCoroutine(code: """
+///     local x = coroutine.yield(1)
+///     return x * 2
+/// """)
+///
+/// let result1 = try engine.resume(handle)  // .yielded([.number(1)])
+/// let result2 = try engine.resume(handle, with: [.number(5)])  // .completed(.number(10))
+/// engine.destroy(handle)
+/// ```
+///
+/// ## Thread Safety
+///
+/// `LuaEngine` is thread-safe for individual method calls. Each public
+/// method acquires a lock before accessing the Lua state. For high
+/// concurrency, use a pool of engines rather than sharing one instance.
+///
+/// ## Topics
+///
+/// ### Creating an Engine
+/// - ``init(configuration:)``
+/// - ``LuaEngineConfiguration``
+///
+/// ### Executing Code
+/// - ``run(_:)``
+/// - ``evaluate(_:)``
+///
+/// ### Value Servers
+/// - ``register(server:)``
+/// - ``unregister(namespace:)``
+///
+/// ### Swift Callbacks
+/// - ``registerFunction(name:callback:)``
+/// - ``unregisterFunction(name:)``
+///
+/// ### Coroutines
+/// - ``createCoroutine(code:)``
+/// - ``resume(_:with:)``
+/// - ``coroutineStatus(_:)``
+/// - ``destroy(_:)``
 public final class LuaEngine {
     /// The underlying Lua state
     private var L: OpaquePointer?

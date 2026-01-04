@@ -554,4 +554,127 @@ final class SVGModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "translate(100,100) rotate(45) scale(0.5,0.5)")
     }
+
+    // MARK: - Plot Function Tests
+
+    func testLinePlot() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            drawing:linePlot({{0, 100}, {50, 50}, {100, 75}, {150, 25}})
+            return drawing:render()
+        """)
+
+        guard let svgString = result.stringValue else {
+            XCTFail("Expected SVG string")
+            return
+        }
+
+        XCTAssertTrue(svgString.contains("<polyline"))
+        XCTAssertTrue(svgString.contains("fill=\"none\""))
+        XCTAssertTrue(svgString.contains("stroke=\"black\""))
+    }
+
+    func testLinePlotWithStyle() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            drawing:linePlot({{0, 0}, {100, 100}}, {stroke = "red", ["stroke-width"] = 2})
+            return drawing:render()
+        """)
+
+        guard let svgString = result.stringValue else {
+            XCTFail("Expected SVG string")
+            return
+        }
+
+        XCTAssertTrue(svgString.contains("stroke=\"red\""))
+    }
+
+    func testScatterPlot() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            drawing:scatterPlot({{50, 50}, {100, 100}, {150, 75}})
+            return {count = drawing:count(), svg = drawing:render()}
+        """)
+
+        guard let table = result.tableValue,
+              let count = table["count"]?.numberValue,
+              let svgString = table["svg"]?.stringValue else {
+            XCTFail("Expected table with count and svg")
+            return
+        }
+
+        XCTAssertEqual(count, 3) // 3 circles
+        XCTAssertTrue(svgString.contains("<circle"))
+        XCTAssertTrue(svgString.contains("r=\"3\"")) // default radius
+    }
+
+    func testScatterPlotWithRadius() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            drawing:scatterPlot({{50, 50}, {100, 100}}, 10, {fill = "blue"})
+            return drawing:render()
+        """)
+
+        guard let svgString = result.stringValue else {
+            XCTFail("Expected SVG string")
+            return
+        }
+
+        XCTAssertTrue(svgString.contains("r=\"10\""))
+        XCTAssertTrue(svgString.contains("fill=\"blue\""))
+    }
+
+    func testBarChart() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            drawing:barChart({{10, 50}, {40, 80}, {70, 30}}, {fill = "steelblue"})
+            return {count = drawing:count(), svg = drawing:render()}
+        """)
+
+        guard let table = result.tableValue,
+              let count = table["count"]?.numberValue,
+              let svgString = table["svg"]?.stringValue else {
+            XCTFail("Expected table with count and svg")
+            return
+        }
+
+        XCTAssertEqual(count, 3) // 3 rectangles
+        XCTAssertTrue(svgString.contains("<rect"))
+        XCTAssertTrue(svgString.contains("fill=\"steelblue\""))
+    }
+
+    func testBarChartWithCustomWidth() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            drawing:barChart({{x = 10, y = 100, width = 30}})
+            return drawing:render()
+        """)
+
+        guard let svgString = result.stringValue else {
+            XCTFail("Expected SVG string")
+            return
+        }
+
+        XCTAssertTrue(svgString.contains("width=\"30\""))
+        XCTAssertTrue(svgString.contains("height=\"100\""))
+    }
+
+    func testPlotChaining() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(300, 200)
+            drawing:linePlot({{0, 100}, {100, 50}})
+                   :scatterPlot({{50, 75}}, 5)
+                   :barChart({{150, 80}})
+            return drawing:count()
+        """)
+
+        XCTAssertEqual(result.numberValue, 3) // 1 polyline + 1 circle + 1 rect
+    }
 }

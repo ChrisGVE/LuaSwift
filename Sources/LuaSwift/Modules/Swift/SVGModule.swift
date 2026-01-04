@@ -556,6 +556,34 @@ public struct SVGModule {
             end,
             count = function(self)
                 return _count(self)
+            end,
+            -- Plot helper: line plot using polyline
+            linePlot = function(self, points, style)
+                style = style or {}
+                if not style.fill then style.fill = "none" end
+                if not style.stroke then style.stroke = "black" end
+                return self:polyline(points, style)
+            end,
+            -- Plot helper: scatter plot using circles
+            scatterPlot = function(self, points, radius, style)
+                radius = radius or 3
+                for _, pt in ipairs(points) do
+                    local x = pt.x or pt[1]
+                    local y = pt.y or pt[2]
+                    self:circle(x, y, radius, style)
+                end
+                return self
+            end,
+            -- Plot helper: bar chart using rectangles
+            barChart = function(self, data, style)
+                for _, bar in ipairs(data) do
+                    local x = bar.x or bar[1]
+                    local height = bar.y or bar[2]
+                    local width = bar.width or bar[3] or 20
+                    local y = self.height - height
+                    self:rect(x, y, width, height, style)
+                end
+                return self
             end
         }
     }

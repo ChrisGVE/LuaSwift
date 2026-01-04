@@ -42,10 +42,11 @@ public struct ModuleRegistry {
     /// - `luaswift.complex`: Complex number arithmetic and functions
     /// - `luaswift.types`: Type detection and conversion utilities
     /// - `luaswift.svg`: SVG document generation
+    /// - `luaswift.mathexpr`: Mathematical expression parsing and evaluation
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
     /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`,
-    /// `svg_module`.
+    /// `svg_module`, `mathexpr_module`.
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     ///
@@ -65,6 +66,7 @@ public struct ModuleRegistry {
         installComplexModule(in: engine)
         installTypesModule(in: engine)
         installSVGModule(in: engine)
+        installMathExprModule(in: engine)
         installExtendStdlib(in: engine)
     }
 
@@ -231,5 +233,12 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installSVGModule(in engine: LuaEngine) {
         SVGModule.register(in: engine)
+    }
+
+    /// Install only the MathExpr module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installMathExprModule(in engine: LuaEngine) {
+        MathExprModule.register(in: engine)
     }
 }

@@ -48,24 +48,45 @@ local function is_array(t)
 end
 
 -- Escape special characters in strings
+-- Note: Uses decimal escapes (\ddd) for Lua 5.1 compatibility
+-- (Lua 5.1 doesn't support \xNN hex escapes)
 local function escape_string(s)
-    local escaped = s:gsub("\\", "\\\\")
-                     :gsub("\"", "\\\"")
-                     :gsub("\n", "\\n")
-                     :gsub("\r", "\\r")
-                     :gsub("\t", "\\t")
-                     :gsub("\0", "\\0")
-    -- Escape non-printable characters
-    escaped = escaped:gsub("[\x01-\x1f\x7f-\xff]", function(c)
-        return string.format("\\x%02x", string.byte(c))
-    end)
-    return escaped
+    local result = {}
+    for i = 1, #s do
+        local c = s:sub(i, i)
+        local b = string.byte(c)
+        if c == "\\" then
+            result[#result + 1] = "\\\\"
+        elseif c == "\"" then
+            result[#result + 1] = "\\\""
+        elseif c == "\n" then
+            result[#result + 1] = "\\n"
+        elseif c == "\r" then
+            result[#result + 1] = "\\r"
+        elseif c == "\t" then
+            result[#result + 1] = "\\t"
+        elseif b == 0 then
+            result[#result + 1] = "\\0"
+        elseif b < 32 or b >= 127 then
+            -- Non-printable: use decimal escape for Lua 5.1 compatibility
+            result[#result + 1] = string.format("\\%03d", b)
+        else
+            result[#result + 1] = c
+        end
+    end
+    return table.concat(result)
 end
 
 -- Unescape string
+-- Note: Handles both decimal (\ddd) and hex (\xNN) escapes for compatibility
 local function unescape_string(s)
+    -- Handle hex escapes (Lua 5.2+)
     local unescaped = s:gsub("\\x(%x%x)", function(hex)
         return string.char(tonumber(hex, 16))
+    end)
+    -- Handle decimal escapes (all Lua versions)
+    unescaped = unescaped:gsub("\\(%d%d%d)", function(dec)
+        return string.char(tonumber(dec))
     end)
     unescaped = unescaped:gsub("\\0", "\0")
                          :gsub("\\t", "\t")

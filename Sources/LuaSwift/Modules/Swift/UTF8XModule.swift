@@ -84,16 +84,19 @@ public struct UTF8XModule {
                     len = len_fn,
                     chars = chars_fn,
 
-                    -- import() extends the utf8 library
+                    -- import() extends the utf8 library (if it exists)
+                    -- Note: utf8 library was added in Lua 5.3, doesn't exist in 5.1/5.2
                     import = function()
-                        utf8.width = width_fn
-                        utf8.sub = sub_fn
-                        utf8.reverse = reverse_fn
-                        utf8.upper = upper_fn
-                        utf8.lower = lower_fn
-                        -- Note: utf8.len already exists in Lua, our version is compatible
-                        -- utf8.len = len_fn
-                        utf8.chars = chars_fn
+                        if utf8 then
+                            utf8.width = width_fn
+                            utf8.sub = sub_fn
+                            utf8.reverse = reverse_fn
+                            utf8.upper = upper_fn
+                            utf8.lower = lower_fn
+                            -- Note: utf8.len already exists in Lua, our version is compatible
+                            -- utf8.len = len_fn
+                            utf8.chars = chars_fn
+                        end
                     end
                 }
 

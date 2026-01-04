@@ -386,9 +386,10 @@ final class LuaModuleTests: XCTestCase {
             return compat.version
         """)
 
-        // Version should be either 5.4 or 5.5 depending on build configuration
+        // Version should match the Lua version we're built with
         let version = result.stringValue
-        XCTAssertTrue(version == "5.4" || version == "5.5", "Expected 5.4 or 5.5, got \(version ?? "nil")")
+        let validVersions = ["5.1", "5.2", "5.3", "5.4", "5.5"]
+        XCTAssertTrue(validVersions.contains(version ?? ""), "Expected valid Lua version, got \(version ?? "nil")")
     }
 
     func testCompatVersionFlags() throws {
@@ -407,14 +408,14 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         // Exactly one version flag should be true
-        XCTAssertEqual(result.tableValue?["lua51"]?.boolValue, false)
-        XCTAssertEqual(result.tableValue?["lua52"]?.boolValue, false)
-        XCTAssertEqual(result.tableValue?["lua53"]?.boolValue, false)
-        // Either lua54 or lua55 should be true depending on build
+        let lua51 = result.tableValue?["lua51"]?.boolValue ?? false
+        let lua52 = result.tableValue?["lua52"]?.boolValue ?? false
+        let lua53 = result.tableValue?["lua53"]?.boolValue ?? false
         let lua54 = result.tableValue?["lua54"]?.boolValue ?? false
         let lua55 = result.tableValue?["lua55"]?.boolValue ?? false
-        XCTAssertTrue(lua54 || lua55, "Expected either lua54 or lua55 to be true")
-        XCTAssertFalse(lua54 && lua55, "Only one version flag should be true")
+
+        let trueCount = [lua51, lua52, lua53, lua54, lua55].filter { $0 }.count
+        XCTAssertEqual(trueCount, 1, "Exactly one version flag should be true")
     }
 
     func testCompatFeatures() throws {
@@ -424,15 +425,29 @@ final class LuaModuleTests: XCTestCase {
         let result = try engine.evaluate("""
             local compat = require('compat')
             return {
+                version = compat.version,
                 table_unpack = compat.features.table_unpack,
                 utf8_library = compat.features.utf8_library,
                 bitwise_ops = compat.features.bitwise_ops
             }
         """)
 
-        XCTAssertEqual(result.tableValue?["table_unpack"]?.boolValue, true)
-        XCTAssertEqual(result.tableValue?["utf8_library"]?.boolValue, true)
-        XCTAssertEqual(result.tableValue?["bitwise_ops"]?.boolValue, true)
+        // Features depend on Lua version
+        let version = result.tableValue?["version"]?.stringValue ?? "5.4"
+        let major = Int(version.split(separator: ".").first ?? "5") ?? 5
+        let minor = Int(version.split(separator: ".").last ?? "4") ?? 4
+
+        // table_unpack: 5.2+
+        let expectedTableUnpack = minor >= 2
+        XCTAssertEqual(result.tableValue?["table_unpack"]?.boolValue, expectedTableUnpack)
+
+        // utf8_library: 5.3+
+        let expectedUtf8 = minor >= 3
+        XCTAssertEqual(result.tableValue?["utf8_library"]?.boolValue, expectedUtf8)
+
+        // bitwise_ops: 5.3+
+        let expectedBitwise = minor >= 3
+        XCTAssertEqual(result.tableValue?["bitwise_ops"]?.boolValue, expectedBitwise)
     }
 
     func testCompatBit32Band() throws {
@@ -596,6 +611,9 @@ final class LuaModuleTests: XCTestCase {
         let result = try engine.evaluate("""
             local compat = require('compat')
             return {
+                version = compat.version,
+                at_least_51 = compat.version_at_least("5.1"),
+                at_least_52 = compat.version_at_least("5.2"),
                 at_least_53 = compat.version_at_least("5.3"),
                 at_least_54 = compat.version_at_least("5.4"),
                 at_least_55 = compat.version_at_least("5.5"),
@@ -603,11 +621,20 @@ final class LuaModuleTests: XCTestCase {
             }
         """)
 
-        // Both 5.4 and 5.5 are at least 5.3 and 5.4
-        XCTAssertEqual(result.tableValue?["at_least_53"]?.boolValue, true)
-        XCTAssertEqual(result.tableValue?["at_least_54"]?.boolValue, true)
-        // at_least_55 depends on which version is running
-        // at_least_56 should always be false for 5.4 and 5.5
+        // Get current version
+        let version = result.tableValue?["version"]?.stringValue ?? "5.4"
+        let minor = Int(version.split(separator: ".").last ?? "4") ?? 4
+
+        // All versions should be at least 5.1
+        XCTAssertEqual(result.tableValue?["at_least_51"]?.boolValue, true)
+
+        // Version checks depend on current version
+        XCTAssertEqual(result.tableValue?["at_least_52"]?.boolValue, minor >= 2)
+        XCTAssertEqual(result.tableValue?["at_least_53"]?.boolValue, minor >= 3)
+        XCTAssertEqual(result.tableValue?["at_least_54"]?.boolValue, minor >= 4)
+        XCTAssertEqual(result.tableValue?["at_least_55"]?.boolValue, minor >= 5)
+
+        // No version should be at least 5.6 (doesn't exist yet)
         XCTAssertEqual(result.tableValue?["at_least_56"]?.boolValue, false)
     }
 
@@ -632,10 +659,23 @@ final class LuaModuleTests: XCTestCase {
         let result = try engine.evaluate("""
             local compat = require('compat')
             local warnings = compat.check_deprecated("setfenv(1, {}) bit32.band(1,2)")
-            return #warnings
+            return {
+                count = #warnings,
+                version = compat.version
+            }
         """)
 
-        XCTAssertEqual(result.numberValue, 2)
+        // Warnings depend on version:
+        // - setfenv: warning in 5.2+ (removed in 5.2)
+        // - bit32: warning in 5.4+ (removed in 5.4)
+        let version = result.tableValue?["version"]?.stringValue ?? "5.4"
+        let minor = Int(version.split(separator: ".").last ?? "4") ?? 4
+
+        var expectedWarnings = 0
+        if minor >= 2 { expectedWarnings += 1 }  // setfenv warning
+        if minor >= 4 { expectedWarnings += 1 }  // bit32 warning
+
+        XCTAssertEqual(result.tableValue?["count"]?.numberValue, Double(expectedWarnings))
     }
 
     // MARK: - Stdlib Extension Tests

@@ -2468,4 +2468,240 @@ final class LuaModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.stringValue, "complex")
     }
+
+    // MARK: - Serialize Module Tests
+
+    func testSerializeEncodeNumber() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return serialize.encode(42)
+        """)
+
+        XCTAssertEqual(result.stringValue, "42")
+    }
+
+    func testSerializeEncodeString() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return serialize.encode("hello")
+        """)
+
+        XCTAssertEqual(result.stringValue, "\"hello\"")
+    }
+
+    func testSerializeEncodeBoolean() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return serialize.encode(true) .. "," .. serialize.encode(false)
+        """)
+
+        XCTAssertEqual(result.stringValue, "true,false")
+    }
+
+    func testSerializeEncodeNil() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return serialize.encode(nil)
+        """)
+
+        XCTAssertEqual(result.stringValue, "nil")
+    }
+
+    func testSerializeEncodeArray() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return serialize.encode({1, 2, 3})
+        """)
+
+        XCTAssertEqual(result.stringValue, "{1, 2, 3}")
+    }
+
+    func testSerializeEncodeTable() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local str = serialize.encode({name = "test"})
+            return str:match("name") ~= nil
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSerializeEncodeNestedTable() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local data = {
+                user = {name = "Alice", age = 30},
+                scores = {100, 95, 88}
+            }
+            local str = serialize.encode(data)
+            return str:match("Alice") ~= nil and str:match("100") ~= nil
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSerializeDecodeNumber() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return serialize.decode("42")
+        """)
+
+        XCTAssertEqual(result.numberValue, 42)
+    }
+
+    func testSerializeDecodeString() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return serialize.decode('"hello"')
+        """)
+
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testSerializeDecodeTable() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local t = serialize.decode('{a = 1, b = 2}')
+            return t.a + t.b
+        """)
+
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testSerializeRoundTrip() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local original = {
+                name = "test",
+                values = {1, 2, 3},
+                nested = {x = 10, y = 20}
+            }
+            local encoded = serialize.encode(original)
+            local decoded = serialize.decode(encoded)
+            return decoded.name == "test" and
+                   decoded.values[2] == 2 and
+                   decoded.nested.x == 10
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSerializePretty() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local str = serialize.pretty({a = 1})
+            return str:match("\\n") ~= nil
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSerializeCompact() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local str = serialize.compact({a = 1, b = 2})
+            return str:match("\\n") == nil
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSerializeSafeDecode() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local val, err = serialize.safe_decode("invalid{{{")
+            return val == nil and err ~= nil
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSerializeIsSerializable() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            return {
+                table_ok = serialize.is_serializable({a = 1}),
+                string_ok = serialize.is_serializable("hello"),
+                func_bad = not serialize.is_serializable(function() end)
+            }
+        """)
+
+        XCTAssertEqual(result.tableValue?["table_ok"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["string_ok"]?.boolValue, true)
+        XCTAssertEqual(result.tableValue?["func_bad"]?.boolValue, true)
+    }
+
+    func testSerializeSpecialNumbers() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local huge = serialize.encode(math.huge)
+            local neg_huge = serialize.encode(-math.huge)
+            return huge == "math.huge" and neg_huge == "-math.huge"
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSerializeEscapedStrings() throws {
+        let engine = try LuaEngine()
+        try configureLuaPath(engine: engine)
+
+        let result = try engine.evaluate("""
+            local serialize = require('serialize')
+            local original = 'hello\\nworld\\t"quoted"'
+            local encoded = serialize.encode(original)
+            local decoded = serialize.decode(encoded)
+            return decoded == original
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

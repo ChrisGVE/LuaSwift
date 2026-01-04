@@ -79,6 +79,9 @@ jobs:
         run: |
           echo "Updates to process: $UPDATES_JSON"
 
+          # IMPORTANT: Never modify the root LICENSE file (GitHub license detection)
+          # Only CLua*/LICENSE files (Lua's MIT license) are managed by this workflow
+
           # Parse JSON and process each update
           echo "$UPDATES_JSON" | jq -c '.[]' | while read -r update; do
             SERIES=$(echo "$update" | jq -r '.series')
@@ -167,6 +170,14 @@ jobs:
             # Update the bundled version in the workflow
             sed -i '' "s/\[\"$SERIES\"\]=\"$OLD_VERSION\"/[\"$SERIES\"]=\"$NEW_VERSION\"/g" .github/workflows/lua-version-check.yml
           done
+
+      - name: Verify root LICENSE unchanged
+        run: |
+          # Ensure root LICENSE file was not modified (GitHub license detection)
+          if git diff --name-only | grep -q "^LICENSE$"; then
+            echo "ERROR: Root LICENSE file was modified. Restoring..."
+            git checkout LICENSE
+          fi
 
       - name: Run tests with default Lua version (5.4)
         run: |

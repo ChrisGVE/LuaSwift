@@ -171,6 +171,41 @@ jobs:
             sed -i '' "s/\[\"$SERIES\"\]=\"$OLD_VERSION\"/[\"$SERIES\"]=\"$NEW_VERSION\"/g" .github/workflows/lua-version-check.yml
           done
 
+      - name: Update CHANGELOG
+        env:
+          UPDATES_JSON: ${{ needs.check-versions.outputs.updates_json }}
+        run: |
+          # Generate changelog entry for Lua updates
+          DATE=$(date +%Y-%m-%d)
+
+          # Build the update list
+          UPDATES=""
+          echo "$UPDATES_JSON" | jq -c '.[]' | while read -r update; do
+            SERIES=$(echo "$update" | jq -r '.series')
+            OLD_VERSION=$(echo "$update" | jq -r '.old')
+            NEW_VERSION=$(echo "$update" | jq -r '.new')
+            UPDATES="$UPDATES\n- Lua $SERIES: $OLD_VERSION → $NEW_VERSION"
+          done
+
+          # Also update the Lua Versions table in CHANGELOG
+          echo "$UPDATES_JSON" | jq -c '.[]' | while read -r update; do
+            SERIES=$(echo "$update" | jq -r '.series')
+            OLD_VERSION=$(echo "$update" | jq -r '.old')
+            NEW_VERSION=$(echo "$update" | jq -r '.new')
+
+            # Update the version table
+            sed -i '' "s/| $SERIES    | $OLD_VERSION           |/| $SERIES    | $NEW_VERSION           |/g" CHANGELOG.md
+          done
+
+          # Add entry under [Unreleased] section
+          # Find the line after "## [Unreleased]" and add the update
+          ENTRY="### Changed ($(date +%Y-%m-%d))\n- Updated bundled Lua sources:$(echo "$UPDATES_JSON" | jq -r '.[] | " Lua \(.series): \(.old) → \(.new)"' | tr '\n' ','| sed 's/,$//')\n"
+
+          # Insert after the [Unreleased] line
+          sed -i '' "/^## \[Unreleased\]/a\\
+\\
+$ENTRY" CHANGELOG.md
+
       - name: Verify root LICENSE unchanged
         run: |
           # Ensure root LICENSE file was not modified (GitHub license detection)
@@ -215,6 +250,7 @@ jobs:
             - Downloaded new Lua source tarballs from lua.org
             - Updated CLua* directories with new sources
             - Updated version references in Package.swift
+            - Updated CHANGELOG.md with new versions
 
             ### Test Results
             - ✅ All tests pass with Lua 5.4 (default)

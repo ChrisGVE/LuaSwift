@@ -41,9 +41,11 @@ public struct ModuleRegistry {
     /// - `luaswift.tablex`: Swift-backed table utilities
     /// - `luaswift.complex`: Complex number arithmetic and functions
     /// - `luaswift.types`: Type detection and conversion utilities
+    /// - `luaswift.svg`: SVG document generation
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
-    /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`.
+    /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`,
+    /// `svg_module`.
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     ///
@@ -62,6 +64,7 @@ public struct ModuleRegistry {
         installTableXModule(in: engine)
         installComplexModule(in: engine)
         installTypesModule(in: engine)
+        installSVGModule(in: engine)
         installExtendStdlib(in: engine)
     }
 
@@ -221,5 +224,12 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installTypesModule(in engine: LuaEngine) {
         TypesModule.register(in: engine)
+    }
+
+    /// Install only the SVG module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installSVGModule(in engine: LuaEngine) {
+        SVGModule.register(in: engine)
     }
 }

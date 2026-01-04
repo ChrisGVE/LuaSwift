@@ -1,4 +1,4 @@
-name: Check Lua Versions
+name: Check and Update Lua Versions
 
 on:
   schedule:
@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new_versions: ${{ steps.check.outputs.new_versions }}
+      updates_json: ${{ steps.check.outputs.updates_json }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,20 +25,38 @@ jobs:
           # Extract version numbers from tarball links
           VERSIONS=$(grep -oP 'lua-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' /tmp/lua_ftp.html | sort -V | uniq)
 
-          # Current bundled versions
-          BUNDLED="5.1.5 5.2.4 5.3.6 5.4.7 5.5.0"
+          # Current bundled versions (update these when versions change)
+          declare -A BUNDLED=(
+            ["5.1"]="5.1.5"
+            ["5.2"]="5.2.4"
+            ["5.3"]="5.3.6"
+            ["5.4"]="5.4.7"
+            ["5.5"]="5.5.0"
+          )
 
           # Check for new versions in each major.minor series
           NEW_VERSIONS=""
+          UPDATES_JSON="["
+          FIRST=true
+
           for series in "5.1" "5.2" "5.3" "5.4" "5.5"; do
             LATEST=$(echo "$VERSIONS" | grep "^$series" | tail -1)
-            CURRENT=$(echo "$BUNDLED" | tr ' ' '\n' | grep "^$series" | tail -1)
+            CURRENT="${BUNDLED[$series]}"
             if [ -n "$LATEST" ] && [ "$LATEST" != "$CURRENT" ]; then
               NEW_VERSIONS="$NEW_VERSIONS $series:$CURRENT->$LATEST"
+              if [ "$FIRST" = true ]; then
+                FIRST=false
+              else
+                UPDATES_JSON="$UPDATES_JSON,"
+              fi
+              UPDATES_JSON="$UPDATES_JSON{\"series\":\"$series\",\"old\":\"$CURRENT\",\"new\":\"$LATEST\"}"
             fi
           done
 
+          UPDATES_JSON="$UPDATES_JSON]"
+
           echo "new_versions=$NEW_VERSIONS" >> $GITHUB_OUTPUT
+          echo "updates_json=$UPDATES_JSON" >> $GITHUB_OUTPUT
 
           if [ -n "$NEW_VERSIONS" ]; then
             echo "::notice::New Lua versions available:$NEW_VERSIONS"
@@ -45,38 +64,159 @@ jobs:
             echo "::notice::All Lua versions are up to date"
           fi
 
-  create-issue:
+  update-sources:
     needs: check-versions
     if: needs.check-versions.outputs.new_versions != ''
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Create update issue
-        uses: actions/github-script@v7
         with:
-          script: |
-            const newVersions = '${{ needs.check-versions.outputs.new_versions }}';
-            const title = `Update Lua sources: ${newVersions.trim()}`;
+          fetch-depth: 0
 
-            // Check if issue already exists
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'lua-update'
-            });
+      - name: Download and update Lua sources
+        env:
+          UPDATES_JSON: ${{ needs.check-versions.outputs.updates_json }}
+        run: |
+          echo "Updates to process: $UPDATES_JSON"
 
-            const existingIssue = issues.data.find(i => i.title.includes('Update Lua sources'));
-            if (existingIssue) {
-              console.log('Issue already exists:', existingIssue.number);
-              return;
-            }
+          # Parse JSON and process each update
+          echo "$UPDATES_JSON" | jq -c '.[]' | while read -r update; do
+            SERIES=$(echo "$update" | jq -r '.series')
+            OLD_VERSION=$(echo "$update" | jq -r '.old')
+            NEW_VERSION=$(echo "$update" | jq -r '.new')
 
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: title,
-              body: `New Lua versions are available:\n\n${newVersions.trim().split(' ').map(v => '- ' + v).join('\n')}\n\nPlease update the bundled Lua sources.`,
-              labels: ['lua-update', 'enhancement']
-            });
+            echo "Updating Lua $SERIES: $OLD_VERSION -> $NEW_VERSION"
+
+            # Determine target directory
+            case "$SERIES" in
+              "5.1") TARGET_DIR="Sources/CLua51" ;;
+              "5.2") TARGET_DIR="Sources/CLua52" ;;
+              "5.3") TARGET_DIR="Sources/CLua53" ;;
+              "5.4") TARGET_DIR="Sources/CLua" ;;
+              "5.5") TARGET_DIR="Sources/CLua55" ;;
+            esac
+
+            # Download new version
+            TARBALL="lua-${NEW_VERSION}.tar.gz"
+            curl -LO "https://www.lua.org/ftp/$TARBALL"
+
+            # Extract to temp directory
+            tar xzf "$TARBALL"
+            EXTRACT_DIR="lua-${NEW_VERSION}"
+
+            # Backup LICENSE file if it exists
+            if [ -f "$TARGET_DIR/LICENSE" ]; then
+              cp "$TARGET_DIR/LICENSE" /tmp/lua_license_backup
+            fi
+
+            # Backup module.modulemap
+            if [ -f "$TARGET_DIR/include/module.modulemap" ]; then
+              cp "$TARGET_DIR/include/module.modulemap" /tmp/modulemap_backup
+            fi
+
+            # Remove old source files (keep directory structure)
+            rm -f "$TARGET_DIR"/*.c
+            rm -f "$TARGET_DIR"/include/*.h
+
+            # Copy new source files
+            cp "$EXTRACT_DIR/src"/*.c "$TARGET_DIR/"
+            cp "$EXTRACT_DIR/src"/*.h "$TARGET_DIR/include/"
+
+            # Remove lua.c and luac.c (standalone interpreter files)
+            rm -f "$TARGET_DIR/lua.c" "$TARGET_DIR/luac.c"
+
+            # Restore LICENSE
+            if [ -f /tmp/lua_license_backup ]; then
+              cp /tmp/lua_license_backup "$TARGET_DIR/LICENSE"
+            fi
+
+            # Restore module.modulemap
+            if [ -f /tmp/modulemap_backup ]; then
+              cp /tmp/modulemap_backup "$TARGET_DIR/include/module.modulemap"
+            fi
+
+            # Cleanup
+            rm -rf "$EXTRACT_DIR" "$TARBALL"
+
+            echo "Updated $TARGET_DIR to Lua $NEW_VERSION"
+          done
+
+      - name: Update Package.swift version comments
+        env:
+          UPDATES_JSON: ${{ needs.check-versions.outputs.updates_json }}
+        run: |
+          # Update version comments in Package.swift
+          echo "$UPDATES_JSON" | jq -c '.[]' | while read -r update; do
+            OLD_VERSION=$(echo "$update" | jq -r '.old')
+            NEW_VERSION=$(echo "$update" | jq -r '.new')
+
+            # Update version references in Package.swift
+            sed -i '' "s/$OLD_VERSION/$NEW_VERSION/g" Package.swift
+          done
+
+      - name: Update workflow bundled versions
+        env:
+          UPDATES_JSON: ${{ needs.check-versions.outputs.updates_json }}
+        run: |
+          # Update the BUNDLED array in this workflow file
+          echo "$UPDATES_JSON" | jq -c '.[]' | while read -r update; do
+            SERIES=$(echo "$update" | jq -r '.series')
+            OLD_VERSION=$(echo "$update" | jq -r '.old')
+            NEW_VERSION=$(echo "$update" | jq -r '.new')
+
+            # Update the bundled version in the workflow
+            sed -i '' "s/\[\"$SERIES\"\]=\"$OLD_VERSION\"/[\"$SERIES\"]=\"$NEW_VERSION\"/g" .github/workflows/lua-version-check.yml
+          done
+
+      - name: Run tests with default Lua version (5.4)
+        run: |
+          swift test
+
+      - name: Run tests with Lua 5.5
+        run: |
+          rm -rf .build
+          LUASWIFT_LUA_VERSION=55 swift test
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
+            feat: update Lua sources to latest versions
+
+            ${{ needs.check-versions.outputs.new_versions }}
+
+            Automated update by lua-version-check workflow.
+            All tests pass with Lua 5.4 and 5.5.
+
+            🤖 Generated with GitHub Actions
+          branch: lua-version-update
+          delete-branch: true
+          title: "feat: Update Lua sources: ${{ needs.check-versions.outputs.new_versions }}"
+          body: |
+            ## Automated Lua Version Update
+
+            New Lua versions detected and updated:
+
+            ${{ needs.check-versions.outputs.new_versions }}
+
+            ### Changes
+            - Downloaded new Lua source tarballs from lua.org
+            - Updated CLua* directories with new sources
+            - Updated version references in Package.swift
+
+            ### Test Results
+            - ✅ All tests pass with Lua 5.4 (default)
+            - ✅ All tests pass with Lua 5.5
+
+            ### Review Checklist
+            - [ ] Verify source files are correctly updated
+            - [ ] Check for any API changes in release notes
+            - [ ] Confirm no breaking changes
+
+            ---
+            🤖 This PR was automatically created by the [lua-version-check](.github/workflows/lua-version-check.yml) workflow.
+          labels: |
+            lua-update
+            automated-pr
+            enhancement

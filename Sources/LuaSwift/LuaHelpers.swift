@@ -16,10 +16,22 @@ import CLua
 // MARK: - Constants
 
 /// Maximum stack size (from luaconf.h LUAI_MAXSTACK)
+/// Lua 5.4 and earlier: 1,000,000
+/// Lua 5.5: INT_MAX/2
+#if LUA_VERSION_55
+let LUAI_MAXSTACK: Int32 = Int32.max / 2
+#else
 let LUAI_MAXSTACK: Int32 = 1_000_000
+#endif
 
 /// Pseudo-index for the registry (replaces LUA_REGISTRYINDEX macro)
+/// Lua 5.4 and earlier: -LUAI_MAXSTACK - 1000
+/// Lua 5.5: -(INT_MAX/2 + 1000)
+#if LUA_VERSION_55
+let LUA_REGISTRYINDEX: Int32 = -(Int32.max / 2 + 1000)
+#else
 let LUA_REGISTRYINDEX: Int32 = -LUAI_MAXSTACK - 1000
+#endif
 
 /// Multiple return values (replaces LUA_MULTRET macro)
 let LUA_MULTRET: Int32 = -1
@@ -183,6 +195,19 @@ func lua_upvalueindex(_ i: Int32) -> Int32 {
 }
 
 // MARK: - Auxiliary Library Macros
+
+/// Open all standard libraries (replaces luaL_openlibs macro)
+/// In Lua 5.5+, luaL_openlibs became a macro calling luaL_openselectedlibs
+@inline(__always)
+func luaL_openlibs(_ L: OpaquePointer?) {
+    #if LUA_VERSION_55
+    // Lua 5.5: luaL_openlibs is a macro, call the underlying function
+    luaL_openselectedlibs(L, ~0, 0)
+    #else
+    // Lua 5.1-5.4: luaL_openlibs is a function
+    CLua.luaL_openlibs(L)
+    #endif
+}
 
 /// Load and run a string (replaces luaL_dostring macro)
 /// Returns 0 on success, non-zero on error

@@ -1,0 +1,24 @@
+[38;2;127;132;156m   1[0m [38;2;205;214;244mLua 5.1.5 License[0m
+[38;2;127;132;156m   2[0m [38;2;205;214;244m=================[0m
+[38;2;127;132;156m   3[0m 
+[38;2;127;132;156m   4[0m [38;2;205;214;244mLua is free software distributed under the terms of the MIT license.[0m
+[38;2;127;132;156m   5[0m 
+[38;2;127;132;156m   6[0m [38;2;205;214;244mCopyright (C) 1994-2012 Lua.org, PUC-Rio.[0m
+[38;2;127;132;156m   7[0m 
+[38;2;127;132;156m   8[0m [38;2;205;214;244mPermission is hereby granted, free of charge, to any person obtaining a copy[0m
+[38;2;127;132;156m   9[0m [38;2;205;214;244mof this software and associated documentation files (the "Software"), to deal[0m
+[38;2;127;132;156m  10[0m [38;2;205;214;244min the Software without restriction, including without limitation the rights[0m
+[38;2;127;132;156m  11[0m [38;2;205;214;244mto use, copy, modify, merge, publish, distribute, sublicense, and/or sell[0m
+[38;2;127;132;156m  12[0m [38;2;205;214;244mcopies of the Software, and to permit persons to whom the Software is[0m
+[38;2;127;132;156m  13[0m [38;2;205;214;244mfurnished to do so, subject to the following conditions:[0m
+[38;2;127;132;156m  14[0m 
+[38;2;127;132;156m  15[0m [38;2;205;214;244mThe above copyright notice and this permission notice shall be included in all[0m
+[38;2;127;132;156m  16[0m [38;2;205;214;244mcopies or substantial portions of the Software.[0m
+[38;2;127;132;156m  17[0m 
+[38;2;127;132;156m  18[0m [38;2;205;214;244mTHE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR[0m
+[38;2;127;132;156m  19[0m [38;2;205;214;244mIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,[0m
+[38;2;127;132;156m  20[0m [38;2;205;214;244mFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE[0m
+[38;2;127;132;156m  21[0m [38;2;205;214;244mAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER[0m
+[38;2;127;132;156m  22[0m [38;2;205;214;244mLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,[0m
+[38;2;127;132;156m  23[0m [38;2;205;214;244mOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE[0m
+[38;2;127;132;156m  24[0m [38;2;205;214;244mSOFTWARE.[0m

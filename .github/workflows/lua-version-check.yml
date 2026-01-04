@@ -1,0 +1,82 @@
+name: Check Lua Versions
+
+on:
+  schedule:
+    # Run weekly on Sundays at 00:00 UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    # Allow manual trigger
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      new_versions: ${{ steps.check.outputs.new_versions }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for new Lua releases
+        id: check
+        run: |
+          # Fetch Lua FTP directory listing
+          curl -s https://www.lua.org/ftp/ > /tmp/lua_ftp.html
+
+          # Extract version numbers from tarball links
+          VERSIONS=$(grep -oP 'lua-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' /tmp/lua_ftp.html | sort -V | uniq)
+
+          # Current bundled versions
+          BUNDLED="5.1.5 5.2.4 5.3.6 5.4.7 5.5.0"
+
+          # Check for new versions in each major.minor series
+          NEW_VERSIONS=""
+          for series in "5.1" "5.2" "5.3" "5.4" "5.5"; do
+            LATEST=$(echo "$VERSIONS" | grep "^$series" | tail -1)
+            CURRENT=$(echo "$BUNDLED" | tr ' ' '\n' | grep "^$series" | tail -1)
+            if [ -n "$LATEST" ] && [ "$LATEST" != "$CURRENT" ]; then
+              NEW_VERSIONS="$NEW_VERSIONS $series:$CURRENT->$LATEST"
+            fi
+          done
+
+          echo "new_versions=$NEW_VERSIONS" >> $GITHUB_OUTPUT
+
+          if [ -n "$NEW_VERSIONS" ]; then
+            echo "::notice::New Lua versions available:$NEW_VERSIONS"
+          else
+            echo "::notice::All Lua versions are up to date"
+          fi
+
+  create-issue:
+    needs: check-versions
+    if: needs.check-versions.outputs.new_versions != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create update issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const newVersions = '${{ needs.check-versions.outputs.new_versions }}';
+            const title = `Update Lua sources: ${newVersions.trim()}`;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'lua-update'
+            });
+
+            const existingIssue = issues.data.find(i => i.title.includes('Update Lua sources'));
+            if (existingIssue) {
+              console.log('Issue already exists:', existingIssue.number);
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: `New Lua versions are available:\n\n${newVersions.trim().split(' ').map(v => '- ' + v).join('\n')}\n\nPlease update the bundled Lua sources.`,
+              labels: ['lua-update', 'enhancement']
+            });

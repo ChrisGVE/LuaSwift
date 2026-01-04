@@ -31,6 +31,7 @@ compat.lua51 = major == 5 and minor == 1
 compat.lua52 = major == 5 and minor == 2
 compat.lua53 = major == 5 and minor == 3
 compat.lua54 = major == 5 and minor == 4
+compat.lua55 = major == 5 and minor == 5
 compat.luajit = type(jit) == "table"
 
 -- Lua 5.4 already has these, but document them for clarity

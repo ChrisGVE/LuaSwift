@@ -386,7 +386,9 @@ final class LuaModuleTests: XCTestCase {
             return compat.version
         """)
 
-        XCTAssertEqual(result.stringValue, "5.4")
+        // Version should be either 5.4 or 5.5 depending on build configuration
+        let version = result.stringValue
+        XCTAssertTrue(version == "5.4" || version == "5.5", "Expected 5.4 or 5.5, got \(version ?? "nil")")
     }
 
     func testCompatVersionFlags() throws {
@@ -399,14 +401,20 @@ final class LuaModuleTests: XCTestCase {
                 lua51 = compat.lua51,
                 lua52 = compat.lua52,
                 lua53 = compat.lua53,
-                lua54 = compat.lua54
+                lua54 = compat.lua54,
+                lua55 = compat.lua55
             }
         """)
 
+        // Exactly one version flag should be true
         XCTAssertEqual(result.tableValue?["lua51"]?.boolValue, false)
         XCTAssertEqual(result.tableValue?["lua52"]?.boolValue, false)
         XCTAssertEqual(result.tableValue?["lua53"]?.boolValue, false)
-        XCTAssertEqual(result.tableValue?["lua54"]?.boolValue, true)
+        // Either lua54 or lua55 should be true depending on build
+        let lua54 = result.tableValue?["lua54"]?.boolValue ?? false
+        let lua55 = result.tableValue?["lua55"]?.boolValue ?? false
+        XCTAssertTrue(lua54 || lua55, "Expected either lua54 or lua55 to be true")
+        XCTAssertFalse(lua54 && lua55, "Only one version flag should be true")
     }
 
     func testCompatFeatures() throws {
@@ -590,13 +598,17 @@ final class LuaModuleTests: XCTestCase {
             return {
                 at_least_53 = compat.version_at_least("5.3"),
                 at_least_54 = compat.version_at_least("5.4"),
-                at_least_55 = compat.version_at_least("5.5")
+                at_least_55 = compat.version_at_least("5.5"),
+                at_least_56 = compat.version_at_least("5.6")
             }
         """)
 
+        // Both 5.4 and 5.5 are at least 5.3 and 5.4
         XCTAssertEqual(result.tableValue?["at_least_53"]?.boolValue, true)
         XCTAssertEqual(result.tableValue?["at_least_54"]?.boolValue, true)
-        XCTAssertEqual(result.tableValue?["at_least_55"]?.boolValue, false)
+        // at_least_55 depends on which version is running
+        // at_least_56 should always be false for 5.4 and 5.5
+        XCTAssertEqual(result.tableValue?["at_least_56"]?.boolValue, false)
     }
 
     func testCompatInstall() throws {

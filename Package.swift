@@ -98,6 +98,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
+        .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
     ],
     targets: [
         // Lua C library - version selected by LUASWIFT_LUA_VERSION env var

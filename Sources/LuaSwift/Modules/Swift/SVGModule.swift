@@ -568,6 +568,25 @@ public struct SVGModule {
         return drawing
     end
 
+    -- Transform helper functions
+    function svg.translate(tx, ty)
+        ty = ty or 0
+        return string.format("translate(%s,%s)", tx, ty)
+    end
+
+    function svg.rotate(angle, cx, cy)
+        if cx and cy then
+            return string.format("rotate(%s,%s,%s)", angle, cx, cy)
+        else
+            return string.format("rotate(%s)", angle)
+        end
+    end
+
+    function svg.scale(sx, sy)
+        sy = sy or sx
+        return string.format("scale(%s,%s)", sx, sy)
+    end
+
     -- Greek letter table for text content
     svg.greek = {
         -- Lowercase

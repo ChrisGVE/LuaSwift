@@ -468,4 +468,90 @@ final class SVGModuleTests: XCTestCase {
 
         XCTAssertTrue(svgString.contains("points=\"0,0 50,50 100,0\""))
     }
+
+    // MARK: - Transform Helper Tests
+
+    func testTranslateHelper() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            return {
+                full = svg.translate(50, 100),
+                xOnly = svg.translate(25)
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["full"]?.stringValue, "translate(50,100)")
+        XCTAssertEqual(table["xOnly"]?.stringValue, "translate(25,0)")
+    }
+
+    func testRotateHelper() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            return {
+                simple = svg.rotate(45),
+                withCenter = svg.rotate(90, 100, 100)
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["simple"]?.stringValue, "rotate(45)")
+        XCTAssertEqual(table["withCenter"]?.stringValue, "rotate(90,100,100)")
+    }
+
+    func testScaleHelper() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            return {
+                uniform = svg.scale(2),
+                nonUniform = svg.scale(2, 3)
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["uniform"]?.stringValue, "scale(2,2)")
+        XCTAssertEqual(table["nonUniform"]?.stringValue, "scale(2,3)")
+    }
+
+    func testGroupWithTransform() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            drawing:group({transform = svg.translate(50, 50)})
+            drawing:rect(0, 0, 50, 50, {fill = "red"})
+            return drawing:render()
+        """)
+
+        guard let svgString = result.stringValue else {
+            XCTFail("Expected SVG string")
+            return
+        }
+
+        XCTAssertTrue(svgString.contains("<g"))
+        XCTAssertTrue(svgString.contains("transform=\"translate(50,50)\""))
+    }
+
+    func testCombinedTransforms() throws {
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local t1 = svg.translate(100, 100)
+            local t2 = svg.rotate(45)
+            local t3 = svg.scale(0.5)
+            return t1 .. " " .. t2 .. " " .. t3
+        """)
+
+        XCTAssertEqual(result.stringValue, "translate(100,100) rotate(45) scale(0.5,0.5)")
+    }
 }

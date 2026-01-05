@@ -3052,6 +3052,383 @@ public struct PlotModule {
         return ax
     end
 
+    -- stripplot (matches seaborn sns.stripplot)
+    function stat.stripplot(ax, data, opts)
+        opts = opts or {}
+        local x = opts.x
+        local y = opts.y
+        local jitter = opts.jitter
+        if jitter == nil then jitter = 0.2 end
+        local color = opts.color or "steelblue"
+        local size = opts.size or opts.s or 5
+        local alpha = opts.alpha or 0.7
+        local orient = opts.orient or "v"
+
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        -- Handle single dataset
+        if type(data[1]) == "number" then
+            data = {data}
+        end
+
+        local n_datasets = #data
+
+        -- Find global data range for scaling
+        local global_min, global_max = data[1][1], data[1][1]
+        for _, dataset in ipairs(data) do
+            for _, v in ipairs(dataset) do
+                if v < global_min then global_min = v end
+                if v > global_max then global_max = v end
+            end
+        end
+        if global_max == global_min then global_max = global_min + 1 end
+
+        ctx:set_fill(color)
+
+        for idx, dataset in ipairs(data) do
+            local base_x = margin + (idx - 0.5) / n_datasets * plot_width
+
+            for _, v in ipairs(dataset) do
+                local jit = 0
+                if jitter then
+                    jit = (math.random() - 0.5) * 2 * jitter * plot_width / n_datasets * 0.3
+                end
+
+                if orient == "v" then
+                    local px = base_x + jit
+                    local py = margin + plot_height - (v - global_min) / (global_max - global_min) * plot_height
+                    ctx:circle(px, py, size / 2)
+                    ctx:fill()
+                else
+                    local py = base_x + jit
+                    local px = margin + (v - global_min) / (global_max - global_min) * plot_width
+                    ctx:circle(px, py, size / 2)
+                    ctx:fill()
+                end
+            end
+        end
+
+        return ax
+    end
+
+    -- swarmplot (matches seaborn sns.swarmplot)
+    -- Uses beeswarm algorithm to avoid overlap
+    function stat.swarmplot(ax, data, opts)
+        opts = opts or {}
+        local color = opts.color or "steelblue"
+        local size = opts.size or opts.s or 5
+        local alpha = opts.alpha or 0.7
+        local orient = opts.orient or "v"
+
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        -- Handle single dataset
+        if type(data[1]) == "number" then
+            data = {data}
+        end
+
+        local n_datasets = #data
+        local point_radius = size / 2
+
+        -- Find global data range for scaling
+        local global_min, global_max = data[1][1], data[1][1]
+        for _, dataset in ipairs(data) do
+            for _, v in ipairs(dataset) do
+                if v < global_min then global_min = v end
+                if v > global_max then global_max = v end
+            end
+        end
+        if global_max == global_min then global_max = global_min + 1 end
+
+        ctx:set_fill(color)
+
+        for idx, dataset in ipairs(data) do
+            local base_x = margin + (idx - 0.5) / n_datasets * plot_width
+            local max_width = plot_width / n_datasets * 0.4
+
+            -- Sort data for beeswarm
+            local sorted = {}
+            for i, v in ipairs(dataset) do
+                sorted[i] = {value = v, index = i}
+            end
+            table.sort(sorted, function(a, b) return a.value < b.value end)
+
+            -- Place points using simple beeswarm
+            local placed = {}  -- {y, x_offset}
+
+            for _, item in ipairs(sorted) do
+                local v = item.value
+                local y = margin + plot_height - (v - global_min) / (global_max - global_min) * plot_height
+
+                -- Find x offset that doesn't overlap with nearby points
+                local x_offset = 0
+                local found = false
+
+                for attempt = 0, 20 do
+                    local test_offset = (attempt % 2 == 0 and 1 or -1) * math.floor((attempt + 1) / 2) * point_radius * 2.2
+
+                    local overlap = false
+                    for _, p in ipairs(placed) do
+                        local dy = math.abs(p.y - y)
+                        local dx = math.abs(p.x_offset - test_offset)
+                        if math.sqrt(dy * dy + dx * dx) < point_radius * 2.2 then
+                            overlap = true
+                            break
+                        end
+                    end
+
+                    if not overlap and math.abs(test_offset) <= max_width then
+                        x_offset = test_offset
+                        found = true
+                        break
+                    end
+                end
+
+                if not found then x_offset = 0 end
+
+                table.insert(placed, {y = y, x_offset = x_offset})
+
+                if orient == "v" then
+                    ctx:circle(base_x + x_offset, y, point_radius)
+                else
+                    ctx:circle(y, base_x + x_offset, point_radius)
+                end
+                ctx:fill()
+            end
+        end
+
+        return ax
+    end
+
+    -- regplot (matches seaborn sns.regplot)
+    function stat.regplot(ax, x_data, y_data, opts)
+        opts = opts or {}
+        local ci = opts.ci or 95
+        local color = opts.color or "steelblue"
+        local scatter = opts.scatter
+        if scatter == nil then scatter = true end
+        local fit_reg = opts.fit_reg
+        if fit_reg == nil then fit_reg = true end
+        local order = opts.order or 1
+        local marker = opts.marker or "o"
+        local scatter_kws = opts.scatter_kws or {}
+        local line_kws = opts.line_kws or {}
+
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        local n = #x_data
+
+        -- Find data ranges
+        local xmin, xmax = x_data[1], x_data[1]
+        local ymin, ymax = y_data[1], y_data[1]
+        for i = 1, n do
+            if x_data[i] < xmin then xmin = x_data[i] end
+            if x_data[i] > xmax then xmax = x_data[i] end
+            if y_data[i] < ymin then ymin = y_data[i] end
+            if y_data[i] > ymax then ymax = y_data[i] end
+        end
+        if xmax == xmin then xmax = xmin + 1 end
+        if ymax == ymin then ymax = ymin + 1 end
+
+        -- Draw scatter points
+        if scatter then
+            local sc_color = scatter_kws.color or color
+            local sc_size = scatter_kws.s or 30
+            ctx:set_fill(sc_color)
+            for i = 1, n do
+                local px = margin + (x_data[i] - xmin) / (xmax - xmin) * plot_width
+                local py = margin + plot_height - (y_data[i] - ymin) / (ymax - ymin) * plot_height
+                ctx:circle(px, py, math.sqrt(sc_size / math.pi))
+                ctx:fill()
+            end
+        end
+
+        -- Linear regression
+        if fit_reg then
+            -- Calculate slope and intercept (simple linear regression)
+            local sum_x, sum_y, sum_xy, sum_xx = 0, 0, 0, 0
+            for i = 1, n do
+                sum_x = sum_x + x_data[i]
+                sum_y = sum_y + y_data[i]
+                sum_xy = sum_xy + x_data[i] * y_data[i]
+                sum_xx = sum_xx + x_data[i] * x_data[i]
+            end
+
+            local slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x)
+            local intercept = (sum_y - slope * sum_x) / n
+
+            -- Draw regression line
+            local line_color = line_kws.color or color
+            local line_width = line_kws.linewidth or 2
+
+            ctx:set_stroke(line_color, line_width)
+
+            local y1 = slope * xmin + intercept
+            local y2 = slope * xmax + intercept
+
+            local px1 = margin
+            local py1 = margin + plot_height - (y1 - ymin) / (ymax - ymin) * plot_height
+            local px2 = margin + plot_width
+            local py2 = margin + plot_height - (y2 - ymin) / (ymax - ymin) * plot_height
+
+            ctx:move_to(px1, py1)
+            ctx:line_to(px2, py2)
+            ctx:stroke()
+
+            -- Confidence interval band (simplified - using standard error)
+            if ci then
+                -- Calculate residual standard error
+                local ss_res = 0
+                for i = 1, n do
+                    local predicted = slope * x_data[i] + intercept
+                    ss_res = ss_res + (y_data[i] - predicted)^2
+                end
+                local se = math.sqrt(ss_res / (n - 2))
+
+                -- Simple CI band (approximation)
+                local t_val = 1.96  -- approximate for 95% CI
+
+                ctx:set_fill(line_color)
+                -- Draw filled region (simplified as parallel lines)
+                local band_width = t_val * se * 2
+
+                ctx:move_to(margin, py1 - band_width / (ymax - ymin) * plot_height)
+                ctx:line_to(margin + plot_width, py2 - band_width / (ymax - ymin) * plot_height)
+                ctx:line_to(margin + plot_width, py2 + band_width / (ymax - ymin) * plot_height)
+                ctx:line_to(margin, py1 + band_width / (ymax - ymin) * plot_height)
+                ctx:close_path()
+                ctx:fill()
+
+                -- Redraw line on top
+                ctx:set_stroke(line_color, line_width)
+                ctx:move_to(px1, py1)
+                ctx:line_to(px2, py2)
+                ctx:stroke()
+            end
+        end
+
+        return ax
+    end
+
+    -- heatmap (matches seaborn sns.heatmap) - delegates to imshow with annotations
+    function stat.heatmap(ax, data, opts)
+        opts = opts or {}
+        local annot = opts.annot or false
+        local fmt = opts.fmt or "%.2g"
+        local cmap = opts.cmap or "viridis"
+        local center = opts.center
+        local vmin = opts.vmin
+        local vmax = opts.vmax
+        local linewidths = opts.linewidths or 0
+        local linecolor = opts.linecolor or "white"
+        local square = opts.square or false
+        local cbar = opts.cbar
+        if cbar == nil then cbar = true end
+        local xticklabels = opts.xticklabels
+        local yticklabels = opts.yticklabels
+
+        -- Convert Python-style format string to Lua format string
+        -- e.g., ".2f" -> "%.2f", "d" -> "%d"
+        if fmt:sub(1, 1) ~= "%" then
+            fmt = "%" .. fmt
+        end
+
+        -- Use imshow for the base heatmap
+        ax:imshow(data, {cmap = cmap, vmin = vmin, vmax = vmax})
+
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        local nrows = #data
+        local ncols = #data[1]
+
+        local cell_width = plot_width / ncols
+        local cell_height = plot_height / nrows
+
+        -- Add annotations if requested
+        if annot then
+            for i = 1, nrows do
+                for j = 1, ncols do
+                    local v = data[i][j]
+                    local label = string.format(fmt, v)
+
+                    local x = margin + (j - 0.5) * cell_width
+                    local y = margin + (nrows - i + 0.5) * cell_height
+
+                    -- Choose contrasting text color
+                    local text_color = "white"
+                    if v and vmin and vmax then
+                        local t = (v - (vmin or 0)) / ((vmax or 1) - (vmin or 0))
+                        if t > 0.5 then text_color = "black" end
+                    end
+
+                    ctx:text(label, x, y, {
+                        anchor = "middle",
+                        fontSize = 10,
+                        color = text_color
+                    })
+                end
+            end
+        end
+
+        -- Add x-axis tick labels
+        if xticklabels then
+            for j, label in ipairs(xticklabels) do
+                local x = margin + (j - 0.5) * cell_width
+                local y = margin + plot_height + 15
+                ctx:text(tostring(label), x, y, {
+                    anchor = "middle",
+                    fontSize = 10,
+                    color = "black"
+                })
+            end
+        end
+
+        -- Add y-axis tick labels
+        if yticklabels then
+            for i, label in ipairs(yticklabels) do
+                local x = margin - 10
+                local y = margin + (nrows - i + 0.5) * cell_height
+                ctx:text(tostring(label), x, y, {
+                    anchor = "end",
+                    fontSize = 10,
+                    color = "black"
+                })
+            end
+        end
+
+        -- Add cell borders
+        if linewidths > 0 then
+            ctx:set_stroke(linecolor, linewidths)
+
+            for i = 0, nrows do
+                local y = margin + i * cell_height
+                ctx:move_to(margin, y)
+                ctx:line_to(margin + plot_width, y)
+            end
+
+            for j = 0, ncols do
+                local x = margin + j * cell_width
+                ctx:move_to(x, margin)
+                ctx:line_to(x, margin + plot_height)
+            end
+            ctx:stroke()
+        end
+
+        return ax
+    end
+
     -- Make stat namespace available
     package.loaded["luaswift.plot.stat"] = stat
 

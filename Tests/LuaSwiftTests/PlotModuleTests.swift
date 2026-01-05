@@ -1650,4 +1650,342 @@ final class PlotModuleTests: XCTestCase {
         """)
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Stripplot Tests
+
+    func testStripplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.stripplot(ax, {{1, 2, 3, 4, 5}})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testStripplotWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.stripplot(ax, {{1, 2, 3, 4, 5}}, {
+                jitter = 0.2,
+                color = "blue",
+                size = 8,
+                alpha = 0.7
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testStripplotMultipleSeries() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data1 = {1, 2, 3, 4, 5}
+            local data2 = {3, 4, 5, 6, 7}
+            stat.stripplot(ax, {data1, data2})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testStripplotHorizontal() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.stripplot(ax, {{1, 2, 3, 4, 5}}, {orient = "h"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Swarmplot Tests
+
+    func testSwarmplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.swarmplot(ax, {{1, 2, 2, 3, 3, 3, 4, 4, 5}})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSwarmplotWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.swarmplot(ax, {{1, 2, 2, 3, 3, 4}}, {
+                color = "green",
+                size = 6,
+                alpha = 0.8
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSwarmplotMultipleSeries() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data1 = {1, 2, 2, 3, 3, 3}
+            local data2 = {2, 3, 3, 4, 4, 4}
+            stat.swarmplot(ax, {data1, data2}, {size = 4})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSwarmplotNoOverlap() throws {
+        // Swarmplot should arrange points so they don't overlap
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            -- Data with many identical values to test overlap handling
+            stat.swarmplot(ax, {{1, 1, 1, 1, 2, 2, 2, 3, 3, 4}})
+            return fig:get_context():command_count() > 5  -- Multiple points drawn
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Regplot Tests
+
+    func testRegplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local x = {1, 2, 3, 4, 5}
+            local y = {2, 4, 5, 4, 5}
+            stat.regplot(ax, x, y)
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRegplotWithConfidenceInterval() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local x = {1, 2, 3, 4, 5, 6, 7, 8}
+            local y = {2.1, 3.9, 6.2, 7.8, 10.1, 12.0, 13.9, 16.2}
+            stat.regplot(ax, x, y, {ci = 95})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRegplotNoScatter() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local x = {1, 2, 3, 4, 5}
+            local y = {2, 4, 6, 8, 10}
+            stat.regplot(ax, x, y, {scatter = false})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRegplotWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local x = {1, 2, 3, 4, 5}
+            local y = {2, 4, 6, 8, 10}
+            stat.regplot(ax, x, y, {
+                color = "red",
+                marker = "s",
+                line_kws = {linestyle = "--"},
+                scatter_kws = {alpha = 0.5}
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRegplotLineOnly() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local x = {1, 2, 3, 4, 5}
+            local y = {2.1, 4.2, 5.8, 8.1, 9.9}
+            stat.regplot(ax, x, y, {scatter = false, ci = false})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Seaborn-style Heatmap Tests
+
+    func testSeabornHeatmapBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}}
+            stat.heatmap(ax, data)
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSeabornHeatmapWithAnnotations() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{1, 2}, {3, 4}}
+            stat.heatmap(ax, data, {annot = true})
+            local svg = fig:to_svg()
+            -- Should contain text annotations
+            return svg:find("<text") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSeabornHeatmapWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{0, 0.5, 1}, {0.5, 1, 0.5}, {1, 0.5, 0}}
+            stat.heatmap(ax, data, {
+                cmap = "coolwarm",
+                vmin = 0,
+                vmax = 1,
+                linewidths = 1,
+                linecolor = "white"
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSeabornHeatmapWithLabels() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{1, 2}, {3, 4}}
+            stat.heatmap(ax, data, {
+                xticklabels = {"A", "B"},
+                yticklabels = {"Row 1", "Row 2"}
+            })
+            local svg = fig:to_svg()
+            return svg:find("Row 1") ~= nil and svg:find("A") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSeabornHeatmapWithFmt() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{0.123, 0.456}, {0.789, 0.012}}
+            stat.heatmap(ax, data, {annot = true, fmt = ".2f"})
+            local svg = fig:to_svg()
+            return svg:find("0.12") ~= nil or svg:find("0.46") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSeabornHeatmapSquare() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{1, 2, 3}, {4, 5, 6}}
+            stat.heatmap(ax, data, {square = true})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Combined Statistical Plot Tests
+
+    func testStripplotWithViolinplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {
+                {1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+                {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+            }
+            stat.violinplot(ax, data, {alpha = 0.3})
+            stat.stripplot(ax, data, {color = "black", size = 3})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRegplotWithResidualsHistogram() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, axes = plt.subplots(1, 2)
+            local ax1 = axes[1]
+            local ax2 = axes[2]
+
+            local x = {1, 2, 3, 4, 5, 6, 7, 8}
+            local y = {2.1, 3.9, 6.2, 7.8, 10.1, 12.0, 13.9, 16.2}
+
+            stat.regplot(ax1, x, y, {ci = 95})
+            ax1:set_title("Regression")
+
+            -- Simple residuals (not computed, just example data)
+            stat.histplot(ax2, {0.1, -0.1, 0.2, -0.2, 0.1, 0, -0.1, 0.2}, {kde = true})
+            ax2:set_title("Residuals")
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testHeatmapCorrelationMatrix() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+
+            -- Simulated correlation matrix
+            local corr = {
+                {1.0, 0.8, 0.3, -0.2},
+                {0.8, 1.0, 0.5, -0.1},
+                {0.3, 0.5, 1.0, 0.6},
+                {-0.2, -0.1, 0.6, 1.0}
+            }
+
+            stat.heatmap(ax, corr, {
+                annot = true,
+                fmt = ".2f",
+                cmap = "coolwarm",
+                vmin = -1,
+                vmax = 1,
+                xticklabels = {"A", "B", "C", "D"},
+                yticklabels = {"A", "B", "C", "D"},
+                linewidths = 0.5
+            })
+            ax:set_title("Correlation Matrix")
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

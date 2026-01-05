@@ -146,13 +146,24 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 10)
     }
 
-    func testDiag() throws {
+    func testDiagonal() throws {
         let result = try engine.evaluate("""
-            local m = luaswift.linalg.diag({1, 2, 3})
+            local m = luaswift.linalg.diagonal({1, 2, 3})
             return m:get(2, 2)
             """)
 
         XCTAssertEqual(result.numberValue, 2)
+    }
+
+    func testDiagAlias() throws {
+        // Verify legacy alias still works
+        let result = try engine.evaluate("""
+            local m1 = luaswift.linalg.diagonal({1, 2, 3})
+            local m2 = luaswift.linalg.diag({1, 2, 3})
+            return m1:get(2, 2) == m2:get(2, 2)
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
     }
 
     // MARK: - Transpose
@@ -343,14 +354,26 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 2)
     }
 
-    func testEig() throws {
+    func testEigen() throws {
         let result = try engine.evaluate("""
             local m = luaswift.linalg.matrix({{1,0},{0,2}})
-            local vals, vecs = m:eig()
+            local vals, vecs = m:eigen()
             return vals:size()
             """)
 
         XCTAssertEqual(result.numberValue, 2)
+    }
+
+    func testEigAlias() throws {
+        // Verify legacy alias still works
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,0},{0,2}})
+            local vals1, _ = m:eigen()
+            local vals2, _ = m:eig()
+            return vals1:get(1) == vals2:get(1)
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
     }
 
     func testCholesky() throws {
@@ -376,15 +399,28 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, 2, accuracy: 1e-10)
     }
 
-    func testLstSq() throws {
+    func testLeastSquares() throws {
         let result = try engine.evaluate("""
             local A = luaswift.linalg.matrix({{1,1},{1,2},{1,3}})
             local b = luaswift.linalg.vector({1, 2, 2})
-            local x = luaswift.linalg.lstsq(A, b)
+            local x = luaswift.linalg.least_squares(A, b)
             return x:size()
             """)
 
         XCTAssertEqual(result.numberValue, 2)
+    }
+
+    func testLstSqAlias() throws {
+        // Verify legacy alias still works
+        let result = try engine.evaluate("""
+            local A = luaswift.linalg.matrix({{1,1},{1,2},{1,3}})
+            local b = luaswift.linalg.vector({1, 2, 2})
+            local x1 = luaswift.linalg.least_squares(A, b)
+            local x2 = luaswift.linalg.lstsq(A, b)
+            return x1:get(1) == x2:get(1)
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
     }
 
     // MARK: - Row and Column extraction
@@ -528,9 +564,9 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.stringValue, "linalg.matrix")
     }
 
-    func testDiagTypeMarker() throws {
+    func testDiagonalTypeMarker() throws {
         let result = try engine.evaluate("""
-            local m = luaswift.linalg.diag({1, 2, 3})
+            local m = luaswift.linalg.diagonal({1, 2, 3})
             return m.__luaswift_type
             """)
 

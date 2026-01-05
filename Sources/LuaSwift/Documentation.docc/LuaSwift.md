@@ -62,18 +62,33 @@ try engine.run("""
 ### Built-in Modules
 
 - ``ModuleRegistry``
-- ``JSONModule``
-- ``YAMLModule``
-- ``TOMLModule``
-- ``RegexModule``
+
+### Data Formats
+
+- <doc:JSONModule>
+- <doc:YAMLModule>
+- <doc:TOMLModule>
+
+### Text Processing
+
+- <doc:RegexModule>
+- ``StringXModule``
+- ``UTF8XModule``
+- ``TableXModule``
+
+### Mathematics
+
 - ``MathXModule``
 - ``LinAlgModule``
 - ``ArrayModule``
-- ``GeometryModule``
 - ``ComplexModule``
-- ``UTF8XModule``
-- ``StringXModule``
-- ``TableXModule``
-- ``TypesModule``
+
+### Graphics and Geometry
+
+- ``GeometryModule``
 - ``SVGModule``
+
+### Utilities
+
+- ``TypesModule``
 - ``MathExprModule``

@@ -472,4 +472,156 @@ final class MathExprModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Extended Functions Tests
+
+    func testEvalAsinh() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("asinh(0)")
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 0, accuracy: 1e-10)
+    }
+
+    func testEvalAcosh() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("acosh(1)")
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 0, accuracy: 1e-10)
+    }
+
+    func testEvalAtanh() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("atanh(0)")
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 0, accuracy: 1e-10)
+    }
+
+    func testEvalTrunc() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return {
+                mathexpr.eval("trunc(3.7)"),
+                mathexpr.eval("trunc(-3.7)")
+            }
+        """)
+
+        guard let arr = result.arrayValue else {
+            XCTFail("Expected array")
+            return
+        }
+
+        XCTAssertEqual(arr[0].numberValue, 3)
+        XCTAssertEqual(arr[1].numberValue, -3)
+    }
+
+    // MARK: - Multi-Argument Function Tests
+
+    func testEvalAtan2() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("atan2(1, 1)")
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, Double.pi / 4, accuracy: 1e-10)
+    }
+
+    func testEvalPow() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("pow(2, 10)")
+        """)
+
+        XCTAssertEqual(result.numberValue, 1024)
+    }
+
+    func testEvalMin() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("min(5, 3)")
+        """)
+
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testEvalMax() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("max(5, 3)")
+        """)
+
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testEvalClamp() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return {
+                mathexpr.eval("clamp(5, 0, 10)"),
+                mathexpr.eval("clamp(-5, 0, 10)"),
+                mathexpr.eval("clamp(15, 0, 10)")
+            }
+        """)
+
+        guard let arr = result.arrayValue else {
+            XCTFail("Expected array")
+            return
+        }
+
+        XCTAssertEqual(arr[0].numberValue, 5)   // Within range
+        XCTAssertEqual(arr[1].numberValue, 0)   // Below min
+        XCTAssertEqual(arr[2].numberValue, 10)  // Above max
+    }
+
+    func testEvalLerp() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return {
+                mathexpr.eval("lerp(0, 10, 0)"),
+                mathexpr.eval("lerp(0, 10, 0.5)"),
+                mathexpr.eval("lerp(0, 10, 1)")
+            }
+        """)
+
+        guard let arr = result.arrayValue else {
+            XCTFail("Expected array")
+            return
+        }
+
+        XCTAssertEqual(arr[0].numberValue, 0)   // t=0 returns a
+        XCTAssertEqual(arr[1].numberValue, 5)   // t=0.5 returns midpoint
+        XCTAssertEqual(arr[2].numberValue, 10)  // t=1 returns b
+    }
+
+    func testEvalNestedMultiArgFunctions() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("clamp(lerp(0, 20, 0.75), 5, 10)")
+        """)
+
+        // lerp(0, 20, 0.75) = 15, clamp(15, 5, 10) = 10
+        XCTAssertEqual(result.numberValue, 10)
+    }
+
+    func testTokenizeNewFunctions() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local funcs = {"asinh", "acosh", "atanh", "trunc", "clamp", "lerp"}
+            local all_ok = true
+            for _, f in ipairs(funcs) do
+                local tokens = mathexpr.tokenize(f .. "(x)")
+                if tokens[1].type ~= "function" then
+                    all_ok = false
+                end
+            end
+            return all_ok
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

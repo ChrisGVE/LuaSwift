@@ -77,14 +77,15 @@ public struct MathExprModule {
         "sin", "cos", "tan",
         "asin", "acos", "atan", "atan2",
         "sinh", "cosh", "tanh",
+        "asinh", "acosh", "atanh",
         // Exponential and logarithmic
         "exp", "log", "log10", "log2", "ln",
         // Power and roots
         "sqrt", "cbrt", "pow",
         // Absolute value and sign
-        "abs", "sign", "floor", "ceil", "round",
-        // Min/max
-        "min", "max",
+        "abs", "sign", "floor", "ceil", "round", "trunc",
+        // Min/max and interpolation
+        "min", "max", "clamp", "lerp",
         // Other
         "rad", "deg"
     ]
@@ -312,6 +313,10 @@ public struct MathExprModule {
         sinh = function(x) return (math.exp(x) - math.exp(-x)) / 2 end,
         cosh = function(x) return (math.exp(x) + math.exp(-x)) / 2 end,
         tanh = function(x) return (math.exp(2*x) - 1) / (math.exp(2*x) + 1) end,
+        -- Inverse hyperbolic
+        asinh = function(x) return math.log(x + math.sqrt(x*x + 1)) end,
+        acosh = function(x) return math.log(x + math.sqrt(x*x - 1)) end,
+        atanh = function(x) return 0.5 * math.log((1 + x) / (1 - x)) end,
         -- Exponential and logarithmic
         exp = math.exp, log = math.log, log10 = math.log10,
         log2 = function(x) return math.log(x) / math.log(2) end,
@@ -325,8 +330,11 @@ public struct MathExprModule {
         sign = function(x) return x > 0 and 1 or (x < 0 and -1 or 0) end,
         floor = math.floor, ceil = math.ceil,
         round = function(x) return math.floor(x + 0.5) end,
-        -- Min/max
+        trunc = function(x) return x >= 0 and math.floor(x) or math.ceil(x) end,
+        -- Min/max and interpolation
         min = math.min, max = math.max,
+        clamp = function(x, lo, hi) return math.min(math.max(x, lo), hi) end,
+        lerp = function(a, b, t) return a + (b - a) * t end,
         -- Angle conversion
         rad = math.rad, deg = math.deg
     }
@@ -351,6 +359,7 @@ public struct MathExprModule {
     function mathexpr.parse(tokens)
         local output = {}
         local operators = {}
+        local arg_counts = {}  -- Track argument counts for functions
 
         local function pop_operator()
             local op = table.remove(operators)
@@ -369,9 +378,14 @@ public struct MathExprModule {
                 table.insert(output, {type = "variable", name = token.value})
             elseif token.type == "function" then
                 table.insert(operators, token)
+                table.insert(arg_counts, 1)  -- At least 1 argument
             elseif token.type == "comma" then
                 while #operators > 0 and operators[#operators].type ~= "lparen" do
                     pop_operator()
+                end
+                -- Increment arg count for current function
+                if #arg_counts > 0 then
+                    arg_counts[#arg_counts] = arg_counts[#arg_counts] + 1
                 end
             elseif token.type == "operator" then
                 -- Handle unary minus
@@ -401,11 +415,15 @@ public struct MathExprModule {
                 if #operators > 0 then
                     table.remove(operators)  -- Remove lparen
                 end
-                -- Handle function call
+                -- Handle function call with multiple arguments
                 if #operators > 0 and operators[#operators].type == "function" then
                     local func_token = table.remove(operators)
-                    local arg = table.remove(output)
-                    table.insert(output, {type = "call", name = func_token.value, args = {arg}})
+                    local num_args = table.remove(arg_counts) or 1
+                    local args = {}
+                    for j = 1, num_args do
+                        table.insert(args, 1, table.remove(output))
+                    end
+                    table.insert(output, {type = "call", name = func_token.value, args = args})
                 end
             end
             prev_token = token
@@ -444,7 +462,10 @@ public struct MathExprModule {
             for _, arg in ipairs(ast.args) do
                 table.insert(args, mathexpr.eval_ast(arg, vars))
             end
-            return func(table.unpack and table.unpack(args) or unpack(args))
+            -- Note: Can't use "table.unpack and table.unpack(args) or unpack(args)"
+            -- because and/or truncates multiple return values to just one!
+            local u = table.unpack or unpack
+            return func(u(args))
         end
     end
 

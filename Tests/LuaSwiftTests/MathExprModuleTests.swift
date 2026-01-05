@@ -624,4 +624,178 @@ final class MathExprModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Solve Tests
+
+    func testSolveWithoutSteps() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.solve("(2+3)*4")
+        """)
+
+        XCTAssertEqual(result.numberValue, 20)
+    }
+
+    func testSolveWithStepsSimple() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local steps = mathexpr.solve("2+3", {show_steps = true})
+            return {
+                count = #steps,
+                first_op = steps[1].operation,
+                second_op = steps[2].operation,
+                third_op = steps[3].operation,
+                result = steps[3].result
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["count"]?.numberValue, 3)
+        XCTAssertEqual(table["first_op"]?.stringValue, "initial")
+        XCTAssertEqual(table["second_op"]?.stringValue, "binop")
+        XCTAssertEqual(table["third_op"]?.stringValue, "result")
+        XCTAssertEqual(table["result"]?.numberValue, 5)
+    }
+
+    func testSolveWithStepsComplex() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local steps = mathexpr.solve("(2+3)*4", {show_steps = true})
+            return {
+                count = #steps,
+                add_desc = steps[2].description,
+                add_result = steps[2].result,
+                mul_desc = steps[3].description,
+                mul_result = steps[3].result,
+                final_result = steps[4].result
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["count"]?.numberValue, 4)
+        XCTAssertEqual(table["add_desc"]?.stringValue, "2 + 3")
+        XCTAssertEqual(table["add_result"]?.numberValue, 5)
+        XCTAssertEqual(table["mul_desc"]?.stringValue, "5 × 4")
+        XCTAssertEqual(table["mul_result"]?.numberValue, 20)
+        XCTAssertEqual(table["final_result"]?.numberValue, 20)
+    }
+
+    func testSolveWithVariables() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local steps = mathexpr.solve("x^2 + 2*x", {
+                show_steps = true,
+                variables = {x = 3}
+            })
+            return {
+                count = #steps,
+                final_result = steps[#steps].result
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertTrue((table["count"]?.numberValue ?? 0) > 2)
+        XCTAssertEqual(table["final_result"]?.numberValue, 15)
+    }
+
+    func testSolveWithFunction() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local steps = mathexpr.solve("sqrt(16)", {show_steps = true})
+            local func_step = steps[2]
+            return {
+                count = #steps,
+                operation = func_step.operation,
+                description = func_step.description,
+                result = func_step.result,
+                final_result = steps[#steps].result
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["count"]?.numberValue, 3)
+        XCTAssertEqual(table["operation"]?.stringValue, "call")
+        XCTAssertEqual(table["description"]?.stringValue, "sqrt(16)")
+        XCTAssertEqual(table["result"]?.numberValue, 4)
+        XCTAssertEqual(table["final_result"]?.numberValue, 4)
+    }
+
+    func testSolveStepOperands() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local steps = mathexpr.solve("10-3", {show_steps = true})
+            local binop_step = steps[2]
+            return {
+                operand1 = binop_step.operands[1],
+                operand2 = binop_step.operands[2],
+                result = binop_step.result
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["operand1"]?.numberValue, 10)
+        XCTAssertEqual(table["operand2"]?.numberValue, 3)
+        XCTAssertEqual(table["result"]?.numberValue, 7)
+    }
+
+    func testSolveWithPrecision() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local steps = mathexpr.solve("1/3", {
+                show_steps = true,
+                significantDigits = 2
+            })
+            return {
+                final_subexpr = steps[#steps].subexpression
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["final_subexpr"]?.stringValue, "0.33")
+    }
+
+    func testSolveSubexpression() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local steps = mathexpr.solve("2*3+4", {show_steps = true})
+            return {
+                initial_subexpr = steps[1].subexpression,
+                mul_subexpr = steps[2].subexpression,
+                add_subexpr = steps[3].subexpression
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["initial_subexpr"]?.stringValue, "2*3+4")
+        XCTAssertEqual(table["mul_subexpr"]?.stringValue, "2 * 3")
+        XCTAssertEqual(table["add_subexpr"]?.stringValue, "6 + 4")
+    }
 }

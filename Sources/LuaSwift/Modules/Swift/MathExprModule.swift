@@ -296,6 +296,71 @@ public struct MathExprModule {
     -- Store reference to Swift tokenize function
     local _tokenize = _luaswift_mathexpr_tokenize
 
+    -- LaTeX to standard notation preprocessor
+    function mathexpr.latexToStandard(latex)
+        local expr = latex
+
+        -- Handle fractions: \\frac{a}{b} -> (a)/(b)
+        expr = expr:gsub("\\\\frac%%s*{([^}]+)}%%s*{([^}]+)}", function(num, den)
+            return "(" .. num .. ")/(" .. den .. ")"
+        end)
+
+        -- Handle nth roots: \\sqrt[n]{x} -> (x)^(1/(n))
+        expr = expr:gsub("\\\\sqrt%%s*%%[([^%%]]+)%%]%%s*{([^}]+)}", function(n, x)
+            return "(" .. x .. ")^(1/(" .. n .. "))"
+        end)
+
+        -- Handle square roots: \\sqrt{x} -> sqrt(x)
+        expr = expr:gsub("\\\\sqrt%%s*{([^}]+)}", function(x)
+            return "sqrt(" .. x .. ")"
+        end)
+
+        -- Handle function names: remove backslash
+        local functions = {"sin", "cos", "tan", "asin", "acos", "atan",
+                          "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+                          "log", "ln", "exp", "sqrt"}
+        for _, func in ipairs(functions) do
+            expr = expr:gsub("\\\\" .. func .. "([^a-zA-Z])", func .. "%%1")
+            expr = expr:gsub("\\\\" .. func .. "$", func)
+        end
+
+        -- Handle Greek letters (both as constants and variables)
+        local greekLetters = {
+            pi = "pi", theta = "theta", alpha = "alpha", beta = "beta",
+            gamma = "gamma", delta = "delta", epsilon = "epsilon",
+            lambda = "lambda", mu = "mu", sigma = "sigma", phi = "phi",
+            omega = "omega"
+        }
+        for greek, name in pairs(greekLetters) do
+            expr = expr:gsub("\\\\" .. greek .. "([^a-zA-Z])", name .. "%%1")
+            expr = expr:gsub("\\\\" .. greek .. "$", name)
+        end
+
+        -- Handle exponents with braces: x^{n} -> x^(n)
+        expr = expr:gsub("%%^%%s*{([^}]+)}", function(exp)
+            return "^(" .. exp .. ")"
+        end)
+
+        -- Handle subscripts: x_{i} -> x_i (as variable name)
+        expr = expr:gsub("([a-zA-Z])_%%s*{([^}]+)}", "%%1_%%2")
+
+        -- Handle parentheses: \\left( and \\right) -> ( and )
+        expr = expr:gsub("\\\\left%%s*%%(", "(")
+        expr = expr:gsub("\\\\right%%s*%%)", ")")
+        expr = expr:gsub("\\\\left%%s*%%[", "[")
+        expr = expr:gsub("\\\\right%%s*%%]", "]")
+        expr = expr:gsub("\\\\left%%s*{", "{")
+        expr = expr:gsub("\\\\right%%s*}", "}")
+
+        return expr
+    end
+
+    -- Detect if expression contains LaTeX notation
+    local function isLatex(expr)
+        -- Check for LaTeX patterns
+        return expr:match("\\\\") ~= nil
+    end
+
     -- Constants for evaluation
     mathexpr.constants = {
         pi = math.pi,
@@ -341,6 +406,10 @@ public struct MathExprModule {
 
     -- Tokenize expression (calls Swift)
     function mathexpr.tokenize(expr)
+        -- Preprocess LaTeX notation if detected
+        if isLatex(expr) then
+            expr = mathexpr.latexToStandard(expr)
+        end
         return _tokenize(expr)
     end
 
@@ -487,6 +556,141 @@ public struct MathExprModule {
                 return mathexpr.eval_ast(ast, vars_or_x or {})
             end
         end
+    end
+
+    -- Helper to format a number for display
+    local function format_number(n, precision)
+        if precision then
+            return string.format("%." .. precision .. "f", n)
+        end
+        if n == math.floor(n) then
+            return tostring(math.floor(n))
+        else
+            local str = string.format("%.10f", n)
+            str = str:gsub("0+$", ""):gsub("%.$", "")
+            return str
+        end
+    end
+
+    -- Helper to get operator symbol for description
+    local function op_symbol(op)
+        if op == "+" then return "+"
+        elseif op == "-" then return "-"
+        elseif op == "*" then return "×"
+        elseif op == "/" then return "÷"
+        elseif op == "^" then return "^"
+        else return op
+        end
+    end
+
+    -- Evaluate AST with step tracking
+    local function eval_with_steps(ast, vars, steps, config)
+        vars = vars or {}
+        config = config or {}
+
+        if ast.type == "number" then
+            return ast.value
+        elseif ast.type == "constant" then
+            return mathexpr.constants[ast.name]
+        elseif ast.type == "variable" then
+            local val = vars[ast.name]
+            if val == nil then
+                error("undefined variable: " .. ast.name)
+            end
+            return val
+        elseif ast.type == "binop" then
+            local left = eval_with_steps(ast.left, vars, steps, config)
+            local right = eval_with_steps(ast.right, vars, steps, config)
+            local result
+            if ast.op == "+" then result = left + right
+            elseif ast.op == "-" then result = left - right
+            elseif ast.op == "*" then result = left * right
+            elseif ast.op == "/" then result = left / right
+            elseif ast.op == "^" then result = left ^ right
+            end
+
+            if not config.combineArithmetic or config.showIntermediates then
+                local prec = config.significantDigits
+                table.insert(steps, {
+                    operation = "binop",
+                    description = format_number(left, prec) .. " " .. op_symbol(ast.op) .. " " .. format_number(right, prec),
+                    operands = {left, right},
+                    result = result,
+                    precision = prec,
+                    subexpression = format_number(left, prec) .. " " .. ast.op .. " " .. format_number(right, prec)
+                })
+            end
+
+            return result
+        elseif ast.type == "call" then
+            local func = mathexpr.functions[ast.name]
+            if not func then error("unknown function: " .. ast.name) end
+            local arg_vals = {}
+            for _, arg in ipairs(ast.args) do
+                table.insert(arg_vals, eval_with_steps(arg, vars, steps, config))
+            end
+            local u = table.unpack or unpack
+            local result = func(u(arg_vals))
+
+            local arg_strs = {}
+            local prec = config.significantDigits
+            for _, v in ipairs(arg_vals) do
+                table.insert(arg_strs, format_number(v, prec))
+            end
+            table.insert(steps, {
+                operation = "call",
+                description = ast.name .. "(" .. table.concat(arg_strs, ", ") .. ")",
+                operands = arg_vals,
+                result = result,
+                precision = prec,
+                subexpression = ast.name .. "(" .. table.concat(arg_strs, ", ") .. ")"
+            })
+
+            return result
+        end
+    end
+
+    -- Solve expression with step-by-step evaluation
+    function mathexpr.solve(expr, options)
+        options = options or {}
+        local show_steps = options.show_steps
+        local vars = options.variables or {}
+        local config = {
+            combineArithmetic = options.combineArithmetic,
+            showIntermediates = options.showIntermediates,
+            significantDigits = options.significantDigits
+        }
+
+        local tokens = mathexpr.tokenize(expr)
+        local ast = mathexpr.parse(tokens)
+
+        if not show_steps then
+            return mathexpr.eval_ast(ast, vars)
+        end
+
+        local steps = {}
+
+        table.insert(steps, {
+            operation = "initial",
+            description = "Initial expression",
+            operands = {},
+            result = nil,
+            precision = config.significantDigits,
+            subexpression = expr
+        })
+
+        local result = eval_with_steps(ast, vars, steps, config)
+
+        table.insert(steps, {
+            operation = "result",
+            description = "Final result",
+            operands = {},
+            result = result,
+            precision = config.significantDigits,
+            subexpression = format_number(result, config.significantDigits)
+        })
+
+        return steps
     end
 
     -- Create top-level alias

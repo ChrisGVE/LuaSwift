@@ -12,7 +12,7 @@ final class LuaModuleTests: XCTestCase {
 
     // MARK: - Helper Methods
 
-    /// Configure package.path to find the LuaModules directory
+    /// Configure package.path to find the LuaModules directory and register Swift-backed modules
     private func configureLuaPath(engine: LuaEngine) throws {
         // Use the absolute path to LuaModules in the source tree
         // This works because Swift tests run from the package root
@@ -36,6 +36,9 @@ final class LuaModuleTests: XCTestCase {
             package.path = '\(modulesPath)/?.lua;' .. package.path
         """
         try engine.run(pathConfig)
+
+        // Register Swift-backed modules (svg.lua was replaced by SVGModule.swift)
+        SVGModule.register(in: engine)
     }
 
     // MARK: - SVG Module Tests
@@ -45,7 +48,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(400, 300)
             return {
                 width = drawing.width,
@@ -63,7 +66,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(200, 200)
             drawing:rect(10, 20, 50, 30, {fill = 'red', stroke = 'black'})
             local svgStr = drawing:render()
@@ -78,7 +81,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(200, 200)
             drawing:circle(100, 100, 50, {fill = 'blue'})
             local svgStr = drawing:render()
@@ -93,7 +96,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(300, 100)
             drawing:text('Hello World', 150, 50, {font_size = 16})
             local svgStr = drawing:render()
@@ -108,7 +111,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(200, 100)
             local text = svg.greek.alpha .. svg.greek.beta .. svg.greek.pi
             drawing:text(text, 100, 50)
@@ -125,7 +128,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(400, 300)
             local points = {
                 {x = 10, y = 100},
@@ -146,7 +149,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(100, 100)
             drawing:rect(0, 0, 100, 100, {fill = 'white'})
             local svgStr = drawing:render()
@@ -267,7 +270,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local math_expr = require('math_expr')
             local drawing = svg.create(300, 100)
             -- Evaluate an expression
@@ -287,7 +290,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(400, 100)
             -- Create text with multiple Greek letters
             local text = svg.greek.pi .. ' ' .. svg.greek.alpha .. ' ' .. svg.greek.beta
@@ -325,7 +328,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(300, 300)
             local group = drawing:group(svg.translate(50, 50))
             group:rect(0, 0, 100, 100, {fill = 'red'})
@@ -357,7 +360,7 @@ final class LuaModuleTests: XCTestCase {
         try configureLuaPath(engine: engine)
 
         let result = try engine.evaluate("""
-            local svg = require('svg')
+            local svg = require('luaswift.svg')
             local drawing = svg.create(400, 400)
             local points = {
                 {x = 100, y = 100},

@@ -245,7 +245,7 @@ final class SVGModuleTests: XCTestCase {
         let result = try engine.evaluate("""
             local svg = require("luaswift.svg")
             local drawing = svg.create(200, 200)
-            drawing:text(50, 100, "Hello, SVG!", {["font-size"] = 16})
+            drawing:text("Hello, SVG!", 50, 100, {["font-size"] = 16})
             return drawing:render()
         """)
 
@@ -264,7 +264,7 @@ final class SVGModuleTests: XCTestCase {
         let result = try engine.evaluate("""
             local svg = require("luaswift.svg")
             local drawing = svg.create(200, 200)
-            drawing:text(50, 100, svg.greek.theta .. " = 30" .. svg.greek.degree, {["font-size"] = 16})
+            drawing:text(svg.greek.theta .. " = 30" .. svg.greek.degree, 50, 100, {["font-size"] = 16})
             return drawing:render()
         """)
 
@@ -382,9 +382,10 @@ final class SVGModuleTests: XCTestCase {
             return
         }
 
-        // Check SVG structure
-        XCTAssertTrue(svgString.hasPrefix("<svg"))
+        // Check SVG structure (includes XML declaration like svg.lua)
+        XCTAssertTrue(svgString.hasPrefix("<?xml"))
         XCTAssertTrue(svgString.hasSuffix("</svg>"))
+        XCTAssertTrue(svgString.contains("<svg"))
         XCTAssertTrue(svgString.contains("xmlns=\"http://www.w3.org/2000/svg\""))
         XCTAssertTrue(svgString.contains("width=\"400\""))
         XCTAssertTrue(svgString.contains("height=\"300\""))
@@ -396,7 +397,7 @@ final class SVGModuleTests: XCTestCase {
         let result = try engine.evaluate("""
             local svg = require("luaswift.svg")
             local drawing = svg.create(200, 200)
-            drawing:text(50, 100, "A < B & C > D", {})
+            drawing:text("A < B & C > D", 50, 100, {})
             return drawing:render()
         """)
 
@@ -529,8 +530,8 @@ final class SVGModuleTests: XCTestCase {
         let result = try engine.evaluate("""
             local svg = require("luaswift.svg")
             local drawing = svg.create(200, 200)
-            drawing:group({transform = svg.translate(50, 50)})
-            drawing:rect(0, 0, 50, 50, {fill = "red"})
+            local g = drawing:group(svg.translate(50, 50))
+            g:rect(0, 0, 50, 50, {fill = "red"})
             return drawing:render()
         """)
 
@@ -553,6 +554,74 @@ final class SVGModuleTests: XCTestCase {
         """)
 
         XCTAssertEqual(result.stringValue, "translate(100,100) rotate(45) scale(0.5,0.5)")
+    }
+
+    func testGroupReturnsGroupObject() throws {
+        // Groups should return a group object (not self) that has its own elements
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            local g = drawing:group(svg.translate(50, 50))
+            -- Group should be different from drawing
+            local isDifferent = g ~= drawing
+            -- Group should have its own elements array
+            g:rect(0, 0, 20, 20)
+            -- Drawing should have 1 element (the group), group should have 1 element (the rect)
+            return {isDifferent = isDifferent, drawingCount = drawing:count(), groupHasRect = #g.elements == 1}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["isDifferent"]?.boolValue, true, "Group should be different object from drawing")
+        XCTAssertEqual(table["drawingCount"]?.numberValue, 1, "Drawing should have 1 element (the group)")
+        XCTAssertEqual(table["groupHasRect"]?.boolValue, true, "Group should have rect in its elements")
+    }
+
+    func testNestedGroups() throws {
+        // Test nested group rendering
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            local g1 = drawing:group(svg.translate(10, 10))
+            g1:rect(0, 0, 50, 50, {fill = "red"})
+            local g2 = drawing:group(svg.translate(100, 100))
+            g2:circle(0, 0, 25, {fill = "blue"})
+            return drawing:render()
+        """)
+
+        guard let svgString = result.stringValue else {
+            XCTFail("Expected SVG string")
+            return
+        }
+
+        // Both groups should be in the output
+        XCTAssertTrue(svgString.contains("<g transform=\"translate(10,10)\">"))
+        XCTAssertTrue(svgString.contains("<g transform=\"translate(100,100)\">"))
+        XCTAssertTrue(svgString.contains("<rect"))
+        XCTAssertTrue(svgString.contains("<circle"))
+    }
+
+    func testGroupWithStyle() throws {
+        // Test group with both transform and style
+        let result = try engine.evaluate("""
+            local svg = require("luaswift.svg")
+            local drawing = svg.create(200, 200)
+            local g = drawing:group(svg.rotate(45), {fill = "green", opacity = "0.5"})
+            g:rect(0, 0, 50, 50)
+            return drawing:render()
+        """)
+
+        guard let svgString = result.stringValue else {
+            XCTFail("Expected SVG string")
+            return
+        }
+
+        XCTAssertTrue(svgString.contains("transform=\"rotate(45)\""))
+        XCTAssertTrue(svgString.contains("fill=\"green\""))
+        XCTAssertTrue(svgString.contains("opacity=\"0.5\""))
     }
 
     // MARK: - Plot Function Tests

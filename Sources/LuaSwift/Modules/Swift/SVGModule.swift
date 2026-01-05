@@ -10,10 +10,11 @@
 
 import Foundation
 
-/// Swift-backed SVG generation module for LuaSwift.
+/// SVG generation module for LuaSwift.
 ///
 /// Provides SVG document creation and manipulation with support for basic shapes,
-/// paths, text, and styling.
+/// paths, text, groups, and styling. Implemented primarily in Lua for proper
+/// group nesting support, with Swift providing XML escape optimization.
 ///
 /// ## Usage
 ///
@@ -23,141 +24,43 @@ import Foundation
 /// local drawing = svg.create(800, 600, {background = "#ffffff"})
 /// drawing:rect(10, 10, 100, 50, {fill = "blue", stroke = "black"})
 /// drawing:circle(200, 200, 50, {fill = "red"})
-/// drawing:text(100, 300, "Hello, SVG!", {["font-size"] = 24})
+/// drawing:text("Hello, SVG!", 100, 300, {["font-size"] = 24})
+///
+/// -- Groups return group objects for nesting
+/// local g = drawing:group(svg.translate(50, 50))
+/// g:rect(0, 0, 20, 20, {fill = "green"})
 ///
 /// local output = drawing:render()
 /// ```
 public struct SVGModule {
 
-    // MARK: - Drawing Storage
-
-    /// Thread-safe storage for SVGDrawing instances by engine
-    private static var drawingsStorage: [ObjectIdentifier: [Int: SVGDrawing]] = [:]
-    private static let storageLock = NSLock()
-    private static var nextDrawingId: [ObjectIdentifier: Int] = [:]
-
-    /// Get the next drawing ID for an engine
-    private static func getNextDrawingId(for engineKey: ObjectIdentifier) -> Int {
-        storageLock.lock()
-        defer { storageLock.unlock() }
-        let id = (nextDrawingId[engineKey] ?? 0) + 1
-        nextDrawingId[engineKey] = id
-        return id
-    }
-
-    /// Store a drawing for an engine
-    private static func storeDrawing(_ drawing: SVGDrawing, id: Int, engineKey: ObjectIdentifier) {
-        storageLock.lock()
-        defer { storageLock.unlock() }
-        if drawingsStorage[engineKey] == nil {
-            drawingsStorage[engineKey] = [:]
-        }
-        drawingsStorage[engineKey]?[id] = drawing
-    }
-
-    /// Get a drawing by ID
-    private static func getDrawing(id: Int, engineKey: ObjectIdentifier) -> SVGDrawing? {
-        storageLock.lock()
-        defer { storageLock.unlock() }
-        return drawingsStorage[engineKey]?[id]
-    }
-
-    /// Clean up drawings for an engine
-    internal static func cleanup(for engine: LuaEngine) {
-        let key = ObjectIdentifier(engine)
-        storageLock.lock()
-        defer { storageLock.unlock() }
-        drawingsStorage.removeValue(forKey: key)
-        nextDrawingId.removeValue(forKey: key)
-    }
-
     // MARK: - Registration
 
     /// Register the SVG module with a LuaEngine.
+    ///
+    /// The SVG module is implemented primarily in Lua for proper group nesting support.
+    /// Swift provides an optional XML escape helper for performance.
     public static func register(in engine: LuaEngine) {
-        let engineKey = ObjectIdentifier(engine)
-
-        // Create callback
-        let createCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try createDrawing(args, engineKey: engineKey)
+        // Register XML escape helper for performance (optional - Lua has fallback)
+        let xmlEscapeCallback: ([LuaValue]) throws -> LuaValue = { args in
+            guard let text = args.first?.stringValue else {
+                return .string("")
+            }
+            return .string(escapeXML(text))
         }
+        engine.registerFunction(name: "_luaswift_svg_xml_escape", callback: xmlEscapeCallback)
 
-        // Shape callbacks
-        let rectCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addRect(args, engineKey: engineKey)
-        }
-
-        let circleCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addCircle(args, engineKey: engineKey)
-        }
-
-        let ellipseCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addEllipse(args, engineKey: engineKey)
-        }
-
-        let lineCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addLine(args, engineKey: engineKey)
-        }
-
-        let polylineCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addPolyline(args, engineKey: engineKey)
-        }
-
-        let polygonCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addPolygon(args, engineKey: engineKey)
-        }
-
-        let pathCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addPath(args, engineKey: engineKey)
-        }
-
-        let textCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addText(args, engineKey: engineKey)
-        }
-
-        let groupCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try addGroup(args, engineKey: engineKey)
-        }
-
-        // Utility callbacks
-        let renderCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try renderDrawing(args, engineKey: engineKey)
-        }
-
-        let clearCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try clearDrawing(args, engineKey: engineKey)
-        }
-
-        let countCallback: ([LuaValue]) throws -> LuaValue = { args in
-            try countElements(args, engineKey: engineKey)
-        }
-
-        // Register all functions
-        engine.registerFunction(name: "_luaswift_svg_create", callback: createCallback)
-        engine.registerFunction(name: "_luaswift_svg_rect", callback: rectCallback)
-        engine.registerFunction(name: "_luaswift_svg_circle", callback: circleCallback)
-        engine.registerFunction(name: "_luaswift_svg_ellipse", callback: ellipseCallback)
-        engine.registerFunction(name: "_luaswift_svg_line", callback: lineCallback)
-        engine.registerFunction(name: "_luaswift_svg_polyline", callback: polylineCallback)
-        engine.registerFunction(name: "_luaswift_svg_polygon", callback: polygonCallback)
-        engine.registerFunction(name: "_luaswift_svg_path", callback: pathCallback)
-        engine.registerFunction(name: "_luaswift_svg_text", callback: textCallback)
-        engine.registerFunction(name: "_luaswift_svg_group", callback: groupCallback)
-        engine.registerFunction(name: "_luaswift_svg_render", callback: renderCallback)
-        engine.registerFunction(name: "_luaswift_svg_clear", callback: clearCallback)
-        engine.registerFunction(name: "_luaswift_svg_count", callback: countCallback)
-
-        // Set up the luaswift.svg namespace
+        // Set up the luaswift.svg namespace (pure Lua implementation)
         do {
             try engine.run(svgLuaWrapper)
         } catch {
-            // Module setup failed - functions still available as globals
+            // Module setup failed
         }
     }
 
     // MARK: - Helper Functions
 
-    /// Escape XML special characters
+    /// Escape XML special characters (used by Lua wrapper for performance)
     private static func escapeXML(_ text: String) -> String {
         var result = text
         result = result.replacingOccurrences(of: "&", with: "&amp;")
@@ -168,320 +71,6 @@ public struct SVGModule {
         return result
     }
 
-    /// Convert Lua table to SVG attribute string
-    private static func attrsToString(_ attrs: [String: LuaValue]?) -> String {
-        guard let attrs = attrs, !attrs.isEmpty else { return "" }
-
-        // Sort keys for deterministic output
-        let sortedKeys = attrs.keys.sorted()
-        var parts: [String] = []
-
-        for key in sortedKeys {
-            guard let value = attrs[key] else { continue }
-            let stringValue: String
-            switch value {
-            case .string(let s):
-                stringValue = escapeXML(s)
-            case .number(let n):
-                if n == n.rounded() && abs(n) < Double(Int.max) {
-                    stringValue = String(Int(n))
-                } else {
-                    stringValue = String(format: "%.4g", n)
-                }
-            case .bool(let b):
-                stringValue = b ? "true" : "false"
-            default:
-                continue
-            }
-            parts.append("\(key)=\"\(stringValue)\"")
-        }
-
-        return parts.isEmpty ? "" : " " + parts.joined(separator: " ")
-    }
-
-    /// Extract drawing ID from table
-    private static func extractDrawingId(_ value: LuaValue) -> Int? {
-        guard let table = value.tableValue,
-              let id = table["_id"]?.intValue else { return nil }
-        return id
-    }
-
-    // MARK: - Callbacks
-
-    private static func createDrawing(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let width = args.first?.intValue else {
-            throw LuaError.callbackError("svg.create requires width as first argument")
-        }
-
-        guard args.count >= 2, let height = args[1].intValue else {
-            throw LuaError.callbackError("svg.create requires height as second argument")
-        }
-
-        // Parse options
-        var viewBox: String? = nil
-        var background: String? = nil
-
-        if args.count >= 3, let options = args[2].tableValue {
-            if let vb = options["viewBox"]?.stringValue {
-                viewBox = vb
-            }
-            if let bg = options["background"]?.stringValue {
-                background = bg
-            }
-        }
-
-        // Create drawing
-        let drawing = SVGDrawing(width: width, height: height, viewBox: viewBox, background: background)
-        let id = getNextDrawingId(for: engineKey)
-        storeDrawing(drawing, id: id, engineKey: engineKey)
-
-        // Return table with ID for Lua to wrap with metatable
-        return .table([
-            "_id": .number(Double(id)),
-            "width": .number(Double(width)),
-            "height": .number(Double(height))
-        ])
-    }
-
-    private static func addRect(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 5,
-              let x = args[1].numberValue,
-              let y = args[2].numberValue,
-              let width = args[3].numberValue,
-              let height = args[4].numberValue else {
-            throw LuaError.callbackError("rect requires x, y, width, height arguments")
-        }
-
-        let attrs = args.count >= 6 ? args[5].tableValue : nil
-        let element = "<rect x=\"\(Int(x))\" y=\"\(Int(y))\" width=\"\(Int(width))\" height=\"\(Int(height))\"\(attrsToString(attrs))/>"
-        drawing.addElement(element)
-
-        return args[0] // Return drawing for chaining
-    }
-
-    private static func addCircle(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 4,
-              let cx = args[1].numberValue,
-              let cy = args[2].numberValue,
-              let r = args[3].numberValue else {
-            throw LuaError.callbackError("circle requires cx, cy, r arguments")
-        }
-
-        let attrs = args.count >= 5 ? args[4].tableValue : nil
-        let element = "<circle cx=\"\(Int(cx))\" cy=\"\(Int(cy))\" r=\"\(Int(r))\"\(attrsToString(attrs))/>"
-        drawing.addElement(element)
-
-        return args[0]
-    }
-
-    private static func addEllipse(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 5,
-              let cx = args[1].numberValue,
-              let cy = args[2].numberValue,
-              let rx = args[3].numberValue,
-              let ry = args[4].numberValue else {
-            throw LuaError.callbackError("ellipse requires cx, cy, rx, ry arguments")
-        }
-
-        let attrs = args.count >= 6 ? args[5].tableValue : nil
-        let element = "<ellipse cx=\"\(Int(cx))\" cy=\"\(Int(cy))\" rx=\"\(Int(rx))\" ry=\"\(Int(ry))\"\(attrsToString(attrs))/>"
-        drawing.addElement(element)
-
-        return args[0]
-    }
-
-    private static func addLine(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 5,
-              let x1 = args[1].numberValue,
-              let y1 = args[2].numberValue,
-              let x2 = args[3].numberValue,
-              let y2 = args[4].numberValue else {
-            throw LuaError.callbackError("line requires x1, y1, x2, y2 arguments")
-        }
-
-        var attrs = args.count >= 6 ? args[5].tableValue : nil
-        // Default stroke for visibility
-        if attrs == nil {
-            attrs = ["stroke": .string("black")]
-        } else if attrs?["stroke"] == nil {
-            attrs?["stroke"] = .string("black")
-        }
-
-        let element = "<line x1=\"\(Int(x1))\" y1=\"\(Int(y1))\" x2=\"\(Int(x2))\" y2=\"\(Int(y2))\"\(attrsToString(attrs))/>"
-        drawing.addElement(element)
-
-        return args[0]
-    }
-
-    private static func addPolyline(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 2, let pointsTable = args[1].arrayValue else {
-            throw LuaError.callbackError("polyline requires points array")
-        }
-
-        // Convert points to string
-        var pointStrings: [String] = []
-        for point in pointsTable {
-            if let arr = point.arrayValue, arr.count >= 2,
-               let x = arr[0].numberValue,
-               let y = arr[1].numberValue {
-                pointStrings.append("\(Int(x)),\(Int(y))")
-            } else if let table = point.tableValue,
-                      let x = table["x"]?.numberValue ?? table["1"]?.numberValue,
-                      let y = table["y"]?.numberValue ?? table["2"]?.numberValue {
-                pointStrings.append("\(Int(x)),\(Int(y))")
-            }
-        }
-
-        var attrs = args.count >= 3 ? args[2].tableValue : nil
-        // Default fill none and stroke for visibility
-        if attrs == nil {
-            attrs = ["fill": .string("none"), "stroke": .string("black")]
-        } else {
-            if attrs?["fill"] == nil { attrs?["fill"] = .string("none") }
-            if attrs?["stroke"] == nil { attrs?["stroke"] = .string("black") }
-        }
-
-        let pointsStr = pointStrings.joined(separator: " ")
-        let element = "<polyline points=\"\(pointsStr)\"\(attrsToString(attrs))/>"
-        drawing.addElement(element)
-
-        return args[0]
-    }
-
-    private static func addPolygon(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 2, let pointsTable = args[1].arrayValue else {
-            throw LuaError.callbackError("polygon requires points array")
-        }
-
-        // Convert points to string
-        var pointStrings: [String] = []
-        for point in pointsTable {
-            if let arr = point.arrayValue, arr.count >= 2,
-               let x = arr[0].numberValue,
-               let y = arr[1].numberValue {
-                pointStrings.append("\(Int(x)),\(Int(y))")
-            } else if let table = point.tableValue,
-                      let x = table["x"]?.numberValue ?? table["1"]?.numberValue,
-                      let y = table["y"]?.numberValue ?? table["2"]?.numberValue {
-                pointStrings.append("\(Int(x)),\(Int(y))")
-            }
-        }
-
-        let attrs = args.count >= 3 ? args[2].tableValue : nil
-        let pointsStr = pointStrings.joined(separator: " ")
-        let element = "<polygon points=\"\(pointsStr)\"\(attrsToString(attrs))/>"
-        drawing.addElement(element)
-
-        return args[0]
-    }
-
-    private static func addPath(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 2, let d = args[1].stringValue else {
-            throw LuaError.callbackError("path requires d (path data) argument")
-        }
-
-        let attrs = args.count >= 3 ? args[2].tableValue : nil
-        let element = "<path d=\"\(escapeXML(d))\"\(attrsToString(attrs))/>"
-        drawing.addElement(element)
-
-        return args[0]
-    }
-
-    private static func addText(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        guard args.count >= 4,
-              let x = args[1].numberValue,
-              let y = args[2].numberValue,
-              let content = args[3].stringValue else {
-            throw LuaError.callbackError("text requires x, y, content arguments")
-        }
-
-        let attrs = args.count >= 5 ? args[4].tableValue : nil
-        let element = "<text x=\"\(Int(x))\" y=\"\(Int(y))\"\(attrsToString(attrs))>\(escapeXML(content))</text>"
-        drawing.addElement(element)
-
-        return args[0]
-    }
-
-    private static func addGroup(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        let attrs = args.count >= 2 ? args[1].tableValue : nil
-        drawing.beginGroup(attrsToString(attrs))
-
-        return args[0]
-    }
-
-    private static func renderDrawing(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        return .string(drawing.render())
-    }
-
-    private static func clearDrawing(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        drawing.clear()
-        return args[0]
-    }
-
-    private static func countElements(_ args: [LuaValue], engineKey: ObjectIdentifier) throws -> LuaValue {
-        guard let drawingId = extractDrawingId(args[0]),
-              let drawing = getDrawing(id: drawingId, engineKey: engineKey) else {
-            throw LuaError.callbackError("Invalid drawing object")
-        }
-
-        return .number(Double(drawing.elementCount))
-    }
-
     // MARK: - Lua Wrapper Code
 
     private static let svgLuaWrapper = """
@@ -490,109 +79,253 @@ public struct SVGModule {
     luaswift.svg = {}
     local svg = luaswift.svg
 
-    -- Store references to Swift functions
-    local _create = _luaswift_svg_create
-    local _rect = _luaswift_svg_rect
-    local _circle = _luaswift_svg_circle
-    local _ellipse = _luaswift_svg_ellipse
-    local _line = _luaswift_svg_line
-    local _polyline = _luaswift_svg_polyline
-    local _polygon = _luaswift_svg_polygon
-    local _path = _luaswift_svg_path
-    local _text = _luaswift_svg_text
-    local _group = _luaswift_svg_group
-    local _render = _luaswift_svg_render
-    local _clear = _luaswift_svg_clear
-    local _count = _luaswift_svg_count
+    -- XML escape helper (use Swift version for performance)
+    local _xmlEscape = _luaswift_svg_xml_escape
 
-    -- Drawing metatable
-    local drawing_mt = {
-        __tostring = function(self)
-            return string.format("svg.drawing(%dx%d, %d elements)", self.width, self.height, _count(self))
-        end,
-        __index = {
-            rect = function(self, x, y, w, h, attrs)
-                _rect(self, x, y, w, h, attrs)
-                return self
-            end,
-            circle = function(self, cx, cy, r, attrs)
-                _circle(self, cx, cy, r, attrs)
-                return self
-            end,
-            ellipse = function(self, cx, cy, rx, ry, attrs)
-                _ellipse(self, cx, cy, rx, ry, attrs)
-                return self
-            end,
-            line = function(self, x1, y1, x2, y2, attrs)
-                _line(self, x1, y1, x2, y2, attrs)
-                return self
-            end,
-            polyline = function(self, points, attrs)
-                _polyline(self, points, attrs)
-                return self
-            end,
-            polygon = function(self, points, attrs)
-                _polygon(self, points, attrs)
-                return self
-            end,
-            path = function(self, d, attrs)
-                _path(self, d, attrs)
-                return self
-            end,
-            text = function(self, x, y, content, attrs)
-                _text(self, x, y, content, attrs)
-                return self
-            end,
-            group = function(self, attrs)
-                _group(self, attrs)
-                return self
-            end,
-            render = function(self)
-                return _render(self)
-            end,
-            clear = function(self)
-                _clear(self)
-                return self
-            end,
-            count = function(self)
-                return _count(self)
-            end,
-            -- Plot helper: line plot using polyline
-            linePlot = function(self, points, style)
-                style = style or {}
-                if not style.fill then style.fill = "none" end
-                if not style.stroke then style.stroke = "black" end
-                return self:polyline(points, style)
-            end,
-            -- Plot helper: scatter plot using circles
-            scatterPlot = function(self, points, radius, style)
-                radius = radius or 3
-                for _, pt in ipairs(points) do
-                    local x = pt.x or pt[1]
-                    local y = pt.y or pt[2]
-                    self:circle(x, y, radius, style)
+    -- Escape XML special characters (fallback if Swift not available)
+    local function xmlEscape(str)
+        if not str then return "" end
+        if _xmlEscape then return _xmlEscape(tostring(str)) end
+        str = tostring(str)
+        str = str:gsub("&", "&amp;")
+        str = str:gsub("<", "&lt;")
+        str = str:gsub(">", "&gt;")
+        str = str:gsub('"', "&quot;")
+        str = str:gsub("'", "&apos;")
+        return str
+    end
+
+    -- Convert style table to SVG attribute string
+    local function styleToAttrs(style)
+        if not style then return "" end
+        local attrs = {}
+        for k, v in pairs(style) do
+            local attrName = k:gsub("_", "-")
+            table.insert(attrs, string.format('%s="%s"', attrName, xmlEscape(v)))
+        end
+        table.sort(attrs)  -- Sort for deterministic output
+        return table.concat(attrs, " ")
+    end
+
+    -- Drawing object (stores elements in Lua for proper group support)
+    local Drawing = {}
+    Drawing.__index = Drawing
+
+    function Drawing:rect(x, y, width, height, style)
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<rect x="%s" y="%s" width="%s" height="%s" %s/>',
+            x, y, width, height, attrs)
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:circle(cx, cy, r, style)
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<circle cx="%s" cy="%s" r="%s" %s/>',
+            cx, cy, r, attrs)
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:ellipse(cx, cy, rx, ry, style)
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<ellipse cx="%s" cy="%s" rx="%s" ry="%s" %s/>',
+            cx, cy, rx, ry, attrs)
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:line(x1, y1, x2, y2, style)
+        style = style or {}
+        if not style.stroke then style.stroke = "black" end
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<line x1="%s" y1="%s" x2="%s" y2="%s" %s/>',
+            x1, y1, x2, y2, attrs)
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:polyline(points, style)
+        local coords = {}
+        for _, pt in ipairs(points) do
+            table.insert(coords, string.format("%s,%s", pt.x or pt[1], pt.y or pt[2]))
+        end
+        local pointsStr = table.concat(coords, " ")
+        style = style or {}
+        if not style.fill then style.fill = "none" end
+        if not style.stroke then style.stroke = "black" end
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<polyline points="%s" %s/>', pointsStr, attrs)
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:polygon(points, style)
+        local coords = {}
+        for _, pt in ipairs(points) do
+            table.insert(coords, string.format("%s,%s", pt.x or pt[1], pt.y or pt[2]))
+        end
+        local pointsStr = table.concat(coords, " ")
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<polygon points="%s" %s/>', pointsStr, attrs)
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:path(d, style)
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<path d="%s" %s/>', xmlEscape(d), attrs)
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:text(text, x, y, style)
+        local attrs = styleToAttrs(style)
+        local elem = string.format('<text x="%s" y="%s" %s>%s</text>',
+            x, y, attrs, xmlEscape(text))
+        table.insert(self.elements, elem)
+        return self
+    end
+
+    function Drawing:group(transform, style)
+        local group = {elements = {}, transform = transform, style = style, height = self.height}
+
+        -- Add all Drawing methods to group (except render and group to prevent deep nesting issues)
+        for name, method in pairs(Drawing) do
+            if type(method) == "function" and name ~= "render" and name ~= "clear" and name ~= "count" then
+                group[name] = function(grp, ...)
+                    -- Create a temporary wrapper to add elements to group's array
+                    local wrapper = {elements = grp.elements, height = grp.height}
+                    setmetatable(wrapper, {__index = Drawing})
+                    method(wrapper, ...)
+                    return grp
                 end
-                return self
-            end,
-            -- Plot helper: bar chart using rectangles
-            barChart = function(self, data, style)
-                for _, bar in ipairs(data) do
-                    local x = bar.x or bar[1]
-                    local height = bar.y or bar[2]
-                    local width = bar.width or bar[3] or 20
-                    local y = self.height - height
-                    self:rect(x, y, width, height, style)
-                end
-                return self
             end
+        end
+
+        table.insert(self.elements, group)
+        return group
+    end
+
+    function Drawing:linePlot(points, style)
+        style = style or {}
+        if not style.fill then style.fill = "none" end
+        if not style.stroke then style.stroke = "black" end
+        return self:polyline(points, style)
+    end
+
+    function Drawing:scatterPlot(points, radius, style)
+        radius = radius or 3
+        for _, pt in ipairs(points) do
+            self:circle(pt.x or pt[1], pt.y or pt[2], radius, style)
+        end
+        return self
+    end
+
+    function Drawing:barChart(data, style)
+        for _, bar in ipairs(data) do
+            local x = bar.x or bar[1]
+            local height = bar.y or bar[2]
+            local width = bar.width or bar[3] or 20
+            local y = self.height - height
+            self:rect(x, y, width, height, style)
+        end
+        return self
+    end
+
+    function Drawing:clear()
+        self.elements = {}
+        return self
+    end
+
+    function Drawing:count()
+        return #self.elements
+    end
+
+    -- Render group element to SVG string
+    local function renderGroup(group, indent)
+        indent = indent or "  "
+        local attrs = {}
+
+        if group.transform then
+            table.insert(attrs, string.format('transform="%s"', group.transform))
+        end
+
+        if group.style then
+            local styleStr = styleToAttrs(group.style)
+            if styleStr ~= "" then
+                table.insert(attrs, styleStr)
+            end
+        end
+
+        local attrStr = table.concat(attrs, " ")
+        if attrStr ~= "" then attrStr = " " .. attrStr end
+
+        local lines = {string.format("%s<g%s>", indent, attrStr)}
+
+        for _, elem in ipairs(group.elements) do
+            if type(elem) == "table" and elem.elements then
+                table.insert(lines, renderGroup(elem, indent .. "  "))
+            else
+                table.insert(lines, indent .. "  " .. elem)
+            end
+        end
+
+        table.insert(lines, indent .. "</g>")
+        return table.concat(lines, "\\n")
+    end
+
+    function Drawing:render()
+        local lines = {'<?xml version="1.0" encoding="UTF-8"?>'}
+
+        -- Build SVG opening tag
+        local svgAttrs = {
+            string.format('width="%s"', self.width),
+            string.format('height="%s"', self.height),
+            'xmlns="http://www.w3.org/2000/svg"'
         }
-    }
+
+        if self.viewBox then
+            table.insert(svgAttrs, string.format('viewBox="%s"', self.viewBox))
+        end
+
+        table.insert(lines, string.format("<svg %s>", table.concat(svgAttrs, " ")))
+
+        -- Add background if specified
+        if self.background then
+            table.insert(lines, string.format('  <rect width="100%%" height="100%%" fill="%s"/>',
+                xmlEscape(self.background)))
+        end
+
+        -- Add all elements
+        for _, elem in ipairs(self.elements) do
+            if type(elem) == "table" and elem.elements then
+                table.insert(lines, renderGroup(elem, "  "))
+            else
+                table.insert(lines, "  " .. elem)
+            end
+        end
+
+        table.insert(lines, "</svg>")
+        return table.concat(lines, "\\n")
+    end
 
     -- Factory function
     function svg.create(width, height, options)
-        local drawing = _create(width, height, options)
-        drawing.__luaswift_type = "svg.drawing"
-        setmetatable(drawing, drawing_mt)
+        options = options or {}
+        local drawing = setmetatable({
+            width = width,
+            height = height,
+            viewBox = options.viewBox,
+            background = options.background,
+            elements = {},
+            __luaswift_type = "svg.drawing"
+        }, {
+            __index = Drawing,
+            __tostring = function(self)
+                return string.format("svg.drawing(%dx%d, %d elements)", self.width, self.height, #self.elements)
+            end
+        })
         return drawing
     end
 
@@ -629,6 +362,12 @@ public struct SVGModule {
         Lambda = "Λ", Mu = "Μ", Nu = "Ν", Xi = "Ξ", Omicron = "Ο",
         Pi = "Π", Rho = "Ρ", Sigma = "Σ", Tau = "Τ", Upsilon = "Υ",
         Phi = "Φ", Chi = "Χ", Psi = "Ψ", Omega = "Ω",
+        -- Subscripts
+        sub0 = "₀", sub1 = "₁", sub2 = "₂", sub3 = "₃", sub4 = "₄",
+        sub5 = "₅", sub6 = "₆", sub7 = "₇", sub8 = "₈", sub9 = "₉",
+        -- Superscripts
+        sup0 = "⁰", sup1 = "¹", sup2 = "²", sup3 = "³", sup4 = "⁴",
+        sup5 = "⁵", sup6 = "⁶", sup7 = "⁷", sup8 = "⁸", sup9 = "⁹",
         -- Math symbols
         infinity = "∞", plusminus = "±", sqrt = "√", sum = "∑", integral = "∫",
         degree = "°", times = "×", divide = "÷", neq = "≠", leq = "≤", geq = "≥"
@@ -641,86 +380,6 @@ public struct SVGModule {
     package.loaded["luaswift.svg"] = svg
 
     -- Clean up temporary globals
-    _luaswift_svg_create = nil
-    _luaswift_svg_rect = nil
-    _luaswift_svg_circle = nil
-    _luaswift_svg_ellipse = nil
-    _luaswift_svg_line = nil
-    _luaswift_svg_polyline = nil
-    _luaswift_svg_polygon = nil
-    _luaswift_svg_path = nil
-    _luaswift_svg_text = nil
-    _luaswift_svg_group = nil
-    _luaswift_svg_render = nil
-    _luaswift_svg_clear = nil
-    _luaswift_svg_count = nil
+    _luaswift_svg_xml_escape = nil
     """
-}
-
-// MARK: - SVGDrawing Class
-
-/// Internal class to hold SVG drawing state.
-internal class SVGDrawing {
-    var width: Int
-    var height: Int
-    var viewBox: String?
-    var background: String?
-    var elements: [String] = []
-    private var groupStack: [(attrs: String, startIndex: Int)] = []
-
-    init(width: Int, height: Int, viewBox: String? = nil, background: String? = nil) {
-        self.width = width
-        self.height = height
-        self.viewBox = viewBox
-        self.background = background
-    }
-
-    var elementCount: Int {
-        return elements.count
-    }
-
-    func addElement(_ element: String) {
-        elements.append(element)
-    }
-
-    func beginGroup(_ attrs: String) {
-        groupStack.append((attrs: attrs, startIndex: elements.count))
-    }
-
-    func endGroup() {
-        guard let group = groupStack.popLast() else { return }
-        let groupElements = Array(elements[group.startIndex...])
-        elements.removeLast(groupElements.count)
-        let groupContent = groupElements.joined(separator: "\n  ")
-        elements.append("<g\(group.attrs)>\n  \(groupContent)\n</g>")
-    }
-
-    func clear() {
-        elements.removeAll()
-        groupStack.removeAll()
-    }
-
-    func render() -> String {
-        // Close any open groups
-        while !groupStack.isEmpty {
-            endGroup()
-        }
-
-        let viewBoxAttr = viewBox ?? "0 0 \(width) \(height)"
-        var svgContent = ""
-
-        // Add background rect if specified
-        if let bg = background {
-            svgContent += "  <rect width=\"100%\" height=\"100%\" fill=\"\(bg)\"/>\n"
-        }
-
-        // Add all elements
-        svgContent += elements.map { "  \($0)" }.joined(separator: "\n")
-
-        return """
-        <svg xmlns="http://www.w3.org/2000/svg" width="\(width)" height="\(height)" viewBox="\(viewBoxAttr)">
-        \(svgContent)
-        </svg>
-        """
-    }
 }

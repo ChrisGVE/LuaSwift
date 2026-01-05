@@ -130,3 +130,20 @@ Safe libraries remain: `math`, `string`, `table`, `coroutine`, `utf8`
 ### Thread Safety
 
 `LuaEngine` uses `NSLock` for all public methods. For high concurrency, use engine pools rather than sharing a single instance.
+
+### Swift-Backed Module Replacements
+
+When replacing a pure Lua module with a Swift-backed module, it **must be a complete drop-in replacement**:
+
+1. **API Surface**: All functions, methods, and properties must have identical signatures
+2. **Behavior**: The module must behave identically to the original Lua implementation
+3. **Functionality**: All features of the original must be replicated entirely
+
+Swift optimizations are encouraged but must not affect observable behavior. The replacement module should pass all tests written for the original Lua module without modification.
+
+**Process:**
+1. Study the original Lua module thoroughly before implementing
+2. Match all function signatures exactly (parameter order, optional parameters, return values)
+3. Replicate all internal behaviors (e.g., nested groups returning group objects, not self)
+4. Delete the original Lua file only after the Swift version is verified complete
+5. Never mark the Lua module as "deprecated" - either fully replace it or don't

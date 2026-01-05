@@ -198,7 +198,11 @@ public struct LinAlgModule {
                                 local result = _svd(self._data)
                                 return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2]), luaswift.linalg._wrap(result[3])
                             end,
-                            eig = function(_)
+                            eigen = function(_)
+                                local result = _eig(self._data)
+                                return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
+                            end,
+                            eig = function(_)  -- Legacy alias
                                 local result = _eig(self._data)
                                 return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
                             end,

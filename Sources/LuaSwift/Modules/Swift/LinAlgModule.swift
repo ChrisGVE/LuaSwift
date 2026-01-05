@@ -16,6 +16,15 @@ import Accelerate
 /// Provides matrix and vector operations using the Accelerate framework
 /// for hardware-accelerated computation.
 ///
+/// ## Naming Convention
+///
+/// This module follows NumPy-inspired naming with explicit variants for clarity:
+/// - `diagonal` (alias: `diag`) - Create diagonal matrix from vector
+/// - `eigen` (alias: `eig`) - Compute eigenvalues and eigenvectors
+/// - `least_squares` (alias: `lstsq`) - Solve least squares problem
+///
+/// Legacy short aliases remain available for backward compatibility.
+///
 /// ## Lua API
 ///
 /// ```lua
@@ -33,7 +42,7 @@ import Accelerate
 /// local m = linalg.zeros(3, 3)
 /// local m = linalg.ones(2, 3)
 /// local m = linalg.eye(3)
-/// local m = linalg.diag({1,2,3})
+/// local m = linalg.diagonal({1,2,3})  -- diag also works
 ///
 /// -- Matrix operations
 /// print(m:rows(), m:cols())
@@ -47,7 +56,7 @@ import Accelerate
 /// -- Decompositions
 /// local L, U, P = m:lu()
 /// local Q, R = m:qr()
-/// local vals, vecs = m:eig()
+/// local vals, vecs = m:eigen()  -- eig also works
 /// ```
 public struct LinAlgModule {
 

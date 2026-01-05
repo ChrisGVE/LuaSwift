@@ -597,4 +597,327 @@ final class JSONModuleTests: XCTestCase {
         XCTAssertEqual(array.count, 100)
         XCTAssertEqual(item50["name"]?.stringValue, "Item50")
     }
+
+    // MARK: - JSONC Tests (JSON with Comments)
+
+    func testDecodeJSONCWithLineComment() throws {
+        let result = try engine.evaluate("""
+            local jsonc = [[{
+                // This is a comment
+                "name": "John",
+                "age": 30 // inline comment
+            }]]
+            return luaswift.json.decode_jsonc(jsonc)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "John")
+        XCTAssertEqual(table["age"]?.numberValue, 30.0)
+    }
+
+    func testDecodeJSONCWithBlockComment() throws {
+        let result = try engine.evaluate("""
+            local jsonc = [[{
+                /* This is a
+                   multi-line comment */
+                "name": "Alice",
+                "values": [1, /* inline */ 2, 3]
+            }]]
+            return luaswift.json.decode_jsonc(jsonc)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "Alice")
+        guard let values = table["values"]?.arrayValue else {
+            XCTFail("Expected array")
+            return
+        }
+        XCTAssertEqual(values.count, 3)
+    }
+
+    func testDecodeJSONCMixedComments() throws {
+        let result = try engine.evaluate("""
+            local jsonc = [[{
+                // Line comment
+                "key1": "value1",
+                /* Block comment */
+                "key2": "value2",
+                "key3": "value3" // trailing
+            }]]
+            return luaswift.json.decode_jsonc(jsonc)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["key1"]?.stringValue, "value1")
+        XCTAssertEqual(table["key2"]?.stringValue, "value2")
+        XCTAssertEqual(table["key3"]?.stringValue, "value3")
+    }
+
+    func testDecodeJSONCCommentsInStringsPreserved() throws {
+        let result = try engine.evaluate("""
+            local jsonc = [[{
+                "url": "http://example.com",
+                "comment": "This has // slashes and /* stars */"
+            }]]
+            return luaswift.json.decode_jsonc(jsonc)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["url"]?.stringValue, "http://example.com")
+        XCTAssertEqual(table["comment"]?.stringValue, "This has // slashes and /* stars */")
+    }
+
+    func testDecodeWithCommentsOption() throws {
+        let result = try engine.evaluate("""
+            local jsonc = [[{
+                // Comment
+                "name": "Test"
+            }]]
+            return luaswift.json.decode(jsonc, {comments = true})
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "Test")
+    }
+
+    func testDecodeWithFormatOption() throws {
+        let result = try engine.evaluate("""
+            local jsonc = [[{
+                // Comment
+                "name": "Test"
+            }]]
+            return luaswift.json.decode(jsonc, {format = "jsonc"})
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "Test")
+    }
+
+    // MARK: - JSON5 Tests
+
+    func testDecodeJSON5TrailingCommas() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                "array": [1, 2, 3,],
+                "nested": {"a": 1, "b": 2,},
+            }]]
+            return luaswift.json.decode_json5(json5)
+            """)
+
+        guard let table = result.tableValue,
+              let array = table["array"]?.arrayValue else {
+            XCTFail("Expected table with array")
+            return
+        }
+
+        XCTAssertEqual(array.count, 3)
+    }
+
+    func testDecodeJSON5UnquotedKeys() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                name: "John",
+                age: 30,
+                _private: true,
+                $special: "value"
+            }]]
+            return luaswift.json.decode_json5(json5)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "John")
+        XCTAssertEqual(table["age"]?.numberValue, 30.0)
+        XCTAssertEqual(table["_private"]?.boolValue, true)
+        XCTAssertEqual(table["$special"]?.stringValue, "value")
+    }
+
+    func testDecodeJSON5SingleQuotedStrings() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                "name": 'John',
+                'key': 'value'
+            }]]
+            return luaswift.json.decode_json5(json5)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "John")
+        XCTAssertEqual(table["key"]?.stringValue, "value")
+    }
+
+    func testDecodeJSON5HexNumbers() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                "hex": 0xFF,
+                "big": 0x1A2B
+            }]]
+            return luaswift.json.decode_json5(json5)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["hex"]?.numberValue, 255.0)
+        XCTAssertEqual(table["big"]?.numberValue, 6699.0)
+    }
+
+    func testDecodeJSON5LeadingDecimal() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                "value": .5,
+                "array": [.25, .75]
+            }]]
+            return luaswift.json.decode_json5(json5)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["value"]?.numberValue, 0.5)
+    }
+
+    func testDecodeJSON5Comments() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                // Line comment
+                name: "Test",
+                /* Block comment */
+                value: 42,
+            }]]
+            return luaswift.json.decode_json5(json5)
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "Test")
+        XCTAssertEqual(table["value"]?.numberValue, 42.0)
+    }
+
+    func testDecodeJSON5Infinity() throws {
+        // JSON doesn't support Infinity, so it gets converted to null (nil in Lua)
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                "positive": Infinity,
+                "negative": -Infinity
+            }]]
+            local tbl = luaswift.json.decode_json5(json5)
+            return tbl.positive, tbl.negative
+            """)
+
+        // Infinity values should be converted to nil (since JSON doesn't support them)
+        XCTAssertTrue(result.isNil)
+    }
+
+    func testDecodeJSON5NaN() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                "value": NaN
+            }]]
+            local tbl = luaswift.json.decode_json5(json5)
+            return tbl.value
+            """)
+
+        // NaN is converted to null, which becomes nil in Lua
+        XCTAssertTrue(result.isNil)
+    }
+
+    func testDecodeJSON5Complex() throws {
+        // Test a complex JSON5 document with multiple features
+        let result = try engine.evaluate("""
+            local json5 = [[{
+                // Configuration file
+                name: 'MyApp',
+                version: "1.0.0",
+                features: [
+                    'feature1',
+                    "feature2",
+                ],
+                settings: {
+                    maxRetries: 3,
+                    timeout: 0xFF, // 255 in hex
+                    ratio: .75,
+                },
+            }]]
+            return luaswift.json.decode_json5(json5)
+            """)
+
+        guard let table = result.tableValue,
+              let features = table["features"]?.arrayValue,
+              let settings = table["settings"]?.tableValue else {
+            XCTFail("Expected complex structure")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "MyApp")
+        XCTAssertEqual(features.count, 2)
+        XCTAssertEqual(settings["timeout"]?.numberValue, 255.0)
+        XCTAssertEqual(settings["ratio"]?.numberValue, 0.75)
+    }
+
+    func testDecodeWithFormatJSON5() throws {
+        let result = try engine.evaluate("""
+            local json5 = [[{name: 'Test',}]]
+            return luaswift.json.decode(json5, {format = "json5"})
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["name"]?.stringValue, "Test")
+    }
+
+    // MARK: - Module Function Availability
+
+    func testJSONCFunctionAvailable() throws {
+        try engine.run("""
+            assert(type(luaswift.json.decode_jsonc) == "function")
+            """)
+    }
+
+    func testJSON5FunctionAvailable() throws {
+        try engine.run("""
+            assert(type(luaswift.json.decode_json5) == "function")
+            """)
+    }
 }

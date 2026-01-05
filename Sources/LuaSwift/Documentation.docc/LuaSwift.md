@@ -72,7 +72,7 @@ try engine.run("""
 ### Text Processing
 
 - <doc:RegexModule>
-- ``StringXModule``
+- <doc:StringXModule>
 - ``UTF8XModule``
 - ``TableXModule``
 

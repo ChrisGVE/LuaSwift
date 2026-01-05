@@ -44,11 +44,12 @@ public struct ModuleRegistry {
     /// - `luaswift.svg`: SVG document generation
     /// - `luaswift.mathexpr`: Mathematical expression parsing and evaluation
     /// - `luaswift.sliderule`: Slide rule simulation for analog computation
+    /// - `luaswift.plot`: Matplotlib-compatible plotting with retained vector graphics
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
     /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`,
-    /// `svg_module`, `mathexpr_module`, `sliderule_module`, `debug_module`.
+    /// `svg_module`, `mathexpr_module`, `sliderule_module`, `plt`, `debug_module`.
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     ///
@@ -70,6 +71,7 @@ public struct ModuleRegistry {
         installSVGModule(in: engine)
         installMathExprModule(in: engine)
         installSlideRuleModule(in: engine)
+        installPlotModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -268,4 +270,11 @@ public struct ModuleRegistry {
         DebugModule.register(in: engine)
     }
     #endif
+
+    /// Install only the Plot module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installPlotModule(in engine: LuaEngine) {
+        PlotModule.register(in: engine)
+    }
 }

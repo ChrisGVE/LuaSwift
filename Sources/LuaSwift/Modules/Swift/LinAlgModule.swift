@@ -282,7 +282,10 @@ public struct LinAlgModule {
                     eye = function(n)
                         return luaswift.linalg._wrap(_eye(n))
                     end,
-                    diag = function(arr)
+                    diagonal = function(arr)
+                        return luaswift.linalg._wrap(_diag(arr))
+                    end,
+                    diag = function(arr)  -- Legacy alias
                         return luaswift.linalg._wrap(_diag(arr))
                     end,
                     range = function(start, stop, step)

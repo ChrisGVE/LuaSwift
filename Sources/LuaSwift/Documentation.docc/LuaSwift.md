@@ -86,7 +86,7 @@ try engine.run("""
 ### Graphics and Geometry
 
 - <doc:GeometryModule>
-- ``SVGModule``
+- <doc:SVGModule>
 
 ### Utilities
 

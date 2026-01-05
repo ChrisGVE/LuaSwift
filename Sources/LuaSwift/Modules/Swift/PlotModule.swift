@@ -1545,6 +1545,350 @@ public struct PlotModule {
         return self
     end
 
+    -- Histogram (matches matplotlib ax.hist())
+    function Axes:hist(data, opts)
+        opts = opts or {}
+        local bins = opts.bins or 10
+        local color = opts.color or "blue"
+        local edgecolor = opts.edgecolor or "black"
+        local density = opts.density or false
+        local cumulative = opts.cumulative or false
+        local alpha = opts.alpha or 1.0
+
+        -- Find data range
+        local dmin, dmax = data[1], data[1]
+        for i = 2, #data do
+            if data[i] < dmin then dmin = data[i] end
+            if data[i] > dmax then dmax = data[i] end
+        end
+
+        -- Use specified range if provided
+        if opts.range then
+            dmin = opts.range[1]
+            dmax = opts.range[2]
+        end
+
+        -- Handle edge case
+        if dmax == dmin then dmax = dmin + 1 end
+
+        -- Calculate bin edges
+        local bin_edges = {}
+        local bin_width = (dmax - dmin) / bins
+        for i = 0, bins do
+            bin_edges[i + 1] = dmin + i * bin_width
+        end
+
+        -- Count data in each bin
+        local counts = {}
+        for i = 1, bins do counts[i] = 0 end
+
+        for _, v in ipairs(data) do
+            if v >= dmin and v <= dmax then
+                local bin_idx = math.floor((v - dmin) / bin_width) + 1
+                if bin_idx > bins then bin_idx = bins end
+                if bin_idx < 1 then bin_idx = 1 end
+                counts[bin_idx] = counts[bin_idx] + 1
+            end
+        end
+
+        -- Apply density normalization
+        if density then
+            local total = #data * bin_width
+            for i = 1, bins do
+                counts[i] = counts[i] / total
+            end
+        end
+
+        -- Apply cumulative
+        if cumulative then
+            for i = 2, bins do
+                counts[i] = counts[i] + counts[i - 1]
+            end
+        end
+
+        -- Find max count for scaling
+        local cmax = counts[1]
+        for i = 2, bins do
+            if counts[i] > cmax then cmax = counts[i] end
+        end
+        if cmax == 0 then cmax = 1 end
+
+        -- Draw bars
+        local ctx = self:get_context()
+        local margin = 50
+        local plot_width = self._figure._width - 2 * margin
+        local plot_height = self._figure._height - 2 * margin
+
+        local bar_width = plot_width / bins
+
+        for i = 1, bins do
+            local bx = margin + (i - 1) * bar_width
+            local bh = counts[i] / cmax * plot_height
+            local by = margin
+
+            ctx:set_fill(color)
+            ctx:rect(bx, by, bar_width, bh)
+            ctx:fill()
+            ctx:set_stroke(edgecolor, 1)
+            ctx:rect(bx, by, bar_width, bh)
+            ctx:stroke()
+        end
+
+        -- Store for legend
+        if opts.label then
+            self._legend_entries = self._legend_entries or {}
+            table.insert(self._legend_entries, {label = opts.label, color = color})
+        end
+
+        -- Return (n, bins, patches) like matplotlib
+        return counts, bin_edges, {}
+    end
+
+    -- Pie chart (matches matplotlib ax.pie())
+    function Axes:pie(sizes, opts)
+        opts = opts or {}
+        local labels = opts.labels
+        local colors = opts.colors or {"#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"}
+        local explode = opts.explode
+        local autopct = opts.autopct
+        local startangle = opts.startangle or 0
+        local counterclock = opts.counterclock
+        if counterclock == nil then counterclock = true end
+
+        local ctx = self:get_context()
+        local cx = self._figure._width / 2
+        local cy = self._figure._height / 2
+        local radius = math.min(self._figure._width, self._figure._height) / 2 - 60
+
+        -- Calculate total
+        local total = 0
+        for _, v in ipairs(sizes) do total = total + v end
+        if total == 0 then total = 1 end
+
+        -- Draw wedges
+        local angle = startangle * math.pi / 180
+        local direction = counterclock and 1 or -1
+
+        for i, size in ipairs(sizes) do
+            local sweep = (size / total) * 2 * math.pi * direction
+            local mid_angle = angle + sweep / 2
+            local color = colors[(i - 1) % #colors + 1]
+
+            -- Calculate explode offset
+            local offset_x, offset_y = 0, 0
+            if explode and explode[i] then
+                offset_x = math.cos(mid_angle) * explode[i] * radius * 0.2
+                offset_y = math.sin(mid_angle) * explode[i] * radius * 0.2
+            end
+
+            local wcx = cx + offset_x
+            local wcy = cy + offset_y
+
+            -- Draw wedge as path
+            ctx:set_fill(color)
+            ctx:move_to(wcx, wcy)
+
+            -- Approximate arc with line segments
+            local segments = 32
+            local start_a = angle
+            local end_a = angle + sweep
+            for j = 0, segments do
+                local a = start_a + (end_a - start_a) * j / segments
+                local px = wcx + radius * math.cos(a)
+                local py = wcy + radius * math.sin(a)
+                ctx:line_to(px, py)
+            end
+            ctx:close_path()
+            ctx:fill()
+
+            -- Draw edge
+            ctx:set_stroke("white", 1)
+            ctx:move_to(wcx, wcy)
+            for j = 0, segments do
+                local a = start_a + (end_a - start_a) * j / segments
+                local px = wcx + radius * math.cos(a)
+                local py = wcy + radius * math.sin(a)
+                ctx:line_to(px, py)
+            end
+            ctx:close_path()
+            ctx:stroke()
+
+            -- Draw label
+            if labels and labels[i] then
+                local label_r = radius * 1.15
+                local lx = wcx + label_r * math.cos(mid_angle)
+                local ly = wcy + label_r * math.sin(mid_angle)
+                local anchor = math.cos(mid_angle) >= 0 and "start" or "end"
+                ctx:text(labels[i], lx, ly, {anchor = anchor, fontSize = 10})
+            end
+
+            -- Draw percentage
+            if autopct then
+                local pct = size / total * 100
+                local pct_str = string.format(autopct, pct)
+                local pct_r = radius * 0.6
+                local px = wcx + pct_r * math.cos(mid_angle)
+                local py = wcy + pct_r * math.sin(mid_angle)
+                ctx:text(pct_str, px, py, {anchor = "middle", fontSize = 9, color = "white"})
+            end
+
+            angle = angle + sweep
+        end
+
+        return self
+    end
+
+    -- Legend (matches matplotlib ax.legend())
+    function Axes:legend(opts)
+        opts = opts or {}
+        local loc = opts.loc or "upper right"
+        local fontsize = opts.fontsize or 10
+        local frameon = opts.frameon
+        if frameon == nil then frameon = true end
+
+        if not self._legend_entries or #self._legend_entries == 0 then
+            return self
+        end
+
+        local ctx = self:get_context()
+        local margin = 50
+
+        -- Calculate legend position
+        local lx, ly
+        local lw = 100  -- legend width
+        local lh = #self._legend_entries * 18 + 10  -- legend height
+
+        if loc == "upper right" or loc == "best" then
+            lx = self._figure._width - margin - lw - 10
+            ly = self._figure._height - margin - 10
+        elseif loc == "upper left" then
+            lx = margin + 10
+            ly = self._figure._height - margin - 10
+        elseif loc == "lower right" then
+            lx = self._figure._width - margin - lw - 10
+            ly = margin + lh + 10
+        elseif loc == "lower left" then
+            lx = margin + 10
+            ly = margin + lh + 10
+        else
+            lx = self._figure._width - margin - lw - 10
+            ly = self._figure._height - margin - 10
+        end
+
+        -- Draw legend box
+        if frameon then
+            ctx:set_fill("white")
+            ctx:rect(lx, ly - lh, lw, lh)
+            ctx:fill()
+            ctx:set_stroke("gray", 1)
+            ctx:rect(lx, ly - lh, lw, lh)
+            ctx:stroke()
+        end
+
+        -- Draw legend entries
+        for i, entry in ipairs(self._legend_entries) do
+            local ey = ly - 5 - (i - 1) * 18
+
+            -- Color box
+            ctx:set_fill(entry.color)
+            ctx:rect(lx + 5, ey - 10, 15, 10)
+            ctx:fill()
+
+            -- Label
+            ctx:text(entry.label, lx + 25, ey - 3, {fontSize = fontsize})
+        end
+
+        return self
+    end
+
+    -- Grid (matches matplotlib ax.grid())
+    function Axes:grid(opts)
+        if opts == false then return self end
+        opts = opts or {}
+        if type(opts) ~= "table" then opts = {} end
+
+        local visible = opts.visible
+        if visible == nil then visible = true end
+        if not visible then return self end
+
+        local which = opts.which or "major"
+        local axis = opts.axis or "both"
+        local color = opts.color or "#cccccc"
+        local linestyle = opts.linestyle or "-"
+        local linewidth = opts.linewidth or 0.5
+        local alpha = opts.alpha or 0.7
+
+        local ctx = self:get_context()
+        local margin = 50
+        local plot_width = self._figure._width - 2 * margin
+        local plot_height = self._figure._height - 2 * margin
+
+        ctx:set_stroke(color, linewidth, linestyle)
+
+        -- Number of grid lines
+        local nx = 10
+        local ny = 10
+
+        -- Draw vertical grid lines
+        if axis == "both" or axis == "x" then
+            for i = 0, nx do
+                local gx = margin + i / nx * plot_width
+                ctx:move_to(gx, margin)
+                ctx:line_to(gx, margin + plot_height)
+                ctx:stroke()
+            end
+        end
+
+        -- Draw horizontal grid lines
+        if axis == "both" or axis == "y" then
+            for i = 0, ny do
+                local gy = margin + i / ny * plot_height
+                ctx:move_to(margin, gy)
+                ctx:line_to(margin + plot_width, gy)
+                ctx:stroke()
+            end
+        end
+
+        return self
+    end
+
+    -- Axis limits (matches matplotlib)
+    function Axes:set_xlim(left, right)
+        self._xlim = {left, right}
+        return self
+    end
+
+    function Axes:set_ylim(bottom, top)
+        self._ylim = {bottom, top}
+        return self
+    end
+
+    function Axes:get_xlim()
+        return self._xlim or {0, 1}
+    end
+
+    function Axes:get_ylim()
+        return self._ylim or {0, 1}
+    end
+
+    -- Aspect ratio (matches matplotlib)
+    function Axes:set_aspect(aspect)
+        self._aspect = aspect
+        return self
+    end
+
+    -- Axis visibility (matches matplotlib)
+    function Axes:axis(arg)
+        if arg == "off" then
+            self._axis_visible = false
+        elseif arg == "on" then
+            self._axis_visible = true
+        elseif arg == "equal" then
+            self._aspect = "equal"
+        end
+        return self
+    end
+
     -- Title, labels (matches matplotlib)
     function Axes:set_title(title, opts)
         opts = opts or {}

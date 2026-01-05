@@ -641,6 +641,205 @@ final class PlotModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
+    // MARK: - Histogram Tests
+
+    func testHistBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5}
+            local n, bins = ax:hist(data)
+            return {n_count = #n, bins_count = #bins}
+        """)
+
+        guard let table = result.tableValue,
+              let nCount = table["n_count"]?.numberValue,
+              let binsCount = table["bins_count"]?.numberValue else {
+            XCTFail("Expected table with counts")
+            return
+        }
+
+        XCTAssertEqual(nCount, 10, "Should have 10 bins by default")
+        XCTAssertEqual(binsCount, 11, "Should have 11 bin edges")
+    }
+
+    func testHistWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5}
+            ax:hist(data, {bins = 5, color = "green", density = true})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testHistCumulative() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 3, 4, 5}
+            local n, bins = ax:hist(data, {bins = 5, cumulative = true})
+            -- Last bin should have cumulative count
+            return n[5] >= n[1]
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Pie Chart Tests
+
+    func testPieBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:pie({15, 30, 45, 10})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testPieWithLabels() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:pie({15, 30, 45, 10}, {
+                labels = {"A", "B", "C", "D"},
+                autopct = "%.1f%%"
+            })
+            local svg = fig:to_svg()
+            return svg:find("<text") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testPieExplode() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:pie({15, 30, 45, 10}, {
+                explode = {0, 0.1, 0, 0},
+                startangle = 90
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Legend Tests
+
+    func testLegend() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6}, {label = "Series 1", color = "blue"})
+            ax:plot({1, 2, 3}, {3, 4, 5}, {label = "Series 2", color = "red"})
+            ax:legend()
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLegendPosition() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6}, {label = "Data"})
+            ax:legend({loc = "upper left"})
+            local svg = fig:to_svg()
+            return svg:find("<rect") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLegendEmpty() throws {
+        // Legend with no labeled data should not error
+        try engine.run("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6})
+            ax:legend()
+        """)
+    }
+
+    // MARK: - Grid Tests
+
+    func testGridBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6})
+            ax:grid()
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testGridWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:grid({color = "#dddddd", linestyle = "--", axis = "y"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testGridOff() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local before = fig:get_context():command_count()
+            ax:grid(false)
+            local after = fig:get_context():command_count()
+            return before == after
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Axis Limits Tests
+
+    func testSetXlim() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:set_xlim(0, 100)
+            local xlim = ax:get_xlim()
+            return xlim[1] == 0 and xlim[2] == 100
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSetYlim() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:set_ylim(-10, 50)
+            local ylim = ax:get_ylim()
+            return ylim[1] == -10 and ylim[2] == 50
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testAxisOff() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:axis("off")
+            return ax._axis_visible == false
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSetAspect() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:set_aspect("equal")
+            return ax._aspect == "equal"
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
     // MARK: - Integration Tests
 
     func testCompleteWorkflow() throws {

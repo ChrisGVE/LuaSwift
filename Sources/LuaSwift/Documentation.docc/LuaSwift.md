@@ -50,8 +50,14 @@ try engine.run("""
 ### Data Exchange
 
 - <doc:ValueServers>
+- <doc:SwiftCallbacks>
 - ``LuaValueServer``
 - ``LuaError``
+
+### Security
+
+- <doc:Sandboxing>
+- ``LuaEngineConfiguration``
 
 ### Built-in Modules
 

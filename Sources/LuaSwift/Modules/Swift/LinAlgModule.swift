@@ -303,7 +303,12 @@ public struct LinAlgModule {
                         local b_data = type(b) == "table" and b._data or b
                         return luaswift.linalg._wrap(_solve(A_data, b_data))
                     end,
-                    lstsq = function(A, b)
+                    least_squares = function(A, b)
+                        local A_data = type(A) == "table" and A._data or A
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.linalg._wrap(_lstsq(A_data, b_data))
+                    end,
+                    lstsq = function(A, b)  -- Legacy alias
                         local A_data = type(A) == "table" and A._data or A
                         local b_data = type(b) == "table" and b._data or b
                         return luaswift.linalg._wrap(_lstsq(A_data, b_data))

@@ -996,4 +996,393 @@ final class PlotModuleTests: XCTestCase {
         }
     }
     #endif
+
+    // MARK: - Imshow Tests
+
+    func testImshowBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {
+                {1, 2, 3},
+                {4, 5, 6},
+                {7, 8, 9}
+            }
+            ax:imshow(data)
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testImshowWithColormap() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {
+                {0.0, 0.5, 1.0},
+                {0.25, 0.5, 0.75},
+                {0.5, 0.5, 0.5}
+            }
+            ax:imshow(data, {cmap = "plasma", vmin = 0, vmax = 1})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testImshowColormaps() throws {
+        // Test that different colormaps work
+        let colormaps = ["viridis", "plasma", "inferno", "gray", "hot", "cool", "coolwarm"]
+
+        for cmap in colormaps {
+            let result = try engine.evaluate("""
+                local plt = require("luaswift.plot")
+                local fig, ax = plt.subplots()
+                ax:imshow({{0, 0.5}, {0.5, 1}}, {cmap = "\(cmap)"})
+                return fig:get_context():command_count() > 0
+            """)
+            XCTAssertEqual(result.boolValue, true, "Colormap \(cmap) should work")
+        }
+    }
+
+    func testImshowStoresData() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:imshow({{1, 2}, {3, 4}}, {vmin = 1, vmax = 4})
+            return ax._imshow_data ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Errorbar Tests
+
+    func testErrorbarBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:errorbar({1, 2, 3}, {4, 5, 6}, {yerr = {0.5, 0.3, 0.4}})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testErrorbarWithXerr() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:errorbar({1, 2, 3}, {4, 5, 6}, {
+                xerr = {0.2, 0.2, 0.2},
+                yerr = {0.5, 0.3, 0.4}
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testErrorbarWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:errorbar({1, 2, 3}, {4, 5, 6}, {
+                yerr = {0.5, 0.3, 0.4},
+                fmt = "o",
+                color = "red",
+                capsize = 5,
+                elinewidth = 2,
+                label = "Data with errors"
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testErrorbarWithScalarError() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:errorbar({1, 2, 3}, {4, 5, 6}, {yerr = 0.5})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Boxplot Tests
+
+    func testBoxplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+            ax:boxplot({data})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testBoxplotMultipleSeries() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data1 = {1, 2, 3, 4, 5}
+            local data2 = {3, 4, 5, 6, 7}
+            local data3 = {5, 6, 7, 8, 9}
+            ax:boxplot({data1, data2, data3})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testBoxplotWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+            ax:boxplot({data}, {
+                vert = true,
+                widths = 0.6,
+                showmeans = true,
+                showfliers = true,
+                boxprops = {color = "blue"},
+                medianprops = {color = "red"}
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testBoxplotHorizontal() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:boxplot({{1, 2, 3, 4, 5}}, {vert = false})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testBoxplotWithOutliers() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            -- Data with outliers (100 is an outlier)
+            local data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 100}
+            ax:boxplot({data}, {showfliers = true})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Contour Tests
+
+    func testContourBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            -- Create grid data for z = x^2 + y^2
+            local X, Y, Z = {}, {}, {}
+            for i = 1, 5 do
+                X[i], Y[i], Z[i] = {}, {}, {}
+                for j = 1, 5 do
+                    local x = (i - 3) * 0.5
+                    local y = (j - 3) * 0.5
+                    X[i][j] = x
+                    Y[i][j] = y
+                    Z[i][j] = x*x + y*y
+                end
+            end
+            ax:contour(X, Y, Z)
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testContourWithLevels() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local X, Y, Z = {}, {}, {}
+            for i = 1, 5 do
+                X[i], Y[i], Z[i] = {}, {}, {}
+                for j = 1, 5 do
+                    X[i][j], Y[i][j] = i, j
+                    Z[i][j] = (i - 3)^2 + (j - 3)^2
+                end
+            end
+            ax:contour(X, Y, Z, {levels = {1, 2, 3, 4}})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testContourWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local X, Y, Z = {}, {}, {}
+            for i = 1, 5 do
+                X[i], Y[i], Z[i] = {}, {}, {}
+                for j = 1, 5 do
+                    X[i][j], Y[i][j] = i, j
+                    Z[i][j] = math.sin(i * 0.5) * math.cos(j * 0.5)
+                end
+            end
+            ax:contour(X, Y, Z, {
+                levels = 5,
+                colors = {"blue", "green", "red"},
+                linewidths = 2
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testContourfBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local X, Y, Z = {}, {}, {}
+            for i = 1, 3 do
+                X[i], Y[i], Z[i] = {}, {}, {}
+                for j = 1, 3 do
+                    X[i][j], Y[i][j] = i, j
+                    Z[i][j] = i + j
+                end
+            end
+            ax:contourf(X, Y, Z)
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Colorbar Tests
+
+    func testColorbarBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:imshow({{0, 0.5}, {0.5, 1}}, {cmap = "viridis", vmin = 0, vmax = 1})
+            fig:colorbar(nil, {ax = ax})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testColorbarWithLabel() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:imshow({{1, 2}, {3, 4}})
+            fig:colorbar(nil, {ax = ax, label = "Value"})
+            local svg = fig:to_svg()
+            return svg:find("Value") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testColorbarWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:imshow({{0, 1}, {2, 3}}, {vmin = 0, vmax = 3})
+            fig:colorbar(nil, {
+                ax = ax,
+                orientation = "vertical",
+                shrink = 0.8,
+                aspect = 20
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testColorbarWithoutImshow() throws {
+        // Colorbar should be a no-op if no imshow data exists
+        try engine.run("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6})
+            fig:colorbar()  -- Should not error
+        """)
+    }
+
+    // MARK: - Advanced Integration Tests
+
+    func testHeatmapWithColorbar() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots({figsize = {8, 6}})
+
+            -- Create heatmap data
+            local data = {}
+            for i = 1, 10 do
+                data[i] = {}
+                for j = 1, 10 do
+                    data[i][j] = math.sin(i * 0.5) * math.cos(j * 0.5)
+                end
+            end
+
+            ax:imshow(data, {cmap = "coolwarm", vmin = -1, vmax = 1})
+            ax:set_title("Heatmap Example")
+            fig:colorbar(nil, {ax = ax, label = "sin(x)cos(y)"})
+
+            local svg = fig:to_svg()
+            return svg:find("<rect") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testErrorbarWithPlot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local x = {1, 2, 3, 4, 5}
+            local y = {2, 4, 6, 8, 10}
+            local yerr = {0.5, 0.4, 0.6, 0.3, 0.5}
+
+            ax:plot(x, y, {color = "blue", linestyle = "--"})
+            ax:errorbar(x, y, {yerr = yerr, fmt = "o", color = "red", capsize = 5})
+            ax:set_xlabel("X")
+            ax:set_ylabel("Y")
+            ax:set_title("Data with Error Bars")
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testBoxplotComparison() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            -- Generate sample data
+            local function generate_data(n, mean, std)
+                local data = {}
+                for i = 1, n do
+                    -- Simple approximation of normal distribution
+                    local sum = 0
+                    for j = 1, 12 do
+                        sum = sum + math.random()
+                    end
+                    data[i] = mean + (sum - 6) * std
+                end
+                return data
+            end
+
+            local data1 = generate_data(50, 10, 2)
+            local data2 = generate_data(50, 15, 3)
+            local data3 = generate_data(50, 12, 1.5)
+
+            ax:boxplot({data1, data2, data3}, {
+                positions = {1, 2, 3},
+                widths = 0.6,
+                showmeans = true
+            })
+            ax:set_title("Box Plot Comparison")
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

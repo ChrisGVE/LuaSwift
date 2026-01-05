@@ -1889,6 +1889,555 @@ public struct PlotModule {
         return self
     end
 
+    -- Imshow for heatmaps (matches matplotlib ax.imshow())
+    function Axes:imshow(data, opts)
+        opts = opts or {}
+        local cmap = opts.cmap or "viridis"
+        local vmin = opts.vmin
+        local vmax = opts.vmax
+        local aspect = opts.aspect or "auto"
+        local interpolation = opts.interpolation or "nearest"
+
+        -- Get data dimensions
+        local nrows = #data
+        local ncols = #data[1]
+
+        -- Find data range
+        if not vmin or not vmax then
+            local dmin, dmax = data[1][1], data[1][1]
+            for i = 1, nrows do
+                for j = 1, ncols do
+                    local v = data[i][j]
+                    if v < dmin then dmin = v end
+                    if v > dmax then dmax = v end
+                end
+            end
+            vmin = vmin or dmin
+            vmax = vmax or dmax
+        end
+        if vmax == vmin then vmax = vmin + 1 end
+
+        -- Colormap lookup tables
+        local colormaps = {
+            viridis = function(t)
+                local r = 0.267 + 0.004*t + 2.737*t^2 - 4.433*t^3 + 1.741*t^4
+                local g = 0.004 + 1.384*t - 0.814*t^2 + 0.401*t^3
+                local b = 0.329 + 1.422*t - 1.578*t^2 + 0.510*t^3
+                return r, g, b
+            end,
+            plasma = function(t)
+                local r = 0.050 + 2.735*t - 2.814*t^2 + 0.885*t^3
+                local g = 0.030 + 0.114*t + 0.892*t^2 - 0.115*t^3
+                local b = 0.528 + 1.266*t - 3.018*t^2 + 1.446*t^3
+                return r, g, b
+            end,
+            inferno = function(t)
+                local r = 0.001 + 1.244*t + 0.617*t^2 - 0.851*t^3
+                local g = 0.001 + 0.047*t + 1.691*t^2 - 0.923*t^3
+                local b = 0.014 + 1.689*t - 2.639*t^2 + 1.128*t^3
+                return r, g, b
+            end,
+            gray = function(t)
+                return t, t, t
+            end,
+            hot = function(t)
+                local r = math.min(1, t * 3)
+                local g = math.max(0, math.min(1, (t - 0.33) * 3))
+                local b = math.max(0, math.min(1, (t - 0.67) * 3))
+                return r, g, b
+            end,
+            cool = function(t)
+                return t, 1 - t, 1
+            end,
+            coolwarm = function(t)
+                if t < 0.5 then
+                    local s = t * 2
+                    return 0.227 + 0.706*s, 0.298 + 0.659*s, 0.753
+                else
+                    local s = (t - 0.5) * 2
+                    return 0.706 + 0.294*s, 0.016 + 0.141*s, 0.150 - 0.133*s
+                end
+            end
+        }
+
+        local colormap = colormaps[cmap] or colormaps.viridis
+
+        local ctx = self:get_context()
+        local margin = 50
+        local plot_width = self._figure._width - 2 * margin
+        local plot_height = self._figure._height - 2 * margin
+
+        local cell_width = plot_width / ncols
+        local cell_height = plot_height / nrows
+
+        -- Draw cells
+        for i = 1, nrows do
+            for j = 1, ncols do
+                local v = data[i][j]
+                local t = (v - vmin) / (vmax - vmin)
+                t = math.max(0, math.min(1, t))
+                local r, g, b = colormap(t)
+
+                local hex = string.format("#%02X%02X%02X",
+                    math.floor(r * 255),
+                    math.floor(g * 255),
+                    math.floor(b * 255))
+
+                local x = margin + (j - 1) * cell_width
+                local y = margin + (nrows - i) * cell_height
+
+                ctx:set_fill(hex)
+                ctx:rect(x, y, cell_width, cell_height)
+                ctx:fill()
+            end
+        end
+
+        -- Store colormap info for colorbar
+        self._imshow_data = {vmin = vmin, vmax = vmax, cmap = cmap}
+
+        return self
+    end
+
+    -- Error bar plot (matches matplotlib ax.errorbar())
+    function Axes:errorbar(x, y, opts)
+        opts = opts or {}
+        local yerr = opts.yerr
+        local xerr = opts.xerr
+        local fmt = opts.fmt or "o"
+        local color = opts.color or opts.c or "blue"
+        local ecolor = opts.ecolor or color
+        local elinewidth = opts.elinewidth or 1
+        local capsize = opts.capsize or 3
+        local capthick = opts.capthick or elinewidth
+
+        local ctx = self:get_context()
+        local margin = 50
+        local plot_width = self._figure._width - 2 * margin
+        local plot_height = self._figure._height - 2 * margin
+
+        -- Find data range including errors
+        local xmin, xmax = x[1], x[1]
+        local ymin, ymax = y[1], y[1]
+
+        for i = 1, #x do
+            local xe = xerr and (type(xerr) == "number" and xerr or xerr[i]) or 0
+            local ye = yerr and (type(yerr) == "number" and yerr or yerr[i]) or 0
+
+            if x[i] - xe < xmin then xmin = x[i] - xe end
+            if x[i] + xe > xmax then xmax = x[i] + xe end
+            if y[i] - ye < ymin then ymin = y[i] - ye end
+            if y[i] + ye > ymax then ymax = y[i] + ye end
+        end
+
+        if xmax == xmin then xmax = xmin + 1 end
+        if ymax == ymin then ymax = ymin + 1 end
+
+        local function tx(v) return margin + (v - xmin) / (xmax - xmin) * plot_width end
+        local function ty(v) return margin + (v - ymin) / (ymax - ymin) * plot_height end
+
+        -- Draw error bars
+        ctx:set_stroke(ecolor, elinewidth)
+
+        for i = 1, #x do
+            local px = tx(x[i])
+            local py = ty(y[i])
+
+            -- Y error bar
+            if yerr then
+                local ye = type(yerr) == "number" and yerr or yerr[i]
+                local y1 = ty(y[i] - ye)
+                local y2 = ty(y[i] + ye)
+
+                ctx:move_to(px, y1)
+                ctx:line_to(px, y2)
+                ctx:stroke()
+
+                -- Caps
+                if capsize > 0 then
+                    ctx:move_to(px - capsize, y1)
+                    ctx:line_to(px + capsize, y1)
+                    ctx:stroke()
+                    ctx:move_to(px - capsize, y2)
+                    ctx:line_to(px + capsize, y2)
+                    ctx:stroke()
+                end
+            end
+
+            -- X error bar
+            if xerr then
+                local xe = type(xerr) == "number" and xerr or xerr[i]
+                local x1 = tx(x[i] - xe)
+                local x2 = tx(x[i] + xe)
+
+                ctx:move_to(x1, py)
+                ctx:line_to(x2, py)
+                ctx:stroke()
+
+                -- Caps
+                if capsize > 0 then
+                    ctx:move_to(x1, py - capsize)
+                    ctx:line_to(x1, py + capsize)
+                    ctx:stroke()
+                    ctx:move_to(x2, py - capsize)
+                    ctx:line_to(x2, py + capsize)
+                    ctx:stroke()
+                end
+            end
+        end
+
+        -- Draw markers
+        local radius = 4
+        ctx:set_fill(color)
+        for i = 1, #x do
+            ctx:circle(tx(x[i]), ty(y[i]), radius)
+            ctx:fill()
+        end
+
+        return self
+    end
+
+    -- Box plot (matches matplotlib ax.boxplot())
+    function Axes:boxplot(data, opts)
+        opts = opts or {}
+        local positions = opts.positions
+        local widths = opts.widths or 0.5
+        local vert = opts.vert
+        if vert == nil then vert = true end
+        local showmeans = opts.showmeans or false
+        local showfliers = opts.showfliers
+        if showfliers == nil then showfliers = true end
+
+        local ctx = self:get_context()
+        local margin = 50
+        local plot_width = self._figure._width - 2 * margin
+        local plot_height = self._figure._height - 2 * margin
+
+        -- Handle single dataset vs multiple
+        local datasets = data
+        if type(data[1]) == "number" then
+            datasets = {data}
+        end
+
+        local n = #datasets
+
+        -- Generate positions if not provided
+        if not positions then
+            positions = {}
+            for i = 1, n do positions[i] = i end
+        end
+
+        -- Function to calculate percentile
+        local function percentile(sorted, p)
+            local idx = p / 100 * (#sorted - 1) + 1
+            local lo = math.floor(idx)
+            local hi = math.ceil(idx)
+            if lo == hi then return sorted[lo] end
+            return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
+        end
+
+        -- Find global range
+        local gmin, gmax = math.huge, -math.huge
+        for _, d in ipairs(datasets) do
+            for _, v in ipairs(d) do
+                if v < gmin then gmin = v end
+                if v > gmax then gmax = v end
+            end
+        end
+        if gmax == gmin then gmax = gmin + 1 end
+
+        local box_width = plot_width / (n + 1) * (type(widths) == "number" and widths or 0.5)
+
+        for idx, d in ipairs(datasets) do
+            -- Sort data
+            local sorted = {}
+            for _, v in ipairs(d) do table.insert(sorted, v) end
+            table.sort(sorted)
+
+            -- Calculate statistics
+            local q1 = percentile(sorted, 25)
+            local q2 = percentile(sorted, 50)  -- median
+            local q3 = percentile(sorted, 75)
+            local iqr = q3 - q1
+
+            -- Whiskers (1.5 * IQR)
+            local whisker_lo = q1 - 1.5 * iqr
+            local whisker_hi = q3 + 1.5 * iqr
+
+            -- Find actual whisker ends within data
+            local wlo, whi = sorted[1], sorted[#sorted]
+            for _, v in ipairs(sorted) do
+                if v >= whisker_lo then wlo = v; break end
+            end
+            for i = #sorted, 1, -1 do
+                if sorted[i] <= whisker_hi then whi = sorted[i]; break end
+            end
+
+            -- Transform
+            local function ty(v) return margin + (v - gmin) / (gmax - gmin) * plot_height end
+            local px = margin + positions[idx] / (n + 1) * plot_width
+
+            -- Draw box
+            local y1 = ty(q1)
+            local y3 = ty(q3)
+            local box_h = y3 - y1
+
+            ctx:set_fill("white")
+            ctx:rect(px - box_width/2, y1, box_width, box_h)
+            ctx:fill()
+            ctx:set_stroke("black", 1)
+            ctx:rect(px - box_width/2, y1, box_width, box_h)
+            ctx:stroke()
+
+            -- Draw median line
+            ctx:set_stroke("orange", 2)
+            local y2 = ty(q2)
+            ctx:move_to(px - box_width/2, y2)
+            ctx:line_to(px + box_width/2, y2)
+            ctx:stroke()
+
+            -- Draw whiskers
+            ctx:set_stroke("black", 1)
+            -- Lower whisker
+            ctx:move_to(px, y1)
+            ctx:line_to(px, ty(wlo))
+            ctx:stroke()
+            ctx:move_to(px - box_width/4, ty(wlo))
+            ctx:line_to(px + box_width/4, ty(wlo))
+            ctx:stroke()
+            -- Upper whisker
+            ctx:move_to(px, y3)
+            ctx:line_to(px, ty(whi))
+            ctx:stroke()
+            ctx:move_to(px - box_width/4, ty(whi))
+            ctx:line_to(px + box_width/4, ty(whi))
+            ctx:stroke()
+
+            -- Draw fliers (outliers)
+            if showfliers then
+                ctx:set_fill("black")
+                for _, v in ipairs(sorted) do
+                    if v < whisker_lo or v > whisker_hi then
+                        ctx:circle(px, ty(v), 3)
+                        ctx:fill()
+                    end
+                end
+            end
+
+            -- Draw mean
+            if showmeans then
+                local mean = 0
+                for _, v in ipairs(d) do mean = mean + v end
+                mean = mean / #d
+                ctx:set_stroke("green", 1, "--")
+                local my = ty(mean)
+                ctx:move_to(px - box_width/2, my)
+                ctx:line_to(px + box_width/2, my)
+                ctx:stroke()
+            end
+        end
+
+        return self
+    end
+
+    -- Contour plot (matches matplotlib ax.contour())
+    function Axes:contour(X, Y, Z, opts)
+        opts = opts or {}
+        local levels = opts.levels or 10
+        local colors = opts.colors or {"black"}
+        local linewidths = opts.linewidths or 1
+
+        -- Simple implementation using marching squares approximation
+        local ctx = self:get_context()
+        local margin = 50
+        local plot_width = self._figure._width - 2 * margin
+        local plot_height = self._figure._height - 2 * margin
+
+        -- Get dimensions
+        local nrows = #Z
+        local ncols = #Z[1]
+
+        -- Find Z range
+        local zmin, zmax = Z[1][1], Z[1][1]
+        for i = 1, nrows do
+            for j = 1, ncols do
+                if Z[i][j] < zmin then zmin = Z[i][j] end
+                if Z[i][j] > zmax then zmax = Z[i][j] end
+            end
+        end
+
+        -- Calculate level values
+        local level_values = {}
+        if type(levels) == "number" then
+            for i = 1, levels do
+                level_values[i] = zmin + (i - 0.5) / levels * (zmax - zmin)
+            end
+        else
+            level_values = levels
+        end
+
+        -- Transform functions
+        local xmin, xmax = X[1][1], X[1][ncols]
+        local ymin, ymax = Y[1][1], Y[nrows][1]
+
+        local function tx(v) return margin + (v - xmin) / (xmax - xmin) * plot_width end
+        local function ty(v) return margin + (v - ymin) / (ymax - ymin) * plot_height end
+
+        -- Draw contour lines using simple threshold crossing
+        for li, level in ipairs(level_values) do
+            local color = colors[(li - 1) % #colors + 1]
+            ctx:set_stroke(color, type(linewidths) == "number" and linewidths or linewidths[(li - 1) % #linewidths + 1])
+
+            -- Check each cell
+            for i = 1, nrows - 1 do
+                for j = 1, ncols - 1 do
+                    -- Get corner values
+                    local v00 = Z[i][j]
+                    local v10 = Z[i][j + 1]
+                    local v01 = Z[i + 1][j]
+                    local v11 = Z[i + 1][j + 1]
+
+                    -- Check for level crossing
+                    local above00 = v00 >= level
+                    local above10 = v10 >= level
+                    local above01 = v01 >= level
+                    local above11 = v11 >= level
+
+                    -- Linear interpolation for crossing points
+                    local function interp(v1, v2, x1, x2)
+                        if v2 == v1 then return (x1 + x2) / 2 end
+                        local t = (level - v1) / (v2 - v1)
+                        return x1 + t * (x2 - x1)
+                    end
+
+                    -- Get cell coordinates
+                    local x0, x1 = X[i][j], X[i][j + 1]
+                    local y0, y1 = Y[i][j], Y[i + 1][j]
+
+                    -- Simple crossing detection
+                    local crossings = {}
+
+                    -- Bottom edge
+                    if above00 ~= above10 then
+                        local cx = interp(v00, v10, x0, x1)
+                        table.insert(crossings, {tx(cx), ty(y0)})
+                    end
+                    -- Top edge
+                    if above01 ~= above11 then
+                        local cx = interp(v01, v11, x0, x1)
+                        table.insert(crossings, {tx(cx), ty(y1)})
+                    end
+                    -- Left edge
+                    if above00 ~= above01 then
+                        local cy = interp(v00, v01, y0, y1)
+                        table.insert(crossings, {tx(x0), ty(cy)})
+                    end
+                    -- Right edge
+                    if above10 ~= above11 then
+                        local cy = interp(v10, v11, y0, y1)
+                        table.insert(crossings, {tx(x1), ty(cy)})
+                    end
+
+                    -- Draw line segment if we have 2 crossings
+                    if #crossings == 2 then
+                        ctx:move_to(crossings[1][1], crossings[1][2])
+                        ctx:line_to(crossings[2][1], crossings[2][2])
+                        ctx:stroke()
+                    end
+                end
+            end
+        end
+
+        return self
+    end
+
+    -- Filled contour plot (matches matplotlib ax.contourf())
+    function Axes:contourf(X, Y, Z, opts)
+        -- For filled contours, we use imshow as approximation
+        return self:imshow(Z, opts)
+    end
+
+    -- Colorbar (matches matplotlib fig.colorbar())
+    function Figure:colorbar(mappable, opts)
+        opts = opts or {}
+        local ax = opts.ax or self._axes[1]
+
+        if not ax or not ax._imshow_data then
+            return self
+        end
+
+        local ctx = self._context
+        local vmin = ax._imshow_data.vmin
+        local vmax = ax._imshow_data.vmax
+        local cmap = ax._imshow_data.cmap
+
+        -- Colormap lookup
+        local colormaps = {
+            viridis = function(t)
+                local r = 0.267 + 0.004*t + 2.737*t^2 - 4.433*t^3 + 1.741*t^4
+                local g = 0.004 + 1.384*t - 0.814*t^2 + 0.401*t^3
+                local b = 0.329 + 1.422*t - 1.578*t^2 + 0.510*t^3
+                return r, g, b
+            end,
+            gray = function(t) return t, t, t end,
+            hot = function(t)
+                local r = math.min(1, t * 3)
+                local g = math.max(0, math.min(1, (t - 0.33) * 3))
+                local b = math.max(0, math.min(1, (t - 0.67) * 3))
+                return r, g, b
+            end
+        }
+        local colormap = colormaps[cmap] or colormaps.viridis
+
+        -- Draw colorbar on right side
+        local cb_width = 20
+        local cb_height = self._height - 120
+        local cb_x = self._width - 50
+        local cb_y = 60
+
+        local n_steps = 50
+        for i = 0, n_steps - 1 do
+            local t = i / (n_steps - 1)
+            local r, g, b = colormap(t)
+            local hex = string.format("#%02X%02X%02X",
+                math.floor(r * 255),
+                math.floor(g * 255),
+                math.floor(b * 255))
+
+            ctx:set_fill(hex)
+            ctx:rect(cb_x, cb_y + i * cb_height / n_steps, cb_width, cb_height / n_steps + 1)
+            ctx:fill()
+        end
+
+        -- Draw border
+        ctx:set_stroke("black", 1)
+        ctx:rect(cb_x, cb_y, cb_width, cb_height)
+        ctx:stroke()
+
+        -- Draw tick labels
+        local n_ticks = 5
+        for i = 0, n_ticks do
+            local t = i / n_ticks
+            local val = vmin + t * (vmax - vmin)
+            local tick_label = string.format("%.2g", val)
+            local ly = cb_y + (1 - t) * cb_height
+            ctx:text(tick_label, cb_x + cb_width + 5, ly, {fontSize = 9})
+        end
+
+        -- Draw colorbar label if provided
+        if opts.label then
+            ctx:save()
+            -- Draw label rotated 90 degrees to the right of tick labels
+            ctx:text(opts.label, cb_x + cb_width + 40, cb_y + cb_height / 2, {
+                fontSize = 11,
+                anchor = "middle",
+                rotation = -90
+            })
+            ctx:restore()
+        end
+
+        return self
+    end
+
     -- Title, labels (matches matplotlib)
     function Axes:set_title(title, opts)
         opts = opts or {}
@@ -1951,6 +2500,15 @@ public struct PlotModule {
 
     -- Create subplots (matches matplotlib plt.subplots())
     function plot.subplots(nrows, ncols, opts)
+        -- Handle case where options are passed as first argument
+        if type(nrows) == "table" then
+            opts = nrows
+            nrows = 1
+            ncols = 1
+        elseif type(ncols) == "table" then
+            opts = ncols
+            ncols = 1
+        end
         nrows = nrows or 1
         ncols = ncols or 1
         opts = opts or {}

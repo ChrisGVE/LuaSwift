@@ -79,7 +79,7 @@ try engine.run("""
 ### Mathematics
 
 - <doc:MathXModule>
-- ``LinAlgModule``
+- <doc:LinAlgModule>
 - ``ArrayModule``
 - ``ComplexModule``
 

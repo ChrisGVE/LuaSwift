@@ -43,10 +43,11 @@ public struct ModuleRegistry {
     /// - `luaswift.types`: Type detection and conversion utilities
     /// - `luaswift.svg`: SVG document generation
     /// - `luaswift.mathexpr`: Mathematical expression parsing and evaluation
+    /// - `luaswift.sliderule`: Slide rule simulation for analog computation
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
     /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`,
-    /// `svg_module`, `mathexpr_module`.
+    /// `svg_module`, `mathexpr_module`, `sliderule_module`.
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     ///
@@ -67,6 +68,7 @@ public struct ModuleRegistry {
         installTypesModule(in: engine)
         installSVGModule(in: engine)
         installMathExprModule(in: engine)
+        installSlideRuleModule(in: engine)
         installExtendStdlib(in: engine)
     }
 
@@ -95,6 +97,9 @@ public struct ModuleRegistry {
 
                 -- Also create luaswift.geo as alias
                 luaswift.geo = luaswift.geometry
+
+                -- Create sliderule alias
+                sliderule = luaswift.sliderule
 
                 -- extend_stdlib() imports all extensions into the standard library
                 function luaswift.extend_stdlib()
@@ -240,5 +245,12 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installMathExprModule(in engine: LuaEngine) {
         MathExprModule.register(in: engine)
+    }
+
+    /// Install only the SlideRule module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installSlideRuleModule(in engine: LuaEngine) {
+        SlideRuleModule.register(in: engine)
     }
 }

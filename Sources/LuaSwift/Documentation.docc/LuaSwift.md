@@ -49,6 +49,7 @@ try engine.run("""
 
 ### Data Exchange
 
+- <doc:ValueServers>
 - ``LuaValueServer``
 - ``LuaError``
 

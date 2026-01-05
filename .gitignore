@@ -34,3 +34,8 @@ Carthage/Build
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local database/models (never track)
+.lancedb/
+lancedb/
+models/

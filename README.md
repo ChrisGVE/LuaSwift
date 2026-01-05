@@ -1809,6 +1809,400 @@ engine.unregister(namespace: "MyData")
 // try engine.run("return MyData.value1") // Would error
 ```
 
+## Multiple Engine Instances
+
+LuaSwift supports running multiple `LuaEngine` instances concurrently with complete isolation or shared resources.
+
+### Independent Engines
+
+Each engine maintains its own isolated Lua state:
+
+```swift
+// Create multiple independent engines
+let engine1 = try LuaEngine()
+let engine2 = try LuaEngine()
+let engine3 = try LuaEngine()
+
+// Each engine has its own global state
+try engine1.run("x = 100")
+try engine2.run("x = 200")
+try engine3.run("x = 300")
+
+// Values are independent
+try engine1.evaluate("return x").numberValue! // 100
+try engine2.evaluate("return x").numberValue! // 200
+try engine3.evaluate("return x").numberValue! // 300
+```
+
+**Key characteristics:**
+- Each engine has a separate `lua_State`
+- No cross-engine variable leakage
+- Independent memory usage
+- Independent sandboxing configuration
+
+### Sharing Value Servers Between Engines
+
+A single `LuaValueServer` can be registered with multiple engines, enabling shared data access:
+
+```swift
+// Create a shared data server
+class SharedConfigServer: LuaValueServer {
+    let namespace = "Config"
+    private var settings: [String: LuaValue] = [
+        "apiUrl": .string("https://api.example.com"),
+        "timeout": .number(30),
+        "debug": .bool(false)
+    ]
+
+    func resolve(path: [String]) -> LuaValue {
+        guard let key = path.first else { return .table(settings) }
+        return settings[key] ?? .nil
+    }
+
+    func canWrite(path: [String]) -> Bool { return true }
+
+    func write(path: [String], value: LuaValue) throws {
+        guard let key = path.first else { return }
+        settings[key] = value
+    }
+}
+
+let sharedConfig = SharedConfigServer()
+
+// Register with multiple engines
+let engine1 = try LuaEngine()
+let engine2 = try LuaEngine()
+
+engine1.register(server: sharedConfig)
+engine2.register(server: sharedConfig)
+
+// Both engines see the same data
+try engine1.run("Config.timeout = 60")
+let timeout = try engine2.evaluate("return Config.timeout")
+print(timeout.numberValue!) // 60 - change from engine1 visible to engine2
+```
+
+**Thread safety for shared servers:**
+
+When sharing servers across engines used from multiple threads, the server implementation must be thread-safe:
+
+```swift
+class ThreadSafeConfigServer: LuaValueServer {
+    let namespace = "Config"
+    private let lock = NSLock()
+    private var settings: [String: LuaValue] = [:]
+
+    func resolve(path: [String]) -> LuaValue {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let key = path.first else { return .table(settings) }
+        return settings[key] ?? .nil
+    }
+
+    func canWrite(path: [String]) -> Bool { return true }
+
+    func write(path: [String], value: LuaValue) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let key = path.first else { return }
+        settings[key] = value
+    }
+}
+```
+
+### Independent Value Server Configurations
+
+Each engine can have different servers with the same or different namespaces:
+
+```swift
+// Development vs Production configurations
+class DevConfigServer: LuaValueServer {
+    let namespace = "Config"
+    func resolve(path: [String]) -> LuaValue {
+        switch path.first {
+        case "apiUrl": return .string("http://localhost:8080")
+        case "debug": return .bool(true)
+        default: return .nil
+        }
+    }
+}
+
+class ProdConfigServer: LuaValueServer {
+    let namespace = "Config"
+    func resolve(path: [String]) -> LuaValue {
+        switch path.first {
+        case "apiUrl": return .string("https://api.production.com")
+        case "debug": return .bool(false)
+        default: return .nil
+        }
+    }
+}
+
+let devEngine = try LuaEngine()
+let prodEngine = try LuaEngine()
+
+devEngine.register(server: DevConfigServer())
+prodEngine.register(server: ProdConfigServer())
+
+// Same Lua code, different behavior
+let script = "return Config.apiUrl"
+try devEngine.evaluate(script).stringValue!  // "http://localhost:8080"
+try prodEngine.evaluate(script).stringValue! // "https://api.production.com"
+```
+
+### Memory Management
+
+**Engine lifecycle:**
+
+```swift
+// Engines are reference-counted - automatic cleanup
+func processScript(_ code: String) throws -> LuaValue {
+    let engine = try LuaEngine()  // Created
+    let result = try engine.evaluate(code)
+    return result
+}  // Engine deallocated when function returns
+
+// For long-lived engines, store in a property
+class ScriptManager {
+    private var engines: [String: LuaEngine] = [:]
+
+    func getEngine(for context: String) throws -> LuaEngine {
+        if let existing = engines[context] {
+            return existing
+        }
+        let new = try LuaEngine()
+        engines[context] = new
+        return new
+    }
+
+    func releaseEngine(for context: String) {
+        engines.removeValue(forKey: context)  // Deallocated if no other references
+    }
+
+    func releaseAll() {
+        engines.removeAll()
+    }
+}
+```
+
+**Monitoring memory:**
+
+```swift
+// Set memory limits per engine
+let limitedEngine = try LuaEngine(configuration: LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: nil,
+    memoryLimit: 10 * 1024 * 1024  // 10 MB per engine
+))
+
+// For multiple engines, consider total memory budget
+class MemoryAwareEngineFactory {
+    private let maxTotalMemory: Int
+    private var engines: [LuaEngine] = []
+
+    init(maxTotalMemory: Int) {
+        self.maxTotalMemory = maxTotalMemory
+    }
+
+    func createEngine() throws -> LuaEngine {
+        let perEngineLimit = maxTotalMemory / max(engines.count + 1, 1)
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: nil,
+            memoryLimit: perEngineLimit
+        )
+        let engine = try LuaEngine(configuration: config)
+        engines.append(engine)
+        return engine
+    }
+}
+```
+
+### Use Cases for Multiple Engines
+
+**1. Isolation for untrusted code:**
+
+```swift
+// Each user gets their own isolated engine
+class UserScriptRunner {
+    private var userEngines: [String: LuaEngine] = [:]
+
+    func runUserScript(userId: String, script: String) throws -> LuaValue {
+        let engine = try userEngines[userId] ?? {
+            let new = try LuaEngine()  // Sandboxed by default
+            userEngines[userId] = new
+            return new
+        }()
+
+        return try engine.evaluate(script)
+    }
+}
+```
+
+**2. Different configurations per context:**
+
+```swift
+// Different module sets for different use cases
+let mathEngine = try LuaEngine()
+ModuleRegistry.installMathModule(in: mathEngine)
+ModuleRegistry.installLinAlgModule(in: mathEngine)
+ModuleRegistry.installComplexModule(in: mathEngine)
+
+let dataEngine = try LuaEngine()
+ModuleRegistry.installJSONModule(in: dataEngine)
+ModuleRegistry.installYAMLModule(in: dataEngine)
+ModuleRegistry.installTOMLModule(in: dataEngine)
+
+let fullEngine = try LuaEngine()
+ModuleRegistry.installModules(in: fullEngine)  // All modules
+```
+
+**3. Parallel script execution:**
+
+```swift
+// Run independent scripts in parallel
+func processScriptsInParallel(_ scripts: [String]) async throws -> [LuaValue] {
+    return try await withThrowingTaskGroup(of: (Int, LuaValue).self) { group in
+        for (index, script) in scripts.enumerated() {
+            group.addTask {
+                let engine = try LuaEngine()  // Each task gets its own engine
+                ModuleRegistry.installModules(in: engine)
+                let result = try engine.evaluate(script)
+                return (index, result)
+            }
+        }
+
+        var results = Array(repeating: LuaValue.nil, count: scripts.count)
+        for try await (index, result) in group {
+            results[index] = result
+        }
+        return results
+    }
+}
+```
+
+### Engine Pooling Strategies
+
+For high-concurrency scenarios, pools prevent both engine creation overhead and unbounded resource usage.
+
+**Fixed-size pool:**
+
+```swift
+actor FixedEnginePool {
+    private var available: [LuaEngine]
+    private var waiters: [CheckedContinuation<LuaEngine, Never>] = []
+
+    init(size: Int) throws {
+        available = try (0..<size).map { _ in try LuaEngine() }
+        for engine in available {
+            ModuleRegistry.installModules(in: engine)
+        }
+    }
+
+    func acquire() async -> LuaEngine {
+        if let engine = available.popLast() {
+            return engine
+        }
+
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release(_ engine: LuaEngine) {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume(returning: engine)
+        } else {
+            available.append(engine)
+        }
+    }
+
+    func withEngine<T>(_ work: (LuaEngine) async throws -> T) async throws -> T {
+        let engine = await acquire()
+        defer { release(engine) }
+        return try await work(engine)
+    }
+}
+```
+
+**Elastic pool (grows/shrinks):**
+
+```swift
+actor ElasticEnginePool {
+    private var available: [LuaEngine] = []
+    private let minSize: Int
+    private let maxSize: Int
+    private var totalCreated: Int = 0
+
+    init(min: Int, max: Int) throws {
+        self.minSize = min
+        self.maxSize = max
+
+        // Pre-create minimum engines
+        for _ in 0..<min {
+            let engine = try LuaEngine()
+            ModuleRegistry.installModules(in: engine)
+            available.append(engine)
+            totalCreated += 1
+        }
+    }
+
+    func acquire() async throws -> LuaEngine {
+        if let engine = available.popLast() {
+            return engine
+        }
+
+        if totalCreated < maxSize {
+            let engine = try LuaEngine()
+            ModuleRegistry.installModules(in: engine)
+            totalCreated += 1
+            return engine
+        }
+
+        // At max capacity - wait for an engine (simplified)
+        try await Task.sleep(nanoseconds: 10_000_000)  // 10ms
+        return try await acquire()
+    }
+
+    func release(_ engine: LuaEngine) {
+        if available.count < minSize {
+            available.append(engine)
+        } else {
+            // Let excess engines deallocate
+            totalCreated -= 1
+        }
+    }
+}
+```
+
+**Per-thread engine pattern:**
+
+```swift
+// One engine per thread - no locking needed within engine
+class ThreadLocalEngineProvider {
+    private static let key = "com.luaswift.engine"
+
+    static func current() throws -> LuaEngine {
+        if let existing = Thread.current.threadDictionary[key] as? LuaEngine {
+            return existing
+        }
+
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+        Thread.current.threadDictionary[key] = engine
+        return engine
+    }
+}
+
+// Usage
+DispatchQueue.global().async {
+    let engine = try! ThreadLocalEngineProvider.current()
+    // This engine is dedicated to this thread
+    try! engine.run("x = 1")
+}
+```
+
 ## App Store Compliance
 
 LuaSwift is designed to be App Store compliant:

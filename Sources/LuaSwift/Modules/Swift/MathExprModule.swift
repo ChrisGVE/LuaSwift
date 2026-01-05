@@ -301,17 +301,17 @@ public struct MathExprModule {
         local expr = latex
 
         -- Handle fractions: \\frac{a}{b} -> (a)/(b)
-        expr = expr:gsub("\\\\frac%%s*{([^}]+)}%%s*{([^}]+)}", function(num, den)
+        expr = expr:gsub("\\\\frac%s*{([^}]+)}%s*{([^}]+)}", function(num, den)
             return "(" .. num .. ")/(" .. den .. ")"
         end)
 
         -- Handle nth roots: \\sqrt[n]{x} -> (x)^(1/(n))
-        expr = expr:gsub("\\\\sqrt%%s*%%[([^%%]]+)%%]%%s*{([^}]+)}", function(n, x)
+        expr = expr:gsub("\\\\sqrt%s*%[([^%]]+)%]%s*{([^}]+)}", function(n, x)
             return "(" .. x .. ")^(1/(" .. n .. "))"
         end)
 
         -- Handle square roots: \\sqrt{x} -> sqrt(x)
-        expr = expr:gsub("\\\\sqrt%%s*{([^}]+)}", function(x)
+        expr = expr:gsub("\\\\sqrt%s*{([^}]+)}", function(x)
             return "sqrt(" .. x .. ")"
         end)
 
@@ -320,7 +320,7 @@ public struct MathExprModule {
                           "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
                           "log", "ln", "exp", "sqrt"}
         for _, func in ipairs(functions) do
-            expr = expr:gsub("\\\\" .. func .. "([^a-zA-Z])", func .. "%%1")
+            expr = expr:gsub("\\\\" .. func .. "([^a-zA-Z])", func .. "%1")
             expr = expr:gsub("\\\\" .. func .. "$", func)
         end
 
@@ -332,25 +332,25 @@ public struct MathExprModule {
             omega = "omega"
         }
         for greek, name in pairs(greekLetters) do
-            expr = expr:gsub("\\\\" .. greek .. "([^a-zA-Z])", name .. "%%1")
+            expr = expr:gsub("\\\\" .. greek .. "([^a-zA-Z])", name .. "%1")
             expr = expr:gsub("\\\\" .. greek .. "$", name)
         end
 
         -- Handle exponents with braces: x^{n} -> x^(n)
-        expr = expr:gsub("%%^%%s*{([^}]+)}", function(exp)
+        expr = expr:gsub("%^%s*{([^}]+)}", function(exp)
             return "^(" .. exp .. ")"
         end)
 
         -- Handle subscripts: x_{i} -> x_i (as variable name)
-        expr = expr:gsub("([a-zA-Z])_%%s*{([^}]+)}", "%%1_%%2")
+        expr = expr:gsub("([a-zA-Z])_%s*{([^}]+)}", "%1_%2")
 
         -- Handle parentheses: \\left( and \\right) -> ( and )
-        expr = expr:gsub("\\\\left%%s*%%(", "(")
-        expr = expr:gsub("\\\\right%%s*%%)", ")")
-        expr = expr:gsub("\\\\left%%s*%%[", "[")
-        expr = expr:gsub("\\\\right%%s*%%]", "]")
-        expr = expr:gsub("\\\\left%%s*{", "{")
-        expr = expr:gsub("\\\\right%%s*}", "}")
+        expr = expr:gsub("\\\\left%s*%(", "(")
+        expr = expr:gsub("\\\\right%s*%)", ")")
+        expr = expr:gsub("\\\\left%s*%[", "[")
+        expr = expr:gsub("\\\\right%s*%]", "]")
+        expr = expr:gsub("\\\\left%s*{", "{")
+        expr = expr:gsub("\\\\right%s*}", "}")
 
         return expr
     end

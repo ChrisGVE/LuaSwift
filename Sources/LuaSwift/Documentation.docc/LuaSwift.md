@@ -81,7 +81,7 @@ try engine.run("""
 - <doc:MathXModule>
 - <doc:LinAlgModule>
 - <doc:ArrayModule>
-- ``ComplexModule``
+- <doc:ComplexModule>
 
 ### Graphics and Geometry
 

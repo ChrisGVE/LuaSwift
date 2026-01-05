@@ -91,4 +91,4 @@ try engine.run("""
 ### Utilities
 
 - <doc:TypesModule>
-- ``MathExprModule``
+- <doc:MathExprModule>

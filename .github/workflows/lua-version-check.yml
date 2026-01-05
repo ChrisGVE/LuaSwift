@@ -199,12 +199,11 @@ jobs:
 
           # Add entry under [Unreleased] section
           # Find the line after "## [Unreleased]" and add the update
-          ENTRY="### Changed ($(date +%Y-%m-%d))\n- Updated bundled Lua sources:$(echo "$UPDATES_JSON" | jq -r '.[] | " Lua \(.series): \(.old) → \(.new)"' | tr '\n' ','| sed 's/,$//')\n"
+          UPDATES_LIST=$(echo "$UPDATES_JSON" | jq -r '.[] | " Lua \(.series): \(.old) → \(.new)"' | tr '\n' ',' | sed 's/,$//')
+          ENTRY="### Changed ($(date +%Y-%m-%d))\n- Updated bundled Lua sources:${UPDATES_LIST}\n"
 
-          # Insert after the [Unreleased] line
-          sed -i '' "/^## \[Unreleased\]/a\\
-\\
-$ENTRY" CHANGELOG.md
+          # Insert after the [Unreleased] line using awk (more portable than sed -i with newlines)
+          awk -v entry="$ENTRY" '/^## \[Unreleased\]/{print; print ""; printf entry; print ""; next}1' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
 
       - name: Verify root LICENSE unchanged
         run: |

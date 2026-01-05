@@ -44,10 +44,11 @@ public struct ModuleRegistry {
     /// - `luaswift.svg`: SVG document generation
     /// - `luaswift.mathexpr`: Mathematical expression parsing and evaluation
     /// - `luaswift.sliderule`: Slide rule simulation for analog computation
+    /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
     /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`,
-    /// `svg_module`, `mathexpr_module`, `sliderule_module`.
+    /// `svg_module`, `mathexpr_module`, `sliderule_module`, `debug_module`.
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     ///
@@ -70,6 +71,9 @@ public struct ModuleRegistry {
         installMathExprModule(in: engine)
         installSlideRuleModule(in: engine)
         installExtendStdlib(in: engine)
+        #if DEBUG
+        installDebugModule(in: engine)
+        #endif
     }
 
     /// Install the extend_stdlib() helper function and top-level aliases.
@@ -253,4 +257,15 @@ public struct ModuleRegistry {
     public static func installSlideRuleModule(in engine: LuaEngine) {
         SlideRuleModule.register(in: engine)
     }
+
+    #if DEBUG
+    /// Install only the Debug module.
+    ///
+    /// This module is only available in DEBUG builds.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installDebugModule(in engine: LuaEngine) {
+        DebugModule.register(in: engine)
+    }
+    #endif
 }

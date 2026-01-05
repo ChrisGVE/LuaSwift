@@ -73,7 +73,7 @@ try engine.run("""
 
 - <doc:RegexModule>
 - <doc:StringXModule>
-- ``UTF8XModule``
+- <doc:UTF8XModule>
 - <doc:TableXModule>
 
 ### Mathematics

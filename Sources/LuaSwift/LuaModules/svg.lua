@@ -2,6 +2,11 @@
 -- Copyright (c) 2025 LuaSwift Project
 -- Licensed under the MIT License
 --
+-- DEPRECATED: This pure Lua module is deprecated in favor of the Swift-backed
+-- luaswift.svg module which provides better performance and consistency.
+-- Use: local svg = require("luaswift.svg") instead of require("svg")
+-- This file is maintained for backward compatibility only.
+--
 -- A pure Lua module for building SVG graphics programmatically.
 -- Designed for educational apps on iOS/macOS via LuaSwift wrapper.
 

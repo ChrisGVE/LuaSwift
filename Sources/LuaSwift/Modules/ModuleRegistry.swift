@@ -70,10 +70,10 @@ public struct ModuleRegistry {
         installSVGModule(in: engine)
         installMathExprModule(in: engine)
         installSlideRuleModule(in: engine)
-        installExtendStdlib(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
+        installExtendStdlib(in: engine)
     }
 
     /// Install the extend_stdlib() helper function and top-level aliases.

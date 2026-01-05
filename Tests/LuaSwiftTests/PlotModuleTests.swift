@@ -1385,4 +1385,269 @@ final class PlotModuleTests: XCTestCase {
         """)
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Statistical Plot Tests (luaswift.plot.stat)
+
+    func testStatNamespaceExists() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            return plt.stat ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testStatNamespaceRequire() throws {
+        let result = try engine.evaluate("""
+            local stat = require("luaswift.plot.stat")
+            return stat ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testHistplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5, 6, 7, 8}
+            stat.histplot(ax, data)
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testHistplotWithKDE() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5, 6, 7, 8}
+            stat.histplot(ax, data, {kde = true, stat = "density"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testHistplotStatTypes() throws {
+        let statTypes = ["count", "frequency", "probability", "percent", "density"]
+
+        for statType in statTypes {
+            let result = try engine.evaluate("""
+                local plt = require("luaswift.plot")
+                local stat = plt.stat
+                local fig, ax = plt.subplots()
+                stat.histplot(ax, {1, 2, 3, 4, 5}, {stat = "\(statType)"})
+                return fig:get_context():command_count() > 0
+            """)
+            XCTAssertEqual(result.boolValue, true, "stat=\(statType) should work")
+        }
+    }
+
+    func testHistplotStepElement() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.histplot(ax, {1, 2, 3, 4, 5, 6}, {element = "step"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testKdeplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5}
+            stat.kdeplot(ax, data)
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testKdeplotWithFill() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.kdeplot(ax, {1, 2, 3, 4, 5}, {fill = true, color = "blue"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testKdeplotBandwidthMethods() throws {
+        let methods = ["scott", "silverman"]
+
+        for method in methods {
+            let result = try engine.evaluate("""
+                local plt = require("luaswift.plot")
+                local stat = plt.stat
+                local fig, ax = plt.subplots()
+                stat.kdeplot(ax, {1, 2, 3, 4, 5}, {bw_method = "\(method)"})
+                return fig:get_context():command_count() > 0
+            """)
+            XCTAssertEqual(result.boolValue, true, "bw_method=\(method) should work")
+        }
+    }
+
+    func testKdeplotCumulative() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.kdeplot(ax, {1, 2, 3, 4, 5}, {cumulative = true})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRugplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.rugplot(ax, {1, 2, 3, 4, 5})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRugplotWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.rugplot(ax, {1, 2, 3, 4, 5}, {height = 0.1, color = "red"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRugplotYAxis() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.rugplot(ax, {1, 2, 3, 4, 5}, {axis = "y"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testViolinplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.violinplot(ax, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testViolinplotMultipleSeries() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data1 = {1, 2, 3, 4, 5}
+            local data2 = {3, 4, 5, 6, 7}
+            local data3 = {5, 6, 7, 8, 9}
+            stat.violinplot(ax, {data1, data2, data3})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testViolinplotWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            stat.violinplot(ax, {{1, 2, 3, 4, 5}}, {
+                showmeans = true,
+                showmedians = true,
+                showextrema = true,
+                widths = 0.7
+            })
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Statistical Plot Integration Tests
+
+    func testKdeWithHistplotOverlay() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+
+            -- Generate some sample data
+            local data = {}
+            for i = 1, 100 do
+                -- Approximate normal distribution
+                local sum = 0
+                for j = 1, 12 do
+                    sum = sum + math.random()
+                end
+                data[i] = (sum - 6) * 2 + 10
+            end
+
+            stat.histplot(ax, data, {stat = "density", kde = true, color = "steelblue"})
+            ax:set_title("Distribution with KDE Overlay")
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testKdeWithRugplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+
+            local data = {1, 2, 2.5, 3, 3.5, 4, 5, 6, 7}
+            stat.kdeplot(ax, data, {fill = true, color = "lightblue"})
+            stat.rugplot(ax, data, {height = 0.03, color = "black"})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testViolinplotComparison() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+
+            -- Generate different distributions
+            local function gen_normal(n, mean, std)
+                local data = {}
+                for i = 1, n do
+                    local sum = 0
+                    for j = 1, 12 do sum = sum + math.random() end
+                    data[i] = (sum - 6) * std + mean
+                end
+                return data
+            end
+
+            local group1 = gen_normal(30, 5, 1)
+            local group2 = gen_normal(30, 7, 2)
+            local group3 = gen_normal(30, 4, 1.5)
+
+            stat.violinplot(ax, {group1, group2, group3}, {
+                positions = {1, 2, 3},
+                showmeans = true
+            })
+            ax:set_title("Violin Plot Comparison")
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

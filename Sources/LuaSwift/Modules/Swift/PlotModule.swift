@@ -2541,6 +2541,520 @@ public struct PlotModule {
         -- No GUI in embedded context
     end
 
+    -- ============================================================
+    -- Statistical Plots Namespace (luaswift.plot.stat)
+    -- Seaborn-compatible statistical visualizations
+    -- ============================================================
+
+    plot.stat = {}
+    local stat = plot.stat
+
+    -- Kernel Density Estimation helper
+    local function kde(data, x_grid, bandwidth)
+        local n = #data
+        if n == 0 then return {} end
+
+        -- Scott's rule for bandwidth if not specified
+        if not bandwidth then
+            local mean = 0
+            for _, v in ipairs(data) do mean = mean + v end
+            mean = mean / n
+
+            local variance = 0
+            for _, v in ipairs(data) do
+                variance = variance + (v - mean)^2
+            end
+            local std = math.sqrt(variance / n)
+            bandwidth = std * n^(-0.2)  -- Scott's rule
+            if bandwidth == 0 then bandwidth = 1 end
+        end
+
+        local density = {}
+        local sqrt2pi = math.sqrt(2 * math.pi)
+
+        for i, x in ipairs(x_grid) do
+            local sum = 0
+            for _, xi in ipairs(data) do
+                local z = (x - xi) / bandwidth
+                sum = sum + math.exp(-0.5 * z * z) / sqrt2pi
+            end
+            density[i] = sum / (n * bandwidth)
+        end
+
+        return density
+    end
+
+    -- Generate grid for KDE
+    local function linspace(start, stop, n)
+        local result = {}
+        if n == 1 then
+            result[1] = start
+        else
+            local step = (stop - start) / (n - 1)
+            for i = 1, n do
+                result[i] = start + (i - 1) * step
+            end
+        end
+        return result
+    end
+
+    -- histplot (matches seaborn sns.histplot)
+    function stat.histplot(ax, data, opts)
+        opts = opts or {}
+        local stat_type = opts.stat or "count"
+        local kde_overlay = opts.kde or false
+        local bins = opts.bins or 10
+        local binwidth = opts.binwidth
+        local color = opts.color or "steelblue"
+        local edgecolor = opts.edgecolor or "white"
+        local alpha = opts.alpha or 0.7
+        local element = opts.element or "bars"
+        local fill = opts.fill
+        if fill == nil then fill = true end
+
+        -- Calculate bin edges
+        local dmin, dmax = data[1], data[1]
+        for _, v in ipairs(data) do
+            if v < dmin then dmin = v end
+            if v > dmax then dmax = v end
+        end
+
+        local bin_edges = {}
+        if binwidth then
+            bins = math.ceil((dmax - dmin) / binwidth)
+        end
+
+        for i = 0, bins do
+            bin_edges[i + 1] = dmin + i * (dmax - dmin) / bins
+        end
+
+        -- Count values in bins
+        local counts = {}
+        for i = 1, bins do counts[i] = 0 end
+
+        for _, v in ipairs(data) do
+            for i = 1, bins do
+                if v >= bin_edges[i] and (v < bin_edges[i + 1] or (i == bins and v == bin_edges[i + 1])) then
+                    counts[i] = counts[i] + 1
+                    break
+                end
+            end
+        end
+
+        -- Apply stat transformation
+        local n = #data
+        local heights = {}
+        local bin_widths = (dmax - dmin) / bins
+
+        for i = 1, bins do
+            if stat_type == "count" then
+                heights[i] = counts[i]
+            elseif stat_type == "frequency" then
+                heights[i] = counts[i] / n
+            elseif stat_type == "probability" then
+                heights[i] = counts[i] / n
+            elseif stat_type == "percent" then
+                heights[i] = (counts[i] / n) * 100
+            elseif stat_type == "density" then
+                heights[i] = counts[i] / (n * bin_widths)
+            else
+                heights[i] = counts[i]
+            end
+        end
+
+        -- Draw histogram
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        local max_height = heights[1]
+        for _, h in ipairs(heights) do
+            if h > max_height then max_height = h end
+        end
+        if max_height == 0 then max_height = 1 end
+
+        if element == "bars" then
+            for i = 1, bins do
+                local x = margin + (bin_edges[i] - dmin) / (dmax - dmin) * plot_width
+                local w = bin_widths / (dmax - dmin) * plot_width
+                local h = heights[i] / max_height * plot_height
+                local y = margin + plot_height - h
+
+                if fill then
+                    ctx:set_fill(color)
+                    ctx:rect(x, y, w, h)
+                    ctx:fill()
+                end
+
+                ctx:set_stroke(edgecolor, 1)
+                ctx:rect(x, y, w, h)
+                ctx:stroke()
+            end
+        elseif element == "step" then
+            ctx:set_stroke(color, 2)
+            ctx:move_to(margin, margin + plot_height)
+            for i = 1, bins do
+                local x1 = margin + (bin_edges[i] - dmin) / (dmax - dmin) * plot_width
+                local x2 = margin + (bin_edges[i + 1] - dmin) / (dmax - dmin) * plot_width
+                local h = heights[i] / max_height * plot_height
+                local y = margin + plot_height - h
+                ctx:line_to(x1, y)
+                ctx:line_to(x2, y)
+            end
+            ctx:line_to(margin + plot_width, margin + plot_height)
+            ctx:stroke()
+        end
+
+        -- KDE overlay
+        if kde_overlay then
+            local n_points = 100
+            local x_grid = linspace(dmin, dmax, n_points)
+            local density = kde(data, x_grid, opts.bw_adjust)
+
+            local max_density = density[1]
+            for _, d in ipairs(density) do
+                if d > max_density then max_density = d end
+            end
+
+            -- Scale KDE to match histogram
+            local scale = max_height / max_density
+
+            ctx:set_stroke("darkblue", 2)
+            for i, x in ipairs(x_grid) do
+                local px = margin + (x - dmin) / (dmax - dmin) * plot_width
+                local py = margin + plot_height - density[i] * scale / max_height * plot_height
+                if i == 1 then
+                    ctx:move_to(px, py)
+                else
+                    ctx:line_to(px, py)
+                end
+            end
+            ctx:stroke()
+        end
+
+        return ax
+    end
+
+    -- kdeplot (matches seaborn sns.kdeplot)
+    function stat.kdeplot(ax, data, opts)
+        opts = opts or {}
+        local bw_method = opts.bw_method or "scott"
+        local bw_adjust = opts.bw_adjust or 1.0
+        local fill = opts.fill or false
+        local color = opts.color or "blue"
+        local alpha = opts.alpha or 0.3
+        local linewidth = opts.linewidth or 2
+        local cumulative = opts.cumulative or false
+        local cut = opts.cut or 3
+
+        -- Calculate bandwidth
+        local n = #data
+        if n == 0 then return ax end
+
+        local mean = 0
+        for _, v in ipairs(data) do mean = mean + v end
+        mean = mean / n
+
+        local variance = 0
+        for _, v in ipairs(data) do
+            variance = variance + (v - mean)^2
+        end
+        local std = math.sqrt(variance / n)
+
+        local bandwidth
+        if type(bw_method) == "number" then
+            bandwidth = bw_method
+        elseif bw_method == "scott" then
+            bandwidth = std * n^(-0.2)
+        elseif bw_method == "silverman" then
+            -- IQR calculation
+            local sorted = {}
+            for i, v in ipairs(data) do sorted[i] = v end
+            table.sort(sorted)
+            local q1_idx = math.floor(n * 0.25)
+            local q3_idx = math.floor(n * 0.75)
+            local iqr = sorted[math.max(1, q3_idx)] - sorted[math.max(1, q1_idx)]
+            bandwidth = 0.9 * math.min(std, iqr / 1.34) * n^(-0.2)
+        else
+            bandwidth = std * n^(-0.2)
+        end
+
+        bandwidth = bandwidth * bw_adjust
+        if bandwidth == 0 then bandwidth = 1 end
+
+        -- Data range with cut extension
+        local dmin, dmax = data[1], data[1]
+        for _, v in ipairs(data) do
+            if v < dmin then dmin = v end
+            if v > dmax then dmax = v end
+        end
+        dmin = dmin - cut * bandwidth
+        dmax = dmax + cut * bandwidth
+
+        -- Generate KDE
+        local n_points = 200
+        local x_grid = linspace(dmin, dmax, n_points)
+        local density = kde(data, x_grid, bandwidth)
+
+        -- Cumulative if requested
+        if cumulative then
+            local cum = 0
+            local dx = (dmax - dmin) / (n_points - 1)
+            for i = 1, n_points do
+                cum = cum + density[i] * dx
+                density[i] = cum
+            end
+        end
+
+        -- Draw
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        local max_density = density[1]
+        for _, d in ipairs(density) do
+            if d > max_density then max_density = d end
+        end
+        if max_density == 0 then max_density = 1 end
+
+        -- Fill under curve
+        if fill then
+            ctx:set_fill(color)
+            ctx:move_to(margin, margin + plot_height)
+            for i, x in ipairs(x_grid) do
+                local px = margin + (x - dmin) / (dmax - dmin) * plot_width
+                local py = margin + plot_height - density[i] / max_density * plot_height
+                ctx:line_to(px, py)
+            end
+            ctx:line_to(margin + plot_width, margin + plot_height)
+            ctx:close_path()
+            ctx:fill()
+        end
+
+        -- Draw line
+        ctx:set_stroke(color, linewidth)
+        for i, x in ipairs(x_grid) do
+            local px = margin + (x - dmin) / (dmax - dmin) * plot_width
+            local py = margin + plot_height - density[i] / max_density * plot_height
+            if i == 1 then
+                ctx:move_to(px, py)
+            else
+                ctx:line_to(px, py)
+            end
+        end
+        ctx:stroke()
+
+        return ax
+    end
+
+    -- rugplot (matches seaborn sns.rugplot)
+    function stat.rugplot(ax, data, opts)
+        opts = opts or {}
+        local height = opts.height or 0.05
+        local color = opts.color or "black"
+        local linewidth = opts.linewidth or 1
+        local alpha = opts.alpha or 1.0
+        local axis = opts.axis or "x"
+
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        local dmin, dmax = data[1], data[1]
+        for _, v in ipairs(data) do
+            if v < dmin then dmin = v end
+            if v > dmax then dmax = v end
+        end
+
+        ctx:set_stroke(color, linewidth)
+
+        local rug_height = height * plot_height
+
+        for _, v in ipairs(data) do
+            if axis == "x" then
+                local x = margin + (v - dmin) / (dmax - dmin) * plot_width
+                ctx:move_to(x, margin + plot_height)
+                ctx:line_to(x, margin + plot_height - rug_height)
+            else
+                local y = margin + plot_height - (v - dmin) / (dmax - dmin) * plot_height
+                ctx:move_to(margin, y)
+                ctx:line_to(margin + rug_height, y)
+            end
+        end
+        ctx:stroke()
+
+        return ax
+    end
+
+    -- violinplot (matches matplotlib ax.violinplot)
+    function stat.violinplot(ax, data, opts)
+        opts = opts or {}
+        local positions = opts.positions
+        local widths = opts.widths or 0.5
+        local showmeans = opts.showmeans or false
+        local showmedians = opts.showmedians or true
+        local showextrema = opts.showextrema or true
+        local bw_method = opts.bw_method or "scott"
+        local vert = opts.vert
+        if vert == nil then vert = true end
+
+        local ctx = ax:get_context()
+        local margin = 50
+        local plot_width = ax._figure._width - 2 * margin
+        local plot_height = ax._figure._height - 2 * margin
+
+        -- Handle single dataset
+        if type(data[1]) == "number" then
+            data = {data}
+        end
+
+        local n_datasets = #data
+
+        -- Default positions
+        if not positions then
+            positions = {}
+            for i = 1, n_datasets do positions[i] = i end
+        end
+
+        -- Find global data range for scaling
+        local global_min, global_max = data[1][1], data[1][1]
+        for _, dataset in ipairs(data) do
+            for _, v in ipairs(dataset) do
+                if v < global_min then global_min = v end
+                if v > global_max then global_max = v end
+            end
+        end
+        if global_max == global_min then global_max = global_min + 1 end
+
+        local pos_min, pos_max = positions[1], positions[1]
+        for _, p in ipairs(positions) do
+            if p < pos_min then pos_min = p end
+            if p > pos_max then pos_max = p end
+        end
+        local pos_range = pos_max - pos_min
+        if pos_range == 0 then pos_range = 1 end
+
+        for idx, dataset in ipairs(data) do
+            local pos = positions[idx]
+            local n = #dataset
+
+            -- Sort for statistics
+            local sorted = {}
+            for i, v in ipairs(dataset) do sorted[i] = v end
+            table.sort(sorted)
+
+            -- Calculate bandwidth (Scott's rule)
+            local mean_val = 0
+            for _, v in ipairs(dataset) do mean_val = mean_val + v end
+            mean_val = mean_val / n
+
+            local variance = 0
+            for _, v in ipairs(dataset) do
+                variance = variance + (v - mean_val)^2
+            end
+            local std = math.sqrt(variance / n)
+            local bandwidth = std * n^(-0.2)
+            if bandwidth == 0 then bandwidth = 1 end
+
+            -- KDE
+            local dmin, dmax = sorted[1], sorted[n]
+            local cut = 2
+            local kde_min = dmin - cut * bandwidth
+            local kde_max = dmax + cut * bandwidth
+
+            local n_points = 50
+            local y_grid = linspace(kde_min, kde_max, n_points)
+            local density = kde(dataset, y_grid, bandwidth)
+
+            local max_density = density[1]
+            for _, d in ipairs(density) do
+                if d > max_density then max_density = d end
+            end
+            if max_density == 0 then max_density = 1 end
+
+            -- Scale width
+            local width = widths
+            if type(widths) == "table" then width = widths[idx] or 0.5 end
+
+            -- Draw violin
+            if vert then
+                local cx = margin + (pos - pos_min) / pos_range * plot_width * 0.8 + plot_width * 0.1
+
+                -- Right side
+                ctx:set_fill("#4878CF")
+                ctx:move_to(cx, margin + plot_height - (y_grid[1] - global_min) / (global_max - global_min) * plot_height)
+                for i, y in ipairs(y_grid) do
+                    local py = margin + plot_height - (y - global_min) / (global_max - global_min) * plot_height
+                    local w = density[i] / max_density * width * plot_width / (n_datasets + 1) * 0.5
+                    ctx:line_to(cx + w, py)
+                end
+                -- Left side (mirror)
+                for i = n_points, 1, -1 do
+                    local y = y_grid[i]
+                    local py = margin + plot_height - (y - global_min) / (global_max - global_min) * plot_height
+                    local w = density[i] / max_density * width * plot_width / (n_datasets + 1) * 0.5
+                    ctx:line_to(cx - w, py)
+                end
+                ctx:close_path()
+                ctx:fill()
+
+                -- Outline
+                ctx:set_stroke("black", 1)
+                ctx:move_to(cx, margin + plot_height - (y_grid[1] - global_min) / (global_max - global_min) * plot_height)
+                for i, y in ipairs(y_grid) do
+                    local py = margin + plot_height - (y - global_min) / (global_max - global_min) * plot_height
+                    local w = density[i] / max_density * width * plot_width / (n_datasets + 1) * 0.5
+                    ctx:line_to(cx + w, py)
+                end
+                for i = n_points, 1, -1 do
+                    local y = y_grid[i]
+                    local py = margin + plot_height - (y - global_min) / (global_max - global_min) * plot_height
+                    local w = density[i] / max_density * width * plot_width / (n_datasets + 1) * 0.5
+                    ctx:line_to(cx - w, py)
+                end
+                ctx:close_path()
+                ctx:stroke()
+
+                -- Median line
+                if showmedians then
+                    local median = sorted[math.ceil(n / 2)]
+                    local my = margin + plot_height - (median - global_min) / (global_max - global_min) * plot_height
+                    local mw = width * plot_width / (n_datasets + 1) * 0.3
+                    ctx:set_stroke("white", 2)
+                    ctx:move_to(cx - mw, my)
+                    ctx:line_to(cx + mw, my)
+                    ctx:stroke()
+                end
+
+                -- Mean marker
+                if showmeans then
+                    local my = margin + plot_height - (mean_val - global_min) / (global_max - global_min) * plot_height
+                    ctx:set_fill("white")
+                    ctx:circle(cx, my, 3)
+                    ctx:fill()
+                end
+
+                -- Extrema
+                if showextrema then
+                    local min_y = margin + plot_height - (sorted[1] - global_min) / (global_max - global_min) * plot_height
+                    local max_y = margin + plot_height - (sorted[n] - global_min) / (global_max - global_min) * plot_height
+                    ctx:set_stroke("black", 1)
+                    ctx:move_to(cx, min_y)
+                    ctx:line_to(cx, max_y)
+                    ctx:stroke()
+                end
+            end
+        end
+
+        return ax
+    end
+
+    -- Make stat namespace available
+    package.loaded["luaswift.plot.stat"] = stat
+
     -- Make available via require
     package.loaded["luaswift.plot"] = plot
 

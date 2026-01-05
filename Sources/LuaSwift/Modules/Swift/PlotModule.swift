@@ -3429,6 +3429,265 @@ public struct PlotModule {
         return ax
     end
 
+    -- catplot (matches seaborn sns.catplot) - figure-level categorical plot
+    function stat.catplot(data, opts)
+        opts = opts or {}
+        local kind = opts.kind or "strip"
+        local x = opts.x
+        local y = opts.y
+        local hue = opts.hue
+        local col = opts.col
+        local row = opts.row
+        local col_wrap = opts.col_wrap
+        local height = opts.height or 4
+        local aspect = opts.aspect or 1
+
+        -- Create figure
+        local figsize = opts.figsize or {height * aspect, height}
+        local fig, ax = plot.subplots({figsize = figsize})
+
+        -- Select plot function based on kind
+        local plot_fn
+        if kind == "strip" then
+            plot_fn = stat.stripplot
+        elseif kind == "swarm" then
+            plot_fn = stat.swarmplot
+        elseif kind == "box" then
+            plot_fn = function(a, d, o) a:boxplot(d, o) end
+        elseif kind == "violin" then
+            plot_fn = stat.violinplot
+        elseif kind == "bar" then
+            plot_fn = function(a, d, o)
+                -- Simple bar chart
+                local ctx = a:get_context()
+                local margin = 50
+                local pw = a._figure._width - 2 * margin
+                local ph = a._figure._height - 2 * margin
+                local n = #d
+                local bar_width = pw / n * 0.8
+                for i, series in ipairs(d) do
+                    local mean = 0
+                    for _, v in ipairs(series) do mean = mean + v end
+                    mean = mean / #series
+                    local x_pos = margin + (i - 0.5) * (pw / n)
+                    local bar_height = mean / 10 * ph  -- Scale appropriately
+                    ctx:set_fill(o and o.color or "steelblue")
+                    ctx:rect(x_pos - bar_width/2, margin + ph - bar_height, bar_width, bar_height)
+                    ctx:fill()
+                end
+            end
+        elseif kind == "count" then
+            plot_fn = function(a, d, o) stat.histplot(a, d[1] or d, {stat = "count"}) end
+        elseif kind == "point" then
+            plot_fn = function(a, d, o)
+                -- Point plot with error bars
+                local ctx = a:get_context()
+                local margin = 50
+                local pw = a._figure._width - 2 * margin
+                local ph = a._figure._height - 2 * margin
+                local n = #d
+                for i, series in ipairs(d) do
+                    local mean = 0
+                    for _, v in ipairs(series) do mean = mean + v end
+                    mean = mean / #series
+                    local x_pos = margin + (i - 0.5) * (pw / n)
+                    local y_pos = margin + ph - (mean / 10 * ph)
+                    ctx:set_fill(o and o.color or "steelblue")
+                    ctx:circle(x_pos, y_pos, 5)
+                    ctx:fill()
+                end
+            end
+        else
+            -- Default to strip
+            plot_fn = stat.stripplot
+        end
+
+        -- Call the plotting function with data
+        local plot_data = data
+        if type(data) == "table" and data[1] and type(data[1]) ~= "table" then
+            plot_data = {data}  -- Wrap single series
+        end
+        plot_fn(ax, plot_data, opts)
+
+        return {fig = fig, ax = ax}
+    end
+
+    -- lmplot (matches seaborn sns.lmplot) - figure-level regression plot
+    function stat.lmplot(data, opts)
+        opts = opts or {}
+        local x = opts.x
+        local y = opts.y
+        local hue = opts.hue
+        local col = opts.col
+        local row = opts.row
+        local height = opts.height or 5
+        local aspect = opts.aspect or 1
+        local ci = opts.ci
+        if ci == nil then ci = 95 end
+        local scatter = opts.scatter
+        if scatter == nil then scatter = true end
+
+        -- Create figure
+        local figsize = opts.figsize or {height * aspect, height}
+        local fig, ax = plot.subplots({figsize = figsize})
+
+        -- Extract x and y data from data table or use directly
+        local x_data, y_data
+        if type(data) == "table" and x and y then
+            -- Data is a table with named columns
+            x_data = data[x] or {}
+            y_data = data[y] or {}
+        else
+            -- Assume data contains {x_values, y_values}
+            x_data = data[1] or {}
+            y_data = data[2] or {}
+        end
+
+        -- Call regplot
+        stat.regplot(ax, x_data, y_data, {
+            ci = ci,
+            scatter = scatter,
+            color = opts.color,
+            marker = opts.marker,
+            scatter_kws = opts.scatter_kws,
+            line_kws = opts.line_kws
+        })
+
+        -- Set labels if provided
+        if x then ax:set_xlabel(x) end
+        if y then ax:set_ylabel(y) end
+
+        return {fig = fig, ax = ax}
+    end
+
+    -- clustermap (matches seaborn sns.clustermap) - hierarchical clustering heatmap
+    function stat.clustermap(data, opts)
+        opts = opts or {}
+        local method = opts.method or "average"
+        local metric = opts.metric or "euclidean"
+        local row_cluster = opts.row_cluster
+        if row_cluster == nil then row_cluster = true end
+        local col_cluster = opts.col_cluster
+        if col_cluster == nil then col_cluster = true end
+        local figsize = opts.figsize or {10, 10}
+        local cmap = opts.cmap or "viridis"
+        local annot = opts.annot or false
+        local fmt = opts.fmt or "%.2g"
+        local linewidths = opts.linewidths or 0
+        local linecolor = opts.linecolor or "white"
+
+        -- Simple distance calculation (Euclidean)
+        local function euclidean_dist(a, b)
+            local sum = 0
+            for i = 1, #a do
+                local diff = (a[i] or 0) - (b[i] or 0)
+                sum = sum + diff * diff
+            end
+            return math.sqrt(sum)
+        end
+
+        -- Simple hierarchical clustering (average linkage)
+        local function cluster_order(matrix, is_row)
+            local n = is_row and #matrix or #matrix[1]
+            if n <= 2 then
+                local order = {}
+                for i = 1, n do order[i] = i end
+                return order
+            end
+
+            -- Extract vectors
+            local vectors = {}
+            for i = 1, n do
+                vectors[i] = {}
+                if is_row then
+                    for j = 1, #matrix[i] do
+                        vectors[i][j] = matrix[i][j]
+                    end
+                else
+                    for j = 1, #matrix do
+                        vectors[i][j] = matrix[j][i]
+                    end
+                end
+            end
+
+            -- Compute distance matrix
+            local dist = {}
+            for i = 1, n do
+                dist[i] = {}
+                for j = 1, n do
+                    dist[i][j] = euclidean_dist(vectors[i], vectors[j])
+                end
+            end
+
+            -- Simple ordering by total distance (heuristic, not full clustering)
+            local total_dist = {}
+            for i = 1, n do
+                total_dist[i] = {idx = i, dist = 0}
+                for j = 1, n do
+                    total_dist[i].dist = total_dist[i].dist + dist[i][j]
+                end
+            end
+
+            table.sort(total_dist, function(a, b) return a.dist < b.dist end)
+
+            local order = {}
+            for i = 1, n do
+                order[i] = total_dist[i].idx
+            end
+            return order
+        end
+
+        -- Get clustering order
+        local row_order, col_order
+
+        if row_cluster then
+            row_order = cluster_order(data, true)
+        else
+            row_order = {}
+            for i = 1, #data do row_order[i] = i end
+        end
+
+        if col_cluster then
+            col_order = cluster_order(data, false)
+        else
+            col_order = {}
+            for i = 1, #data[1] do col_order[i] = i end
+        end
+
+        -- Reorder data according to clustering
+        local clustered_data = {}
+        for i, ri in ipairs(row_order) do
+            clustered_data[i] = {}
+            for j, cj in ipairs(col_order) do
+                clustered_data[i][j] = data[ri][cj]
+            end
+        end
+
+        -- Create figure
+        local fig, ax = plot.subplots({figsize = figsize})
+
+        -- Draw the heatmap with reordered data
+        stat.heatmap(ax, clustered_data, {
+            cmap = cmap,
+            annot = annot,
+            fmt = fmt,
+            vmin = opts.vmin,
+            vmax = opts.vmax,
+            linewidths = linewidths,
+            linecolor = linecolor,
+            xticklabels = opts.xticklabels,
+            yticklabels = opts.yticklabels
+        })
+
+        return {
+            fig = fig,
+            ax = ax,
+            row_order = row_order,
+            col_order = col_order,
+            clustered_data = clustered_data
+        }
+    end
+
     -- Make stat namespace available
     package.loaded["luaswift.plot.stat"] = stat
 

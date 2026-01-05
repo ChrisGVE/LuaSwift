@@ -1988,4 +1988,285 @@ final class PlotModuleTests: XCTestCase {
         """)
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Catplot Tests
+
+    func testCatplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3, 4, 5}})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCatplotKindStrip() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3}, {4, 5, 6}}, {kind = "strip"})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCatplotKindSwarm() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 2, 3}, {2, 3, 3, 4}}, {kind = "swarm"})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCatplotKindBox() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3, 4, 5}, {3, 4, 5, 6, 7}}, {kind = "box"})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCatplotKindViolin() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3, 4, 5, 6, 7, 8}}, {kind = "violin"})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCatplotKindBar() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3}, {4, 5, 6}}, {kind = "bar"})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCatplotKindPoint() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3}, {4, 5, 6}}, {kind = "point"})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCatplotWithFigsize() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3}}, {height = 6, aspect = 1.2})
+            return result.fig ~= nil and result.ax ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Lmplot Tests
+
+    func testLmplotBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.lmplot({{1, 2, 3, 4, 5}, {2, 4, 5, 4, 5}})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLmplotWithNamedData() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {
+                x_values = {1, 2, 3, 4, 5},
+                y_values = {2, 4, 6, 8, 10}
+            }
+            local result = stat.lmplot(data, {x = "x_values", y = "y_values"})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLmplotNoScatter() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.lmplot({{1, 2, 3, 4, 5}, {2, 4, 6, 8, 10}}, {scatter = false})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLmplotWithCI() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.lmplot({{1, 2, 3, 4, 5}, {2, 4, 5, 8, 9}}, {ci = 95})
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLmplotWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.lmplot({{1, 2, 3, 4}, {2, 4, 6, 8}}, {
+                height = 5,
+                aspect = 1.5,
+                color = "red",
+                marker = "s"
+            })
+            return result.fig ~= nil and result.ax ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Clustermap Tests
+
+    func testClustermapBasic() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {
+                {1, 2, 3},
+                {4, 5, 6},
+                {7, 8, 9}
+            }
+            local result = stat.clustermap(data)
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testClustermapReturnsOrder() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {
+                {1, 2, 3},
+                {6, 5, 4},
+                {7, 8, 9}
+            }
+            local result = stat.clustermap(data)
+            return result.row_order ~= nil and result.col_order ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testClustermapWithAnnotations() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {
+                {1, 2},
+                {3, 4}
+            }
+            local result = stat.clustermap(data, {annot = true})
+            local svg = result.fig:to_svg()
+            return svg:find("<text") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testClustermapNoRowCluster() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {
+                {1, 2, 3},
+                {4, 5, 6},
+                {7, 8, 9}
+            }
+            local result = stat.clustermap(data, {row_cluster = false})
+            -- With no row clustering, row_order should be {1, 2, 3}
+            return result.row_order[1] == 1 and result.row_order[2] == 2 and result.row_order[3] == 3
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testClustermapNoColCluster() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {
+                {1, 2, 3},
+                {4, 5, 6},
+                {7, 8, 9}
+            }
+            local result = stat.clustermap(data, {col_cluster = false})
+            -- With no col clustering, col_order should be {1, 2, 3}
+            return result.col_order[1] == 1 and result.col_order[2] == 2 and result.col_order[3] == 3
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testClustermapWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {
+                {0, 0.5, 1},
+                {0.5, 1, 0.5},
+                {1, 0.5, 0}
+            }
+            local result = stat.clustermap(data, {
+                cmap = "coolwarm",
+                annot = true,
+                fmt = ".1f",
+                vmin = 0,
+                vmax = 1,
+                linewidths = 1,
+                linecolor = "black"
+            })
+            return result.fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testClustermapReordersData() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            -- Data with clear clustering structure
+            local data = {
+                {10, 11, 1, 2},   -- Row 1: high values on left
+                {9, 12, 2, 1},   -- Row 2: similar to row 1
+                {1, 2, 10, 11},  -- Row 3: high values on right
+                {2, 1, 11, 9}    -- Row 4: similar to row 3
+            }
+            local result = stat.clustermap(data)
+            -- Clustered data should exist
+            return result.clustered_data ~= nil and #result.clustered_data == 4
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Figure-Level API Integration Tests
+
+    func testCatplotAndLmplotTogether() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+
+            -- Create categorical plot
+            local cat_result = stat.catplot({{1, 2, 3, 4, 5}}, {kind = "box"})
+
+            -- Create regression plot
+            local lm_result = stat.lmplot({{1, 2, 3, 4, 5}, {2, 3, 5, 4, 5}})
+
+            return cat_result.fig ~= nil and lm_result.fig ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

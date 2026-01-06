@@ -398,4 +398,130 @@ final class MathSciModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue!, Double.pi / 2, accuracy: 1e-15)
     }
+
+    // MARK: - Combinatorics Tests
+
+    func testPermExists() throws {
+        let result = try engine.evaluate("return type(mathx.perm)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testCombExists() throws {
+        let result = try engine.evaluate("return type(mathx.comb)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testBinomialExists() throws {
+        let result = try engine.evaluate("return type(mathx.binomial)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testPerm5_2() throws {
+        // P(5, 2) = 5 * 4 = 20
+        let result = try engine.evaluate("return mathx.perm(5, 2)")
+        XCTAssertEqual(result.numberValue!, 20, accuracy: 1e-10)
+    }
+
+    func testPerm10_3() throws {
+        // P(10, 3) = 10 * 9 * 8 = 720
+        let result = try engine.evaluate("return mathx.perm(10, 3)")
+        XCTAssertEqual(result.numberValue!, 720, accuracy: 1e-10)
+    }
+
+    func testPermN0() throws {
+        // P(n, 0) = 1
+        let result = try engine.evaluate("return mathx.perm(10, 0)")
+        XCTAssertEqual(result.numberValue!, 1, accuracy: 1e-10)
+    }
+
+    func testPermKGreaterThanN() throws {
+        // P(5, 10) = 0 (k > n)
+        let result = try engine.evaluate("return mathx.perm(5, 10)")
+        XCTAssertEqual(result.numberValue!, 0, accuracy: 1e-10)
+    }
+
+    func testComb10_5() throws {
+        // C(10, 5) = 10! / (5! * 5!) = 252
+        let result = try engine.evaluate("return mathx.comb(10, 5)")
+        XCTAssertEqual(result.numberValue!, 252, accuracy: 1e-10)
+    }
+
+    func testCombN0() throws {
+        // C(n, 0) = 1
+        let result = try engine.evaluate("return mathx.comb(10, 0)")
+        XCTAssertEqual(result.numberValue!, 1, accuracy: 1e-10)
+    }
+
+    func testCombNN() throws {
+        // C(n, n) = 1
+        let result = try engine.evaluate("return mathx.comb(10, 10)")
+        XCTAssertEqual(result.numberValue!, 1, accuracy: 1e-10)
+    }
+
+    func testCombKGreaterThanN() throws {
+        // C(5, 10) = 0 (k > n)
+        let result = try engine.evaluate("return mathx.comb(5, 10)")
+        XCTAssertEqual(result.numberValue!, 0, accuracy: 1e-10)
+    }
+
+    func testBinomialEqualsComb() throws {
+        // binomial is alias for comb
+        let result = try engine.evaluate("""
+            local c = mathx.comb(15, 7)
+            local b = mathx.binomial(15, 7)
+            return math.abs(c - b) < 1e-10
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLargeFactorial() throws {
+        // factorial(30) ≈ 2.652528598121911e32
+        let result = try engine.evaluate("return mathx.factorial(30)")
+        XCTAssertEqual(result.numberValue!, 2.652528598121911e32, accuracy: 1e27)
+    }
+
+    func testLargeComb() throws {
+        // C(100, 50) ≈ 1.00891e29
+        let result = try engine.evaluate("return mathx.comb(100, 50)")
+        XCTAssertEqual(result.numberValue!, 1.00891344545564e29, accuracy: 1e24)
+    }
+
+    func testMathPerm() throws {
+        // After mathx.import(), math.perm should work
+        let result = try engine.evaluate("""
+            mathx.import()
+            return math.perm(5, 2)
+            """)
+        XCTAssertEqual(result.numberValue!, 20, accuracy: 1e-10)
+    }
+
+    func testMathComb() throws {
+        let result = try engine.evaluate("""
+            mathx.import()
+            return math.comb(10, 5)
+            """)
+        XCTAssertEqual(result.numberValue!, 252, accuracy: 1e-10)
+    }
+
+    func testPascalTriangleIdentity() throws {
+        // C(n, k) = C(n-1, k-1) + C(n-1, k)
+        let result = try engine.evaluate("""
+            local n, k = 10, 4
+            local left = mathx.comb(n, k)
+            local right = mathx.comb(n-1, k-1) + mathx.comb(n-1, k)
+            return math.abs(left - right) < 1e-10
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCombSymmetry() throws {
+        // C(n, k) = C(n, n-k)
+        let result = try engine.evaluate("""
+            local n, k = 15, 4
+            local left = mathx.comb(n, k)
+            local right = mathx.comb(n, n - k)
+            return math.abs(left - right) < 1e-10
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

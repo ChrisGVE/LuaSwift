@@ -57,6 +57,13 @@ public struct SpecialModule {
         engine.registerFunction(name: "_luaswift_special_y1", callback: y1Callback)
         engine.registerFunction(name: "_luaswift_special_yn", callback: ynCallback)
 
+        // New special functions
+        engine.registerFunction(name: "_luaswift_special_digamma", callback: digammaCallback)
+        engine.registerFunction(name: "_luaswift_special_erfinv", callback: erfinvCallback)
+        engine.registerFunction(name: "_luaswift_special_erfcinv", callback: erfcinvCallback)
+        engine.registerFunction(name: "_luaswift_special_gammainc", callback: gammaincCallback)
+        engine.registerFunction(name: "_luaswift_special_gammaincc", callback: gammainccCallback)
+
         // Set up Lua wrappers that add to math.special namespace
         do {
             try engine.run("""
@@ -199,6 +206,87 @@ public struct SpecialModule {
                     return _luaswift_special_yn(n, x)
                 end
 
+                ----------------------------------------------------------------
+                -- Digamma Function: digamma(x) / psi(x)
+                --
+                -- Returns the digamma function ψ(x) = d/dx ln(Γ(x)) = Γ'(x)/Γ(x)
+                ----------------------------------------------------------------
+                function special.digamma(x)
+                    if type(x) ~= "number" then
+                        error("digamma: expected number, got " .. type(x), 2)
+                    end
+                    return _luaswift_special_digamma(x)
+                end
+                special.psi = special.digamma  -- alias
+
+                ----------------------------------------------------------------
+                -- Inverse Error Function: erfinv(x)
+                --
+                -- Returns y such that erf(y) = x. Domain: x ∈ (-1, 1)
+                ----------------------------------------------------------------
+                function special.erfinv(x)
+                    if type(x) ~= "number" then
+                        error("erfinv: expected number, got " .. type(x), 2)
+                    end
+                    if x <= -1 or x >= 1 then
+                        error("erfinv: x must be in (-1, 1)", 2)
+                    end
+                    return _luaswift_special_erfinv(x)
+                end
+
+                ----------------------------------------------------------------
+                -- Inverse Complementary Error Function: erfcinv(x)
+                --
+                -- Returns y such that erfc(y) = x. Domain: x ∈ (0, 2)
+                ----------------------------------------------------------------
+                function special.erfcinv(x)
+                    if type(x) ~= "number" then
+                        error("erfcinv: expected number, got " .. type(x), 2)
+                    end
+                    if x <= 0 or x >= 2 then
+                        error("erfcinv: x must be in (0, 2)", 2)
+                    end
+                    return _luaswift_special_erfcinv(x)
+                end
+
+                ----------------------------------------------------------------
+                -- Lower Regularized Incomplete Gamma: gammainc(a, x)
+                --
+                -- Returns P(a, x) = γ(a, x) / Γ(a)
+                -- where γ(a, x) = integral(0, x) t^(a-1) * exp(-t) dt
+                ----------------------------------------------------------------
+                function special.gammainc(a, x)
+                    if type(a) ~= "number" or type(x) ~= "number" then
+                        error("gammainc: expected two numbers", 2)
+                    end
+                    if a <= 0 then
+                        error("gammainc: a must be positive", 2)
+                    end
+                    if x < 0 then
+                        error("gammainc: x must be non-negative", 2)
+                    end
+                    return _luaswift_special_gammainc(a, x)
+                end
+
+                ----------------------------------------------------------------
+                -- Upper Regularized Incomplete Gamma: gammaincc(a, x)
+                --
+                -- Returns Q(a, x) = Γ(a, x) / Γ(a) = 1 - P(a, x)
+                -- where Γ(a, x) = integral(x, ∞) t^(a-1) * exp(-t) dt
+                ----------------------------------------------------------------
+                function special.gammaincc(a, x)
+                    if type(a) ~= "number" or type(x) ~= "number" then
+                        error("gammaincc: expected two numbers", 2)
+                    end
+                    if a <= 0 then
+                        error("gammaincc: a must be positive", 2)
+                    end
+                    if x < 0 then
+                        error("gammaincc: x must be non-negative", 2)
+                    end
+                    return _luaswift_special_gammaincc(a, x)
+                end
+
                 -- Add to math.special namespace
                 if math and math.special then
                     math.special.erf = special.erf
@@ -211,6 +299,12 @@ public struct SpecialModule {
                     math.special.y0 = special.y0
                     math.special.y1 = special.y1
                     math.special.yn = special.yn
+                    math.special.digamma = special.digamma
+                    math.special.psi = special.psi
+                    math.special.erfinv = special.erfinv
+                    math.special.erfcinv = special.erfcinv
+                    math.special.gammainc = special.gammainc
+                    math.special.gammaincc = special.gammaincc
                 end
                 """)
         } catch {
@@ -325,6 +419,210 @@ public struct SpecialModule {
             return .number(-.infinity)
         }
         return .number(Darwin.yn(Int32(n), x))
+    }
+
+    // MARK: - Digamma and Gamma Functions
+
+    /// Digamma function ψ(x) = d/dx ln(Γ(x))
+    /// Uses asymptotic expansion for large x and recurrence for small x
+    private static func digammaCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let x = args.first?.numberValue else {
+            throw LuaError.runtimeError("digamma: expected number")
+        }
+        return .number(digamma(x))
+    }
+
+    /// Compute the digamma function
+    private static func digamma(_ x: Double) -> Double {
+        var z = x
+        var result = 0.0
+
+        // Reflection formula for x < 0.5: ψ(1-x) - ψ(x) = π*cot(πx)
+        // So: ψ(x) = ψ(1-x) - π*cot(πx)
+        if z < 0.5 {
+            return digamma(1.0 - z) - Double.pi / tan(Double.pi * z)
+        }
+
+        // Recurrence relation: ψ(x+1) = ψ(x) + 1/x
+        // Use this to shift x to a larger value where asymptotic expansion is accurate
+        while z < 6.0 {
+            result -= 1.0 / z
+            z += 1.0
+        }
+
+        // Asymptotic expansion for large z:
+        // ψ(z) ≈ ln(z) - 1/(2z) - 1/(12z²) + 1/(120z⁴) - 1/(252z⁶) + ...
+        result += log(z) - 0.5 / z
+
+        let z2 = 1.0 / (z * z)
+        // Bernoulli number coefficients: B₂/2 = 1/12, B₄/4 = -1/120, B₆/6 = 1/252, B₈/8 = -1/240
+        result -= z2 * (1.0/12.0 - z2 * (1.0/120.0 - z2 * (1.0/252.0 - z2 * 1.0/240.0)))
+
+        return result
+    }
+
+    /// Inverse error function erfinv(x)
+    /// Uses rational approximation for high accuracy
+    private static func erfinvCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let x = args.first?.numberValue else {
+            throw LuaError.runtimeError("erfinv: expected number")
+        }
+
+        if x <= -1.0 || x >= 1.0 {
+            throw LuaError.runtimeError("erfinv: x must be in (-1, 1)")
+        }
+
+        return .number(erfinv(x))
+    }
+
+    /// Compute inverse error function using rational approximation
+    private static func erfinv(_ x: Double) -> Double {
+        if x == 0 { return 0 }
+
+        let a = abs(x)
+
+        // For |x| <= 0.7, use central approximation
+        if a <= 0.7 {
+            let x2 = x * x
+            let r = x * ((((-0.140543331 * x2 + 0.914624893) * x2 - 1.645349621) * x2 + 0.886226899))
+            let s = (((0.012229801 * x2 - 0.329097515) * x2 + 1.442710462) * x2 - 2.118377725) * x2 + 1.0
+            return r / s
+        }
+
+        // For |x| > 0.7, use tail approximation
+        let y = sqrt(-log((1.0 - a) / 2.0))
+
+        // Rational approximation for the tail
+        let r: Double
+        if y <= 5.0 {
+            let t = y - 1.6
+            r = ((((((0.00077454501427834 * t + 0.0227238449892691) * t + 0.24178072517745) * t +
+                   1.27045825245237) * t + 3.64784832476320) * t + 5.76949722146069) * t + 4.63033784615655) /
+                ((((((0.00080529518738563 * t + 0.02287663117085) * t + 0.23601290952344) * t +
+                   1.21357729517684) * t + 3.34305755540406) * t + 4.77629303102970) * t + 1.0)
+        } else {
+            let t = y - 5.0
+            r = ((((((0.0000100950558 * t + 0.000280756651) * t + 0.00326196717) * t +
+                   0.0206706341) * t + 0.0783478783) * t + 0.169827922) * t + 0.161895932) /
+                ((((((0.0000100950558 * t + 0.000280756651) * t + 0.00326196717) * t +
+                   0.0206706341) * t + 0.0783478783) * t + 0.169827922) * t + 1.0)
+        }
+
+        return x >= 0 ? r : -r
+    }
+
+    /// Inverse complementary error function erfcinv(x)
+    private static func erfcinvCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let x = args.first?.numberValue else {
+            throw LuaError.runtimeError("erfcinv: expected number")
+        }
+
+        if x <= 0.0 || x >= 2.0 {
+            throw LuaError.runtimeError("erfcinv: x must be in (0, 2)")
+        }
+
+        // erfcinv(x) = erfinv(1 - x)
+        return .number(erfinv(1.0 - x))
+    }
+
+    /// Lower regularized incomplete gamma function P(a, x)
+    private static func gammaincCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let a = args[0].numberValue,
+              let x = args[1].numberValue else {
+            throw LuaError.runtimeError("gammainc: expected two numbers")
+        }
+
+        if a <= 0 {
+            throw LuaError.runtimeError("gammainc: a must be positive")
+        }
+        if x < 0 {
+            throw LuaError.runtimeError("gammainc: x must be non-negative")
+        }
+
+        return .number(gammainc(a, x))
+    }
+
+    /// Upper regularized incomplete gamma function Q(a, x) = 1 - P(a, x)
+    private static func gammainccCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let a = args[0].numberValue,
+              let x = args[1].numberValue else {
+            throw LuaError.runtimeError("gammaincc: expected two numbers")
+        }
+
+        if a <= 0 {
+            throw LuaError.runtimeError("gammaincc: a must be positive")
+        }
+        if x < 0 {
+            throw LuaError.runtimeError("gammaincc: x must be non-negative")
+        }
+
+        return .number(1.0 - gammainc(a, x))
+    }
+
+    /// Compute the lower regularized incomplete gamma function P(a, x)
+    /// Uses series expansion for x < a+1, continued fraction for x >= a+1
+    private static func gammainc(_ a: Double, _ x: Double) -> Double {
+        if x == 0 { return 0 }
+        if x < 0 { return 0 }
+
+        // Choose method based on relative sizes of a and x
+        if x < a + 1 {
+            return gammaincSeries(a, x)
+        } else {
+            return 1.0 - gammaincCF(a, x)
+        }
+    }
+
+    /// Series expansion for lower incomplete gamma
+    /// P(a,x) = exp(-x) * x^a * sum_{n=0}^∞ x^n / Γ(a+n+1)
+    private static func gammaincSeries(_ a: Double, _ x: Double) -> Double {
+        let eps = 1.0e-15
+        let maxIterations = 200
+
+        var sum = 1.0 / a
+        var term = 1.0 / a
+
+        for n in 1...maxIterations {
+            term *= x / (a + Double(n))
+            sum += term
+            if abs(term) < abs(sum) * eps {
+                break
+            }
+        }
+
+        return sum * exp(-x + a * log(x) - lgamma(a))
+    }
+
+    /// Continued fraction for upper incomplete gamma
+    /// Q(a,x) = exp(-x) * x^a * CF / Γ(a)
+    private static func gammaincCF(_ a: Double, _ x: Double) -> Double {
+        let eps = 1.0e-15
+        let maxIterations = 200
+
+        // Lentz's algorithm
+        var b = x + 1.0 - a
+        var c = 1.0 / 1.0e-30
+        var d = 1.0 / b
+        var h = d
+
+        for i in 1...maxIterations {
+            let an = -Double(i) * (Double(i) - a)
+            b += 2.0
+            d = an * d + b
+            if abs(d) < 1.0e-30 { d = 1.0e-30 }
+            c = b + an / c
+            if abs(c) < 1.0e-30 { c = 1.0e-30 }
+            d = 1.0 / d
+            let del = d * c
+            h *= del
+            if abs(del - 1.0) < eps {
+                break
+            }
+        }
+
+        return exp(-x + a * log(x) - lgamma(a)) * h
     }
 
     // MARK: - Helper Functions

@@ -91,6 +91,10 @@ public struct MathXModule {
         engine.registerFunction(name: "_luaswift_math_spherical_to_cart", callback: sphericalToCartCallback)
         engine.registerFunction(name: "_luaswift_math_cart_to_spherical", callback: cartToSphericalCallback)
 
+        engine.registerFunction(name: "_luaswift_math_perm", callback: permCallback)
+        engine.registerFunction(name: "_luaswift_math_comb", callback: combCallback)
+        engine.registerFunction(name: "_luaswift_math_binomial", callback: combCallback)  // alias for comb
+
         // Set up the luaswift.mathx namespace
         do {
             try engine.run("""
@@ -121,6 +125,9 @@ public struct MathXModule {
                 local cart_to_polar_fn = _luaswift_math_cart_to_polar
                 local spherical_to_cart_fn = _luaswift_math_spherical_to_cart
                 local cart_to_spherical_fn = _luaswift_math_cart_to_spherical
+                local perm_fn = _luaswift_math_perm
+                local comb_fn = _luaswift_math_comb
+                local binomial_fn = _luaswift_math_binomial
 
                 luaswift.mathx = {
                     -- Hyperbolic functions
@@ -152,6 +159,11 @@ public struct MathXModule {
                     factorial = factorial_fn,
                     gamma = gamma_fn,
                     lgamma = lgamma_fn,
+
+                    -- Combinatorics
+                    perm = perm_fn,
+                    comb = comb_fn,
+                    binomial = binomial_fn,
 
                     -- Constants
                     phi = 1.618033988749895,
@@ -186,6 +198,9 @@ public struct MathXModule {
                         math.factorial = factorial_fn
                         math.gamma = gamma_fn
                         math.lgamma = lgamma_fn
+                        math.perm = perm_fn
+                        math.comb = comb_fn
+                        math.binomial = binomial_fn
                         math.phi = 1.618033988749895
                         math.polar_to_cart = polar_to_cart_fn
                         math.cart_to_polar = cart_to_polar_fn
@@ -225,6 +240,9 @@ public struct MathXModule {
                 _luaswift_math_cart_to_polar = nil
                 _luaswift_math_spherical_to_cart = nil
                 _luaswift_math_cart_to_spherical = nil
+                _luaswift_math_perm = nil
+                _luaswift_math_comb = nil
+                _luaswift_math_binomial = nil
                 """)
         } catch {
             // Silently fail if setup fails - callbacks are still registered
@@ -472,16 +490,117 @@ public struct MathXModule {
             throw LuaError.callbackError("factorial requires non-negative integer")
         }
 
-        guard n <= 20 else {
-            throw LuaError.callbackError("factorial argument too large (max 20)")
+        // For n <= 20, use exact integer multiplication
+        // For n > 20, use lgamma for approximate result
+        if n <= 20 {
+            var result: Double = 1.0
+            for i in 2...max(2, n) {
+                result *= Double(i)
+            }
+            return .number(result)
+        } else {
+            // factorial(n) = gamma(n+1) = exp(lgamma(n+1))
+            return .number(exp(Darwin.lgamma(Double(n) + 1)))
+        }
+    }
+
+    /// Permutations P(n, k) = n! / (n-k)!
+    private static func permCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("perm requires two arguments: n and k")
         }
 
-        var result: Double = 1.0
-        for i in 2...n {
-            result *= Double(i)
+        guard let n = args[0].intValue else {
+            throw LuaError.callbackError("perm requires integer n")
         }
 
+        guard let k = args[1].intValue else {
+            throw LuaError.callbackError("perm requires integer k")
+        }
+
+        guard n >= 0 else {
+            throw LuaError.callbackError("perm requires non-negative n")
+        }
+
+        guard k >= 0 else {
+            throw LuaError.callbackError("perm requires non-negative k")
+        }
+
+        // P(n, k) where k > n is 0
+        if k > n {
+            return .number(0)
+        }
+
+        // P(n, 0) = 1
+        if k == 0 {
+            return .number(1)
+        }
+
+        // For small values, use exact multiplication
+        if n <= 20 {
+            var result: Double = 1.0
+            for i in (n - k + 1)...n {
+                result *= Double(i)
+            }
+            return .number(result)
+        }
+
+        // For large values, use lgamma: P(n,k) = exp(lgamma(n+1) - lgamma(n-k+1))
+        let result = exp(Darwin.lgamma(Double(n) + 1) - Darwin.lgamma(Double(n - k) + 1))
         return .number(result)
+    }
+
+    /// Combinations C(n, k) = n! / (k! * (n-k)!)
+    private static func combCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("comb requires two arguments: n and k")
+        }
+
+        guard let n = args[0].intValue else {
+            throw LuaError.callbackError("comb requires integer n")
+        }
+
+        guard let k = args[1].intValue else {
+            throw LuaError.callbackError("comb requires integer k")
+        }
+
+        guard n >= 0 else {
+            throw LuaError.callbackError("comb requires non-negative n")
+        }
+
+        guard k >= 0 else {
+            throw LuaError.callbackError("comb requires non-negative k")
+        }
+
+        // C(n, k) where k > n is 0
+        if k > n {
+            return .number(0)
+        }
+
+        // C(n, 0) = C(n, n) = 1
+        if k == 0 || k == n {
+            return .number(1)
+        }
+
+        // Use symmetry: C(n, k) = C(n, n-k), choose smaller k for efficiency
+        let kUse = min(k, n - k)
+
+        // For small values, use exact multiplication with cancellation
+        if n <= 20 {
+            var result: Double = 1.0
+            for i in 0..<kUse {
+                result = result * Double(n - i) / Double(i + 1)
+            }
+            return .number(Darwin.round(result))  // Round to avoid floating point errors
+        }
+
+        // For large values, use lgamma: C(n,k) = exp(lgamma(n+1) - lgamma(k+1) - lgamma(n-k+1))
+        let result = exp(
+            Darwin.lgamma(Double(n) + 1) -
+            Darwin.lgamma(Double(kUse) + 1) -
+            Darwin.lgamma(Double(n - kUse) + 1)
+        )
+        return .number(Darwin.round(result))
     }
 
     private static func gammaCallback(_ args: [LuaValue]) throws -> LuaValue {

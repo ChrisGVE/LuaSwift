@@ -453,4 +453,175 @@ struct SpecialModuleTests {
             try engine.evaluate("return math.special.jn(2)")
         }
     }
+
+    // MARK: - Digamma Function Tests
+
+    @Test("digamma function exists")
+    func testDigammaExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.digamma)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("psi is alias for digamma")
+    func testPsiAlias() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.psi == math.special.digamma")
+        #expect(result == .bool(true))
+    }
+
+    @Test("digamma(1) ≈ -0.5772 (negative Euler-Mascheroni)")
+    func testDigammaOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.digamma(1)")
+        // ψ(1) = -γ ≈ -0.5772156649015329
+        #expect(abs(result.numberValue! - (-0.5772156649015329)) < 1e-9)
+    }
+
+    @Test("digamma(2) = digamma(1) + 1 (recurrence)")
+    func testDigammaRecurrence() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local d1 = math.special.digamma(1)
+            local d2 = math.special.digamma(2)
+            return math.abs(d2 - (d1 + 1)) < 1e-10
+            """)
+        #expect(result == .bool(true))
+    }
+
+    @Test("digamma(0.5) ≈ -1.9635")
+    func testDigammaHalf() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.digamma(0.5)")
+        // ψ(0.5) = -γ - 2*ln(2) ≈ -1.9635100260214235
+        #expect(abs(result.numberValue! - (-1.9635100260214235)) < 1e-10)
+    }
+
+    @Test("digamma(5) ≈ 1.5061")
+    func testDigammaFive() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.digamma(5)")
+        // ψ(5) = 1 + 1/2 + 1/3 + 1/4 - γ ≈ 1.5061176684318
+        #expect(abs(result.numberValue! - 1.5061176684318) < 1e-9)
+    }
+
+    // MARK: - Inverse Error Function Tests
+
+    @Test("erfinv function exists")
+    func testErfinvExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.erfinv)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("erfinv(0) = 0")
+    func testErfinvZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.erfinv(0)")
+        #expect(result.numberValue! == 0.0)
+    }
+
+    @Test("erfinv(erf(x)) ≈ x round-trip")
+    func testErfinvRoundTrip() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local x = 0.5
+            local y = math.special.erf(x)
+            local xBack = math.special.erfinv(y)
+            return math.abs(xBack - x) < 1e-6
+            """)
+        #expect(result == .bool(true))
+    }
+
+    @Test("erfinv(0.5) ≈ 0.4769")
+    func testErfinvHalf() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.erfinv(0.5)")
+        #expect(abs(result.numberValue! - 0.4769362762044699) < 1e-4)
+    }
+
+    @Test("erfcinv function exists")
+    func testErfcinvExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.erfcinv)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("erfcinv(1) = 0")
+    func testErfcinvOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.erfcinv(1)")
+        #expect(abs(result.numberValue!) < 1e-10)
+    }
+
+    @Test("erfcinv(erfc(x)) ≈ x round-trip")
+    func testErfcinvRoundTrip() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local x = 0.5
+            local y = math.special.erfc(x)
+            local xBack = math.special.erfcinv(y)
+            return math.abs(xBack - x) < 1e-6
+            """)
+        #expect(result == .bool(true))
+    }
+
+    // MARK: - Incomplete Gamma Function Tests
+
+    @Test("gammainc function exists")
+    func testGammaincExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.gammainc)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("gammaincc function exists")
+    func testGammainccExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.gammaincc)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("gammainc(1, 1) ≈ 0.6321 (1 - exp(-1))")
+    func testGammaincOneOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.gammainc(1, 1)")
+        // P(1, 1) = 1 - e^(-1) ≈ 0.6321205588285577
+        #expect(abs(result.numberValue! - 0.6321205588285577) < 1e-10)
+    }
+
+    @Test("gammaincc(1, 1) ≈ 0.3679 (exp(-1))")
+    func testGammainccOneOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.gammaincc(1, 1)")
+        // Q(1, 1) = e^(-1) ≈ 0.3678794411714423
+        #expect(abs(result.numberValue! - 0.3678794411714423) < 1e-10)
+    }
+
+    @Test("gammainc + gammaincc = 1 identity")
+    func testGammaincIdentity() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local a, x = 2.5, 3.0
+            local p = math.special.gammainc(a, x)
+            local q = math.special.gammaincc(a, x)
+            return math.abs((p + q) - 1) < 1e-10
+            """)
+        #expect(result == .bool(true))
+    }
+
+    @Test("gammainc(a, 0) = 0")
+    func testGammaincZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.gammainc(2, 0)")
+        #expect(result.numberValue! == 0.0)
+    }
+
+    @Test("gammainc(0.5, 1) ≈ 0.8427 (related to erf)")
+    func testGammaincHalfOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.gammainc(0.5, 1)")
+        // P(0.5, 1) = erf(1) ≈ 0.8427007929497148
+        #expect(abs(result.numberValue! - 0.8427007929497148) < 1e-6)
+    }
 }

@@ -112,6 +112,14 @@ public struct LinAlgModule {
         engine.registerFunction(name: "_luaswift_linalg_solve", callback: solveCallback)
         engine.registerFunction(name: "_luaswift_linalg_lstsq", callback: lstsqCallback)
 
+        // Register advanced solvers
+        engine.registerFunction(name: "_luaswift_linalg_solve_triangular", callback: solveTriangularCallback)
+        engine.registerFunction(name: "_luaswift_linalg_cho_solve", callback: choSolveCallback)
+        engine.registerFunction(name: "_luaswift_linalg_lu_solve", callback: luSolveCallback)
+
+        // Register matrix functions
+        engine.registerFunction(name: "_luaswift_linalg_expm", callback: expmCallback)
+
         // Set up the luaswift.linalg namespace with Lua wrapper code
         do {
             try engine.run("""
@@ -154,6 +162,10 @@ public struct LinAlgModule {
                 local _chol = _luaswift_linalg_chol
                 local _solve = _luaswift_linalg_solve
                 local _lstsq = _luaswift_linalg_lstsq
+                local _solve_triangular = _luaswift_linalg_solve_triangular
+                local _cho_solve = _luaswift_linalg_cho_solve
+                local _lu_solve = _luaswift_linalg_lu_solve
+                local _expm = _luaswift_linalg_expm
 
                 -- Matrix/Vector metatable
                 local linalg_mt = {
@@ -207,6 +219,7 @@ public struct LinAlgModule {
                                 return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
                             end,
                             chol = function(_) return luaswift.linalg._wrap(_chol(self._data)) end,
+                            expm = function(_) return luaswift.linalg._wrap(_expm(self._data)) end,
                         }
                         return methods[key]
                     end,
@@ -313,6 +326,27 @@ public struct LinAlgModule {
                         local b_data = type(b) == "table" and b._data or b
                         return luaswift.linalg._wrap(_lstsq(A_data, b_data))
                     end,
+                    solve_triangular = function(A, b, opts)
+                        local A_data = type(A) == "table" and A._data or A
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.linalg._wrap(_solve_triangular(A_data, b_data, opts))
+                    end,
+                    cho_solve = function(L, b)
+                        local L_data = type(L) == "table" and L._data or L
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.linalg._wrap(_cho_solve(L_data, b_data))
+                    end,
+                    lu_solve = function(L, U, P, b)
+                        local L_data = type(L) == "table" and L._data or L
+                        local U_data = type(U) == "table" and U._data or U
+                        local P_data = type(P) == "table" and P._data or P
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.linalg._wrap(_lu_solve(L_data, U_data, P_data, b_data))
+                    end,
+                    expm = function(A)
+                        local A_data = type(A) == "table" and A._data or A
+                        return luaswift.linalg._wrap(_expm(A_data))
+                    end,
                 }
 
                 -- Clean up temporary globals
@@ -352,6 +386,10 @@ public struct LinAlgModule {
                 _luaswift_linalg_chol = nil
                 _luaswift_linalg_solve = nil
                 _luaswift_linalg_lstsq = nil
+                _luaswift_linalg_solve_triangular = nil
+                _luaswift_linalg_cho_solve = nil
+                _luaswift_linalg_lu_solve = nil
+                _luaswift_linalg_expm = nil
                 """)
         } catch {
             // Silently fail if setup fails
@@ -1593,5 +1631,348 @@ public struct LinAlgModule {
         }
 
         return createMatrixTable(rows: colsA, cols: colsB, data: result)
+    }
+
+    // MARK: - Advanced Solvers
+
+    /// Solve triangular system: solve L*x = b (lower) or U*x = b (upper)
+    private static func solveTriangularCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("linalg.solve_triangular: requires A and b arguments")
+        }
+
+        let (rowsA, colsA, dataA) = try extractMatrixData(args[0])
+        let (rowsB, colsB, dataB) = try extractMatrixData(args[1])
+
+        guard rowsA == colsA else {
+            throw LuaError.callbackError("linalg.solve_triangular: A must be square")
+        }
+
+        guard rowsA == rowsB else {
+            throw LuaError.callbackError("linalg.solve_triangular: A and b must have compatible dimensions")
+        }
+
+        // Options: lower (default true), trans (default false)
+        var lower = true
+        var trans = false
+
+        if args.count >= 3, case .table(let opts) = args[2] {
+            if let lowerVal = opts["lower"]?.boolValue {
+                lower = lowerVal
+            }
+            if let transVal = opts["trans"]?.boolValue {
+                trans = transVal
+            }
+        }
+
+        // Convert to column-major for LAPACK
+        var a = [Double](repeating: 0, count: rowsA * colsA)
+        for i in 0..<rowsA {
+            for j in 0..<colsA {
+                a[j * rowsA + i] = dataA[i * colsA + j]
+            }
+        }
+
+        var b = [Double](repeating: 0, count: rowsB * colsB)
+        for i in 0..<rowsB {
+            for j in 0..<colsB {
+                b[j * rowsB + i] = dataB[i * colsB + j]
+            }
+        }
+
+        var uplo = Int8(UInt8(ascii: lower ? "L" : "U"))
+        var transChar = Int8(UInt8(ascii: trans ? "T" : "N"))
+        var diag = Int8(UInt8(ascii: "N"))  // Non-unit diagonal
+        var n1 = __CLPK_integer(rowsA)
+        var nrhs = __CLPK_integer(colsB)
+        var lda = __CLPK_integer(rowsA)
+        var ldb = __CLPK_integer(rowsB)
+        var info: __CLPK_integer = 0
+
+        dtrtrs_(&uplo, &transChar, &diag, &n1, &nrhs, &a, &lda, &b, &ldb, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("linalg.solve_triangular: system is singular or computation failed")
+        }
+
+        // Convert back to row-major
+        var result = [Double](repeating: 0, count: rowsB * colsB)
+        for i in 0..<rowsB {
+            for j in 0..<colsB {
+                result[i * colsB + j] = b[j * rowsB + i]
+            }
+        }
+
+        return createMatrixTable(rows: rowsB, cols: colsB, data: result)
+    }
+
+    /// Solve using Cholesky factorization: solve L*L^T*x = b
+    /// Takes L (lower triangular Cholesky factor) and b
+    private static func choSolveCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("linalg.cho_solve: requires L and b arguments")
+        }
+
+        let (rowsL, colsL, dataL) = try extractMatrixData(args[0])
+        let (rowsB, colsB, dataB) = try extractMatrixData(args[1])
+
+        guard rowsL == colsL else {
+            throw LuaError.callbackError("linalg.cho_solve: L must be square")
+        }
+
+        guard rowsL == rowsB else {
+            throw LuaError.callbackError("linalg.cho_solve: L and b must have compatible dimensions")
+        }
+
+        // Convert to column-major for LAPACK
+        var a = [Double](repeating: 0, count: rowsL * colsL)
+        for i in 0..<rowsL {
+            for j in 0..<colsL {
+                a[j * rowsL + i] = dataL[i * colsL + j]
+            }
+        }
+
+        var b = [Double](repeating: 0, count: rowsB * colsB)
+        for i in 0..<rowsB {
+            for j in 0..<colsB {
+                b[j * rowsB + i] = dataB[i * colsB + j]
+            }
+        }
+
+        var uplo = Int8(UInt8(ascii: "L"))
+        var n1 = __CLPK_integer(rowsL)
+        var nrhs = __CLPK_integer(colsB)
+        var lda = __CLPK_integer(rowsL)
+        var ldb = __CLPK_integer(rowsB)
+        var info: __CLPK_integer = 0
+
+        dpotrs_(&uplo, &n1, &nrhs, &a, &lda, &b, &ldb, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("linalg.cho_solve: computation failed")
+        }
+
+        // Convert back to row-major
+        var result = [Double](repeating: 0, count: rowsB * colsB)
+        for i in 0..<rowsB {
+            for j in 0..<colsB {
+                result[i * colsB + j] = b[j * rowsB + i]
+            }
+        }
+
+        return createMatrixTable(rows: rowsB, cols: colsB, data: result)
+    }
+
+    /// Solve using LU factorization: solve P*L*U*x = b
+    /// Takes (L, U, P) from lu() decomposition and b
+    private static func luSolveCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 4 else {
+            throw LuaError.callbackError("linalg.lu_solve: requires L, U, P, and b arguments")
+        }
+
+        let (rowsL, colsL, dataL) = try extractMatrixData(args[0])
+        let (rowsU, colsU, dataU) = try extractMatrixData(args[1])
+        let (rowsP, colsP, dataP) = try extractMatrixData(args[2])
+        let (rowsB, colsB, dataB) = try extractMatrixData(args[3])
+
+        guard rowsL == colsL && rowsU == colsU && rowsP == colsP else {
+            throw LuaError.callbackError("linalg.lu_solve: L, U, P must be square")
+        }
+
+        guard rowsL == rowsU && rowsL == rowsP else {
+            throw LuaError.callbackError("linalg.lu_solve: L, U, P must have same dimensions")
+        }
+
+        guard rowsL == rowsB else {
+            throw LuaError.callbackError("linalg.lu_solve: dimensions must be compatible with b")
+        }
+
+        let n = rowsL
+
+        // Apply P to b: P * b (permutation)
+        var pb = [Double](repeating: 0, count: rowsB * colsB)
+        for j in 0..<colsB {
+            for i in 0..<n {
+                var sum = 0.0
+                for k in 0..<n {
+                    sum += dataP[i * n + k] * dataB[k * colsB + j]
+                }
+                pb[i * colsB + j] = sum
+            }
+        }
+
+        // Solve L * y = P * b (forward substitution)
+        var y = pb
+        for j in 0..<colsB {
+            for i in 0..<n {
+                var sum = y[i * colsB + j]
+                for k in 0..<i {
+                    sum -= dataL[i * n + k] * y[k * colsB + j]
+                }
+                y[i * colsB + j] = sum / dataL[i * n + i]
+            }
+        }
+
+        // Solve U * x = y (back substitution)
+        var x = y
+        for j in 0..<colsB {
+            for i in stride(from: n - 1, through: 0, by: -1) {
+                var sum = x[i * colsB + j]
+                for k in (i + 1)..<n {
+                    sum -= dataU[i * n + k] * x[k * colsB + j]
+                }
+                x[i * colsB + j] = sum / dataU[i * n + i]
+            }
+        }
+
+        return createMatrixTable(rows: rowsB, cols: colsB, data: x)
+    }
+
+    // MARK: - Matrix Functions
+
+    /// Matrix exponential using Padé approximation with scaling and squaring
+    private static func expmCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("linalg.expm: missing argument")
+        }
+
+        let (rows, cols, data) = try extractMatrixData(arg)
+
+        guard rows == cols else {
+            throw LuaError.callbackError("linalg.expm: matrix must be square")
+        }
+
+        let n = rows
+
+        // Compute matrix norm (Frobenius)
+        var normA = 0.0
+        for val in data {
+            normA += val * val
+        }
+        normA = sqrt(normA)
+
+        // Determine scaling factor s such that ||A/2^s|| < 1
+        var s = 0
+        var scale = 1.0
+        while normA / scale > 1.0 {
+            scale *= 2.0
+            s += 1
+        }
+
+        // Scale the matrix
+        var A = data.map { $0 / scale }
+
+        // Padé approximation of order [6/6]
+        // coefficients
+        let c = [1.0, 0.5, 0.12, 0.01833333333333333,
+                 0.001992063492063492, 0.0001575312500000000,
+                 0.00000918114788107536]
+
+        // Build Padé numerator and denominator
+        // U = A * (c1*I + A^2 * (c3*I + A^2 * (c5*I + c7*A^2)))
+        // V = c0*I + A^2 * (c2*I + A^2 * (c4*I + c6*A^2))
+
+        // Compute A^2
+        let A2 = matmul(A, A, n)
+
+        // Compute A^4
+        let A4 = matmul(A2, A2, n)
+
+        // Compute A^6
+        let A6 = matmul(A2, A4, n)
+
+        // V = c[0]*I + c[2]*A^2 + c[4]*A^4 + c[6]*A^6
+        var V = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            V[i * n + i] = c[0]  // c0 * I
+        }
+        for i in 0..<(n * n) {
+            V[i] += c[2] * A2[i] + c[4] * A4[i] + c[6] * A6[i]
+        }
+
+        // U_inner = c[1]*I + c[3]*A^2 + c[5]*A^4
+        var Uinner = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            Uinner[i * n + i] = c[1]  // c1 * I
+        }
+        for i in 0..<(n * n) {
+            Uinner[i] += c[3] * A2[i] + c[5] * A4[i]
+        }
+
+        // U = A * U_inner
+        let U = matmul(A, Uinner, n)
+
+        // Padé approximant: exp(A) ≈ (V - U)^(-1) * (V + U)
+        // R = (V - U)^(-1) * (V + U)
+
+        // Compute V - U and V + U
+        var VminusU = [Double](repeating: 0, count: n * n)
+        var VplusU = [Double](repeating: 0, count: n * n)
+        for i in 0..<(n * n) {
+            VminusU[i] = V[i] - U[i]
+            VplusU[i] = V[i] + U[i]
+        }
+
+        // Solve (V - U) * R = (V + U) using LU factorization
+        var R = solveLinearSystem(VminusU, VplusU, n)
+
+        // Squaring: exp(A) = (exp(A/2^s))^(2^s)
+        for _ in 0..<s {
+            R = matmul(R, R, n)
+        }
+
+        return createMatrixTable(rows: n, cols: n, data: R)
+    }
+
+    /// Helper: Matrix multiplication C = A * B for n x n matrices
+    private static func matmul(_ A: [Double], _ B: [Double], _ n: Int) -> [Double] {
+        var C = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                var sum = 0.0
+                for k in 0..<n {
+                    sum += A[i * n + k] * B[k * n + j]
+                }
+                C[i * n + j] = sum
+            }
+        }
+        return C
+    }
+
+    /// Helper: Solve A * X = B for X, where A and B are n x n matrices
+    private static func solveLinearSystem(_ A: [Double], _ B: [Double], _ n: Int) -> [Double] {
+        // Convert to column-major for LAPACK
+        var a = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                a[j * n + i] = A[i * n + j]
+            }
+        }
+
+        var b = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                b[j * n + i] = B[i * n + j]
+            }
+        }
+
+        var n1 = __CLPK_integer(n)
+        var nrhs = __CLPK_integer(n)
+        var lda = __CLPK_integer(n)
+        var ipiv = [__CLPK_integer](repeating: 0, count: n)
+        var ldb = __CLPK_integer(n)
+        var info: __CLPK_integer = 0
+
+        dgesv_(&n1, &nrhs, &a, &lda, &ipiv, &b, &ldb, &info)
+
+        // Convert back to row-major
+        var result = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                result[i * n + j] = b[j * n + i]
+            }
+        }
+
+        return result
     }
 }

@@ -373,4 +373,344 @@ final class IntegrateModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue!, Double.pi / 2, accuracy: 1e-6)
     }
+
+    // MARK: - solve_ivp Tests
+
+    func testSolveIvpExponentialDecay() throws {
+        // dy/dt = -y, y(0) = 1 => y(t) = e^(-t)
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {0, 1},
+                {1}
+            )
+            return sol.y[#sol.y][1]
+            """)
+        // y(1) = e^(-1) ≈ 0.3679
+        XCTAssertEqual(result.numberValue!, exp(-1), accuracy: 1e-4)
+    }
+
+    func testSolveIvpSuccess() throws {
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {0, 1},
+                {1}
+            )
+            return sol.success
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSolveIvpSimpleOscillator() throws {
+        // Simple harmonic oscillator: y'' = -y
+        // System: y' = v, v' = -y
+        // y(0) = 1, v(0) = 0 => y(t) = cos(t), v(t) = -sin(t)
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y)
+                    return {y[2], -y[1]}
+                end,
+                {0, math.pi},
+                {1, 0}
+            )
+            return sol.y[#sol.y][1]
+            """)
+        // y(pi) = cos(pi) = -1
+        XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-3)
+    }
+
+    func testSolveIvpOscillatorVelocity() throws {
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y)
+                    return {y[2], -y[1]}
+                end,
+                {0, math.pi/2},
+                {1, 0}
+            )
+            return sol.y[#sol.y][2]
+            """)
+        // v(pi/2) = -sin(pi/2) = -1
+        XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-3)
+    }
+
+    func testSolveIvpWithTEval() throws {
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {0, 1},
+                {1},
+                {t_eval = {0, 0.5, 1}}
+            )
+            return #sol.t
+            """)
+        XCTAssertEqual(result.numberValue!, 3)
+    }
+
+    func testSolveIvpTEvalValues() throws {
+        // Use tighter tolerances to force smaller steps for better interpolation
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {0, 1},
+                {1},
+                {t_eval = {0, 0.5, 1}, rtol = 1e-6, atol = 1e-9}
+            )
+            return sol.y[2][1]
+            """)
+        // y(0.5) = e^(-0.5) ≈ 0.6065
+        // Linear interpolation has some inherent error, use relaxed tolerance
+        XCTAssertEqual(result.numberValue!, exp(-0.5), accuracy: 0.05)
+    }
+
+    func testSolveIvpRK4Method() throws {
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {0, 1},
+                {1},
+                {method = "RK4"}
+            )
+            return sol.y[#sol.y][1]
+            """)
+        XCTAssertEqual(result.numberValue!, exp(-1), accuracy: 1e-4)
+    }
+
+    func testSolveIvpLotkaVolterra() throws {
+        // Classic predator-prey model
+        // dx/dt = ax - bxy, dy/dt = -cy + dxy
+        let result = try engine.evaluate("""
+            local function lotka_volterra(t, y)
+                local a, b, c, d = 1.5, 1, 3, 1
+                return {
+                    a * y[1] - b * y[1] * y[2],
+                    -c * y[2] + d * y[1] * y[2]
+                }
+            end
+            local sol = math.integrate.solve_ivp(
+                lotka_volterra,
+                {0, 2},
+                {10, 5}
+            )
+            return sol.success
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSolveIvpBackwardIntegration() throws {
+        // Backward integration: from t=1 to t=0
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {1, 0},
+                {math.exp(-1)}
+            )
+            return sol.y[#sol.y][1]
+            """)
+        // Going backward from y(1)=e^(-1), should get y(0)=1
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-3)
+    }
+
+    func testSolveIvpNfev() throws {
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {0, 1},
+                {1}
+            )
+            return sol.nfev
+            """)
+        // Should have positive number of function evaluations
+        XCTAssertGreaterThan(result.numberValue!, 0)
+    }
+
+    // MARK: - odeint Tests
+
+    func testOdeintExponentialDecay() throws {
+        // dy/dt = -y, y(0) = 1 => y(t) = e^(-t)
+        // Note: odeint uses f(y, t) convention
+        let result = try engine.evaluate("""
+            local function f(y, t)
+                return {-y[1]}
+            end
+            local t = {0, 0.5, 1}
+            local y = math.integrate.odeint(f, {1}, t)
+            return y[3][1]
+            """)
+        // y(1) = e^(-1)
+        XCTAssertEqual(result.numberValue!, exp(-1), accuracy: 1e-4)
+    }
+
+    func testOdeintMidpoint() throws {
+        let result = try engine.evaluate("""
+            local function f(y, t)
+                return {-y[1]}
+            end
+            local t = {0, 0.5, 1}
+            local y = math.integrate.odeint(f, {1}, t)
+            return y[2][1]
+            """)
+        // y(0.5) = e^(-0.5)
+        XCTAssertEqual(result.numberValue!, exp(-0.5), accuracy: 1e-4)
+    }
+
+    func testOdeintInitialCondition() throws {
+        let result = try engine.evaluate("""
+            local function f(y, t)
+                return {-y[1]}
+            end
+            local t = {0, 1}
+            local y = math.integrate.odeint(f, {1}, t)
+            return y[1][1]
+            """)
+        // y(0) = 1 (initial condition preserved)
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testOdeintHarmonicOscillator() throws {
+        // y'' = -y => system: y' = v, v' = -y
+        let result = try engine.evaluate("""
+            local function f(y, t)
+                return {y[2], -y[1]}
+            end
+            local t = {}
+            for i = 0, 100 do
+                t[i + 1] = i * math.pi / 100
+            end
+            local y = math.integrate.odeint(f, {1, 0}, t)
+            return y[#y][1]
+            """)
+        // y(pi) = cos(pi) = -1
+        XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-3)
+    }
+
+    func testOdeintLinearGrowth() throws {
+        // dy/dt = 1, y(0) = 0 => y(t) = t
+        let result = try engine.evaluate("""
+            local function f(y, t)
+                return {1}
+            end
+            local t = {0, 1, 2, 3}
+            local y = math.integrate.odeint(f, {0}, t)
+            return y[4][1]
+            """)
+        // y(3) = 3
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-6)
+    }
+
+    func testOdeintFullOutput() throws {
+        let result = try engine.evaluate("""
+            local function f(y, t)
+                return {-y[1]}
+            end
+            local t = {0, 1}
+            local y, info = math.integrate.odeint(f, {1}, t, {full_output = true})
+            return info.nfe
+            """)
+        // Should have positive number of function evaluations
+        XCTAssertGreaterThan(result.numberValue!, 0)
+    }
+
+    func testOdeintWithArgs() throws {
+        // dy/dt = k*y, with k passed as additional argument
+        let result = try engine.evaluate("""
+            local function f(y, t, k)
+                return {k * y[1]}
+            end
+            local t = {0, 1}
+            local y = math.integrate.odeint(f, {1}, t, {args = {-2}})
+            return y[2][1]
+            """)
+        // y(1) = e^(-2) ≈ 0.1353
+        XCTAssertEqual(result.numberValue!, exp(-2), accuracy: 1e-4)
+    }
+
+    func testOdeintVanDerPol() throws {
+        // Van der Pol oscillator: x'' - mu(1-x^2)x' + x = 0
+        // System: x' = y, y' = mu(1-x^2)y - x
+        let result = try engine.evaluate("""
+            local mu = 0.5
+            local function f(y, t)
+                return {y[2], mu * (1 - y[1]^2) * y[2] - y[1]}
+            end
+            local t = {}
+            for i = 0, 100 do
+                t[i + 1] = i * 0.1
+            end
+            local y = math.integrate.odeint(f, {2, 0}, t)
+            -- Just verify it completes without error and returns values
+            return #y
+            """)
+        XCTAssertEqual(result.numberValue!, 101)
+    }
+
+    // MARK: - ODE Namespace Tests
+
+    func testMathIntegrateSolveIvpExists() throws {
+        let result = try engine.evaluate("return type(math.integrate.solve_ivp)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testMathIntegrateOdeintExists() throws {
+        let result = try engine.evaluate("return type(math.integrate.odeint)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testLuaswiftIntegrateSolveIvpExists() throws {
+        let result = try engine.evaluate("return type(luaswift.integrate.solve_ivp)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testLuaswiftIntegrateOdeintExists() throws {
+        let result = try engine.evaluate("return type(luaswift.integrate.odeint)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    // MARK: - ODE Edge Cases
+
+    func testSolveIvpStiffSystem() throws {
+        // A mildly stiff system to verify solver handles it
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-15 * y[1]} end,
+                {0, 1},
+                {1},
+                {rtol = 1e-6, atol = 1e-9}
+            )
+            return sol.y[#sol.y][1]
+            """)
+        // y(1) = e^(-15) ≈ 3.06e-7
+        XCTAssertEqual(result.numberValue!, exp(-15), accuracy: 1e-6)
+    }
+
+    func testSolveIvpMaxStep() throws {
+        let result = try engine.evaluate("""
+            local sol = math.integrate.solve_ivp(
+                function(t, y) return {-y[1]} end,
+                {0, 1},
+                {1},
+                {max_step = 0.1}
+            )
+            -- With max_step=0.1, should have at least 10 steps
+            return #sol.t
+            """)
+        XCTAssertGreaterThanOrEqual(result.numberValue!, 10)
+    }
+
+    func testOdeintManyTimePoints() throws {
+        let result = try engine.evaluate("""
+            local function f(y, t)
+                return {-y[1]}
+            end
+            local t = {}
+            for i = 0, 1000 do
+                t[i + 1] = i / 1000
+            end
+            local y = math.integrate.odeint(f, {1}, t)
+            return y[1001][1]
+            """)
+        // y(1) = e^(-1)
+        XCTAssertEqual(result.numberValue!, exp(-1), accuracy: 1e-4)
+    }
 }

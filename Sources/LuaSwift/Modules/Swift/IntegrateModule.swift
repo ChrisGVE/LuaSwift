@@ -488,6 +488,462 @@ public struct IntegrateModule {
                     return result
                 end
 
+                ----------------------------------------------------------------
+                -- ODE Solvers
+                ----------------------------------------------------------------
+
+                -- Dormand-Prince RK45 coefficients (for adaptive step size)
+                local DP_A = {
+                    {},
+                    {1/5},
+                    {3/40, 9/40},
+                    {44/45, -56/15, 32/9},
+                    {19372/6561, -25360/2187, 64448/6561, -212/729},
+                    {9017/3168, -355/33, 46732/5247, 49/176, -5103/18656},
+                    {35/384, 0, 500/1113, 125/192, -2187/6784, 11/84}
+                }
+
+                local DP_C = {0, 1/5, 3/10, 4/5, 8/9, 1, 1}
+
+                -- 5th order weights (for result)
+                local DP_B = {35/384, 0, 500/1113, 125/192, -2187/6784, 11/84, 0}
+
+                -- 4th order weights (for error estimate)
+                local DP_E = {71/57600, 0, -71/16695, 71/1920, -17253/339200, 22/525, -1/40}
+
+                ----------------------------------------------------------------
+                -- Vector operations for ODE solvers
+                ----------------------------------------------------------------
+                local function vec_add(a, b)
+                    local result = {}
+                    for i = 1, #a do result[i] = a[i] + b[i] end
+                    return result
+                end
+
+                local function vec_scale(s, v)
+                    local result = {}
+                    for i = 1, #v do result[i] = s * v[i] end
+                    return result
+                end
+
+                local function vec_norm(v)
+                    local sum = 0
+                    for i = 1, #v do sum = sum + v[i] * v[i] end
+                    return math.sqrt(sum)
+                end
+
+                local function vec_max_abs(v)
+                    local m = 0
+                    for i = 1, #v do
+                        local abs_v = math.abs(v[i])
+                        if abs_v > m then m = abs_v end
+                    end
+                    return m
+                end
+
+                ----------------------------------------------------------------
+                -- rk45_step: Single Dormand-Prince RK45 step
+                --
+                -- Arguments:
+                --   f: derivative function f(t, y) -> dy/dt
+                --   t: current time
+                --   y: current state (array)
+                --   h: step size
+                --
+                -- Returns: y_new, error_estimate, k values
+                ----------------------------------------------------------------
+                local function rk45_step(f, t, y, h)
+                    local n = #y
+                    local k = {}
+
+                    -- Compute k1 through k7
+                    k[1] = f(t, y)
+
+                    for stage = 2, 7 do
+                        local y_stage = {}
+                        for i = 1, n do
+                            local sum = y[i]
+                            for j = 1, stage - 1 do
+                                if DP_A[stage] and DP_A[stage][j] then
+                                    sum = sum + h * DP_A[stage][j] * k[j][i]
+                                end
+                            end
+                            y_stage[i] = sum
+                        end
+                        k[stage] = f(t + DP_C[stage] * h, y_stage)
+                    end
+
+                    -- Compute 5th order solution
+                    local y_new = {}
+                    for i = 1, n do
+                        local sum = y[i]
+                        for j = 1, 7 do
+                            sum = sum + h * DP_B[j] * k[j][i]
+                        end
+                        y_new[i] = sum
+                    end
+
+                    -- Compute error estimate (difference between 5th and 4th order)
+                    local err = {}
+                    for i = 1, n do
+                        local sum = 0
+                        for j = 1, 7 do
+                            sum = sum + h * DP_E[j] * k[j][i]
+                        end
+                        err[i] = sum
+                    end
+
+                    return y_new, err, k
+                end
+
+                ----------------------------------------------------------------
+                -- rk4_step: Single classical RK4 step
+                --
+                -- Arguments:
+                --   f: derivative function f(t, y) -> dy/dt
+                --   t: current time
+                --   y: current state (array)
+                --   h: step size
+                --
+                -- Returns: y_new
+                ----------------------------------------------------------------
+                local function rk4_step(f, t, y, h)
+                    local n = #y
+                    local k1 = f(t, y)
+
+                    local y2 = {}
+                    for i = 1, n do y2[i] = y[i] + 0.5 * h * k1[i] end
+                    local k2 = f(t + 0.5 * h, y2)
+
+                    local y3 = {}
+                    for i = 1, n do y3[i] = y[i] + 0.5 * h * k2[i] end
+                    local k3 = f(t + 0.5 * h, y3)
+
+                    local y4 = {}
+                    for i = 1, n do y4[i] = y[i] + h * k3[i] end
+                    local k4 = f(t + h, y4)
+
+                    local y_new = {}
+                    for i = 1, n do
+                        y_new[i] = y[i] + (h / 6) * (k1[i] + 2*k2[i] + 2*k3[i] + k4[i])
+                    end
+
+                    return y_new
+                end
+
+                ----------------------------------------------------------------
+                -- solve_ivp: Solve initial value problem for ODE system
+                --
+                -- Arguments:
+                --   fun: function(t, y) returning dy/dt (array)
+                --   t_span: {t0, tf} - initial and final time
+                --   y0: initial state (array)
+                --   options: {
+                --     method: 'RK45', 'RK23', or 'RK4' (default: 'RK45')
+                --     t_eval: optional array of times at which to store solution
+                --     max_step: maximum step size (default: inf)
+                --     rtol: relative tolerance (default: 1e-3)
+                --     atol: absolute tolerance (default: 1e-6)
+                --     first_step: initial step size (default: auto)
+                --     dense_output: return interpolation function (default: false)
+                --   }
+                --
+                -- Returns: table with:
+                --   t: array of times
+                --   y: array of states (each element is array of y values)
+                --   success: boolean
+                --   message: string
+                --   nfev: number of function evaluations
+                ----------------------------------------------------------------
+                function integrate.solve_ivp(fun, t_span, y0, options)
+                    options = options or {}
+                    local method = options.method or "RK45"
+                    local t_eval = options.t_eval
+                    local max_step = options.max_step or math.huge
+                    local rtol = options.rtol or 1e-3
+                    local atol = options.atol or 1e-6
+                    local first_step = options.first_step
+
+                    local t0, tf = t_span[1], t_span[2]
+                    local direction = (tf >= t0) and 1 or -1
+                    local n = #y0
+
+                    -- Initialize
+                    local t = t0
+                    local y = {}
+                    for i = 1, n do y[i] = y0[i] end
+
+                    local t_list = {t0}
+                    local y_list = {{}}
+                    for i = 1, n do y_list[1][i] = y0[i] end
+
+                    local nfev = 0
+
+                    -- Initial step size estimation
+                    local h
+                    if first_step then
+                        h = first_step
+                    else
+                        -- Estimate initial step based on derivative magnitude
+                        local f0 = fun(t0, y0)
+                        nfev = nfev + 1
+                        local d0 = vec_max_abs(y0)
+                        local d1 = vec_max_abs(f0)
+                        if d0 < 1e-5 then d0 = 1 end
+                        if d1 < 1e-5 then d1 = 1 end
+                        h = 0.01 * d0 / d1
+                        h = math.min(h, math.abs(tf - t0) / 10)
+                    end
+                    h = direction * math.min(math.abs(h), max_step)
+
+                    -- Main integration loop
+                    local max_iter = 10000
+                    local iter = 0
+
+                    while direction * (tf - t) > 1e-12 * math.abs(tf) and iter < max_iter do
+                        iter = iter + 1
+
+                        -- Ensure we don't overshoot tf
+                        if direction * (t + h - tf) > 0 then
+                            h = tf - t
+                        end
+
+                        if method == "RK4" then
+                            -- Fixed step RK4
+                            y = rk4_step(fun, t, y, h)
+                            nfev = nfev + 4
+                            t = t + h
+
+                            table.insert(t_list, t)
+                            local y_copy = {}
+                            for i = 1, n do y_copy[i] = y[i] end
+                            table.insert(y_list, y_copy)
+                        else
+                            -- Adaptive RK45 or RK23
+                            local y_new, err = rk45_step(fun, t, y, h)
+                            nfev = nfev + 7
+
+                            -- Error control
+                            local err_norm = 0
+                            for i = 1, n do
+                                local scale = atol + rtol * math.max(math.abs(y[i]), math.abs(y_new[i]))
+                                err_norm = err_norm + (err[i] / scale)^2
+                            end
+                            err_norm = math.sqrt(err_norm / n)
+
+                            if err_norm <= 1 then
+                                -- Accept step
+                                t = t + h
+                                y = y_new
+
+                                table.insert(t_list, t)
+                                local y_copy = {}
+                                for i = 1, n do y_copy[i] = y[i] end
+                                table.insert(y_list, y_copy)
+
+                                -- Increase step size
+                                if err_norm > 0 then
+                                    local factor = math.min(5, 0.9 * (1 / err_norm)^0.2)
+                                    h = direction * math.min(math.abs(h * factor), max_step)
+                                else
+                                    h = direction * math.min(math.abs(h * 5), max_step)
+                                end
+                            else
+                                -- Reject step, decrease step size
+                                local factor = math.max(0.1, 0.9 * (1 / err_norm)^0.25)
+                                h = h * factor
+                            end
+                        end
+                    end
+
+                    -- If t_eval specified, interpolate results
+                    local result_t, result_y
+                    if t_eval then
+                        result_t = t_eval
+                        result_y = {}
+                        for eval_idx, t_e in ipairs(t_eval) do
+                            -- Find bracketing interval
+                            local idx = 1
+                            for j = 1, #t_list - 1 do
+                                if (t_list[j] <= t_e and t_e <= t_list[j + 1]) or
+                                   (t_list[j] >= t_e and t_e >= t_list[j + 1]) then
+                                    idx = j
+                                    break
+                                end
+                            end
+
+                            -- Linear interpolation
+                            local t1, t2 = t_list[idx], t_list[idx + 1]
+                            local frac = 0
+                            if math.abs(t2 - t1) > 1e-15 then
+                                frac = (t_e - t1) / (t2 - t1)
+                            end
+
+                            local y_interp = {}
+                            for i = 1, n do
+                                y_interp[i] = y_list[idx][i] + frac * (y_list[idx + 1][i] - y_list[idx][i])
+                            end
+                            result_y[eval_idx] = y_interp
+                        end
+                    else
+                        result_t = t_list
+                        result_y = y_list
+                    end
+
+                    local success = direction * (tf - t) <= 1e-12 * math.abs(tf)
+
+                    return {
+                        t = result_t,
+                        y = result_y,
+                        success = success,
+                        message = success and "Integration successful" or "Max iterations reached",
+                        nfev = nfev
+                    }
+                end
+
+                ----------------------------------------------------------------
+                -- odeint: Integrate ODE system (scipy.integrate.odeint style)
+                --
+                -- Arguments:
+                --   func: function(y, t, ...) returning dy/dt (note: y first, then t)
+                --   y0: initial state (array)
+                --   t: array of times at which to compute solution
+                --   options: {
+                --     args: additional arguments to pass to func
+                --     rtol: relative tolerance (default: 1.49e-8)
+                --     atol: absolute tolerance (default: 1.49e-8)
+                --     h0: initial step size (default: auto)
+                --     hmax: maximum step size (default: auto)
+                --     hmin: minimum step size (default: 0)
+                --     mxstep: maximum number of steps (default: 500)
+                --     full_output: return extra info (default: false)
+                --   }
+                --
+                -- Returns: y (2D array: y[time_index][component_index])
+                --          if full_output: y, info_dict
+                ----------------------------------------------------------------
+                function integrate.odeint(func, y0, t, options)
+                    options = options or {}
+                    local args = options.args or {}
+                    local rtol = options.rtol or 1.49e-8
+                    local atol = options.atol or 1.49e-8
+                    local h0 = options.h0
+                    local hmax = options.hmax
+                    local mxstep = options.mxstep or 500
+                    local full_output = options.full_output
+
+                    if #t < 2 then
+                        error("odeint: need at least 2 time points")
+                    end
+
+                    local n = #y0
+
+                    -- Wrap func to match solve_ivp convention: f(t, y) instead of f(y, t, ...)
+                    local function wrapped_func(t_val, y_val)
+                        -- Call func(y, t, args...)
+                        return func(y_val, t_val, table.unpack(args))
+                    end
+
+                    -- Solve between each pair of time points
+                    local result = {}
+                    result[1] = {}
+                    for i = 1, n do result[1][i] = y0[i] end
+
+                    local current_y = {}
+                    for i = 1, n do current_y[i] = y0[i] end
+
+                    local total_nfev = 0
+
+                    for j = 1, #t - 1 do
+                        local t_span = {t[j], t[j + 1]}
+
+                        local ivp_opts = {
+                            method = "RK45",
+                            rtol = rtol,
+                            atol = atol,
+                            first_step = h0,
+                            max_step = hmax or math.abs(t[j + 1] - t[j])
+                        }
+
+                        local sol = integrate.solve_ivp(wrapped_func, t_span, current_y, ivp_opts)
+                        total_nfev = total_nfev + sol.nfev
+
+                        -- Get final state
+                        current_y = sol.y[#sol.y]
+                        result[j + 1] = {}
+                        for i = 1, n do
+                            result[j + 1][i] = current_y[i]
+                        end
+                    end
+
+                    if full_output then
+                        local info = {
+                            nfe = total_nfev,
+                            message = "Integration successful"
+                        }
+                        return result, info
+                    else
+                        return result
+                    end
+                end
+
+                ----------------------------------------------------------------
+                -- RK23 coefficients for alternative method
+                -- (Bogacki-Shampine)
+                ----------------------------------------------------------------
+                local BS_A = {
+                    {},
+                    {1/2},
+                    {0, 3/4},
+                    {2/9, 1/3, 4/9}
+                }
+                local BS_C = {0, 1/2, 3/4, 1}
+                local BS_B = {2/9, 1/3, 4/9, 0}  -- 3rd order
+                local BS_E = {-5/72, 1/12, 1/9, -1/8}  -- Error = 3rd - 2nd order
+
+                local function rk23_step(f, t, y, h)
+                    local n = #y
+                    local k = {}
+
+                    k[1] = f(t, y)
+
+                    for stage = 2, 4 do
+                        local y_stage = {}
+                        for i = 1, n do
+                            local sum = y[i]
+                            for j = 1, stage - 1 do
+                                if BS_A[stage] and BS_A[stage][j] then
+                                    sum = sum + h * BS_A[stage][j] * k[j][i]
+                                end
+                            end
+                            y_stage[i] = sum
+                        end
+                        k[stage] = f(t + BS_C[stage] * h, y_stage)
+                    end
+
+                    -- 3rd order solution
+                    local y_new = {}
+                    for i = 1, n do
+                        local sum = y[i]
+                        for j = 1, 4 do
+                            sum = sum + h * BS_B[j] * k[j][i]
+                        end
+                        y_new[i] = sum
+                    end
+
+                    -- Error estimate
+                    local err = {}
+                    for i = 1, n do
+                        local sum = 0
+                        for j = 1, 4 do
+                            sum = sum + h * BS_E[j] * k[j][i]
+                        end
+                        err[i] = sum
+                    end
+
+                    return y_new, err, k
+                end
+
                 -- Store the module
                 luaswift.integrate = integrate
 

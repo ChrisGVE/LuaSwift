@@ -98,6 +98,7 @@ Sources/
             ├── ArrayModule.swift      # NumPy-like N-dimensional arrays
             ├── ComplexModule.swift    # Complex number arithmetic
             ├── DebugModule.swift      # Debugging utilities (DEBUG only)
+            ├── DistributionsModule.swift # Probability distributions (scipy-inspired)
             ├── GeometryModule.swift   # 2D/3D geometry with SIMD
             ├── IntegrateModule.swift  # Numerical integration (scipy-inspired)
             ├── JSONModule.swift       # JSON encode/decode
@@ -126,7 +127,7 @@ Tests/LuaSwiftTests/
 ├── BenchmarkTests.swift     # Performance benchmarks
 ├── ProblemControllerTests.swift
 ├── SerializeModuleTests.swift
-└── [Module]Tests.swift      # One test file per Swift module (22 total)
+└── [Module]Tests.swift      # One test file per Swift module (23 total)
 ```
 
 ### Core Concepts

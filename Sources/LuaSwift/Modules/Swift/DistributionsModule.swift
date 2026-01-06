@@ -310,6 +310,9 @@ public struct DistributionsModule {
             registerGammaDist(in: engine)
             registerBetaDist(in: engine)
 
+            // Register statistical tests
+            registerStatisticalTests(in: engine)
+
         } catch {
             // Silently fail
         }
@@ -1256,6 +1259,440 @@ public struct DistributionsModule {
                     std = function(a, b, loc, scale) return _dist_beta_std(a, b, loc or 0, scale or 1) end
                 }
                 luaswift.distributions.beta_dist = math.stats.beta_dist
+                """)
+        } catch {}
+    }
+
+    // MARK: - Statistical Tests
+
+    private static func registerStatisticalTests(in engine: LuaEngine) {
+        // Helper: compute mean of array
+        func mean(_ arr: [Double]) -> Double {
+            guard !arr.isEmpty else { return .nan }
+            return arr.reduce(0, +) / Double(arr.count)
+        }
+
+        // Helper: compute variance of array (sample variance, ddof=1)
+        func variance(_ arr: [Double], ddof: Int = 1) -> Double {
+            guard arr.count > ddof else { return .nan }
+            let m = mean(arr)
+            let sumSq = arr.reduce(0.0) { $0 + ($1 - m) * ($1 - m) }
+            return sumSq / Double(arr.count - ddof)
+        }
+
+        // Helper: compute standard deviation
+        func std(_ arr: [Double], ddof: Int = 1) -> Double {
+            return sqrt(variance(arr, ddof: ddof))
+        }
+
+        // Helper: t-distribution CDF using betainc
+        func tCdf(_ t: Double, _ df: Double) -> Double {
+            if t == 0 { return 0.5 }
+            let x = df / (df + t * t)
+            let p = 0.5 * betainc(df / 2.0, 0.5, x)
+            return t > 0 ? 1.0 - p : p
+        }
+
+        // ttest_1samp(sample, popmean) -> statistic, pvalue
+        engine.registerFunction(name: "_stats_ttest_1samp") { args in
+            guard let sampleTable = args.first?.arrayValue,
+                  let popmean = args.count > 1 ? args[1].numberValue : nil else {
+                return .nil
+            }
+
+            let sample = sampleTable.compactMap { $0.numberValue }
+            guard sample.count >= 2 else { return .nil }
+
+            let n = Double(sample.count)
+            let sampleMean = mean(sample)
+            let sampleStd = std(sample, ddof: 1)
+            let se = sampleStd / sqrt(n)
+
+            guard se > 0 else { return .table(["statistic": .number(.nan), "pvalue": .number(.nan)]) }
+
+            let tStat = (sampleMean - popmean) / se
+            let df = n - 1
+
+            // Two-tailed p-value
+            let pvalue = 2.0 * (1.0 - tCdf(abs(tStat), df))
+
+            return .table([
+                "statistic": .number(tStat),
+                "pvalue": .number(pvalue)
+            ])
+        }
+
+        // ttest_ind(sample1, sample2, equal_var=true) -> statistic, pvalue
+        engine.registerFunction(name: "_stats_ttest_ind") { args in
+            guard let sample1Table = args.first?.arrayValue,
+                  let sample2Table = args.count > 1 ? args[1].arrayValue : nil else {
+                return .nil
+            }
+            let equalVar = args.count > 2 ? (args[2].boolValue ?? true) : true
+
+            let sample1 = sample1Table.compactMap { $0.numberValue }
+            let sample2 = sample2Table.compactMap { $0.numberValue }
+
+            guard sample1.count >= 2, sample2.count >= 2 else { return .nil }
+
+            let n1 = Double(sample1.count)
+            let n2 = Double(sample2.count)
+            let mean1 = mean(sample1)
+            let mean2 = mean(sample2)
+            let var1 = variance(sample1, ddof: 1)
+            let var2 = variance(sample2, ddof: 1)
+
+            let tStat: Double
+            let df: Double
+
+            if equalVar {
+                // Pooled variance
+                let sp2 = ((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2)
+                let se = sqrt(sp2 * (1/n1 + 1/n2))
+                guard se > 0 else { return .table(["statistic": .number(.nan), "pvalue": .number(.nan)]) }
+                tStat = (mean1 - mean2) / se
+                df = n1 + n2 - 2
+            } else {
+                // Welch's t-test
+                let se = sqrt(var1/n1 + var2/n2)
+                guard se > 0 else { return .table(["statistic": .number(.nan), "pvalue": .number(.nan)]) }
+                tStat = (mean1 - mean2) / se
+                // Welch-Satterthwaite degrees of freedom
+                let num = pow(var1/n1 + var2/n2, 2)
+                let den = pow(var1/n1, 2)/(n1-1) + pow(var2/n2, 2)/(n2-1)
+                df = num / den
+            }
+
+            let pvalue = 2.0 * (1.0 - tCdf(abs(tStat), df))
+
+            return .table([
+                "statistic": .number(tStat),
+                "pvalue": .number(pvalue)
+            ])
+        }
+
+        // pearsonr(x, y) -> correlation, pvalue
+        engine.registerFunction(name: "_stats_pearsonr") { args in
+            guard let xTable = args.first?.arrayValue,
+                  let yTable = args.count > 1 ? args[1].arrayValue : nil else {
+                return .nil
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+
+            guard x.count == y.count, x.count >= 3 else { return .nil }
+
+            let n = Double(x.count)
+            let meanX = mean(x)
+            let meanY = mean(y)
+
+            var sumXY = 0.0
+            var sumX2 = 0.0
+            var sumY2 = 0.0
+
+            for i in 0..<x.count {
+                let dx = x[i] - meanX
+                let dy = y[i] - meanY
+                sumXY += dx * dy
+                sumX2 += dx * dx
+                sumY2 += dy * dy
+            }
+
+            guard sumX2 > 0, sumY2 > 0 else {
+                return .table(["correlation": .number(.nan), "pvalue": .number(.nan)])
+            }
+
+            let r = sumXY / sqrt(sumX2 * sumY2)
+
+            // t-statistic for correlation
+            let t = r * sqrt((n - 2) / (1 - r * r))
+            let df = n - 2
+            let pvalue = 2.0 * (1.0 - tCdf(abs(t), df))
+
+            return .table([
+                "correlation": .number(r),
+                "pvalue": .number(pvalue)
+            ])
+        }
+
+        // spearmanr(x, y) -> correlation, pvalue
+        engine.registerFunction(name: "_stats_spearmanr") { args in
+            guard let xTable = args.first?.arrayValue,
+                  let yTable = args.count > 1 ? args[1].arrayValue : nil else {
+                return .nil
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+
+            guard x.count == y.count, x.count >= 3 else { return .nil }
+
+            // Compute ranks
+            func rank(_ arr: [Double]) -> [Double] {
+                let indexed = arr.enumerated().map { ($0.offset, $0.element) }
+                let sorted = indexed.sorted { $0.1 < $1.1 }
+
+                var ranks = [Double](repeating: 0, count: arr.count)
+                var i = 0
+                while i < sorted.count {
+                    var j = i
+                    // Find ties
+                    while j < sorted.count - 1 && sorted[j].1 == sorted[j + 1].1 {
+                        j += 1
+                    }
+                    // Average rank for ties
+                    let avgRank = Double(i + j + 2) / 2.0
+                    for k in i...j {
+                        ranks[sorted[k].0] = avgRank
+                    }
+                    i = j + 1
+                }
+                return ranks
+            }
+
+            let rankX = rank(x)
+            let rankY = rank(y)
+
+            // Compute Pearson correlation on ranks
+            let n = Double(x.count)
+            let meanRankX = mean(rankX)
+            let meanRankY = mean(rankY)
+
+            var sumXY = 0.0
+            var sumX2 = 0.0
+            var sumY2 = 0.0
+
+            for i in 0..<x.count {
+                let dx = rankX[i] - meanRankX
+                let dy = rankY[i] - meanRankY
+                sumXY += dx * dy
+                sumX2 += dx * dx
+                sumY2 += dy * dy
+            }
+
+            guard sumX2 > 0, sumY2 > 0 else {
+                return .table(["correlation": .number(.nan), "pvalue": .number(.nan)])
+            }
+
+            let rho = sumXY / sqrt(sumX2 * sumY2)
+
+            // t-statistic for correlation
+            let t = rho * sqrt((n - 2) / (1 - rho * rho))
+            let df = n - 2
+            let pvalue = 2.0 * (1.0 - tCdf(abs(t), df))
+
+            return .table([
+                "correlation": .number(rho),
+                "pvalue": .number(pvalue)
+            ])
+        }
+
+        // describe(data) -> {nobs, min, max, mean, variance, skewness, kurtosis}
+        engine.registerFunction(name: "_stats_describe") { args in
+            guard let dataTable = args.first?.arrayValue else { return .nil }
+
+            let data = dataTable.compactMap { $0.numberValue }
+            guard !data.isEmpty else { return .nil }
+
+            let n = Double(data.count)
+            let dataMean = mean(data)
+            let dataVar = variance(data, ddof: 1)
+            let dataStd = sqrt(dataVar)
+
+            // Skewness (Fisher's definition)
+            var m3 = 0.0
+            for x in data {
+                m3 += pow(x - dataMean, 3)
+            }
+            m3 /= n
+            let skewness = n > 2 && dataStd > 0 ? m3 / pow(dataStd * sqrt((n-1)/n), 3) * sqrt(n*(n-1)) / (n-2) : .nan
+
+            // Kurtosis (Fisher's definition, excess kurtosis)
+            var m4 = 0.0
+            for x in data {
+                m4 += pow(x - dataMean, 4)
+            }
+            m4 /= n
+            let kurtosis: Double
+            if n > 3 && dataVar > 0 {
+                let m2 = dataVar * (n - 1) / n
+                let g2 = m4 / (m2 * m2) - 3
+                kurtosis = (n - 1) / ((n - 2) * (n - 3)) * ((n + 1) * g2 + 6)
+            } else {
+                kurtosis = .nan
+            }
+
+            return .table([
+                "nobs": .number(n),
+                "min": .number(data.min()!),
+                "max": .number(data.max()!),
+                "mean": .number(dataMean),
+                "variance": .number(dataVar),
+                "skewness": .number(skewness),
+                "kurtosis": .number(kurtosis)
+            ])
+        }
+
+        // zscore(data) -> array of z-scores
+        engine.registerFunction(name: "_stats_zscore") { args in
+            guard let dataTable = args.first?.arrayValue else { return .nil }
+            let ddof = args.count > 1 ? Int(args[1].numberValue ?? 0) : 0
+
+            let data = dataTable.compactMap { $0.numberValue }
+            guard data.count > ddof else { return .nil }
+
+            let dataMean = mean(data)
+            let dataStd = std(data, ddof: ddof)
+
+            guard dataStd > 0 else {
+                return .array(data.map { _ in LuaValue.number(.nan) })
+            }
+
+            let zscores = data.map { ($0 - dataMean) / dataStd }
+            return .array(zscores.map { .number($0) })
+        }
+
+        // skew(data) -> skewness
+        engine.registerFunction(name: "_stats_skew") { args in
+            guard let dataTable = args.first?.arrayValue else { return .nil }
+
+            let data = dataTable.compactMap { $0.numberValue }
+            guard data.count >= 3 else { return .number(.nan) }
+
+            let n = Double(data.count)
+            let dataMean = mean(data)
+            let dataStd = std(data, ddof: 1)
+
+            guard dataStd > 0 else { return .number(.nan) }
+
+            var m3 = 0.0
+            for x in data {
+                m3 += pow(x - dataMean, 3)
+            }
+            m3 /= n
+
+            // Fisher's skewness
+            let skewness = m3 / pow(dataStd * sqrt((n-1)/n), 3) * sqrt(n*(n-1)) / (n-2)
+            return .number(skewness)
+        }
+
+        // kurtosis(data, fisher=true) -> kurtosis
+        engine.registerFunction(name: "_stats_kurtosis") { args in
+            guard let dataTable = args.first?.arrayValue else { return .nil }
+            let fisher = args.count > 1 ? (args[1].boolValue ?? true) : true
+
+            let data = dataTable.compactMap { $0.numberValue }
+            guard data.count >= 4 else { return .number(.nan) }
+
+            let n = Double(data.count)
+            let dataMean = mean(data)
+            let dataVar = variance(data, ddof: 1)
+
+            guard dataVar > 0 else { return .number(.nan) }
+
+            var m4 = 0.0
+            for x in data {
+                m4 += pow(x - dataMean, 4)
+            }
+            m4 /= n
+
+            let m2 = dataVar * (n - 1) / n
+            let g2 = m4 / (m2 * m2) - 3
+            let kurtosis = (n - 1) / ((n - 2) * (n - 3)) * ((n + 1) * g2 + 6)
+
+            return .number(fisher ? kurtosis : kurtosis + 3)
+        }
+
+        // mode(data) -> mode value (most frequent)
+        engine.registerFunction(name: "_stats_mode") { args in
+            guard let dataTable = args.first?.arrayValue else { return .nil }
+
+            let data = dataTable.compactMap { $0.numberValue }
+            guard !data.isEmpty else { return .nil }
+
+            var counts: [Double: Int] = [:]
+            for x in data {
+                counts[x, default: 0] += 1
+            }
+
+            let modeValue = counts.max { $0.value < $1.value }!.key
+            let modeCount = counts[modeValue]!
+
+            return .table([
+                "mode": .number(modeValue),
+                "count": .number(Double(modeCount))
+            ])
+        }
+
+        // Register Lua wrappers
+        do {
+            try engine.run("""
+                -- Statistical tests
+                math.stats.ttest_1samp = function(sample, popmean)
+                    local result = _stats_ttest_1samp(sample, popmean)
+                    if result then
+                        return result.statistic, result.pvalue
+                    end
+                    return nil, nil
+                end
+
+                math.stats.ttest_ind = function(sample1, sample2, equal_var)
+                    if equal_var == nil then equal_var = true end
+                    local result = _stats_ttest_ind(sample1, sample2, equal_var)
+                    if result then
+                        return result.statistic, result.pvalue
+                    end
+                    return nil, nil
+                end
+
+                math.stats.pearsonr = function(x, y)
+                    local result = _stats_pearsonr(x, y)
+                    if result then
+                        return result.correlation, result.pvalue
+                    end
+                    return nil, nil
+                end
+
+                math.stats.spearmanr = function(x, y)
+                    local result = _stats_spearmanr(x, y)
+                    if result then
+                        return result.correlation, result.pvalue
+                    end
+                    return nil, nil
+                end
+
+                math.stats.describe = function(data)
+                    return _stats_describe(data)
+                end
+
+                math.stats.zscore = function(data, ddof)
+                    return _stats_zscore(data, ddof or 0)
+                end
+
+                math.stats.skew = function(data)
+                    return _stats_skew(data)
+                end
+
+                math.stats.kurtosis = function(data, fisher)
+                    if fisher == nil then fisher = true end
+                    return _stats_kurtosis(data, fisher)
+                end
+
+                math.stats.mode = function(data)
+                    return _stats_mode(data)
+                end
+
+                -- Also expose via luaswift.distributions
+                luaswift.distributions.ttest_1samp = math.stats.ttest_1samp
+                luaswift.distributions.ttest_ind = math.stats.ttest_ind
+                luaswift.distributions.pearsonr = math.stats.pearsonr
+                luaswift.distributions.spearmanr = math.stats.spearmanr
+                luaswift.distributions.describe = math.stats.describe
+                luaswift.distributions.zscore = math.stats.zscore
+                luaswift.distributions.skew = math.stats.skew
+                luaswift.distributions.kurtosis = math.stats.kurtosis
+                luaswift.distributions.mode = math.stats.mode
                 """)
         } catch {}
     }

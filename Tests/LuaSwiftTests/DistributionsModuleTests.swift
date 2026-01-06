@@ -508,4 +508,306 @@ final class DistributionsModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue!, 1.0)
     }
+
+    // MARK: - Statistical Tests
+
+    func testTtest1sampBasic() throws {
+        // Sample with mean ~0, test against popmean=0
+        let result = try engine.evaluate("""
+            local sample = {-0.5, 0.5, -0.3, 0.3, -0.1, 0.1, -0.2, 0.2, -0.4, 0.4}
+            local stat, pval = math.stats.ttest_1samp(sample, 0)
+            return pval
+            """)
+        // p-value should be close to 1 since sample mean is 0
+        XCTAssertGreaterThan(result.numberValue!, 0.5)
+    }
+
+    func testTtest1sampSignificant() throws {
+        // Sample with mean ~5, test against popmean=0
+        let result = try engine.evaluate("""
+            local sample = {4.9, 5.1, 5.0, 4.8, 5.2, 5.1, 4.9, 5.0, 5.0, 5.1}
+            local stat, pval = math.stats.ttest_1samp(sample, 0)
+            return pval
+            """)
+        // p-value should be very small
+        XCTAssertLessThan(result.numberValue!, 0.001)
+    }
+
+    func testTtest1sampStatistic() throws {
+        // Verify statistic calculation
+        let result = try engine.evaluate("""
+            local sample = {1, 2, 3, 4, 5}
+            local stat, pval = math.stats.ttest_1samp(sample, 3)
+            return stat
+            """)
+        // mean=3, popmean=3, so t-stat should be 0
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testTtestIndEqualMeans() throws {
+        // Two samples with same mean
+        let result = try engine.evaluate("""
+            local sample1 = {1, 2, 3, 4, 5}
+            local sample2 = {1.1, 1.9, 3.1, 3.9, 5.1}
+            local stat, pval = math.stats.ttest_ind(sample1, sample2, true)
+            return pval
+            """)
+        // p-value should be large (not significant)
+        XCTAssertGreaterThan(result.numberValue!, 0.05)
+    }
+
+    func testTtestIndDifferentMeans() throws {
+        // Two samples with different means
+        let result = try engine.evaluate("""
+            local sample1 = {1, 2, 3, 4, 5}
+            local sample2 = {10, 11, 12, 13, 14}
+            local stat, pval = math.stats.ttest_ind(sample1, sample2, true)
+            return pval
+            """)
+        // p-value should be very small (significant)
+        XCTAssertLessThan(result.numberValue!, 0.001)
+    }
+
+    func testTtestIndWelch() throws {
+        // Welch's t-test (unequal variances)
+        let result = try engine.evaluate("""
+            local sample1 = {1, 2, 3, 4, 5}
+            local sample2 = {10, 11, 12, 13, 14}
+            local stat, pval = math.stats.ttest_ind(sample1, sample2, false)
+            return pval
+            """)
+        // p-value should be very small
+        XCTAssertLessThan(result.numberValue!, 0.001)
+    }
+
+    func testPearsonrPerfectPositive() throws {
+        // Perfect positive correlation
+        let result = try engine.evaluate("""
+            local x = {1, 2, 3, 4, 5}
+            local y = {2, 4, 6, 8, 10}
+            local r, pval = math.stats.pearsonr(x, y)
+            return r
+            """)
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testPearsonrPerfectNegative() throws {
+        // Perfect negative correlation
+        let result = try engine.evaluate("""
+            local x = {1, 2, 3, 4, 5}
+            local y = {10, 8, 6, 4, 2}
+            local r, pval = math.stats.pearsonr(x, y)
+            return r
+            """)
+        XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-10)
+    }
+
+    func testPearsonrNoCorrelation() throws {
+        // No correlation
+        let result = try engine.evaluate("""
+            local x = {1, 2, 3, 4, 5}
+            local y = {3, 1, 4, 1, 5}
+            local r, pval = math.stats.pearsonr(x, y)
+            return math.abs(r)
+            """)
+        // Correlation should be weak
+        XCTAssertLessThan(result.numberValue!, 0.5)
+    }
+
+    func testSpearmanrPerfectPositive() throws {
+        // Perfect monotonic relationship
+        let result = try engine.evaluate("""
+            local x = {1, 2, 3, 4, 5}
+            local y = {10, 20, 30, 40, 50}
+            local rho, pval = math.stats.spearmanr(x, y)
+            return rho
+            """)
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testSpearmanrPerfectNegative() throws {
+        // Perfect negative monotonic relationship
+        let result = try engine.evaluate("""
+            local x = {1, 2, 3, 4, 5}
+            local y = {50, 40, 30, 20, 10}
+            local rho, pval = math.stats.spearmanr(x, y)
+            return rho
+            """)
+        XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-10)
+    }
+
+    func testSpearmanrNonlinear() throws {
+        // Non-linear but monotonic
+        let result = try engine.evaluate("""
+            local x = {1, 2, 3, 4, 5}
+            local y = {1, 4, 9, 16, 25}  -- y = x^2
+            local rho, pval = math.stats.spearmanr(x, y)
+            return rho
+            """)
+        // Should be 1 for monotonic relationship
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testDescribeBasic() throws {
+        let result = try engine.evaluate("""
+            local data = {1, 2, 3, 4, 5}
+            local desc = math.stats.describe(data)
+            return desc.mean
+            """)
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-10)
+    }
+
+    func testDescribeNobs() throws {
+        let result = try engine.evaluate("""
+            local data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+            local desc = math.stats.describe(data)
+            return desc.nobs
+            """)
+        XCTAssertEqual(result.numberValue!, 10.0, accuracy: 1e-10)
+    }
+
+    func testDescribeMinMax() throws {
+        let result = try engine.evaluate("""
+            local data = {5, 2, 8, 1, 9, 3}
+            local desc = math.stats.describe(data)
+            return desc.min, desc.max
+            """)
+        // This returns the first value (min), check via separate tests
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testDescribeVariance() throws {
+        let result = try engine.evaluate("""
+            local data = {1, 2, 3, 4, 5}
+            local desc = math.stats.describe(data)
+            return desc.variance
+            """)
+        // Sample variance of {1,2,3,4,5} = 2.5
+        XCTAssertEqual(result.numberValue!, 2.5, accuracy: 1e-10)
+    }
+
+    func testZscoreBasic() throws {
+        let result = try engine.evaluate("""
+            local data = {1, 2, 3, 4, 5}
+            local z = math.stats.zscore(data)
+            return z[3]  -- Middle value should be ~0
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testZscoreMeanZero() throws {
+        // Z-scores should have mean 0
+        let result = try engine.evaluate("""
+            local data = {10, 20, 30, 40, 50}
+            local z = math.stats.zscore(data)
+            local sum = 0
+            for _, v in ipairs(z) do sum = sum + v end
+            return sum / #z
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testSkewSymmetric() throws {
+        // Symmetric distribution should have skewness ~0
+        let result = try engine.evaluate("""
+            local data = {1, 2, 3, 4, 5, 6, 7, 8, 9}
+            return math.stats.skew(data)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testSkewPositive() throws {
+        // Right-skewed distribution
+        let result = try engine.evaluate("""
+            local data = {1, 1, 1, 2, 2, 3, 10}
+            return math.stats.skew(data)
+            """)
+        XCTAssertGreaterThan(result.numberValue!, 0.0)
+    }
+
+    func testKurtosisNormal() throws {
+        // Generate approximately normal data
+        let result = try engine.evaluate("""
+            local data = {-2, -1, -1, 0, 0, 0, 0, 1, 1, 2}
+            return math.stats.kurtosis(data)
+            """)
+        // Normal distribution has excess kurtosis ~0
+        // This approximate data should be close to 0
+        XCTAssertLessThan(abs(result.numberValue!), 2.0)
+    }
+
+    func testKurtosisLeptokurtic() throws {
+        // Heavy-tailed distribution (leptokurtic, positive excess kurtosis)
+        let result = try engine.evaluate("""
+            local data = {0, 0, 0, 0, 0, 0, 10, -10}
+            return math.stats.kurtosis(data)
+            """)
+        // Should have positive excess kurtosis
+        XCTAssertGreaterThan(result.numberValue!, 0.0)
+    }
+
+    func testModeBasic() throws {
+        let result = try engine.evaluate("""
+            local data = {1, 2, 2, 3, 3, 3, 4}
+            local m = math.stats.mode(data)
+            return m.mode
+            """)
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-10)
+    }
+
+    func testModeCount() throws {
+        let result = try engine.evaluate("""
+            local data = {1, 2, 2, 3, 3, 3, 4}
+            local m = math.stats.mode(data)
+            return m.count
+            """)
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-10)
+    }
+
+    // MARK: - Statistical Tests Namespace Tests
+
+    func testTtest1sampExists() throws {
+        let result = try engine.evaluate("return type(math.stats.ttest_1samp)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testTtestIndExists() throws {
+        let result = try engine.evaluate("return type(math.stats.ttest_ind)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testPearsonrExists() throws {
+        let result = try engine.evaluate("return type(math.stats.pearsonr)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testSpearmanrExists() throws {
+        let result = try engine.evaluate("return type(math.stats.spearmanr)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testDescribeExists() throws {
+        let result = try engine.evaluate("return type(math.stats.describe)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testZscoreExists() throws {
+        let result = try engine.evaluate("return type(math.stats.zscore)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testSkewExists() throws {
+        let result = try engine.evaluate("return type(math.stats.skew)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testKurtosisExists() throws {
+        let result = try engine.evaluate("return type(math.stats.kurtosis)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testModeExists() throws {
+        let result = try engine.evaluate("return type(math.stats.mode)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
 }

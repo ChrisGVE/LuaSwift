@@ -9,12 +9,16 @@
 //
 
 import Foundation
+import Accelerate
 
 /// Swift-backed spatial algorithms module for LuaSwift.
 ///
 /// Provides spatial data structures and algorithms including KDTree for
 /// nearest neighbor queries, distance computations, Voronoi diagrams,
 /// and Delaunay triangulation.
+///
+/// All algorithms are implemented in Swift with BLAS/vDSP optimization
+/// for maximum performance. Only Lua API entry points are in Lua.
 ///
 /// ## Lua API
 ///
@@ -46,6 +50,31 @@ public struct SpatialModule {
 
     /// Register the spatial module with a LuaEngine.
     public static func register(in engine: LuaEngine) {
+        // Register Swift callbacks for distance functions
+        engine.registerFunction(name: "_luaswift_spatial_euclidean", callback: euclideanCallback)
+        engine.registerFunction(name: "_luaswift_spatial_sqeuclidean", callback: sqeuclideanCallback)
+        engine.registerFunction(name: "_luaswift_spatial_cityblock", callback: cityblockCallback)
+        engine.registerFunction(name: "_luaswift_spatial_chebyshev", callback: chebyshevCallback)
+        engine.registerFunction(name: "_luaswift_spatial_minkowski", callback: minkowskiCallback)
+        engine.registerFunction(name: "_luaswift_spatial_cosine", callback: cosineCallback)
+        engine.registerFunction(name: "_luaswift_spatial_correlation", callback: correlationCallback)
+
+        // Register Swift callbacks for batch distance functions
+        engine.registerFunction(name: "_luaswift_spatial_cdist", callback: cdistCallback)
+        engine.registerFunction(name: "_luaswift_spatial_pdist", callback: pdistCallback)
+        engine.registerFunction(name: "_luaswift_spatial_squareform", callback: squareformCallback)
+
+        // Register Swift callbacks for spatial data structures
+        engine.registerFunction(name: "_luaswift_spatial_kdtree_build", callback: kdtreeBuildCallback)
+        engine.registerFunction(name: "_luaswift_spatial_kdtree_query", callback: kdtreeQueryCallback)
+        engine.registerFunction(name: "_luaswift_spatial_kdtree_query_radius", callback: kdtreeQueryRadiusCallback)
+        engine.registerFunction(name: "_luaswift_spatial_kdtree_query_pairs", callback: kdtreeQueryPairsCallback)
+
+        // Register Swift callbacks for geometric algorithms
+        engine.registerFunction(name: "_luaswift_spatial_delaunay", callback: delaunayCallback)
+        engine.registerFunction(name: "_luaswift_spatial_voronoi", callback: voronoiCallback)
+        engine.registerFunction(name: "_luaswift_spatial_convexhull", callback: convexhullCallback)
+
         do {
             try engine.run("""
                 if not luaswift then luaswift = {} end
@@ -54,739 +83,108 @@ public struct SpatialModule {
                 local spatial = {}
 
                 ----------------------------------------------------------------
-                -- Distance functions
+                -- Distance functions (Swift-backed with BLAS)
                 ----------------------------------------------------------------
                 spatial.distance = {}
 
-                -- Euclidean distance
                 function spatial.distance.euclidean(p1, p2)
-                    local sum = 0
-                    for i = 1, #p1 do
-                        local diff = p1[i] - (p2[i] or 0)
-                        sum = sum + diff * diff
-                    end
-                    return math.sqrt(sum)
+                    return _luaswift_spatial_euclidean(p1, p2)
                 end
 
-                -- Squared Euclidean distance (faster, avoids sqrt)
                 function spatial.distance.sqeuclidean(p1, p2)
-                    local sum = 0
-                    for i = 1, #p1 do
-                        local diff = p1[i] - (p2[i] or 0)
-                        sum = sum + diff * diff
-                    end
-                    return sum
+                    return _luaswift_spatial_sqeuclidean(p1, p2)
                 end
 
-                -- Manhattan (cityblock) distance
                 function spatial.distance.cityblock(p1, p2)
-                    local sum = 0
-                    for i = 1, #p1 do
-                        sum = sum + math.abs(p1[i] - (p2[i] or 0))
-                    end
-                    return sum
+                    return _luaswift_spatial_cityblock(p1, p2)
                 end
 
-                -- Chebyshev distance (max along any dimension)
                 function spatial.distance.chebyshev(p1, p2)
-                    local max_diff = 0
-                    for i = 1, #p1 do
-                        local diff = math.abs(p1[i] - (p2[i] or 0))
-                        if diff > max_diff then max_diff = diff end
-                    end
-                    return max_diff
+                    return _luaswift_spatial_chebyshev(p1, p2)
                 end
 
-                -- Minkowski distance (generalized)
                 function spatial.distance.minkowski(p1, p2, p)
-                    p = p or 2
-                    local sum = 0
-                    for i = 1, #p1 do
-                        sum = sum + math.abs(p1[i] - (p2[i] or 0))^p
-                    end
-                    return sum^(1/p)
+                    return _luaswift_spatial_minkowski(p1, p2, p or 2)
                 end
 
-                -- Cosine distance (1 - cosine similarity)
                 function spatial.distance.cosine(p1, p2)
-                    local dot = 0
-                    local norm1 = 0
-                    local norm2 = 0
-                    for i = 1, #p1 do
-                        dot = dot + p1[i] * (p2[i] or 0)
-                        norm1 = norm1 + p1[i] * p1[i]
-                        norm2 = norm2 + (p2[i] or 0) * (p2[i] or 0)
-                    end
-                    local denom = math.sqrt(norm1) * math.sqrt(norm2)
-                    if denom < 1e-15 then return 1 end
-                    return 1 - dot / denom
+                    return _luaswift_spatial_cosine(p1, p2)
                 end
 
-                -- Correlation distance
                 function spatial.distance.correlation(p1, p2)
-                    local n = #p1
-                    local mean1, mean2 = 0, 0
-                    for i = 1, n do
-                        mean1 = mean1 + p1[i]
-                        mean2 = mean2 + (p2[i] or 0)
-                    end
-                    mean1, mean2 = mean1 / n, mean2 / n
-
-                    local num, denom1, denom2 = 0, 0, 0
-                    for i = 1, n do
-                        local d1 = p1[i] - mean1
-                        local d2 = (p2[i] or 0) - mean2
-                        num = num + d1 * d2
-                        denom1 = denom1 + d1 * d1
-                        denom2 = denom2 + d2 * d2
-                    end
-                    local denom = math.sqrt(denom1) * math.sqrt(denom2)
-                    if denom < 1e-15 then return 1 end
-                    return 1 - num / denom
-                end
-
-                -- Get distance function by name
-                local function get_distance_func(metric)
-                    metric = metric or "euclidean"
-                    return spatial.distance[metric] or spatial.distance.euclidean
+                    return _luaswift_spatial_correlation(p1, p2)
                 end
 
                 ----------------------------------------------------------------
-                -- cdist: Compute pairwise distances between two sets
-                --
-                -- Arguments:
-                --   XA: array of m points
-                --   XB: array of n points
-                --   metric: distance metric (default: "euclidean")
-                --
-                -- Returns: m x n distance matrix
+                -- cdist: Compute pairwise distances between two sets (Swift-backed)
                 ----------------------------------------------------------------
                 function spatial.cdist(XA, XB, metric)
-                    local dist_func = get_distance_func(metric)
-                    local m, n = #XA, #XB
-                    local result = {}
-                    for i = 1, m do
-                        result[i] = {}
-                        for j = 1, n do
-                            result[i][j] = dist_func(XA[i], XB[j])
-                        end
-                    end
-                    return result
+                    return _luaswift_spatial_cdist(XA, XB, metric or "euclidean")
                 end
 
                 ----------------------------------------------------------------
-                -- pdist: Compute pairwise distances within one set
-                --
-                -- Arguments:
-                --   X: array of n points
-                --   metric: distance metric (default: "euclidean")
-                --
-                -- Returns: condensed distance vector (length n*(n-1)/2)
+                -- pdist: Compute pairwise distances within one set (Swift-backed)
                 ----------------------------------------------------------------
                 function spatial.pdist(X, metric)
-                    local dist_func = get_distance_func(metric)
-                    local n = #X
-                    local result = {}
-                    local k = 1
-                    for i = 1, n - 1 do
-                        for j = i + 1, n do
-                            result[k] = dist_func(X[i], X[j])
-                            k = k + 1
-                        end
-                    end
-                    return result
+                    return _luaswift_spatial_pdist(X, metric or "euclidean")
                 end
 
                 ----------------------------------------------------------------
                 -- squareform: Convert between condensed and square distance matrix
                 ----------------------------------------------------------------
                 function spatial.squareform(X)
-                    if #X == 0 then return {} end
-
-                    -- Check if it's a condensed vector or square matrix
-                    if type(X[1]) == "table" then
-                        -- Square to condensed
-                        local n = #X
-                        local result = {}
-                        local k = 1
-                        for i = 1, n - 1 do
-                            for j = i + 1, n do
-                                result[k] = X[i][j]
-                                k = k + 1
-                            end
-                        end
-                        return result
-                    else
-                        -- Condensed to square
-                        local m = #X
-                        -- n*(n-1)/2 = m => n = (1 + sqrt(1+8m))/2
-                        local n = math.floor((1 + math.sqrt(1 + 8 * m)) / 2)
-                        local result = {}
-                        for i = 1, n do
-                            result[i] = {}
-                            for j = 1, n do
-                                result[i][j] = 0
-                            end
-                        end
-                        local k = 1
-                        for i = 1, n - 1 do
-                            for j = i + 1, n do
-                                result[i][j] = X[k]
-                                result[j][i] = X[k]
-                                k = k + 1
-                            end
-                        end
-                        return result
-                    end
+                    return _luaswift_spatial_squareform(X)
                 end
 
                 ----------------------------------------------------------------
-                -- KDTree: K-dimensional tree for nearest neighbor queries
+                -- KDTree: K-dimensional tree (Swift-backed)
                 ----------------------------------------------------------------
                 local KDTree = {}
                 KDTree.__index = KDTree
 
                 function spatial.KDTree(points)
                     local self = setmetatable({}, KDTree)
+                    self._handle = _luaswift_spatial_kdtree_build(points)
                     self.points = points
-                    self.dim = points[1] and #points[1] or 0
                     self.n = #points
-
-                    -- Build tree
-                    local indices = {}
-                    for i = 1, self.n do indices[i] = i end
-                    self.root = self:_build(indices, 0)
-
+                    self.dim = points[1] and #points[1] or 0
                     return self
                 end
 
-                function KDTree:_build(indices, depth)
-                    if #indices == 0 then return nil end
-
-                    local axis = (depth % self.dim) + 1
-
-                    -- Sort by axis
-                    table.sort(indices, function(a, b)
-                        return self.points[a][axis] < self.points[b][axis]
-                    end)
-
-                    local mid = math.floor(#indices / 2) + 1
-                    local node = {
-                        idx = indices[mid],
-                        point = self.points[indices[mid]],
-                        axis = axis
-                    }
-
-                    -- Build subtrees
-                    local left_indices = {}
-                    for i = 1, mid - 1 do left_indices[i] = indices[i] end
-                    local right_indices = {}
-                    for i = mid + 1, #indices do
-                        right_indices[#right_indices + 1] = indices[i]
-                    end
-
-                    node.left = self:_build(left_indices, depth + 1)
-                    node.right = self:_build(right_indices, depth + 1)
-
-                    return node
-                end
-
-                function KDTree:_distance(p1, p2)
-                    local sum = 0
-                    for i = 1, self.dim do
-                        local diff = p1[i] - p2[i]
-                        sum = sum + diff * diff
-                    end
-                    return math.sqrt(sum)
-                end
-
-                -- Query k nearest neighbors
                 function KDTree:query(point, k)
                     k = k or 1
-                    local best = {}
-
-                    local function insert_best(idx, dist)
-                        local pos = #best + 1
-                        for i = 1, #best do
-                            if dist < best[i].dist then
-                                pos = i
-                                break
-                            end
-                        end
-                        table.insert(best, pos, {idx = idx, dist = dist})
-                        if #best > k then
-                            table.remove(best)
-                        end
-                    end
-
-                    local function search(node)
-                        if not node then return end
-
-                        local dist = self:_distance(point, node.point)
-                        if #best < k or dist < best[#best].dist then
-                            insert_best(node.idx, dist)
-                        end
-
-                        local axis = node.axis
-                        local diff = point[axis] - node.point[axis]
-
-                        local near = diff < 0 and node.left or node.right
-                        local far = diff < 0 and node.right or node.left
-
-                        search(near)
-
-                        -- Check if we need to search the far branch
-                        if #best < k or math.abs(diff) < best[#best].dist then
-                            search(far)
-                        end
-                    end
-
-                    search(self.root)
-
-                    -- Return indices and distances
-                    local indices = {}
-                    local distances = {}
-                    for i, b in ipairs(best) do
-                        indices[i] = b.idx
-                        distances[i] = b.dist
-                    end
-                    return indices, distances
+                    local result = _luaswift_spatial_kdtree_query(self._handle, point, k)
+                    return result[1], result[2]  -- indices, distances
                 end
 
-                -- Query all points within radius
                 function KDTree:query_radius(point, r)
-                    local result = {}
-
-                    local function search(node)
-                        if not node then return end
-
-                        local dist = self:_distance(point, node.point)
-                        if dist <= r then
-                            table.insert(result, {idx = node.idx, dist = dist})
-                        end
-
-                        local axis = node.axis
-                        local diff = point[axis] - node.point[axis]
-
-                        -- Always search the near branch if it might contain points
-                        if diff - r <= 0 and node.left then
-                            search(node.left)
-                        end
-                        if diff + r >= 0 and node.right then
-                            search(node.right)
-                        end
-                    end
-
-                    search(self.root)
-
-                    -- Sort by distance
-                    table.sort(result, function(a, b) return a.dist < b.dist end)
-
-                    local indices = {}
-                    local distances = {}
-                    for i, r in ipairs(result) do
-                        indices[i] = r.idx
-                        distances[i] = r.dist
-                    end
-                    return indices, distances
+                    local result = _luaswift_spatial_kdtree_query_radius(self._handle, point, r)
+                    return result[1], result[2]  -- indices, distances
                 end
 
-                -- Query all pairs within distance
                 function KDTree:query_pairs(r)
-                    local pairs = {}
-
-                    for i = 1, self.n do
-                        local indices, distances = self:query_radius(self.points[i], r)
-                        for j, idx in ipairs(indices) do
-                            if idx > i then
-                                table.insert(pairs, {i, idx, distances[j]})
-                            end
-                        end
-                    end
-
-                    return pairs
+                    return _luaswift_spatial_kdtree_query_pairs(self._handle, r)
                 end
 
                 ----------------------------------------------------------------
-                -- Voronoi: Voronoi diagram computation
-                --
-                -- NOTE: Full Voronoi diagram computation is complex.
-                -- This provides a basic implementation for 2D points.
+                -- Voronoi: Voronoi diagram computation (Swift-backed)
                 ----------------------------------------------------------------
                 function spatial.Voronoi(points)
-                    local n = #points
-                    if n == 0 then
-                        return {
-                            points = {},
-                            vertices = {},
-                            regions = {},
-                            ridge_vertices = {},
-                            ridge_points = {}
-                        }
-                    end
-
-                    -- For Voronoi, we need Delaunay first (dual relationship)
-                    local delaunay = spatial.Delaunay(points)
-
-                    -- Compute circumcenters of Delaunay triangles = Voronoi vertices
-                    local vertices = {}
-                    local simplex_to_vertex = {}
-
-                    for i, simplex in ipairs(delaunay.simplices) do
-                        local p1 = points[simplex[1]]
-                        local p2 = points[simplex[2]]
-                        local p3 = simplex[3] and points[simplex[3]]
-
-                        if p3 then
-                            -- 2D circumcenter
-                            local ax, ay = p1[1], p1[2]
-                            local bx, by = p2[1], p2[2]
-                            local cx, cy = p3[1], p3[2]
-
-                            local d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-                            if math.abs(d) > 1e-10 then
-                                local a2 = ax * ax + ay * ay
-                                local b2 = bx * bx + by * by
-                                local c2 = cx * cx + cy * cy
-
-                                local ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
-                                local uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
-
-                                table.insert(vertices, {ux, uy})
-                                simplex_to_vertex[i] = #vertices
-                            end
-                        end
-                    end
-
-                    -- Build regions for each input point
-                    local regions = {}
-                    for i = 1, n do regions[i] = {} end
-
-                    -- For each Delaunay simplex, its circumcenter belongs to all
-                    -- point regions that are part of that simplex
-                    for i, simplex in ipairs(delaunay.simplices) do
-                        local v_idx = simplex_to_vertex[i]
-                        if v_idx then
-                            for _, pt_idx in ipairs(simplex) do
-                                table.insert(regions[pt_idx], v_idx)
-                            end
-                        end
-                    end
-
-                    -- Build ridge information
-                    local ridge_vertices = {}
-                    local ridge_points = {}
-
-                    -- Ridges are edges between adjacent Voronoi vertices
-                    -- They correspond to shared edges in Delaunay triangulation
-                    for i, simplex in ipairs(delaunay.simplices) do
-                        local neighbor_idx = delaunay.neighbors[i]
-                        local v1 = simplex_to_vertex[i]
-
-                        if neighbor_idx and v1 then
-                            for _, n_idx in ipairs(neighbor_idx) do
-                                if n_idx > i then  -- Avoid duplicates
-                                    local v2 = simplex_to_vertex[n_idx]
-                                    if v2 then
-                                        -- Find shared edge (the two points shared between simplices)
-                                        local shared = {}
-                                        for _, p1 in ipairs(simplex) do
-                                            for _, p2 in ipairs(delaunay.simplices[n_idx]) do
-                                                if p1 == p2 then
-                                                    table.insert(shared, p1)
-                                                end
-                                            end
-                                        end
-                                        if #shared >= 2 then
-                                            table.insert(ridge_vertices, {v1, v2})
-                                            table.insert(ridge_points, {shared[1], shared[2]})
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-
-                    return {
-                        points = points,
-                        vertices = vertices,
-                        regions = regions,
-                        ridge_vertices = ridge_vertices,
-                        ridge_points = ridge_points
-                    }
+                    return _luaswift_spatial_voronoi(points)
                 end
 
                 ----------------------------------------------------------------
-                -- Delaunay: Delaunay triangulation
-                --
-                -- Uses Bowyer-Watson algorithm for 2D triangulation.
+                -- Delaunay: Delaunay triangulation (Swift-backed)
                 ----------------------------------------------------------------
                 function spatial.Delaunay(points)
-                    local n = #points
-                    if n < 3 then
-                        return {
-                            points = points,
-                            simplices = {},
-                            neighbors = {}
-                        }
-                    end
-
-                    -- Check if all points are on a line
-                    local collinear = true
-                    if n >= 3 then
-                        local p1, p2, p3 = points[1], points[2], points[3]
-                        local cross = (p2[1] - p1[1]) * (p3[2] - p1[2]) -
-                                      (p2[2] - p1[2]) * (p3[1] - p1[1])
-                        if math.abs(cross) > 1e-10 then
-                            collinear = false
-                        end
-                    end
-
-                    if collinear and n >= 3 then
-                        -- All points on a line - return line segments instead
-                        local simplices = {}
-                        local sorted_indices = {}
-                        for i = 1, n do sorted_indices[i] = i end
-                        table.sort(sorted_indices, function(a, b)
-                            return points[a][1] < points[b][1] or
-                                   (points[a][1] == points[b][1] and points[a][2] < points[b][2])
-                        end)
-                        for i = 1, n - 1 do
-                            table.insert(simplices, {sorted_indices[i], sorted_indices[i+1]})
-                        end
-                        return {
-                            points = points,
-                            simplices = simplices,
-                            neighbors = {}
-                        }
-                    end
-
-                    -- Find bounding box
-                    local min_x, max_x = points[1][1], points[1][1]
-                    local min_y, max_y = points[1][2], points[1][2]
-                    for i = 2, n do
-                        min_x = math.min(min_x, points[i][1])
-                        max_x = math.max(max_x, points[i][1])
-                        min_y = math.min(min_y, points[i][2])
-                        max_y = math.max(max_y, points[i][2])
-                    end
-
-                    -- Create super-triangle
-                    local dx = max_x - min_x
-                    local dy = max_y - min_y
-                    local delta = math.max(dx, dy) * 10
-
-                    local p_super = {
-                        {min_x - delta, min_y - delta},
-                        {min_x + dx / 2, max_y + delta * 2},
-                        {max_x + delta, min_y - delta}
-                    }
-
-                    -- Extended points array (original + super triangle)
-                    local all_points = {}
-                    for i = 1, n do all_points[i] = points[i] end
-                    for i = 1, 3 do all_points[n + i] = p_super[i] end
-
-                    -- Initial triangle (super triangle)
-                    local triangles = {{n + 1, n + 2, n + 3}}
-
-                    -- Helper: check if point is inside circumcircle
-                    local function in_circumcircle(px, py, tri)
-                        local ax, ay = all_points[tri[1]][1], all_points[tri[1]][2]
-                        local bx, by = all_points[tri[2]][1], all_points[tri[2]][2]
-                        local cx, cy = all_points[tri[3]][1], all_points[tri[3]][2]
-
-                        local d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-                        if math.abs(d) < 1e-15 then return false end
-
-                        local a2 = ax * ax + ay * ay
-                        local b2 = bx * bx + by * by
-                        local c2 = cx * cx + cy * cy
-
-                        local ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
-                        local uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
-
-                        local r2 = (ax - ux)^2 + (ay - uy)^2
-                        local dist2 = (px - ux)^2 + (py - uy)^2
-
-                        return dist2 < r2
-                    end
-
-                    -- Insert each point
-                    for i = 1, n do
-                        local px, py = points[i][1], points[i][2]
-                        local bad_triangles = {}
-                        local polygon = {}
-
-                        -- Find all triangles whose circumcircle contains the point
-                        for j, tri in ipairs(triangles) do
-                            if in_circumcircle(px, py, tri) then
-                                table.insert(bad_triangles, j)
-                            end
-                        end
-
-                        -- Find boundary edges of the hole
-                        local edge_count = {}
-                        for _, j in ipairs(bad_triangles) do
-                            local tri = triangles[j]
-                            local edges = {
-                                {tri[1], tri[2]},
-                                {tri[2], tri[3]},
-                                {tri[3], tri[1]}
-                            }
-                            for _, e in ipairs(edges) do
-                                local key = math.min(e[1], e[2]) .. "," .. math.max(e[1], e[2])
-                                edge_count[key] = (edge_count[key] or 0) + 1
-                            end
-                        end
-
-                        -- Boundary edges appear only once
-                        for _, j in ipairs(bad_triangles) do
-                            local tri = triangles[j]
-                            local edges = {
-                                {tri[1], tri[2]},
-                                {tri[2], tri[3]},
-                                {tri[3], tri[1]}
-                            }
-                            for _, e in ipairs(edges) do
-                                local key = math.min(e[1], e[2]) .. "," .. math.max(e[1], e[2])
-                                if edge_count[key] == 1 then
-                                    table.insert(polygon, e)
-                                end
-                            end
-                        end
-
-                        -- Remove bad triangles (reverse order to preserve indices)
-                        table.sort(bad_triangles, function(a, b) return a > b end)
-                        for _, j in ipairs(bad_triangles) do
-                            table.remove(triangles, j)
-                        end
-
-                        -- Create new triangles from boundary edges to the new point
-                        for _, e in ipairs(polygon) do
-                            table.insert(triangles, {e[1], e[2], i})
-                        end
-                    end
-
-                    -- Remove triangles that include super-triangle vertices
-                    local final_triangles = {}
-                    for _, tri in ipairs(triangles) do
-                        local valid = true
-                        for _, v in ipairs(tri) do
-                            if v > n then
-                                valid = false
-                                break
-                            end
-                        end
-                        if valid then
-                            table.insert(final_triangles, tri)
-                        end
-                    end
-
-                    -- Build neighbor information
-                    local neighbors = {}
-                    for i = 1, #final_triangles do
-                        neighbors[i] = {}
-                    end
-
-                    for i = 1, #final_triangles do
-                        local tri_i = final_triangles[i]
-                        for j = i + 1, #final_triangles do
-                            local tri_j = final_triangles[j]
-                            -- Count shared vertices
-                            local shared = 0
-                            for _, vi in ipairs(tri_i) do
-                                for _, vj in ipairs(tri_j) do
-                                    if vi == vj then shared = shared + 1 end
-                                end
-                            end
-                            if shared == 2 then
-                                table.insert(neighbors[i], j)
-                                table.insert(neighbors[j], i)
-                            end
-                        end
-                    end
-
-                    return {
-                        points = points,
-                        simplices = final_triangles,
-                        neighbors = neighbors
-                    }
+                    return _luaswift_spatial_delaunay(points)
                 end
 
                 ----------------------------------------------------------------
-                -- ConvexHull: Compute convex hull of points
-                --
-                -- Uses Graham scan algorithm for 2D points.
+                -- ConvexHull: Convex hull computation (Swift-backed)
                 ----------------------------------------------------------------
                 function spatial.ConvexHull(points)
-                    local n = #points
-                    if n < 3 then
-                        local vertices = {}
-                        for i = 1, n do vertices[i] = i end
-                        return {
-                            points = points,
-                            vertices = vertices,
-                            simplices = {}
-                        }
-                    end
-
-                    -- Find lowest point (and leftmost if tie)
-                    local start_idx = 1
-                    for i = 2, n do
-                        if points[i][2] < points[start_idx][2] or
-                           (points[i][2] == points[start_idx][2] and points[i][1] < points[start_idx][1]) then
-                            start_idx = i
-                        end
-                    end
-
-                    local start = points[start_idx]
-
-                    -- Sort by polar angle
-                    local indices = {}
-                    for i = 1, n do
-                        if i ~= start_idx then
-                            table.insert(indices, i)
-                        end
-                    end
-
-                    table.sort(indices, function(a, b)
-                        local angle_a = math.atan(points[a][2] - start[2], points[a][1] - start[1])
-                        local angle_b = math.atan(points[b][2] - start[2], points[b][1] - start[1])
-                        if math.abs(angle_a - angle_b) < 1e-10 then
-                            -- Same angle, sort by distance
-                            local dist_a = (points[a][1] - start[1])^2 + (points[a][2] - start[2])^2
-                            local dist_b = (points[b][1] - start[1])^2 + (points[b][2] - start[2])^2
-                            return dist_a < dist_b
-                        end
-                        return angle_a < angle_b
-                    end)
-
-                    -- Graham scan
-                    local function ccw(p1, p2, p3)
-                        return (p2[1] - p1[1]) * (p3[2] - p1[2]) - (p2[2] - p1[2]) * (p3[1] - p1[1])
-                    end
-
-                    local hull = {start_idx}
-                    for _, idx in ipairs(indices) do
-                        while #hull >= 2 and ccw(points[hull[#hull-1]], points[hull[#hull]], points[idx]) <= 0 do
-                            table.remove(hull)
-                        end
-                        table.insert(hull, idx)
-                    end
-
-                    -- Build simplices (edges)
-                    local simplices = {}
-                    for i = 1, #hull do
-                        local next_i = (i % #hull) + 1
-                        table.insert(simplices, {hull[i], hull[next_i]})
-                    end
-
-                    return {
-                        points = points,
-                        vertices = hull,
-                        simplices = simplices
-                    }
+                    return _luaswift_spatial_convexhull(points)
                 end
 
                 -- Store the module
@@ -800,5 +198,954 @@ public struct SpatialModule {
         } catch {
             // Silently fail
         }
+    }
+
+    // MARK: - Distance Function Callbacks
+
+    /// Extract point from LuaValue (array of numbers)
+    private static func extractPoint(_ value: LuaValue) -> [Double]? {
+        guard let arr = value.arrayValue else { return nil }
+        var result: [Double] = []
+        result.reserveCapacity(arr.count)
+        for val in arr {
+            guard let num = val.numberValue else { return nil }
+            result.append(num)
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    /// Euclidean distance using BLAS
+    private static func euclideanDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = min(p1.count, p2.count)
+        var diff = [Double](repeating: 0, count: n)
+
+        // Compute difference vector: diff = p1 - p2
+        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
+
+        // Compute Euclidean norm using BLAS
+        return cblas_dnrm2(Int32(n), diff, 1)
+    }
+
+    /// Squared Euclidean distance using vDSP
+    private static func sqeuclideanDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = min(p1.count, p2.count)
+        var diff = [Double](repeating: 0, count: n)
+
+        // Compute difference vector
+        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
+
+        // Compute sum of squares using vDSP
+        var result: Double = 0
+        vDSP_dotprD(diff, 1, diff, 1, &result, vDSP_Length(n))
+        return result
+    }
+
+    /// Manhattan (cityblock) distance using vDSP
+    private static func cityblockDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = min(p1.count, p2.count)
+        var diff = [Double](repeating: 0, count: n)
+        var absDiff = [Double](repeating: 0, count: n)
+
+        // Compute difference vector
+        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
+
+        // Compute absolute values
+        vDSP_vabsD(diff, 1, &absDiff, 1, vDSP_Length(n))
+
+        // Sum using vDSP
+        var result: Double = 0
+        vDSP_sveD(absDiff, 1, &result, vDSP_Length(n))
+        return result
+    }
+
+    /// Chebyshev distance using vDSP
+    private static func chebyshevDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = min(p1.count, p2.count)
+        var diff = [Double](repeating: 0, count: n)
+        var absDiff = [Double](repeating: 0, count: n)
+
+        // Compute difference vector
+        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
+
+        // Compute absolute values
+        vDSP_vabsD(diff, 1, &absDiff, 1, vDSP_Length(n))
+
+        // Find maximum using vDSP
+        var result: Double = 0
+        vDSP_maxvD(absDiff, 1, &result, vDSP_Length(n))
+        return result
+    }
+
+    /// Minkowski distance
+    private static func minkowskiDistance(_ p1: [Double], _ p2: [Double], _ p: Double) -> Double {
+        let n = min(p1.count, p2.count)
+        var sum: Double = 0
+
+        for i in 0..<n {
+            sum += pow(abs(p1[i] - p2[i]), p)
+        }
+        return pow(sum, 1.0 / p)
+    }
+
+    /// Cosine distance using BLAS
+    private static func cosineDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = Int32(min(p1.count, p2.count))
+
+        // Compute dot product using BLAS
+        let dot = cblas_ddot(n, p1, 1, p2, 1)
+
+        // Compute norms using BLAS
+        let norm1 = cblas_dnrm2(n, p1, 1)
+        let norm2 = cblas_dnrm2(n, p2, 1)
+
+        let denom = norm1 * norm2
+        if denom < 1e-15 { return 1.0 }
+        return 1.0 - dot / denom
+    }
+
+    /// Correlation distance
+    private static func correlationDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = min(p1.count, p2.count)
+        guard n > 0 else { return 1.0 }
+
+        // Compute means using vDSP
+        var mean1: Double = 0
+        var mean2: Double = 0
+        vDSP_meanvD(p1, 1, &mean1, vDSP_Length(n))
+        vDSP_meanvD(p2, 1, &mean2, vDSP_Length(n))
+
+        // Center the vectors
+        var centered1 = [Double](repeating: 0, count: n)
+        var centered2 = [Double](repeating: 0, count: n)
+        var negMean1 = -mean1
+        var negMean2 = -mean2
+        vDSP_vsaddD(p1, 1, &negMean1, &centered1, 1, vDSP_Length(n))
+        vDSP_vsaddD(p2, 1, &negMean2, &centered2, 1, vDSP_Length(n))
+
+        // Compute correlation using BLAS
+        let dot = cblas_ddot(Int32(n), centered1, 1, centered2, 1)
+        let norm1 = cblas_dnrm2(Int32(n), centered1, 1)
+        let norm2 = cblas_dnrm2(Int32(n), centered2, 1)
+
+        let denom = norm1 * norm2
+        if denom < 1e-15 { return 1.0 }
+        return 1.0 - dot / denom
+    }
+
+    // MARK: - Distance Callbacks
+
+    private static func euclideanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let p1 = extractPoint(args[0]),
+              let p2 = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("euclidean: expected two point arrays")
+        }
+        return .number(euclideanDistance(p1, p2))
+    }
+
+    private static func sqeuclideanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let p1 = extractPoint(args[0]),
+              let p2 = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("sqeuclidean: expected two point arrays")
+        }
+        return .number(sqeuclideanDistance(p1, p2))
+    }
+
+    private static func cityblockCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let p1 = extractPoint(args[0]),
+              let p2 = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("cityblock: expected two point arrays")
+        }
+        return .number(cityblockDistance(p1, p2))
+    }
+
+    private static func chebyshevCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let p1 = extractPoint(args[0]),
+              let p2 = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("chebyshev: expected two point arrays")
+        }
+        return .number(chebyshevDistance(p1, p2))
+    }
+
+    private static func minkowskiCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let p1 = extractPoint(args[0]),
+              let p2 = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("minkowski: expected two point arrays")
+        }
+        let p = args.count >= 3 ? (args[2].numberValue ?? 2.0) : 2.0
+        return .number(minkowskiDistance(p1, p2, p))
+    }
+
+    private static func cosineCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let p1 = extractPoint(args[0]),
+              let p2 = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("cosine: expected two point arrays")
+        }
+        return .number(cosineDistance(p1, p2))
+    }
+
+    private static func correlationCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let p1 = extractPoint(args[0]),
+              let p2 = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("correlation: expected two point arrays")
+        }
+        return .number(correlationDistance(p1, p2))
+    }
+
+    // MARK: - Batch Distance Callbacks
+
+    /// Extract array of points from LuaValue
+    private static func extractPoints(_ value: LuaValue) -> [[Double]]? {
+        // Handle array case
+        if let arr = value.arrayValue {
+            if arr.isEmpty { return [] }
+            var result: [[Double]] = []
+            result.reserveCapacity(arr.count)
+            for val in arr {
+                guard let point = extractPoint(val) else { return nil }
+                result.append(point)
+            }
+            return result
+        }
+        // Handle empty table {} which may come as .table([:])
+        if case .table(let dict) = value, dict.isEmpty {
+            return []
+        }
+        return nil
+    }
+
+    /// Get distance function by metric name
+    private static func getDistanceFunction(_ metric: String) -> (([Double], [Double]) -> Double) {
+        switch metric.lowercased() {
+        case "sqeuclidean": return sqeuclideanDistance
+        case "cityblock", "manhattan": return cityblockDistance
+        case "chebyshev": return chebyshevDistance
+        case "cosine": return cosineDistance
+        case "correlation": return correlationDistance
+        default: return euclideanDistance
+        }
+    }
+
+    private static func cdistCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let XA = extractPoints(args[0]),
+              let XB = extractPoints(args[1]) else {
+            throw LuaError.runtimeError("cdist: expected two arrays of points")
+        }
+
+        let metric = args.count >= 3 ? (args[2].stringValue ?? "euclidean") : "euclidean"
+        let distFunc = getDistanceFunction(metric)
+
+        let m = XA.count
+        let n = XB.count
+
+        // Compute distance matrix
+        var result: [[Double]] = Array(repeating: Array(repeating: 0, count: n), count: m)
+
+        // Use concurrent processing for large matrices
+        if m * n > 1000 {
+            DispatchQueue.concurrentPerform(iterations: m) { i in
+                for j in 0..<n {
+                    result[i][j] = distFunc(XA[i], XB[j])
+                }
+            }
+        } else {
+            for i in 0..<m {
+                for j in 0..<n {
+                    result[i][j] = distFunc(XA[i], XB[j])
+                }
+            }
+        }
+
+        // Convert to Lua table
+        return matrixToLuaTable(result)
+    }
+
+    private static func pdistCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let X = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("pdist: expected array of points")
+        }
+
+        let metric = args.count >= 2 ? (args[1].stringValue ?? "euclidean") : "euclidean"
+        let distFunc = getDistanceFunction(metric)
+
+        let n = X.count
+        let numPairs = n * (n - 1) / 2
+        var result = [Double](repeating: 0, count: numPairs)
+
+        var k = 0
+        for i in 0..<(n - 1) {
+            for j in (i + 1)..<n {
+                result[k] = distFunc(X[i], X[j])
+                k += 1
+            }
+        }
+
+        // Convert to Lua array
+        return arrayToLuaTable(result)
+    }
+
+    private static func squareformCallback(_ args: [LuaValue]) throws -> LuaValue {
+        // Check if it's a 2D matrix or 1D condensed form
+        if let arr = args[0].arrayValue, !arr.isEmpty, arr[0].arrayValue != nil {
+            // Square to condensed (2D array)
+            guard let matrix = extractPoints(args[0]) else {
+                throw LuaError.runtimeError("squareform: invalid matrix")
+            }
+            let n = matrix.count
+            var result: [Double] = []
+            for i in 0..<(n - 1) {
+                for j in (i + 1)..<n {
+                    result.append(matrix[i][j])
+                }
+            }
+            return arrayToLuaTable(result)
+        } else {
+            // Condensed to square (1D array)
+            guard let condensed = extractPoint(args[0]) else {
+                throw LuaError.runtimeError("squareform: invalid condensed form")
+            }
+            let m = condensed.count
+            // n*(n-1)/2 = m => n = (1 + sqrt(1+8m))/2
+            let n = Int((1.0 + sqrt(1.0 + 8.0 * Double(m))) / 2.0)
+            var result = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
+
+            var k = 0
+            for i in 0..<(n - 1) {
+                for j in (i + 1)..<n {
+                    result[i][j] = condensed[k]
+                    result[j][i] = condensed[k]
+                    k += 1
+                }
+            }
+            return matrixToLuaTable(result)
+        }
+    }
+
+    // MARK: - KDTree Implementation
+
+    /// KDTree node structure
+    private class KDTreeNode {
+        let idx: Int
+        let point: [Double]
+        let axis: Int
+        var left: KDTreeNode?
+        var right: KDTreeNode?
+
+        init(idx: Int, point: [Double], axis: Int) {
+            self.idx = idx
+            self.point = point
+            self.axis = axis
+        }
+    }
+
+    /// KDTree handle stored in engine
+    private class KDTreeHandle {
+        let points: [[Double]]
+        let root: KDTreeNode?
+        let dim: Int
+
+        init(points: [[Double]]) {
+            self.points = points
+            self.dim = points.first?.count ?? 0
+
+            var indices = Array(0..<points.count)
+            self.root = KDTreeHandle.buildTree(points: points, indices: &indices, depth: 0, dim: dim)
+        }
+
+        private static func buildTree(points: [[Double]], indices: inout [Int], depth: Int, dim: Int) -> KDTreeNode? {
+            guard !indices.isEmpty else { return nil }
+
+            let axis = depth % dim
+
+            // Sort by axis
+            indices.sort { points[$0][axis] < points[$1][axis] }
+
+            let mid = indices.count / 2
+            let node = KDTreeNode(idx: indices[mid], point: points[indices[mid]], axis: axis)
+
+            var leftIndices = Array(indices[0..<mid])
+            var rightIndices = Array(indices[(mid + 1)...])
+
+            node.left = buildTree(points: points, indices: &leftIndices, depth: depth + 1, dim: dim)
+            node.right = buildTree(points: points, indices: &rightIndices, depth: depth + 1, dim: dim)
+
+            return node
+        }
+
+        func query(point: [Double], k: Int) -> (indices: [Int], distances: [Double]) {
+            var best: [(idx: Int, dist: Double)] = []
+
+            func search(_ node: KDTreeNode?) {
+                guard let node = node else { return }
+
+                let dist = euclideanDistance(point, node.point)
+
+                // Insert into best list maintaining sorted order
+                if best.count < k || dist < best.last!.dist {
+                    var pos = best.count
+                    for i in 0..<best.count {
+                        if dist < best[i].dist {
+                            pos = i
+                            break
+                        }
+                    }
+                    best.insert((node.idx, dist), at: pos)
+                    if best.count > k {
+                        best.removeLast()
+                    }
+                }
+
+                let diff = point[node.axis] - node.point[node.axis]
+                let near = diff < 0 ? node.left : node.right
+                let far = diff < 0 ? node.right : node.left
+
+                search(near)
+
+                // Check if we need to search far branch
+                if best.count < k || abs(diff) < best.last!.dist {
+                    search(far)
+                }
+            }
+
+            search(root)
+
+            return (best.map { $0.idx + 1 }, best.map { $0.dist })  // 1-indexed for Lua
+        }
+
+        func queryRadius(point: [Double], r: Double) -> (indices: [Int], distances: [Double]) {
+            var result: [(idx: Int, dist: Double)] = []
+
+            func search(_ node: KDTreeNode?) {
+                guard let node = node else { return }
+
+                let dist = euclideanDistance(point, node.point)
+                if dist <= r {
+                    result.append((node.idx, dist))
+                }
+
+                let diff = point[node.axis] - node.point[node.axis]
+
+                if diff - r <= 0 {
+                    search(node.left)
+                }
+                if diff + r >= 0 {
+                    search(node.right)
+                }
+            }
+
+            search(root)
+
+            // Sort by distance
+            result.sort { $0.dist < $1.dist }
+
+            return (result.map { $0.idx + 1 }, result.map { $0.dist })  // 1-indexed for Lua
+        }
+
+        func queryPairs(r: Double) -> [(Int, Int, Double)] {
+            var pairs: [(Int, Int, Double)] = []
+
+            for i in 0..<points.count {
+                let (indices, distances) = queryRadius(point: points[i], r: r)
+                for (j, idx) in indices.enumerated() {
+                    let zeroIdx = idx - 1  // Convert back to 0-indexed
+                    if zeroIdx > i {
+                        pairs.append((i + 1, idx, distances[j]))  // 1-indexed for Lua
+                    }
+                }
+            }
+
+            return pairs
+        }
+    }
+
+    /// Thread-safe storage for KDTree handles
+    private static var kdtreeHandles: [Int: KDTreeHandle] = [:]
+    private static var nextHandleId = 1
+    private static let handleLock = NSLock()
+
+    private static func kdtreeBuildCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let points = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("KDTree: expected array of points")
+        }
+
+        let handle = KDTreeHandle(points: points)
+
+        handleLock.lock()
+        let handleId = nextHandleId
+        nextHandleId += 1
+        kdtreeHandles[handleId] = handle
+        handleLock.unlock()
+
+        return .number(Double(handleId))
+    }
+
+    private static func kdtreeQueryCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let handleId = args[0].numberValue.map({ Int($0) }),
+              let point = extractPoint(args[1]) else {
+            throw LuaError.runtimeError("KDTree.query: invalid arguments")
+        }
+
+        let k = args.count >= 3 ? Int(args[2].numberValue ?? 1) : 1
+
+        handleLock.lock()
+        guard let handle = kdtreeHandles[handleId] else {
+            handleLock.unlock()
+            throw LuaError.runtimeError("KDTree.query: invalid handle")
+        }
+        handleLock.unlock()
+
+        let (indices, distances) = handle.query(point: point, k: k)
+
+        return .array([
+            .array(indices.map { .number(Double($0)) }),
+            .array(distances.map { .number($0) })
+        ])
+    }
+
+    private static func kdtreeQueryRadiusCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 3,
+              let handleId = args[0].numberValue.map({ Int($0) }),
+              let point = extractPoint(args[1]),
+              let r = args[2].numberValue else {
+            throw LuaError.runtimeError("KDTree.query_radius: invalid arguments")
+        }
+
+        handleLock.lock()
+        guard let handle = kdtreeHandles[handleId] else {
+            handleLock.unlock()
+            throw LuaError.runtimeError("KDTree.query_radius: invalid handle")
+        }
+        handleLock.unlock()
+
+        let (indices, distances) = handle.queryRadius(point: point, r: r)
+
+        return .array([
+            .array(indices.map { .number(Double($0)) }),
+            .array(distances.map { .number($0) })
+        ])
+    }
+
+    private static func kdtreeQueryPairsCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let handleId = args[0].numberValue.map({ Int($0) }),
+              let r = args[1].numberValue else {
+            throw LuaError.runtimeError("KDTree.query_pairs: invalid arguments")
+        }
+
+        handleLock.lock()
+        guard let handle = kdtreeHandles[handleId] else {
+            handleLock.unlock()
+            throw LuaError.runtimeError("KDTree.query_pairs: invalid handle")
+        }
+        handleLock.unlock()
+
+        let pairs = handle.queryPairs(r: r)
+
+        let resultArray = pairs.map { pair -> LuaValue in
+            .array([
+                .number(Double(pair.0)),
+                .number(Double(pair.1)),
+                .number(pair.2)
+            ])
+        }
+
+        return .array(resultArray)
+    }
+
+    // MARK: - Geometric Algorithms
+
+    private static func delaunayCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let points = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("Delaunay: expected array of points")
+        }
+
+        let n = points.count
+        if n < 3 {
+            return .table([
+                "points": pointsToLuaTable(points),
+                "simplices": .table([:]),
+                "neighbors": .table([:])
+            ])
+        }
+
+        // Check for collinear points
+        if n >= 3 {
+            let p1 = points[0], p2 = points[1], p3 = points[2]
+            let cross = (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0])
+            if abs(cross) < 1e-10 {
+                // Collinear - return line segments
+                var sortedIndices = Array(0..<n)
+                sortedIndices.sort {
+                    points[$0][0] < points[$1][0] ||
+                    (points[$0][0] == points[$1][0] && points[$0][1] < points[$1][1])
+                }
+
+                var simplices: [[Int]] = []
+                for i in 0..<(n - 1) {
+                    simplices.append([sortedIndices[i] + 1, sortedIndices[i + 1] + 1])  // 1-indexed
+                }
+
+                return .table([
+                    "points": pointsToLuaTable(points),
+                    "simplices": simplicesToLuaTable(simplices),
+                    "neighbors": .table([:])
+                ])
+            }
+        }
+
+        // Bowyer-Watson algorithm
+        let (simplices, neighbors) = bowyerWatson(points: points)
+
+        return .table([
+            "points": pointsToLuaTable(points),
+            "simplices": simplicesToLuaTable(simplices),
+            "neighbors": neighborsToLuaTable(neighbors)
+        ])
+    }
+
+    /// Bowyer-Watson algorithm for Delaunay triangulation
+    private static func bowyerWatson(points: [[Double]]) -> (simplices: [[Int]], neighbors: [[Int]]) {
+        let n = points.count
+
+        // Find bounding box
+        var minX = points[0][0], maxX = points[0][0]
+        var minY = points[0][1], maxY = points[0][1]
+
+        for p in points {
+            minX = min(minX, p[0])
+            maxX = max(maxX, p[0])
+            minY = min(minY, p[1])
+            maxY = max(maxY, p[1])
+        }
+
+        // Create super-triangle
+        let dx = maxX - minX
+        let dy = maxY - minY
+        let delta = max(dx, dy) * 10
+
+        let superTriangle: [[Double]] = [
+            [minX - delta, minY - delta],
+            [minX + dx / 2, maxY + delta * 2],
+            [maxX + delta, minY - delta]
+        ]
+
+        // All points including super-triangle vertices
+        let allPoints = points + superTriangle
+
+        // Initial triangulation with super-triangle (using 0-indexed)
+        var triangles: [[Int]] = [[n, n + 1, n + 2]]
+
+        // Insert each point
+        for i in 0..<n {
+            let px = points[i][0]
+            let py = points[i][1]
+
+            var badTriangles: [Int] = []
+
+            // Find triangles whose circumcircle contains the point
+            for (j, tri) in triangles.enumerated() {
+                if inCircumcircle(px: px, py: py, tri: tri, points: allPoints) {
+                    badTriangles.append(j)
+                }
+            }
+
+            // Find boundary edges of the hole
+            var edgeCount: [String: Int] = [:]
+            for j in badTriangles {
+                let tri = triangles[j]
+                let edges = [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]]
+                for e in edges {
+                    let key = "\(min(e[0], e[1])),\(max(e[0], e[1]))"
+                    edgeCount[key, default: 0] += 1
+                }
+            }
+
+            // Collect boundary edges (those appearing only once)
+            var polygon: [[Int]] = []
+            for j in badTriangles {
+                let tri = triangles[j]
+                let edges = [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]]
+                for e in edges {
+                    let key = "\(min(e[0], e[1])),\(max(e[0], e[1]))"
+                    if edgeCount[key] == 1 {
+                        polygon.append(e)
+                    }
+                }
+            }
+
+            // Remove bad triangles (in reverse order to preserve indices)
+            for j in badTriangles.sorted().reversed() {
+                triangles.remove(at: j)
+            }
+
+            // Create new triangles from boundary edges to new point
+            for e in polygon {
+                triangles.append([e[0], e[1], i])
+            }
+        }
+
+        // Remove triangles containing super-triangle vertices
+        var finalTriangles: [[Int]] = []
+        for tri in triangles {
+            var valid = true
+            for v in tri {
+                if v >= n {
+                    valid = false
+                    break
+                }
+            }
+            if valid {
+                // Convert to 1-indexed for Lua
+                finalTriangles.append(tri.map { $0 + 1 })
+            }
+        }
+
+        // Build neighbor information
+        var neighbors: [[Int]] = Array(repeating: [], count: finalTriangles.count)
+        for i in 0..<finalTriangles.count {
+            let triI = finalTriangles[i]
+            for j in (i + 1)..<finalTriangles.count {
+                let triJ = finalTriangles[j]
+                // Count shared vertices
+                var shared = 0
+                for vi in triI {
+                    for vj in triJ {
+                        if vi == vj { shared += 1 }
+                    }
+                }
+                if shared == 2 {
+                    neighbors[i].append(j + 1)  // 1-indexed
+                    neighbors[j].append(i + 1)
+                }
+            }
+        }
+
+        return (finalTriangles, neighbors)
+    }
+
+    /// Check if point is inside circumcircle of triangle
+    private static func inCircumcircle(px: Double, py: Double, tri: [Int], points: [[Double]]) -> Bool {
+        let ax = points[tri[0]][0], ay = points[tri[0]][1]
+        let bx = points[tri[1]][0], by = points[tri[1]][1]
+        let cx = points[tri[2]][0], cy = points[tri[2]][1]
+
+        let d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+        if abs(d) < 1e-15 { return false }
+
+        let a2 = ax * ax + ay * ay
+        let b2 = bx * bx + by * by
+        let c2 = cx * cx + cy * cy
+
+        let ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
+        let uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
+
+        let r2 = (ax - ux) * (ax - ux) + (ay - uy) * (ay - uy)
+        let dist2 = (px - ux) * (px - ux) + (py - uy) * (py - uy)
+
+        return dist2 < r2
+    }
+
+    private static func voronoiCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let points = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("Voronoi: expected array of points")
+        }
+
+        let n = points.count
+        if n == 0 {
+            return .table([
+                "points": .table([:]),
+                "vertices": .table([:]),
+                "regions": .table([:]),
+                "ridge_vertices": .table([:]),
+                "ridge_points": .table([:])
+            ])
+        }
+
+        // Compute Delaunay first (Voronoi is dual)
+        let (delaunaySimplices, delaunayNeighbors) = bowyerWatson(points: points)
+
+        // Compute circumcenters of Delaunay triangles = Voronoi vertices
+        var vertices: [[Double]] = []
+        var simplexToVertex: [Int: Int] = [:]
+
+        for (i, simplex) in delaunaySimplices.enumerated() {
+            if simplex.count == 3 {
+                let p1 = points[simplex[0] - 1]  // Convert from 1-indexed
+                let p2 = points[simplex[1] - 1]
+                let p3 = points[simplex[2] - 1]
+
+                let ax = p1[0], ay = p1[1]
+                let bx = p2[0], by = p2[1]
+                let cx = p3[0], cy = p3[1]
+
+                let d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+                if abs(d) > 1e-10 {
+                    let a2 = ax * ax + ay * ay
+                    let b2 = bx * bx + by * by
+                    let c2 = cx * cx + cy * cy
+
+                    let ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
+                    let uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
+
+                    vertices.append([ux, uy])
+                    simplexToVertex[i] = vertices.count  // 1-indexed
+                }
+            }
+        }
+
+        // Build regions for each input point
+        var regions: [[Int]] = Array(repeating: [], count: n)
+        for (i, simplex) in delaunaySimplices.enumerated() {
+            if let vIdx = simplexToVertex[i] {
+                for ptIdx in simplex {
+                    regions[ptIdx - 1].append(vIdx)  // Convert from 1-indexed
+                }
+            }
+        }
+
+        // Build ridge information
+        var ridgeVertices: [[Int]] = []
+        var ridgePoints: [[Int]] = []
+
+        for (i, simplex) in delaunaySimplices.enumerated() {
+            if let v1 = simplexToVertex[i] {
+                for nIdx in delaunayNeighbors[i] {
+                    if nIdx > i + 1 {  // nIdx is 1-indexed, i is 0-indexed
+                        if let v2 = simplexToVertex[nIdx - 1] {
+                            // Find shared edge
+                            var shared: [Int] = []
+                            for p1 in simplex {
+                                for p2 in delaunaySimplices[nIdx - 1] {
+                                    if p1 == p2 { shared.append(p1) }
+                                }
+                            }
+                            if shared.count >= 2 {
+                                ridgeVertices.append([v1, v2])
+                                ridgePoints.append([shared[0], shared[1]])
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return .table([
+            "points": pointsToLuaTable(points),
+            "vertices": pointsToLuaTable(vertices),
+            "regions": regionsToLuaTable(regions),
+            "ridge_vertices": simplicesToLuaTable(ridgeVertices),
+            "ridge_points": simplicesToLuaTable(ridgePoints)
+        ])
+    }
+
+    private static func convexhullCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let points = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("ConvexHull: expected array of points")
+        }
+
+        let n = points.count
+        if n < 3 {
+            let vertices = Array(1...n)
+            return .table([
+                "points": pointsToLuaTable(points),
+                "vertices": arrayToLuaTable(vertices.map { Double($0) }),
+                "simplices": .table([:])
+            ])
+        }
+
+        // Graham scan algorithm
+        // Find lowest point (and leftmost if tie)
+        var startIdx = 0
+        for i in 1..<n {
+            if points[i][1] < points[startIdx][1] ||
+               (points[i][1] == points[startIdx][1] && points[i][0] < points[startIdx][0]) {
+                startIdx = i
+            }
+        }
+
+        let start = points[startIdx]
+
+        // Sort by polar angle
+        var indices = Array(0..<n).filter { $0 != startIdx }
+        indices.sort { a, b in
+            let angleA = atan2(points[a][1] - start[1], points[a][0] - start[0])
+            let angleB = atan2(points[b][1] - start[1], points[b][0] - start[0])
+            if abs(angleA - angleB) < 1e-10 {
+                let distA = sqeuclideanDistance(points[a], start)
+                let distB = sqeuclideanDistance(points[b], start)
+                return distA < distB
+            }
+            return angleA < angleB
+        }
+
+        // Graham scan with CCW check
+        func ccw(_ p1: [Double], _ p2: [Double], _ p3: [Double]) -> Double {
+            return (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0])
+        }
+
+        var hull = [startIdx]
+        for idx in indices {
+            while hull.count >= 2 && ccw(points[hull[hull.count - 2]], points[hull[hull.count - 1]], points[idx]) <= 0 {
+                hull.removeLast()
+            }
+            hull.append(idx)
+        }
+
+        // Build simplices (edges)
+        var simplices: [[Int]] = []
+        for i in 0..<hull.count {
+            let nextI = (i + 1) % hull.count
+            simplices.append([hull[i] + 1, hull[nextI] + 1])  // 1-indexed
+        }
+
+        return .table([
+            "points": pointsToLuaTable(points),
+            "vertices": arrayToLuaTable(hull.map { Double($0 + 1) }),  // 1-indexed
+            "simplices": simplicesToLuaTable(simplices)
+        ])
+    }
+
+    // MARK: - Helper Functions for Lua Table Conversion
+
+    private static func arrayToLuaTable(_ arr: [Double]) -> LuaValue {
+        return .array(arr.map { .number($0) })
+    }
+
+    private static func matrixToLuaTable(_ matrix: [[Double]]) -> LuaValue {
+        return .array(matrix.map { row in
+            .array(row.map { .number($0) })
+        })
+    }
+
+    private static func pointsToLuaTable(_ points: [[Double]]) -> LuaValue {
+        return .array(points.map { point in
+            .array(point.map { .number($0) })
+        })
+    }
+
+    private static func simplicesToLuaTable(_ simplices: [[Int]]) -> LuaValue {
+        return .array(simplices.map { simplex in
+            .array(simplex.map { .number(Double($0)) })
+        })
+    }
+
+    private static func neighborsToLuaTable(_ neighbors: [[Int]]) -> LuaValue {
+        return .array(neighbors.map { neighborList in
+            .array(neighborList.map { .number(Double($0)) })
+        })
+    }
+
+    private static func regionsToLuaTable(_ regions: [[Int]]) -> LuaValue {
+        return .array(regions.map { region in
+            .array(region.map { .number(Double($0)) })
+        })
     }
 }

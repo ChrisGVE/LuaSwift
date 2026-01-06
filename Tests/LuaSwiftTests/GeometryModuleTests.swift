@@ -9,6 +9,7 @@
 //
 
 import Testing
+import Foundation
 @testable import LuaSwift
 
 @Suite("Geometry Module Tests")
@@ -572,5 +573,345 @@ struct GeometryModuleTests {
         """)
 
         #expect(result.stringValue == "transform3d")
+    }
+
+    // MARK: - Coordinate Conversion Tests
+
+    @Test("Vec2 to_polar method")
+    func vec2ToPolar() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec2(3, 4)
+            local polar = v:to_polar()
+            return {polar.r, polar.theta}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // r = sqrt(9 + 16) = 5
+        #expect(abs(arr[1].numberValue! - 0.9273) < 0.001) // theta = atan2(4, 3) ≈ 0.9273
+    }
+
+    @Test("Vec2 to_polar at origin")
+    func vec2ToPolarOrigin() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec2(0, 0)
+            local polar = v:to_polar()
+            return {polar.r, polar.theta}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.0001) // r = 0
+        #expect(arr[1].numberValue == 0) // theta = 0
+    }
+
+    @Test("Vec2 to_polar on x-axis")
+    func vec2ToPolarXAxis() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec2(5, 0)
+            local polar = v:to_polar()
+            return {polar.r, polar.theta}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // r = 5
+        #expect(abs(arr[1].numberValue!) < 0.0001) // theta = 0
+    }
+
+    @Test("Vec2 to_polar on y-axis")
+    func vec2ToPolarYAxis() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec2(0, 5)
+            local polar = v:to_polar()
+            return {polar.r, polar.theta}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // r = 5
+        #expect(abs(arr[1].numberValue! - Double.pi / 2) < 0.0001) // theta = pi/2
+    }
+
+    @Test("from_polar factory function")
+    func fromPolar() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.from_polar(5, 0)
+            return {v.x, v.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // x = 5
+        #expect(abs(arr[1].numberValue!) < 0.0001) // y = 0
+    }
+
+    @Test("from_polar at 45 degrees")
+    func fromPolar45Degrees() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.from_polar(math.sqrt(2), math.pi / 4)
+            return {v.x, v.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 1.0) < 0.0001) // x = 1
+        #expect(abs(arr[1].numberValue! - 1.0) < 0.0001) // y = 1
+    }
+
+    @Test("Vec2 polar round-trip")
+    func vec2PolarRoundTrip() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local original = geo.vec2(3, 4)
+            local polar = original:to_polar()
+            local restored = geo.from_polar(polar.r, polar.theta)
+            return {math.abs(original.x - restored.x), math.abs(original.y - restored.y)}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue! < 0.0001)
+        #expect(arr[1].numberValue! < 0.0001)
+    }
+
+    @Test("Vec3 to_spherical method")
+    func vec3ToSpherical() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec3(0, 0, 5)
+            local spherical = v:to_spherical()
+            return {spherical.r, spherical.theta, spherical.phi}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // r = 5
+        #expect(abs(arr[1].numberValue!) < 0.0001) // theta = 0 (undefined but atan2(0,0)=0)
+        #expect(abs(arr[2].numberValue!) < 0.0001) // phi = 0 (pointing along z-axis)
+    }
+
+    @Test("Vec3 to_spherical on x-axis")
+    func vec3ToSphericalXAxis() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec3(5, 0, 0)
+            local spherical = v:to_spherical()
+            return {spherical.r, spherical.theta, spherical.phi}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // r = 5
+        #expect(abs(arr[1].numberValue!) < 0.0001) // theta = 0
+        #expect(abs(arr[2].numberValue! - Double.pi / 2) < 0.0001) // phi = pi/2 (perpendicular to z)
+    }
+
+    @Test("from_spherical factory function")
+    func fromSpherical() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.from_spherical(5, 0, 0)
+            return {v.x, v.y, v.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.0001) // x = 0
+        #expect(abs(arr[1].numberValue!) < 0.0001) // y = 0
+        #expect(abs(arr[2].numberValue! - 5.0) < 0.0001) // z = 5
+    }
+
+    @Test("from_spherical at equator")
+    func fromSphericalEquator() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.from_spherical(5, 0, math.pi / 2)
+            return {v.x, v.y, v.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // x = 5
+        #expect(abs(arr[1].numberValue!) < 0.0001) // y = 0
+        #expect(abs(arr[2].numberValue!) < 0.0001) // z = 0
+    }
+
+    @Test("Vec3 spherical round-trip")
+    func vec3SphericalRoundTrip() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local original = geo.vec3(1, 2, 3)
+            local spherical = original:to_spherical()
+            local restored = geo.from_spherical(spherical.r, spherical.theta, spherical.phi)
+            return {
+                math.abs(original.x - restored.x),
+                math.abs(original.y - restored.y),
+                math.abs(original.z - restored.z)
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue! < 0.0001)
+        #expect(arr[1].numberValue! < 0.0001)
+        #expect(arr[2].numberValue! < 0.0001)
+    }
+
+    @Test("Vec3 to_cylindrical method")
+    func vec3ToCylindrical() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.vec3(3, 4, 5)
+            local cylindrical = v:to_cylindrical()
+            return {cylindrical.rho, cylindrical.theta, cylindrical.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // rho = sqrt(9 + 16) = 5
+        #expect(abs(arr[1].numberValue! - 0.9273) < 0.001) // theta = atan2(4, 3)
+        #expect(abs(arr[2].numberValue! - 5.0) < 0.0001) // z = 5
+    }
+
+    @Test("from_cylindrical factory function")
+    func fromCylindrical() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v = geo.from_cylindrical(5, 0, 10)
+            return {v.x, v.y, v.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001) // x = 5
+        #expect(abs(arr[1].numberValue!) < 0.0001) // y = 0
+        #expect(abs(arr[2].numberValue! - 10.0) < 0.0001) // z = 10
+    }
+
+    @Test("Vec3 cylindrical round-trip")
+    func vec3CylindricalRoundTrip() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local original = geo.vec3(3, 4, 5)
+            local cylindrical = original:to_cylindrical()
+            local restored = geo.from_cylindrical(cylindrical.rho, cylindrical.theta, cylindrical.z)
+            return {
+                math.abs(original.x - restored.x),
+                math.abs(original.y - restored.y),
+                math.abs(original.z - restored.z)
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue! < 0.0001)
+        #expect(arr[1].numberValue! < 0.0001)
+        #expect(arr[2].numberValue! < 0.0001)
+    }
+
+    @Test("geo.polar_to_cart function")
+    func geoPolarToCart() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local x, y = geo.polar_to_cart(5, 0)
+            return {x, y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001)
+        #expect(abs(arr[1].numberValue!) < 0.0001)
+    }
+
+    @Test("geo.cart_to_polar function")
+    func geoCartToPolar() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local r, theta = geo.cart_to_polar(3, 4)
+            return {r, theta}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001)
+        #expect(abs(arr[1].numberValue! - 0.9273) < 0.001)
+    }
+
+    @Test("geo.spherical_to_cart function")
+    func geoSphericalToCart() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local x, y, z = geo.spherical_to_cart(5, 0, math.pi / 2)
+            return {x, y, z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001)
+        #expect(abs(arr[1].numberValue!) < 0.0001)
+        #expect(abs(arr[2].numberValue!) < 0.0001)
+    }
+
+    @Test("geo.cart_to_spherical function")
+    func geoCartToSpherical() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local r, theta, phi = geo.cart_to_spherical(1, 1, 1)
+            return {r, theta, phi}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        let expected_r = sqrt(3.0)
+        let expected_theta = Double.pi / 4  // atan2(1, 1)
+        let expected_phi = acos(1.0 / sqrt(3.0))  // acos(z/r)
+        #expect(abs(arr[0].numberValue! - expected_r) < 0.0001)
+        #expect(abs(arr[1].numberValue! - expected_theta) < 0.0001)
+        #expect(abs(arr[2].numberValue! - expected_phi) < 0.0001)
     }
 }

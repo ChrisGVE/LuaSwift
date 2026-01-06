@@ -97,6 +97,14 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_mat4_multiply", callback: mat4MultiplyCallback)
         engine.registerFunction(name: "_luaswift_geo_mat4_apply", callback: mat4ApplyCallback)
 
+        // Coordinate conversions
+        engine.registerFunction(name: "_luaswift_geo_vec2_to_polar", callback: vec2ToPolarCallback)
+        engine.registerFunction(name: "_luaswift_geo_vec2_from_polar", callback: vec2FromPolarCallback)
+        engine.registerFunction(name: "_luaswift_geo_vec3_to_spherical", callback: vec3ToSphericalCallback)
+        engine.registerFunction(name: "_luaswift_geo_vec3_from_spherical", callback: vec3FromSphericalCallback)
+        engine.registerFunction(name: "_luaswift_geo_vec3_to_cylindrical", callback: vec3ToCylindricalCallback)
+        engine.registerFunction(name: "_luaswift_geo_vec3_from_cylindrical", callback: vec3FromCylindricalCallback)
+
         // Geometric calculations
         engine.registerFunction(name: "_luaswift_geo_distance", callback: distanceCallback)
         engine.registerFunction(name: "_luaswift_geo_convex_hull", callback: convexHullCallback)
@@ -1028,6 +1036,70 @@ public struct GeometryModule {
         ])
     }
 
+    // MARK: - Coordinate Conversion Callbacks
+
+    /// Convert vec2 (x, y) to polar (r, theta)
+    private static let vec2ToPolarCallback: ([LuaValue]) -> LuaValue = { args in
+        guard let v = extractVec2(args[0]) else { return .nil }
+        let r = simd_length(v)
+        let theta = atan2(v.y, v.x)
+        return .table(["r": .number(r), "theta": .number(theta)])
+    }
+
+    /// Create vec2 from polar (r, theta)
+    private static let vec2FromPolarCallback: ([LuaValue]) -> LuaValue = { args in
+        guard args.count >= 2,
+              let r = args[0].numberValue,
+              let theta = args[1].numberValue else { return .nil }
+        let x = r * cos(theta)
+        let y = r * sin(theta)
+        return vec2ToLua(simd_double2(x, y))
+    }
+
+    /// Convert vec3 (x, y, z) to spherical (r, theta, phi)
+    /// theta = azimuthal angle (from x-axis in xy-plane)
+    /// phi = polar angle (from z-axis)
+    private static let vec3ToSphericalCallback: ([LuaValue]) -> LuaValue = { args in
+        guard let v = extractVec3(args[0]) else { return .nil }
+        let r = simd_length(v)
+        let theta = atan2(v.y, v.x)
+        let phi = r > 0 ? acos(v.z / r) : 0
+        return .table(["r": .number(r), "theta": .number(theta), "phi": .number(phi)])
+    }
+
+    /// Create vec3 from spherical (r, theta, phi)
+    private static let vec3FromSphericalCallback: ([LuaValue]) -> LuaValue = { args in
+        guard args.count >= 3,
+              let r = args[0].numberValue,
+              let theta = args[1].numberValue,
+              let phi = args[2].numberValue else { return .nil }
+        let x = r * sin(phi) * cos(theta)
+        let y = r * sin(phi) * sin(theta)
+        let z = r * cos(phi)
+        return vec3ToLua(simd_double3(x, y, z))
+    }
+
+    /// Convert vec3 (x, y, z) to cylindrical (rho, theta, z)
+    /// rho = radial distance in xy-plane
+    /// theta = azimuthal angle (from x-axis)
+    private static let vec3ToCylindricalCallback: ([LuaValue]) -> LuaValue = { args in
+        guard let v = extractVec3(args[0]) else { return .nil }
+        let rho = sqrt(v.x * v.x + v.y * v.y)
+        let theta = atan2(v.y, v.x)
+        return .table(["rho": .number(rho), "theta": .number(theta), "z": .number(v.z)])
+    }
+
+    /// Create vec3 from cylindrical (rho, theta, z)
+    private static let vec3FromCylindricalCallback: ([LuaValue]) -> LuaValue = { args in
+        guard args.count >= 3,
+              let rho = args[0].numberValue,
+              let theta = args[1].numberValue,
+              let z = args[2].numberValue else { return .nil }
+        let x = rho * cos(theta)
+        let y = rho * sin(theta)
+        return vec3ToLua(simd_double3(x, y, z))
+    }
+
     // MARK: - Lua Wrapper Code
 
     private static let geometryLuaWrapper = """
@@ -1109,6 +1181,13 @@ public struct GeometryModule {
     local _line_plane_intersection = _luaswift_geo_line_plane_intersection
     local _sphere_from_4_points = _luaswift_geo_sphere_from_4_points
 
+    local _vec2_to_polar = _luaswift_geo_vec2_to_polar
+    local _vec2_from_polar = _luaswift_geo_vec2_from_polar
+    local _vec3_to_spherical = _luaswift_geo_vec3_to_spherical
+    local _vec3_from_spherical = _luaswift_geo_vec3_from_spherical
+    local _vec3_to_cylindrical = _luaswift_geo_vec3_to_cylindrical
+    local _vec3_from_cylindrical = _luaswift_geo_vec3_from_cylindrical
+
     -- Vec2 type
     local vec2_mt = {
         __add = function(a, b) return geo.vec2(_vec2_add(a, b).x, _vec2_add(a, b).y) end,
@@ -1165,6 +1244,9 @@ public struct GeometryModule {
             perpendicular = function(self)
                 local r = _vec2_perpendicular(self)
                 return geo.vec2(r.x, r.y)
+            end,
+            to_polar = function(self)
+                return _vec2_to_polar(self)
             end,
             clone = function(self) return geo.vec2(self.x, self.y) end
         }
@@ -1230,6 +1312,12 @@ public struct GeometryModule {
             reflect = function(self, normal)
                 local r = _vec3_reflect(self, normal)
                 return geo.vec3(r.x, r.y, r.z)
+            end,
+            to_spherical = function(self)
+                return _vec3_to_spherical(self)
+            end,
+            to_cylindrical = function(self)
+                return _vec3_to_cylindrical(self)
             end,
             clone = function(self) return geo.vec3(self.x, self.y, self.z) end
         }
@@ -1461,6 +1549,64 @@ public struct GeometryModule {
                 center = geo.vec3(r.center.x, r.center.y, r.center.z),
                 radius = r.radius
             }
+        end
+        return nil
+    end
+
+    -- Coordinate conversion factory functions
+    geo.from_polar = function(r, theta)
+        local v = _vec2_from_polar(r, theta)
+        if v then
+            return geo.vec2(v.x, v.y)
+        end
+        return nil
+    end
+
+    geo.from_spherical = function(r, theta, phi)
+        local v = _vec3_from_spherical(r, theta, phi)
+        if v then
+            return geo.vec3(v.x, v.y, v.z)
+        end
+        return nil
+    end
+
+    geo.from_cylindrical = function(rho, theta, z)
+        local v = _vec3_from_cylindrical(rho, theta, z)
+        if v then
+            return geo.vec3(v.x, v.y, v.z)
+        end
+        return nil
+    end
+
+    -- Aliases for coordinate conversions (for backward compatibility with mathx)
+    geo.polar_to_cart = function(r, theta)
+        local v = _vec2_from_polar(r, theta)
+        if v then
+            return v.x, v.y
+        end
+        return nil
+    end
+
+    geo.cart_to_polar = function(x, y)
+        local p = _vec2_to_polar({x = x, y = y})
+        if p then
+            return p.r, p.theta
+        end
+        return nil
+    end
+
+    geo.spherical_to_cart = function(r, theta, phi)
+        local v = _vec3_from_spherical(r, theta, phi)
+        if v then
+            return v.x, v.y, v.z
+        end
+        return nil
+    end
+
+    geo.cart_to_spherical = function(x, y, z)
+        local s = _vec3_to_spherical({x = x, y = y, z = z})
+        if s then
+            return s.r, s.theta, s.phi
         end
         return nil
     end

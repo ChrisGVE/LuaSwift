@@ -1868,12 +1868,9 @@ public struct LinAlgModule {
 
         let n = rows
 
-        // Compute matrix norm (Frobenius)
-        var normA = 0.0
-        for val in data {
-            normA += val * val
-        }
-        normA = sqrt(normA)
+        // Compute matrix norm (Frobenius) using BLAS
+        // cblas_dnrm2 computes sqrt(sum(x_i^2)) which is exactly the Frobenius norm
+        let normA = cblas_dnrm2(Int32(n * n), data, 1)
 
         // Determine scaling factor s such that ||A/2^s|| < 1
         var s = 0
@@ -1883,8 +1880,10 @@ public struct LinAlgModule {
             s += 1
         }
 
-        // Scale the matrix
-        let A = data.map { $0 / scale }
+        // Scale the matrix using vDSP for vectorized division
+        var A = [Double](repeating: 0, count: n * n)
+        var scaleVal = scale
+        vDSP_vsdivD(data, 1, &scaleVal, &A, 1, vDSP_Length(n * n))
 
         // Padé approximation of order [6/6]
         // coefficients
@@ -1906,22 +1905,32 @@ public struct LinAlgModule {
         let A6 = matmul(A2, A4, n)
 
         // V = c[0]*I + c[2]*A^2 + c[4]*A^4 + c[6]*A^6
+        // Using vDSP for vectorized linear combinations
         var V = [Double](repeating: 0, count: n * n)
         for i in 0..<n {
-            V[i * n + i] = c[0]  // c0 * I
+            V[i * n + i] = c[0]  // c0 * I (diagonal)
         }
-        for i in 0..<(n * n) {
-            V[i] += c[2] * A2[i] + c[4] * A4[i] + c[6] * A6[i]
-        }
+        // V += c[2]*A2 using vDSP_vsmaD (scalar multiply and add)
+        var c2 = c[2]
+        vDSP_vsmaD(A2, 1, &c2, V, 1, &V, 1, vDSP_Length(n * n))
+        // V += c[4]*A4
+        var c4 = c[4]
+        vDSP_vsmaD(A4, 1, &c4, V, 1, &V, 1, vDSP_Length(n * n))
+        // V += c[6]*A6
+        var c6 = c[6]
+        vDSP_vsmaD(A6, 1, &c6, V, 1, &V, 1, vDSP_Length(n * n))
 
         // U_inner = c[1]*I + c[3]*A^2 + c[5]*A^4
         var Uinner = [Double](repeating: 0, count: n * n)
         for i in 0..<n {
-            Uinner[i * n + i] = c[1]  // c1 * I
+            Uinner[i * n + i] = c[1]  // c1 * I (diagonal)
         }
-        for i in 0..<(n * n) {
-            Uinner[i] += c[3] * A2[i] + c[5] * A4[i]
-        }
+        // Uinner += c[3]*A2
+        var c3 = c[3]
+        vDSP_vsmaD(A2, 1, &c3, Uinner, 1, &Uinner, 1, vDSP_Length(n * n))
+        // Uinner += c[5]*A4
+        var c5 = c[5]
+        vDSP_vsmaD(A4, 1, &c5, Uinner, 1, &Uinner, 1, vDSP_Length(n * n))
 
         // U = A * U_inner
         let U = matmul(A, Uinner, n)
@@ -1929,13 +1938,11 @@ public struct LinAlgModule {
         // Padé approximant: exp(A) ≈ (V - U)^(-1) * (V + U)
         // R = (V - U)^(-1) * (V + U)
 
-        // Compute V - U and V + U
+        // Compute V - U and V + U using vDSP for vectorized operations
         var VminusU = [Double](repeating: 0, count: n * n)
         var VplusU = [Double](repeating: 0, count: n * n)
-        for i in 0..<(n * n) {
-            VminusU[i] = V[i] - U[i]
-            VplusU[i] = V[i] + U[i]
-        }
+        vDSP_vsubD(U, 1, V, 1, &VminusU, 1, vDSP_Length(n * n))  // VminusU = V - U
+        vDSP_vaddD(V, 1, U, 1, &VplusU, 1, vDSP_Length(n * n))   // VplusU = V + U
 
         // Solve (V - U) * R = (V + U) using LU factorization
         var R = solveLinearSystem(VminusU, VplusU, n)
@@ -1949,17 +1956,28 @@ public struct LinAlgModule {
     }
 
     /// Helper: Matrix multiplication C = A * B for n x n matrices
+    /// Uses BLAS cblas_dgemm for hardware-accelerated, cache-optimized multiplication
     private static func matmul(_ A: [Double], _ B: [Double], _ n: Int) -> [Double] {
         var C = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                var sum = 0.0
-                for k in 0..<n {
-                    sum += A[i * n + k] * B[k * n + j]
-                }
-                C[i * n + j] = sum
-            }
-        }
+        // cblas_dgemm: C = alpha * A * B + beta * C
+        // CblasRowMajor: matrices are in row-major order
+        // CblasNoTrans: no transpose on A or B
+        cblas_dgemm(
+            CblasRowMajor,           // Row-major storage
+            CblasNoTrans,            // Don't transpose A
+            CblasNoTrans,            // Don't transpose B
+            Int32(n),                // M: rows of A (and C)
+            Int32(n),                // N: cols of B (and C)
+            Int32(n),                // K: cols of A, rows of B
+            1.0,                     // alpha: scalar multiplier for A*B
+            A,                       // Matrix A
+            Int32(n),                // lda: leading dimension of A
+            B,                       // Matrix B
+            Int32(n),                // ldb: leading dimension of B
+            0.0,                     // beta: scalar multiplier for C (0 = overwrite)
+            &C,                      // Matrix C (output)
+            Int32(n)                 // ldc: leading dimension of C
+        )
         return C
     }
 

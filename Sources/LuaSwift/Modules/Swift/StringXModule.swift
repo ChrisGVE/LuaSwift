@@ -50,13 +50,17 @@ import Foundation
 /// local s = stringx.center("hi", 6)               -- "  hi  "
 /// local s = stringx.lpad("hi", 5, "0")            -- "000hi"
 ///
-/// -- Character classification
-/// local ok = stringx.isalpha("hello")             -- true
-/// local ok = stringx.isdigit("123")               -- true
-/// local ok = stringx.isalnum("abc123")            -- true
-/// local ok = stringx.isspace("   ")               -- true
-/// local ok = stringx.isempty("")                  -- true
-/// local ok = stringx.isblank("  ")                -- true
+/// -- Character classification (is_<name> convention)
+/// local ok = stringx.is_alpha("hello")            -- true
+/// local ok = stringx.is_digit("123")              -- true
+/// local ok = stringx.is_alnum("abc123")           -- true
+/// local ok = stringx.is_space("   ")              -- true
+/// local ok = stringx.is_upper("HELLO")            -- true
+/// local ok = stringx.is_lower("hello")            -- true
+/// local ok = stringx.is_empty("")                 -- true
+/// local ok = stringx.is_blank("  ")               -- true
+/// -- Backward compatible aliases also available:
+/// -- isalpha, isdigit, isalnum, isspace, isupper, islower, isempty, isblank
 ///
 /// -- Text processing
 /// local s = stringx.wrap("long text here", 10)    -- word wrapped
@@ -87,12 +91,14 @@ public struct StringXModule {
         engine.registerFunction(name: "_luaswift_stringx_lpad", callback: lpadCallback)
         engine.registerFunction(name: "_luaswift_stringx_rpad", callback: rpadCallback)
         engine.registerFunction(name: "_luaswift_stringx_center", callback: centerCallback)
-        engine.registerFunction(name: "_luaswift_stringx_isalpha", callback: isalphaCallback)
-        engine.registerFunction(name: "_luaswift_stringx_isdigit", callback: isdigitCallback)
-        engine.registerFunction(name: "_luaswift_stringx_isalnum", callback: isalnumCallback)
-        engine.registerFunction(name: "_luaswift_stringx_isspace", callback: isspaceCallback)
-        engine.registerFunction(name: "_luaswift_stringx_isempty", callback: isemptyCallback)
-        engine.registerFunction(name: "_luaswift_stringx_isblank", callback: isblankCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_alpha", callback: isAlphaCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_digit", callback: isDigitCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_alnum", callback: isAlnumCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_space", callback: isSpaceCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_upper", callback: isUpperCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_lower", callback: isLowerCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_empty", callback: isEmptyCallback)
+        engine.registerFunction(name: "_luaswift_stringx_is_blank", callback: isBlankCallback)
         engine.registerFunction(name: "_luaswift_stringx_splitlines", callback: splitlinesCallback)
         engine.registerFunction(name: "_luaswift_stringx_wrap", callback: wrapCallback)
         engine.registerFunction(name: "_luaswift_stringx_truncate", callback: truncateCallback)
@@ -118,12 +124,14 @@ public struct StringXModule {
                 local lpad_fn = _luaswift_stringx_lpad
                 local rpad_fn = _luaswift_stringx_rpad
                 local center_fn = _luaswift_stringx_center
-                local isalpha_fn = _luaswift_stringx_isalpha
-                local isdigit_fn = _luaswift_stringx_isdigit
-                local isalnum_fn = _luaswift_stringx_isalnum
-                local isspace_fn = _luaswift_stringx_isspace
-                local isempty_fn = _luaswift_stringx_isempty
-                local isblank_fn = _luaswift_stringx_isblank
+                local is_alpha_fn = _luaswift_stringx_is_alpha
+                local is_digit_fn = _luaswift_stringx_is_digit
+                local is_alnum_fn = _luaswift_stringx_is_alnum
+                local is_space_fn = _luaswift_stringx_is_space
+                local is_upper_fn = _luaswift_stringx_is_upper
+                local is_lower_fn = _luaswift_stringx_is_lower
+                local is_empty_fn = _luaswift_stringx_is_empty
+                local is_blank_fn = _luaswift_stringx_is_blank
                 local splitlines_fn = _luaswift_stringx_splitlines
                 local wrap_fn = _luaswift_stringx_wrap
                 local truncate_fn = _luaswift_stringx_truncate
@@ -144,12 +152,24 @@ public struct StringXModule {
                     lpad = lpad_fn,
                     rpad = rpad_fn,
                     center = center_fn,
-                    isalpha = isalpha_fn,
-                    isdigit = isdigit_fn,
-                    isalnum = isalnum_fn,
-                    isspace = isspace_fn,
-                    isempty = isempty_fn,
-                    isblank = isblank_fn,
+                    -- Character classification (new is_<name> convention)
+                    is_alpha = is_alpha_fn,
+                    is_digit = is_digit_fn,
+                    is_alnum = is_alnum_fn,
+                    is_space = is_space_fn,
+                    is_upper = is_upper_fn,
+                    is_lower = is_lower_fn,
+                    is_empty = is_empty_fn,
+                    is_blank = is_blank_fn,
+                    -- Backward compatibility aliases (deprecated, use is_<name> instead)
+                    isalpha = is_alpha_fn,
+                    isdigit = is_digit_fn,
+                    isalnum = is_alnum_fn,
+                    isspace = is_space_fn,
+                    isupper = is_upper_fn,
+                    islower = is_lower_fn,
+                    isempty = is_empty_fn,
+                    isblank = is_blank_fn,
                     splitlines = splitlines_fn,
                     wrap = wrap_fn,
                     truncate = truncate_fn,
@@ -172,12 +192,24 @@ public struct StringXModule {
                         string.lpad = lpad_fn
                         string.rpad = rpad_fn
                         string.center = center_fn
-                        string.isalpha = isalpha_fn
-                        string.isdigit = isdigit_fn
-                        string.isalnum = isalnum_fn
-                        string.isspace = isspace_fn
-                        string.isempty = isempty_fn
-                        string.isblank = isblank_fn
+                        -- Character classification (new is_<name> convention)
+                        string.is_alpha = is_alpha_fn
+                        string.is_digit = is_digit_fn
+                        string.is_alnum = is_alnum_fn
+                        string.is_space = is_space_fn
+                        string.is_upper = is_upper_fn
+                        string.is_lower = is_lower_fn
+                        string.is_empty = is_empty_fn
+                        string.is_blank = is_blank_fn
+                        -- Backward compatibility aliases
+                        string.isalpha = is_alpha_fn
+                        string.isdigit = is_digit_fn
+                        string.isalnum = is_alnum_fn
+                        string.isspace = is_space_fn
+                        string.isupper = is_upper_fn
+                        string.islower = is_lower_fn
+                        string.isempty = is_empty_fn
+                        string.isblank = is_blank_fn
                         string.splitlines = splitlines_fn
                         string.wrap = wrap_fn
                         string.truncate = truncate_fn
@@ -201,12 +233,24 @@ public struct StringXModule {
                                 idx.lpad = lpad_fn
                                 idx.rpad = rpad_fn
                                 idx.center = center_fn
-                                idx.isalpha = isalpha_fn
-                                idx.isdigit = isdigit_fn
-                                idx.isalnum = isalnum_fn
-                                idx.isspace = isspace_fn
-                                idx.isempty = isempty_fn
-                                idx.isblank = isblank_fn
+                                -- Character classification (new is_<name> convention)
+                                idx.is_alpha = is_alpha_fn
+                                idx.is_digit = is_digit_fn
+                                idx.is_alnum = is_alnum_fn
+                                idx.is_space = is_space_fn
+                                idx.is_upper = is_upper_fn
+                                idx.is_lower = is_lower_fn
+                                idx.is_empty = is_empty_fn
+                                idx.is_blank = is_blank_fn
+                                -- Backward compatibility aliases
+                                idx.isalpha = is_alpha_fn
+                                idx.isdigit = is_digit_fn
+                                idx.isalnum = is_alnum_fn
+                                idx.isspace = is_space_fn
+                                idx.isupper = is_upper_fn
+                                idx.islower = is_lower_fn
+                                idx.isempty = is_empty_fn
+                                idx.isblank = is_blank_fn
                                 idx.splitlines = splitlines_fn
                                 idx.wrap = wrap_fn
                                 idx.truncate = truncate_fn
@@ -234,12 +278,14 @@ public struct StringXModule {
                 _luaswift_stringx_lpad = nil
                 _luaswift_stringx_rpad = nil
                 _luaswift_stringx_center = nil
-                _luaswift_stringx_isalpha = nil
-                _luaswift_stringx_isdigit = nil
-                _luaswift_stringx_isalnum = nil
-                _luaswift_stringx_isspace = nil
-                _luaswift_stringx_isempty = nil
-                _luaswift_stringx_isblank = nil
+                _luaswift_stringx_is_alpha = nil
+                _luaswift_stringx_is_digit = nil
+                _luaswift_stringx_is_alnum = nil
+                _luaswift_stringx_is_space = nil
+                _luaswift_stringx_is_upper = nil
+                _luaswift_stringx_is_lower = nil
+                _luaswift_stringx_is_empty = nil
+                _luaswift_stringx_is_blank = nil
                 _luaswift_stringx_splitlines = nil
                 _luaswift_stringx_wrap = nil
                 _luaswift_stringx_truncate = nil
@@ -560,9 +606,9 @@ public struct StringXModule {
     // MARK: - Character Classification Callbacks
 
     /// Check if all characters are letters
-    private static func isalphaCallback(_ args: [LuaValue]) throws -> LuaValue {
+    private static func isAlphaCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.isalpha requires a string argument")
+            throw LuaError.callbackError("stringx.is_alpha requires a string argument")
         }
 
         if s.isEmpty {
@@ -573,9 +619,9 @@ public struct StringXModule {
     }
 
     /// Check if all characters are digits
-    private static func isdigitCallback(_ args: [LuaValue]) throws -> LuaValue {
+    private static func isDigitCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.isdigit requires a string argument")
+            throw LuaError.callbackError("stringx.is_digit requires a string argument")
         }
 
         if s.isEmpty {
@@ -587,9 +633,9 @@ public struct StringXModule {
     }
 
     /// Check if all characters are alphanumeric
-    private static func isalnumCallback(_ args: [LuaValue]) throws -> LuaValue {
+    private static func isAlnumCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.isalnum requires a string argument")
+            throw LuaError.callbackError("stringx.is_alnum requires a string argument")
         }
 
         if s.isEmpty {
@@ -600,9 +646,9 @@ public struct StringXModule {
     }
 
     /// Check if all characters are whitespace
-    private static func isspaceCallback(_ args: [LuaValue]) throws -> LuaValue {
+    private static func isSpaceCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.isspace requires a string argument")
+            throw LuaError.callbackError("stringx.is_space requires a string argument")
         }
 
         if s.isEmpty {
@@ -612,19 +658,57 @@ public struct StringXModule {
         return .bool(s.allSatisfy { $0.isWhitespace })
     }
 
-    /// Check if string is empty
-    private static func isemptyCallback(_ args: [LuaValue]) throws -> LuaValue {
+    /// Check if all characters are uppercase letters
+    private static func isUpperCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.isempty requires a string argument")
+            throw LuaError.callbackError("stringx.is_upper requires a string argument")
+        }
+
+        if s.isEmpty {
+            return .bool(false)
+        }
+
+        // Check if all letters are uppercase (non-letters are ignored)
+        let letters = s.filter { $0.isLetter }
+        if letters.isEmpty {
+            return .bool(false)
+        }
+
+        return .bool(letters.allSatisfy { $0.isUppercase })
+    }
+
+    /// Check if all characters are lowercase letters
+    private static func isLowerCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let s = args.first?.stringValue else {
+            throw LuaError.callbackError("stringx.is_lower requires a string argument")
+        }
+
+        if s.isEmpty {
+            return .bool(false)
+        }
+
+        // Check if all letters are lowercase (non-letters are ignored)
+        let letters = s.filter { $0.isLetter }
+        if letters.isEmpty {
+            return .bool(false)
+        }
+
+        return .bool(letters.allSatisfy { $0.isLowercase })
+    }
+
+    /// Check if string is empty
+    private static func isEmptyCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let s = args.first?.stringValue else {
+            throw LuaError.callbackError("stringx.is_empty requires a string argument")
         }
 
         return .bool(s.isEmpty)
     }
 
     /// Check if string is empty or only whitespace
-    private static func isblankCallback(_ args: [LuaValue]) throws -> LuaValue {
+    private static func isBlankCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.isblank requires a string argument")
+            throw LuaError.callbackError("stringx.is_blank requires a string argument")
         }
 
         return .bool(s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

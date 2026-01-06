@@ -415,7 +415,10 @@ final class StringXModuleTests: XCTestCase {
             "strip", "lstrip", "rstrip", "split", "replace", "join",
             "startswith", "endswith", "contains", "count",
             "capitalize", "title", "lpad", "rpad", "center",
-            "isalpha", "isdigit", "isalnum", "isspace", "isempty", "isblank",
+            // New is_<name> convention
+            "is_alpha", "is_digit", "is_alnum", "is_space", "is_upper", "is_lower", "is_empty", "is_blank",
+            // Backward compatible aliases
+            "isalpha", "isdigit", "isalnum", "isspace", "isupper", "islower", "isempty", "isblank",
             "splitlines", "wrap", "truncate"
         ]
 
@@ -798,6 +801,156 @@ final class StringXModuleTests: XCTestCase {
             return luaswift.stringx.isblank("  x  ")
             """)
         XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - is_upper() tests
+
+    func testIsUpperTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_upper("HELLO")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsUpperFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_upper("Hello")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsUpperWithNumbers() throws {
+        // Numbers are ignored, only letters count
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_upper("HELLO123")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsUpperEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_upper("")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsUpperNoLetters() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_upper("123")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsUpperUnicode() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_upper("ÜBER")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsUpperBackwardCompat() throws {
+        // Test backward compatible alias
+        let result = try engine.evaluate("""
+            return luaswift.stringx.isupper("HELLO")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - is_lower() tests
+
+    func testIsLowerTrue() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_lower("hello")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsLowerFalse() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_lower("Hello")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsLowerWithNumbers() throws {
+        // Numbers are ignored, only letters count
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_lower("hello123")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsLowerEmpty() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_lower("")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsLowerNoLetters() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_lower("123")
+            """)
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsLowerUnicode() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_lower("über")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsLowerBackwardCompat() throws {
+        // Test backward compatible alias
+        let result = try engine.evaluate("""
+            return luaswift.stringx.islower("hello")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - New is_<name> convention tests
+
+    func testIsAlphaNewConvention() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_alpha("hello")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsDigitNewConvention() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_digit("12345")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsAlnumNewConvention() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_alnum("hello123")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsSpaceNewConvention() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_space("   ")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsEmptyNewConvention() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_empty("")
+            """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsBlankNewConvention() throws {
+        let result = try engine.evaluate("""
+            return luaswift.stringx.is_blank("   ")
+            """)
+        XCTAssertEqual(result.boolValue, true)
     }
 
     // MARK: - splitlines() tests

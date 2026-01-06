@@ -119,6 +119,9 @@ public struct LinAlgModule {
 
         // Register matrix functions
         engine.registerFunction(name: "_luaswift_linalg_expm", callback: expmCallback)
+        engine.registerFunction(name: "_luaswift_linalg_logm", callback: logmCallback)
+        engine.registerFunction(name: "_luaswift_linalg_sqrtm", callback: sqrtmCallback)
+        engine.registerFunction(name: "_luaswift_linalg_funm", callback: funmCallback)
 
         // Set up the luaswift.linalg namespace with Lua wrapper code
         do {
@@ -166,6 +169,9 @@ public struct LinAlgModule {
                 local _cho_solve = _luaswift_linalg_cho_solve
                 local _lu_solve = _luaswift_linalg_lu_solve
                 local _expm = _luaswift_linalg_expm
+                local _logm = _luaswift_linalg_logm
+                local _sqrtm = _luaswift_linalg_sqrtm
+                local _funm = _luaswift_linalg_funm
 
                 -- Matrix/Vector metatable
                 local linalg_mt = {
@@ -220,6 +226,9 @@ public struct LinAlgModule {
                             end,
                             chol = function(_) return luaswift.linalg._wrap(_chol(self._data)) end,
                             expm = function(_) return luaswift.linalg._wrap(_expm(self._data)) end,
+                            logm = function(_) return luaswift.linalg._wrap(_logm(self._data)) end,
+                            sqrtm = function(_) return luaswift.linalg._wrap(_sqrtm(self._data)) end,
+                            funm = function(_, f) return luaswift.linalg._wrap(_funm(self._data, f)) end,
                         }
                         return methods[key]
                     end,
@@ -347,6 +356,18 @@ public struct LinAlgModule {
                         local A_data = type(A) == "table" and A._data or A
                         return luaswift.linalg._wrap(_expm(A_data))
                     end,
+                    logm = function(A)
+                        local A_data = type(A) == "table" and A._data or A
+                        return luaswift.linalg._wrap(_logm(A_data))
+                    end,
+                    sqrtm = function(A)
+                        local A_data = type(A) == "table" and A._data or A
+                        return luaswift.linalg._wrap(_sqrtm(A_data))
+                    end,
+                    funm = function(A, f)
+                        local A_data = type(A) == "table" and A._data or A
+                        return luaswift.linalg._wrap(_funm(A_data, f))
+                    end,
                 }
 
                 -- Clean up temporary globals
@@ -390,6 +411,9 @@ public struct LinAlgModule {
                 _luaswift_linalg_cho_solve = nil
                 _luaswift_linalg_lu_solve = nil
                 _luaswift_linalg_expm = nil
+                _luaswift_linalg_logm = nil
+                _luaswift_linalg_sqrtm = nil
+                _luaswift_linalg_funm = nil
                 """)
         } catch {
             // Silently fail if setup fails
@@ -1860,7 +1884,7 @@ public struct LinAlgModule {
         }
 
         // Scale the matrix
-        var A = data.map { $0 / scale }
+        let A = data.map { $0 / scale }
 
         // Padé approximation of order [6/6]
         // coefficients
@@ -1970,6 +1994,283 @@ public struct LinAlgModule {
         for i in 0..<n {
             for j in 0..<n {
                 result[i * n + j] = b[j * n + i]
+            }
+        }
+
+        return result
+    }
+
+    // MARK: - Matrix Logarithm (logm)
+
+    /// Matrix logarithm using eigendecomposition
+    /// log(A) = V * diag(log(λ)) * V^(-1) for diagonalizable matrices
+    private static func logmCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("linalg.logm: missing argument")
+        }
+
+        let (rows, cols, data) = try extractMatrixData(arg)
+
+        guard rows == cols else {
+            throw LuaError.callbackError("linalg.logm: matrix must be square")
+        }
+
+        let n = rows
+
+        // Compute eigendecomposition using LAPACK dgeev
+        let (eigenvalues, eigenvectors) = try computeEigendecomposition(data, n)
+
+        // Check for non-positive eigenvalues
+        for ev in eigenvalues {
+            if ev <= 0 {
+                throw LuaError.callbackError("linalg.logm: matrix has non-positive eigenvalues, logarithm undefined")
+            }
+        }
+
+        // Apply log to eigenvalues
+        let logEigenvalues = eigenvalues.map { log($0) }
+
+        // Reconstruct: logA = V * diag(log(λ)) * V^(-1)
+        let result = reconstructFromEigen(eigenvectors, logEigenvalues, n)
+
+        return createMatrixTable(rows: n, cols: n, data: result)
+    }
+
+    // MARK: - Matrix Square Root (sqrtm)
+
+    /// Matrix square root using eigendecomposition
+    /// sqrt(A) = V * diag(sqrt(λ)) * V^(-1) for diagonalizable matrices
+    private static func sqrtmCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("linalg.sqrtm: missing argument")
+        }
+
+        let (rows, cols, data) = try extractMatrixData(arg)
+
+        guard rows == cols else {
+            throw LuaError.callbackError("linalg.sqrtm: matrix must be square")
+        }
+
+        let n = rows
+
+        // Compute eigendecomposition using LAPACK dgeev
+        let (eigenvalues, eigenvectors) = try computeEigendecomposition(data, n)
+
+        // Check for negative eigenvalues
+        for ev in eigenvalues {
+            if ev < 0 {
+                throw LuaError.callbackError("linalg.sqrtm: matrix has negative eigenvalues, real square root undefined")
+            }
+        }
+
+        // Apply sqrt to eigenvalues
+        let sqrtEigenvalues = eigenvalues.map { sqrt($0) }
+
+        // Reconstruct: sqrtA = V * diag(sqrt(λ)) * V^(-1)
+        let result = reconstructFromEigen(eigenvectors, sqrtEigenvalues, n)
+
+        return createMatrixTable(rows: n, cols: n, data: result)
+    }
+
+    // MARK: - General Matrix Function (funm)
+
+    /// General matrix function using eigendecomposition
+    /// f(A) = V * diag(f(λ)) * V^(-1) for diagonalizable matrices
+    /// Note: For this implementation, we support common built-in functions
+    /// (sin, cos, exp, log, sqrt) as string identifiers
+    private static func funmCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("linalg.funm: requires matrix and function arguments")
+        }
+
+        let (rows, cols, data) = try extractMatrixData(args[0])
+
+        guard rows == cols else {
+            throw LuaError.callbackError("linalg.funm: matrix must be square")
+        }
+
+        let n = rows
+
+        // Get the function name or use a built-in
+        let funcName: String
+        if case let .string(name) = args[1] {
+            funcName = name
+        } else {
+            throw LuaError.callbackError("linalg.funm: function must be a string name (sin, cos, exp, log, sqrt, sinh, cosh, tanh)")
+        }
+
+        // Compute eigendecomposition using LAPACK dgeev
+        let (eigenvalues, eigenvectors) = try computeEigendecomposition(data, n)
+
+        // Apply the function to eigenvalues
+        let transformedEigenvalues: [Double]
+        switch funcName {
+        case "sin":
+            transformedEigenvalues = eigenvalues.map { sin($0) }
+        case "cos":
+            transformedEigenvalues = eigenvalues.map { cos($0) }
+        case "exp":
+            transformedEigenvalues = eigenvalues.map { exp($0) }
+        case "log":
+            for ev in eigenvalues {
+                if ev <= 0 {
+                    throw LuaError.callbackError("linalg.funm: log requires positive eigenvalues")
+                }
+            }
+            transformedEigenvalues = eigenvalues.map { log($0) }
+        case "sqrt":
+            for ev in eigenvalues {
+                if ev < 0 {
+                    throw LuaError.callbackError("linalg.funm: sqrt requires non-negative eigenvalues")
+                }
+            }
+            transformedEigenvalues = eigenvalues.map { sqrt($0) }
+        case "sinh":
+            transformedEigenvalues = eigenvalues.map { sinh($0) }
+        case "cosh":
+            transformedEigenvalues = eigenvalues.map { cosh($0) }
+        case "tanh":
+            transformedEigenvalues = eigenvalues.map { tanh($0) }
+        case "abs":
+            transformedEigenvalues = eigenvalues.map { abs($0) }
+        default:
+            throw LuaError.callbackError("linalg.funm: unsupported function '\(funcName)'. Use: sin, cos, exp, log, sqrt, sinh, cosh, tanh, abs")
+        }
+
+        // Reconstruct: f(A) = V * diag(f(λ)) * V^(-1)
+        let result = reconstructFromEigen(eigenvectors, transformedEigenvalues, n)
+
+        return createMatrixTable(rows: n, cols: n, data: result)
+    }
+
+    // MARK: - Eigendecomposition Helpers
+
+    /// Compute eigendecomposition and return (eigenvalues, eigenvectors)
+    /// Returns real eigenvalues only; throws if complex eigenvalues are present
+    private static func computeEigendecomposition(_ data: [Double], _ n: Int) throws -> ([Double], [Double]) {
+        // Convert to column-major for LAPACK
+        var a = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                a[j * n + i] = data[i * n + j]
+            }
+        }
+
+        var n1 = __CLPK_integer(n)
+        var lda1 = __CLPK_integer(n)
+        var wr = [Double](repeating: 0, count: n)  // Real parts
+        var wi = [Double](repeating: 0, count: n)  // Imaginary parts
+        var vl = [Double](repeating: 0, count: 1)  // Left eigenvectors (not computed)
+        var vr = [Double](repeating: 0, count: n * n)  // Right eigenvectors
+        var ldvl: __CLPK_integer = 1
+        var ldvr = __CLPK_integer(n)
+        var info: __CLPK_integer = 0
+
+        // Query workspace
+        var lwork: __CLPK_integer = -1
+        var work = [Double](repeating: 0, count: 1)
+        var jobvl = Int8(UInt8(ascii: "N"))
+        var jobvr = Int8(UInt8(ascii: "V"))
+
+        dgeev_(&jobvl, &jobvr, &n1, &a, &lda1, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
+
+        lwork = __CLPK_integer(work[0])
+        work = [Double](repeating: 0, count: Int(lwork))
+
+        // Reset a for actual computation
+        for i in 0..<n {
+            for j in 0..<n {
+                a[j * n + i] = data[i * n + j]
+            }
+        }
+
+        var n2 = __CLPK_integer(n)
+        var lda2 = __CLPK_integer(n)
+        dgeev_(&jobvl, &jobvr, &n2, &a, &lda2, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("eigendecomposition failed")
+        }
+
+        // Check for complex eigenvalues
+        for im in wi {
+            if abs(im) > 1e-10 {
+                throw LuaError.callbackError("matrix has complex eigenvalues; real-only implementation")
+            }
+        }
+
+        // Convert eigenvectors to row-major
+        var vecs = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                vecs[i * n + j] = vr[j * n + i]
+            }
+        }
+
+        return (wr, vecs)
+    }
+
+    /// Reconstruct matrix from eigendecomposition: A = V * diag(λ) * V^(-1)
+    private static func reconstructFromEigen(_ V: [Double], _ eigenvalues: [Double], _ n: Int) -> [Double] {
+        // Compute V^(-1)
+        let Vinv = invertMatrix(V, n)
+
+        // Compute V * diag(λ)
+        var VD = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                VD[i * n + j] = V[i * n + j] * eigenvalues[j]
+            }
+        }
+
+        // Compute (V * diag(λ)) * V^(-1)
+        return matmul(VD, Vinv, n)
+    }
+
+    /// Invert matrix using LU decomposition
+    private static func invertMatrix(_ M: [Double], _ n: Int) -> [Double] {
+        // Convert to column-major for LAPACK
+        var a = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                a[j * n + i] = M[i * n + j]
+            }
+        }
+
+        var n1 = __CLPK_integer(n)
+        var n1b = __CLPK_integer(n)
+        var lda = __CLPK_integer(n)
+        var ipiv = [__CLPK_integer](repeating: 0, count: n)
+        var info: __CLPK_integer = 0
+
+        // LU factorization
+        dgetrf_(&n1, &n1b, &a, &lda, &ipiv, &info)
+
+        if info != 0 {
+            return M // Return original if factorization fails
+        }
+
+        // Query workspace for inversion
+        var lwork: __CLPK_integer = -1
+        var work = [Double](repeating: 0, count: 1)
+        var n2 = __CLPK_integer(n)
+        var lda2 = __CLPK_integer(n)
+
+        dgetri_(&n2, &a, &lda2, &ipiv, &work, &lwork, &info)
+
+        lwork = __CLPK_integer(work[0])
+        work = [Double](repeating: 0, count: Int(lwork))
+
+        // Compute inverse
+        var n3 = __CLPK_integer(n)
+        var lda3 = __CLPK_integer(n)
+        dgetri_(&n3, &a, &lda3, &ipiv, &work, &lwork, &info)
+
+        // Convert back to row-major
+        var result = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            for j in 0..<n {
+                result[i * n + j] = a[j * n + i]
             }
         }
 

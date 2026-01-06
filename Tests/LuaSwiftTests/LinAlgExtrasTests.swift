@@ -347,4 +347,279 @@ struct LinAlgExtrasTests {
                 """)
         }
     }
+
+    // MARK: - logm Tests
+
+    @Test("logm function exists")
+    func testLogmExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(luaswift.linalg.logm)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("logm method exists on matrix")
+    func testLogmMethodExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local A = linalg.matrix({{1, 0}, {0, 1}})
+            return type(A.logm)
+            """)
+        #expect(result == .string("function"))
+    }
+
+    @Test("logm of identity is zero")
+    func testLogmIdentity() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local I = linalg.eye(3)
+            local L = I:logm()
+            -- log(I) should be zero matrix
+            local diff = 0
+            for i = 1, 3 do
+                for j = 1, 3 do
+                    diff = diff + math.abs(L:get(i, j))
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("logm of e*I is I")
+    func testLogmScaledIdentity() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local e = math.exp(1)
+            local eI = linalg.diagonal({e, e, e})
+            local L = eI:logm()
+            -- log(e*I) = I
+            local diff = 0
+            for i = 1, 3 do
+                for j = 1, 3 do
+                    local expected = (i == j) and 1 or 0
+                    diff = diff + math.abs(L:get(i, j) - expected)
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-6)
+    }
+
+    @Test("logm(expm(A)) = A for symmetric matrix")
+    func testLogmExpmInverse() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            -- Use a symmetric positive definite matrix
+            local A = linalg.matrix({{0.1, 0.05}, {0.05, 0.1}})
+            local E = A:expm()
+            local L = E:logm()
+            -- L should approximately equal A
+            local diff = 0
+            for i = 1, 2 do
+                for j = 1, 2 do
+                    diff = diff + math.abs(L:get(i, j) - A:get(i, j))
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-6)
+    }
+
+    // MARK: - sqrtm Tests
+
+    @Test("sqrtm function exists")
+    func testSqrtmExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(luaswift.linalg.sqrtm)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("sqrtm of identity is identity")
+    func testSqrtmIdentity() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local I = linalg.eye(3)
+            local S = I:sqrtm()
+            -- sqrt(I) should be I
+            local diff = 0
+            for i = 1, 3 do
+                for j = 1, 3 do
+                    diff = diff + math.abs(S:get(i, j) - I:get(i, j))
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("sqrtm(A) squared equals A")
+    func testSqrtmSquared() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            -- Use a diagonal matrix with positive entries
+            local A = linalg.diagonal({4, 9, 16})
+            local S = A:sqrtm()
+            local S2 = S:dot(S)
+            -- S^2 should equal A
+            local diff = 0
+            for i = 1, 3 do
+                for j = 1, 3 do
+                    diff = diff + math.abs(S2:get(i, j) - A:get(i, j))
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-8)
+    }
+
+    @Test("sqrtm of 4*I is 2*I")
+    func testSqrtmScaledIdentity() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local A = linalg.diagonal({4, 4})
+            local S = A:sqrtm()
+            -- sqrt(4*I) = 2*I
+            return math.abs(S:get(1, 1) - 2) + math.abs(S:get(2, 2) - 2) +
+                   math.abs(S:get(1, 2)) + math.abs(S:get(2, 1))
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    // MARK: - funm Tests
+
+    @Test("funm function exists")
+    func testFunmExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(luaswift.linalg.funm)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("funm exp equals expm")
+    func testFunmExp() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local A = linalg.diagonal({0.1, 0.2, 0.3})
+            local E1 = A:expm()
+            local E2 = A:funm("exp")
+            -- Both should be equal
+            local diff = 0
+            for i = 1, 3 do
+                for j = 1, 3 do
+                    diff = diff + math.abs(E1:get(i, j) - E2:get(i, j))
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-6)
+    }
+
+    @Test("funm log equals logm")
+    func testFunmLog() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local A = linalg.diagonal({2, 3, 4})
+            local L1 = A:logm()
+            local L2 = A:funm("log")
+            -- Both should be equal
+            local diff = 0
+            for i = 1, 3 do
+                for j = 1, 3 do
+                    diff = diff + math.abs(L1:get(i, j) - L2:get(i, j))
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("funm sqrt equals sqrtm")
+    func testFunmSqrt() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local A = linalg.diagonal({4, 9, 16})
+            local S1 = A:sqrtm()
+            local S2 = A:funm("sqrt")
+            -- Both should be equal
+            local diff = 0
+            for i = 1, 3 do
+                for j = 1, 3 do
+                    diff = diff + math.abs(S1:get(i, j) - S2:get(i, j))
+                end
+            end
+            return diff
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("funm sin on diagonal matrix")
+    func testFunmSin() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local A = linalg.diagonal({0, math.pi/2, math.pi})
+            local S = A:funm("sin")
+            -- sin(diag(0, pi/2, pi)) = diag(0, 1, 0)
+            return math.abs(S:get(1, 1) - 0) + math.abs(S:get(2, 2) - 1) + math.abs(S:get(3, 3) - 0)
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("funm cos on diagonal matrix")
+    func testFunmCos() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local linalg = luaswift.linalg
+            local A = linalg.diagonal({0, math.pi/2, math.pi})
+            local C = A:funm("cos")
+            -- cos(diag(0, pi/2, pi)) = diag(1, 0, -1)
+            return math.abs(C:get(1, 1) - 1) + math.abs(C:get(2, 2) - 0) + math.abs(C:get(3, 3) + 1)
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("funm with unsupported function throws error")
+    func testFunmUnsupported() throws {
+        let engine = try createEngine()
+        #expect(throws: Error.self) {
+            try engine.evaluate("""
+                local linalg = luaswift.linalg
+                local A = linalg.eye(2)
+                return A:funm("unknown_function")
+                """)
+        }
+    }
+
+    @Test("logm error on non-positive eigenvalues")
+    func testLogmNonPositive() throws {
+        let engine = try createEngine()
+        #expect(throws: Error.self) {
+            try engine.evaluate("""
+                local linalg = luaswift.linalg
+                local A = linalg.diagonal({1, -1})  -- Has negative eigenvalue
+                return A:logm()
+                """)
+        }
+    }
+
+    @Test("sqrtm error on negative eigenvalues")
+    func testSqrtmNegative() throws {
+        let engine = try createEngine()
+        #expect(throws: Error.self) {
+            try engine.evaluate("""
+                local linalg = luaswift.linalg
+                local A = linalg.diagonal({4, -9})  -- Has negative eigenvalue
+                return A:sqrtm()
+                """)
+        }
+    }
 }

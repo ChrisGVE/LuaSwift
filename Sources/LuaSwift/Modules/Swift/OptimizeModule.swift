@@ -900,6 +900,492 @@ public struct OptimizeModule {
                     }
                 end
 
+                ----------------------------------------------------------------
+                -- least_squares: Nonlinear least squares optimization
+                -- Method: Levenberg-Marquardt algorithm
+                --
+                -- Arguments:
+                --   fun: residual function f(x) -> array of residuals
+                --   x0: initial guess for parameters
+                --   options: {
+                --     jac: Jacobian function (optional, computed numerically if not provided)
+                --     ftol: function tolerance (default: 1e-8)
+                --     xtol: parameter tolerance (default: 1e-8)
+                --     gtol: gradient tolerance (default: 1e-8)
+                --     max_nfev: max function evaluations (default: 100 * len(x0))
+                --     bounds: {lower, upper} bounds for parameters
+                --   }
+                --
+                -- Returns:
+                --   x: optimal parameters
+                --   cost: final ||residuals||^2 / 2
+                --   fun: residuals at x
+                --   jac: Jacobian at x
+                --   success: boolean
+                --   message: status message
+                --   nfev: number of function evaluations
+                --   njev: number of Jacobian evaluations
+                ----------------------------------------------------------------
+                function optimize.least_squares(fun, x0, options)
+                    options = options or {}
+                    local ftol = options.ftol or 1e-8
+                    local xtol = options.xtol or 1e-8
+                    local gtol = options.gtol or 1e-8
+                    local max_nfev = options.max_nfev or 100 * #x0
+                    local jac_func = options.jac
+                    local bounds = options.bounds
+                    local verbose = options.verbose or 0
+
+                    local n = #x0  -- Number of parameters
+                    local nfev = 0
+                    local njev = 0
+
+                    -- Current parameter values
+                    local x = {}
+                    for i = 1, n do x[i] = x0[i] end
+
+                    -- Apply bounds if provided
+                    local function apply_bounds(params)
+                        if not bounds then return params end
+                        local result = {}
+                        for i = 1, n do
+                            local val = params[i]
+                            if bounds.lower and bounds.lower[i] then
+                                val = math.max(val, bounds.lower[i])
+                            end
+                            if bounds.upper and bounds.upper[i] then
+                                val = math.min(val, bounds.upper[i])
+                            end
+                            result[i] = val
+                        end
+                        return result
+                    end
+
+                    x = apply_bounds(x)
+
+                    -- Evaluate residuals
+                    local function f(params)
+                        nfev = nfev + 1
+                        return fun(params)
+                    end
+
+                    -- Compute numerical Jacobian (m x n matrix)
+                    local function compute_jacobian(params)
+                        local h = 1e-8
+                        local r0 = f(params)
+                        local m = #r0
+                        njev = njev + 1
+
+                        local J = {}
+                        for i = 1, m do
+                            J[i] = {}
+                            for j = 1, n do J[i][j] = 0 end
+                        end
+
+                        for j = 1, n do
+                            local params_plus = {}
+                            for k = 1, n do params_plus[k] = params[k] end
+                            local step = h * math.max(1, math.abs(params[j]))
+                            params_plus[j] = params_plus[j] + step
+                            params_plus = apply_bounds(params_plus)
+                            local r_plus = f(params_plus)
+
+                            for i = 1, m do
+                                J[i][j] = (r_plus[i] - r0[i]) / step
+                            end
+                        end
+                        return J, r0
+                    end
+
+                    -- Vector and matrix operations
+                    local function vec_dot(a, b)
+                        local s = 0
+                        for i = 1, #a do s = s + a[i] * b[i] end
+                        return s
+                    end
+
+                    local function vec_norm(v)
+                        return math.sqrt(vec_dot(v, v))
+                    end
+
+                    local function mat_transpose_vec(A, v)
+                        -- A^T * v where A is m x n, v is m -> result is n
+                        local n_cols = #A[1]
+                        local result = {}
+                        for j = 1, n_cols do
+                            result[j] = 0
+                            for i = 1, #A do
+                                result[j] = result[j] + A[i][j] * v[i]
+                            end
+                        end
+                        return result
+                    end
+
+                    local function mat_vec(A, v)
+                        -- A * v where A is m x n, v is n -> result is m
+                        local result = {}
+                        for i = 1, #A do
+                            result[i] = 0
+                            for j = 1, #v do
+                                result[i] = result[i] + A[i][j] * v[j]
+                            end
+                        end
+                        return result
+                    end
+
+                    local function mat_transpose_mat(A)
+                        -- A^T * A where A is m x n -> result is n x n
+                        local n_cols = #A[1]
+                        local result = {}
+                        for i = 1, n_cols do
+                            result[i] = {}
+                            for j = 1, n_cols do
+                                result[i][j] = 0
+                                for k = 1, #A do
+                                    result[i][j] = result[i][j] + A[k][i] * A[k][j]
+                                end
+                            end
+                        end
+                        return result
+                    end
+
+                    -- Solve (J^T J + lambda * I) * delta = J^T * r using Cholesky-like method
+                    local function solve_normal_equations(JtJ, Jtr, lambda)
+                        local nn = #JtJ
+                        -- Add lambda to diagonal
+                        local A = {}
+                        for i = 1, nn do
+                            A[i] = {}
+                            for j = 1, nn do
+                                A[i][j] = JtJ[i][j]
+                            end
+                            A[i][i] = A[i][i] + lambda
+                        end
+
+                        -- Solve A * x = b using Gaussian elimination
+                        local b = {}
+                        for i = 1, nn do b[i] = -Jtr[i] end
+
+                        -- Augmented matrix
+                        for i = 1, nn do
+                            A[i][nn + 1] = b[i]
+                        end
+
+                        -- Forward elimination with partial pivoting
+                        for k = 1, nn do
+                            local max_val, max_idx = math.abs(A[k][k]), k
+                            for i = k + 1, nn do
+                                if math.abs(A[i][k]) > max_val then
+                                    max_val = math.abs(A[i][k])
+                                    max_idx = i
+                                end
+                            end
+                            if max_val < 1e-15 then
+                                return nil  -- Singular
+                            end
+                            if max_idx ~= k then
+                                A[k], A[max_idx] = A[max_idx], A[k]
+                            end
+                            for i = k + 1, nn do
+                                local factor = A[i][k] / A[k][k]
+                                for j = k, nn + 1 do
+                                    A[i][j] = A[i][j] - factor * A[k][j]
+                                end
+                            end
+                        end
+
+                        -- Back substitution
+                        local delta = {}
+                        for i = nn, 1, -1 do
+                            delta[i] = A[i][nn + 1]
+                            for j = i + 1, nn do
+                                delta[i] = delta[i] - A[i][j] * delta[j]
+                            end
+                            delta[i] = delta[i] / A[i][i]
+                        end
+                        return delta
+                    end
+
+                    -- Levenberg-Marquardt main loop
+                    local lambda = 0.001  -- Initial damping parameter
+                    local nu = 2
+
+                    local r = f(x)
+                    local m = #r
+                    local cost = vec_dot(r, r) / 2
+
+                    local J, _ = compute_jacobian(x)
+                    local JtJ = mat_transpose_mat(J)
+                    local Jtr = mat_transpose_vec(J, r)
+                    local g_norm = vec_norm(Jtr)
+
+                    local success = false
+                    local message = "Maximum iterations reached"
+                    local max_iter = math.ceil(max_nfev / (n + 1))
+
+                    for iter = 1, max_iter do
+                        if g_norm < gtol then
+                            success = true
+                            message = "Gradient tolerance reached"
+                            break
+                        end
+
+                        -- Solve for step
+                        local delta = solve_normal_equations(JtJ, Jtr, lambda)
+                        if not delta then
+                            message = "Singular matrix in normal equations"
+                            break
+                        end
+
+                        local delta_norm = vec_norm(delta)
+                        if delta_norm < xtol * (vec_norm(x) + xtol) then
+                            success = true
+                            message = "Parameter tolerance reached"
+                            break
+                        end
+
+                        -- Try the step
+                        local x_new = {}
+                        for i = 1, n do x_new[i] = x[i] + delta[i] end
+                        x_new = apply_bounds(x_new)
+
+                        local r_new = f(x_new)
+                        local cost_new = vec_dot(r_new, r_new) / 2
+
+                        -- Compute gain ratio
+                        local predicted_reduction = vec_dot(delta, Jtr) + 0.5 * lambda * vec_dot(delta, delta)
+                        local actual_reduction = cost - cost_new
+                        local rho = actual_reduction / (-predicted_reduction + 1e-15)
+
+                        if rho > 0 then
+                            -- Accept step
+                            x = x_new
+                            r = r_new
+                            cost = cost_new
+
+                            J, _ = compute_jacobian(x)
+                            JtJ = mat_transpose_mat(J)
+                            Jtr = mat_transpose_vec(J, r)
+                            g_norm = vec_norm(Jtr)
+
+                            -- Decrease lambda
+                            lambda = lambda * math.max(1/3, 1 - (2 * rho - 1)^3)
+                            nu = 2
+                        else
+                            -- Reject step, increase lambda
+                            lambda = lambda * nu
+                            nu = nu * 2
+                        end
+
+                        -- Check function tolerance
+                        if actual_reduction > 0 and actual_reduction < ftol * cost then
+                            success = true
+                            message = "Function tolerance reached"
+                            break
+                        end
+
+                        if nfev >= max_nfev then
+                            message = "Maximum function evaluations reached"
+                            break
+                        end
+                    end
+
+                    return {
+                        x = x,
+                        cost = cost,
+                        fun = r,
+                        jac = J,
+                        success = success,
+                        message = message,
+                        nfev = nfev,
+                        njev = njev
+                    }
+                end
+
+                ----------------------------------------------------------------
+                -- curve_fit: Fit a function to data
+                --
+                -- Arguments:
+                --   f: model function f(x, p1, p2, ...) or f(x, params)
+                --   xdata: array of x values
+                --   ydata: array of y values
+                --   p0: initial guess for parameters
+                --   options: {
+                --     sigma: uncertainties in ydata (optional)
+                --     absolute_sigma: if true, sigma is absolute (default: false)
+                --     bounds: {lower, upper} bounds for parameters
+                --     method: optimization method (default: "lm")
+                --     maxfev: max function evaluations
+                --   }
+                --
+                -- Returns:
+                --   popt: optimal parameters (array)
+                --   pcov: covariance matrix (approximate)
+                --   info: additional information (nfev, success, message)
+                ----------------------------------------------------------------
+                function optimize.curve_fit(f, xdata, ydata, p0, options)
+                    options = options or {}
+                    local sigma = options.sigma
+                    local absolute_sigma = options.absolute_sigma or false
+                    local bounds = options.bounds
+                    local maxfev = options.maxfev or 1000
+
+                    local n_data = #xdata
+                    local n_params = #p0
+
+                    -- Determine how to call f: f(x, p1, p2, ...) or f(x, params)
+                    -- Try both calling conventions
+                    local function model(x, params)
+                        -- Try array form first
+                        local ok, result = pcall(function()
+                            return f(x, params)
+                        end)
+                        if ok and type(result) == "number" then
+                            return result
+                        end
+
+                        -- Try expanded form: f(x, p1, p2, ...)
+                        ok, result = pcall(function()
+                            return f(x, table.unpack(params))
+                        end)
+                        if ok and type(result) == "number" then
+                            return result
+                        end
+
+                        error("curve_fit: model function must return a number")
+                    end
+
+                    -- Create residual function
+                    local function residuals(params)
+                        local r = {}
+                        for i = 1, n_data do
+                            local y_pred = model(xdata[i], params)
+                            if sigma then
+                                r[i] = (ydata[i] - y_pred) / sigma[i]
+                            else
+                                r[i] = ydata[i] - y_pred
+                            end
+                        end
+                        return r
+                    end
+
+                    -- Call least_squares
+                    local ls_options = {
+                        ftol = options.ftol or 1e-8,
+                        xtol = options.xtol or 1e-8,
+                        max_nfev = maxfev,
+                        bounds = bounds
+                    }
+
+                    local result = optimize.least_squares(residuals, p0, ls_options)
+
+                    -- Compute approximate covariance matrix
+                    -- pcov ≈ (J^T J)^{-1} * s^2 where s^2 is the residual variance
+                    local popt = result.x
+                    local J = result.jac
+                    local r = result.fun
+
+                    -- Compute residual variance (s^2)
+                    local ss_res = 0
+                    for i = 1, #r do
+                        ss_res = ss_res + r[i] * r[i]
+                    end
+                    local dof = n_data - n_params
+                    local s2 = (dof > 0) and (ss_res / dof) or 1
+
+                    -- Compute J^T J
+                    local JtJ = {}
+                    for i = 1, n_params do
+                        JtJ[i] = {}
+                        for j = 1, n_params do
+                            JtJ[i][j] = 0
+                            for k = 1, #J do
+                                JtJ[i][j] = JtJ[i][j] + J[k][i] * J[k][j]
+                            end
+                        end
+                    end
+
+                    -- Invert JtJ to get covariance (simple Gaussian elimination for small matrices)
+                    local pcov = {}
+                    local nn = n_params
+
+                    -- Create augmented matrix [JtJ | I]
+                    local aug = {}
+                    for i = 1, nn do
+                        aug[i] = {}
+                        for j = 1, nn do aug[i][j] = JtJ[i][j] end
+                        for j = 1, nn do aug[i][nn + j] = (i == j) and 1 or 0 end
+                    end
+
+                    -- Gauss-Jordan elimination
+                    for k = 1, nn do
+                        -- Find pivot
+                        local max_val, max_idx = math.abs(aug[k][k]), k
+                        for i = k + 1, nn do
+                            if math.abs(aug[i][k]) > max_val then
+                                max_val = math.abs(aug[i][k])
+                                max_idx = i
+                            end
+                        end
+                        if max_val < 1e-15 then
+                            -- Singular, return infinite covariance
+                            for i = 1, nn do
+                                pcov[i] = {}
+                                for j = 1, nn do pcov[i][j] = math.huge end
+                            end
+                            return popt, pcov, {
+                                success = result.success,
+                                message = result.message,
+                                nfev = result.nfev
+                            }
+                        end
+                        if max_idx ~= k then
+                            aug[k], aug[max_idx] = aug[max_idx], aug[k]
+                        end
+
+                        -- Scale row k
+                        local pivot = aug[k][k]
+                        for j = 1, 2 * nn do
+                            aug[k][j] = aug[k][j] / pivot
+                        end
+
+                        -- Eliminate column k
+                        for i = 1, nn do
+                            if i ~= k then
+                                local factor = aug[i][k]
+                                for j = 1, 2 * nn do
+                                    aug[i][j] = aug[i][j] - factor * aug[k][j]
+                                end
+                            end
+                        end
+                    end
+
+                    -- Extract inverse and scale by s^2
+                    for i = 1, nn do
+                        pcov[i] = {}
+                        for j = 1, nn do
+                            pcov[i][j] = aug[i][nn + j] * s2
+                        end
+                    end
+
+                    -- If not absolute_sigma, scale appropriately
+                    if sigma and not absolute_sigma then
+                        local scale = ss_res / dof
+                        for i = 1, nn do
+                            for j = 1, nn do
+                                pcov[i][j] = pcov[i][j] * scale
+                            end
+                        end
+                    end
+
+                    return popt, pcov, {
+                        success = result.success,
+                        message = result.message,
+                        nfev = result.nfev,
+                        cost = result.cost
+                    }
+                end
+
                 -- Store the module
                 luaswift.optimize = optimize
 

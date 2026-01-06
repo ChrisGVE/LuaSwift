@@ -200,6 +200,16 @@ When porting functionality from established libraries (matplotlib, seaborn, scip
 - If we can't match the robustness of the original, document limitations clearly
 - Every "inspired by" module must have its algorithms/implementation AND test suite reviewed against the original
 
+**Performance & Precision:**
+- No compromise on precision or optimization compared to the inspiration source (licensing permitting)
+- Use hardware-accelerated libraries (BLAS, LAPACK via Accelerate) wherever the original does
+- If Fortran sources are missing from the platform, bring them in as needed
+
+**Implementation Language:**
+- All module logic must be implemented in Swift (or C/Fortran when required for performance)
+- Only the Lua API entry points should be in Lua - no algorithmic code in Lua
+- This ensures modules are available to Swift applications directly, not just via Lua
+
 ### Swift-Backed Module Replacements
 
 When replacing a pure Lua module with a Swift-backed module, it **must be a complete drop-in replacement**:

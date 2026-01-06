@@ -48,6 +48,7 @@ public struct ModuleRegistry {
     /// - `luaswift.mathsci`: Unified scientific computing namespace
     /// - `luaswift.distributions`: Probability distributions (norm, t, chi2, f, gamma, beta)
     /// - `luaswift.interpolate`: Interpolation functions (interp1d, CubicSpline, PCHIP, Akima)
+    /// - `luaswift.cluster`: Clustering algorithms (kmeans, hierarchical, DBSCAN)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -82,6 +83,7 @@ public struct ModuleRegistry {
         installIntegrateModule(in: engine)
         installDistributionsModule(in: engine)
         installInterpolateModule(in: engine)
+        installClusterModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -337,5 +339,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installInterpolateModule(in engine: LuaEngine) {
         InterpolateModule.register(in: engine)
+    }
+
+    /// Install only the Cluster module.
+    ///
+    /// This module provides clustering algorithms (kmeans, hierarchical, DBSCAN).
+    /// Should be called after MathSciModule to add to math.cluster namespace.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installClusterModule(in engine: LuaEngine) {
+        ClusterModule.register(in: engine)
     }
 }

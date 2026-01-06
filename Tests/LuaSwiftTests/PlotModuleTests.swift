@@ -579,7 +579,7 @@ final class PlotModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
-    // MARK: - Show No-op Test
+    // MARK: - Compatibility Shims Tests
 
     func testShowIsNoOp() throws {
         // plt.show() should not throw
@@ -590,6 +590,34 @@ final class PlotModuleTests: XCTestCase {
             plt.show()
         """)
         // If we get here without exception, test passes
+    }
+
+    func testIonIsNoOp() throws {
+        // plt.ion() should not throw (interactive mode on - no-op in embedded context)
+        try engine.run("""
+            local plt = require("luaswift.plot")
+            plt.ion()
+        """)
+    }
+
+    func testIoffIsNoOp() throws {
+        // plt.ioff() should not throw (interactive mode off - no-op in embedded context)
+        try engine.run("""
+            local plt = require("luaswift.plot")
+            plt.ioff()
+        """)
+    }
+
+    func testInteractiveModeWorkflow() throws {
+        // Full workflow with interactive mode calls (all no-ops)
+        try engine.run("""
+            local plt = require("luaswift.plot")
+            plt.ioff()  -- Turn off interactive mode
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6})
+            plt.show()
+            plt.ion()  -- Turn on interactive mode
+        """)
     }
 
     // MARK: - Chaining Tests
@@ -2266,6 +2294,476 @@ final class PlotModuleTests: XCTestCase {
             local lm_result = stat.lmplot({{1, 2, 3, 4, 5}, {2, 3, 5, 4, 5}})
 
             return cat_result.fig ~= nil and lm_result.fig ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Python to Lua Translation Tests
+    // These tests verify that Python matplotlib/seaborn code translates directly to Lua
+    // with only syntax changes: [] → {}, keyword= → key=, . → : (for methods)
+
+    /// Test: Basic line plot translation
+    /// Python: ax.plot([1, 2, 3], [4, 5, 6])
+    /// Lua:    ax:plot({1, 2, 3}, {4, 5, 6})
+    func testTranslationBasicLinePlot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Line plot with format string
+    /// Python: ax.plot([1, 2, 3], [4, 5, 6], 'r--o')
+    /// Lua:    ax:plot({1, 2, 3}, {4, 5, 6}, "r--o")
+    func testTranslationFormatString() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6}, "r--o")
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Line plot with keyword arguments
+    /// Python: ax.plot([1, 2, 3], [4, 5, 6], color='blue', linestyle='--', marker='o', label='data')
+    /// Lua:    ax:plot({1, 2, 3}, {4, 5, 6}, {color="blue", linestyle="--", marker="o", label="data"})
+    func testTranslationKeywordArgs() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6}, {color="blue", linestyle="--", marker="o", label="data"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Scatter plot translation
+    /// Python: ax.scatter([1, 2, 3], [4, 5, 6], s=50, c='red', marker='s')
+    /// Lua:    ax:scatter({1, 2, 3}, {4, 5, 6}, {s=50, c="red", marker="s"})
+    func testTranslationScatter() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:scatter({1, 2, 3}, {4, 5, 6}, {s=50, c="red", marker="s"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Bar chart translation
+    /// Python: ax.bar([1, 2, 3], [10, 20, 15], width=0.8, color='green')
+    /// Lua:    ax:bar({1, 2, 3}, {10, 20, 15}, {width=0.8, color="green"})
+    func testTranslationBar() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:bar({1, 2, 3}, {10, 20, 15}, {width=0.8, color="green"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Histogram translation
+    /// Python: ax.hist(data, bins=20, density=True, color='blue', alpha=0.7)
+    /// Lua:    ax:hist(data, {bins=20, density=true, color="blue", alpha=0.7})
+    func testTranslationHistogram() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5}
+            ax:hist(data, {bins=5, density=true, color="blue", alpha=0.7})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Pie chart translation
+    /// Python: ax.pie([15, 30, 45, 10], labels=['A', 'B', 'C', 'D'], autopct='%1.1f%%')
+    /// Lua:    ax:pie({15, 30, 45, 10}, {labels={"A", "B", "C", "D"}, autopct="%1.1f%%"})
+    func testTranslationPie() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:pie({15, 30, 45, 10}, {labels={"A", "B", "C", "D"}, autopct="%1.1f%%"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Subplots creation translation
+    /// Python: fig, ax = plt.subplots()
+    /// Lua:    local fig, ax = plt.subplots()
+    func testTranslationSubplots() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            return fig ~= nil and ax ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Figure with options translation
+    /// Python: fig, ax = plt.subplots(figsize=(10, 8), dpi=100)
+    /// Lua:    local fig, ax = plt.subplots({figsize={10, 8}, dpi=100})
+    func testTranslationFigureWithOptions() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots({figsize={10, 8}, dpi=100})
+            return fig._width == 1000 and fig._height == 800
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Multiple subplots translation
+    /// Python: fig, axes = plt.subplots(2, 2)
+    /// Lua:    local fig, axes = plt.subplots(2, 2)
+    func testTranslationMultipleSubplots() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, axes = plt.subplots(2, 2)
+            return type(axes) == "table" and #axes == 4
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Title and labels translation
+    /// Python: ax.set_title('My Plot'); ax.set_xlabel('X'); ax.set_ylabel('Y')
+    /// Lua:    ax:set_title("My Plot"); ax:set_xlabel("X"); ax:set_ylabel("Y")
+    func testTranslationTitleAndLabels() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:set_title("My Plot")
+            ax:set_xlabel("X Axis")
+            ax:set_ylabel("Y Axis")
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Legend translation
+    /// Python: ax.legend(loc='upper right')
+    /// Lua:    ax:legend({loc="upper right"})
+    func testTranslationLegend() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6}, {label="data"})
+            ax:legend({loc="upper right"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Grid translation
+    /// Python: ax.grid(True, linestyle='--', alpha=0.7)
+    /// Lua:    ax:grid({linestyle="--", alpha=0.7})
+    func testTranslationGrid() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:grid({linestyle="--", alpha=0.7})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Axis limits translation
+    /// Python: ax.set_xlim(0, 10); ax.set_ylim(-5, 5)
+    /// Lua:    ax:set_xlim(0, 10); ax:set_ylim(-5, 5)
+    func testTranslationAxisLimits() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:set_xlim(0, 10)
+            ax:set_ylim(-5, 5)
+            local xlim = ax:get_xlim()
+            local ylim = ax:get_ylim()
+            return xlim[1] == 0 and xlim[2] == 10 and ylim[1] == -5 and ylim[2] == 5
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Savefig translation
+    /// Python: fig.savefig('plot.svg', format='svg')
+    /// Lua:    fig:savefig("plot.svg", {format="svg"})
+    func testTranslationSavefig() throws {
+        let tmpDir = FileManager.default.temporaryDirectory.path
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            ax:plot({1, 2, 3}, {4, 5, 6})
+            fig:savefig("\(tmpDir)/test_translation.svg", {format="svg"})
+            return true
+        """)
+        XCTAssertEqual(result.boolValue, true)
+        // Clean up
+        try? FileManager.default.removeItem(atPath: "\(tmpDir)/test_translation.svg")
+    }
+
+    /// Test: Imshow translation
+    /// Python: ax.imshow(data, cmap='viridis', vmin=0, vmax=1)
+    /// Lua:    ax:imshow(data, {cmap="viridis", vmin=0, vmax=1})
+    func testTranslationImshow() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data = {{0, 0.5, 1}, {0.5, 1, 0.5}, {1, 0.5, 0}}
+            ax:imshow(data, {cmap="viridis", vmin=0, vmax=1})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Errorbar translation
+    /// Python: ax.errorbar(x, y, yerr=errors, fmt='o', capsize=5)
+    /// Lua:    ax:errorbar(x, y, {yerr=errors, fmt="o", capsize=5})
+    func testTranslationErrorbar() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local x = {1, 2, 3}
+            local y = {4, 5, 6}
+            local errors = {0.5, 0.3, 0.4}
+            ax:errorbar(x, y, {yerr=errors, fmt="o", capsize=5})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Boxplot translation
+    /// Python: ax.boxplot([data1, data2], widths=0.6, showmeans=True)
+    /// Lua:    ax:boxplot({data1, data2}, {widths=0.6, showmeans=true})
+    func testTranslationBoxplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+            local data1 = {1, 2, 3, 4, 5}
+            local data2 = {3, 4, 5, 6, 7}
+            ax:boxplot({data1, data2}, {widths=0.6, showmeans=true})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Seaborn Translation Tests
+
+    /// Test: sns.histplot translation
+    /// Python: sns.histplot(data, kde=True, stat='density')
+    /// Lua:    stat.histplot(ax, data, {kde=true, stat="density"})
+    func testTranslationSeabornHistplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5}
+            stat.histplot(ax, data, {kde=true, stat="density"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.kdeplot translation
+    /// Python: sns.kdeplot(data, fill=True, bw_method='scott')
+    /// Lua:    stat.kdeplot(ax, data, {fill=true, bw_method="scott"})
+    func testTranslationSeabornKdeplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {1, 2, 3, 4, 5}
+            stat.kdeplot(ax, data, {fill=true, bw_method="scott"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.violinplot translation
+    /// Python: sns.violinplot(data=[d1, d2], showmeans=True, showmedians=True)
+    /// Lua:    stat.violinplot(ax, {d1, d2}, {showmeans=true, showmedians=true})
+    func testTranslationSeabornViolinplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local d1 = {1, 2, 3, 4, 5}
+            local d2 = {3, 4, 5, 6, 7}
+            stat.violinplot(ax, {d1, d2}, {showmeans=true, showmedians=true})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.regplot translation
+    /// Python: sns.regplot(x=x, y=y, ci=95, scatter=True)
+    /// Lua:    stat.regplot(ax, x, y, {ci=95, scatter=true})
+    func testTranslationSeabornRegplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local x = {1, 2, 3, 4, 5}
+            local y = {2, 4, 5, 4, 5}
+            stat.regplot(ax, x, y, {ci=95, scatter=true})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.heatmap translation
+    /// Python: sns.heatmap(data, annot=True, fmt='.2f', cmap='coolwarm')
+    /// Lua:    stat.heatmap(ax, data, {annot=true, fmt=".2f", cmap="coolwarm"})
+    func testTranslationSeabornHeatmap() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{1, 0.8, 0.3}, {0.8, 1, 0.5}, {0.3, 0.5, 1}}
+            stat.heatmap(ax, data, {annot=true, fmt=".2f", cmap="coolwarm"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.stripplot translation
+    /// Python: sns.stripplot(data=data, jitter=0.2, color='blue')
+    /// Lua:    stat.stripplot(ax, data, {jitter=0.2, color="blue"})
+    func testTranslationSeabornStripplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{1, 2, 3, 4, 5}}
+            stat.stripplot(ax, data, {jitter=0.2, color="blue"})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.swarmplot translation
+    /// Python: sns.swarmplot(data=data, size=5)
+    /// Lua:    stat.swarmplot(ax, data, {size=5})
+    func testTranslationSeabornSwarmplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, ax = plt.subplots()
+            local data = {{1, 2, 2, 3, 3, 4}}
+            stat.swarmplot(ax, data, {size=5})
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.catplot translation
+    /// Python: g = sns.catplot(data=data, kind='box', height=5)
+    /// Lua:    local result = stat.catplot(data, {kind="box", height=5})
+    func testTranslationSeabornCatplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local result = stat.catplot({{1, 2, 3, 4, 5}}, {kind="box", height=5})
+            return result.fig ~= nil and result.ax ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.lmplot translation
+    /// Python: g = sns.lmplot(data=df, x='x', y='y', ci=95)
+    /// Lua:    local result = stat.lmplot(data, {x="x", y="y", ci=95})
+    func testTranslationSeabornLmplot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {x={1, 2, 3, 4, 5}, y={2, 4, 5, 4, 5}}
+            local result = stat.lmplot(data, {x="x", y="y", ci=95})
+            return result.fig ~= nil and result.ax ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: sns.clustermap translation
+    /// Python: g = sns.clustermap(data, annot=True, cmap='viridis')
+    /// Lua:    local result = stat.clustermap(data, {annot=true, cmap="viridis"})
+    func testTranslationSeabornClustermap() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local data = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}}
+            local result = stat.clustermap(data, {annot=true, cmap="viridis"})
+            return result.fig ~= nil and result.row_order ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Complete Workflow Translation Test
+
+    /// Test: Complete matplotlib workflow translation
+    /// This test demonstrates a complete Python → Lua translation
+    func testTranslationCompleteWorkflow() throws {
+        let result = try engine.evaluate("""
+            -- Python equivalent:
+            -- import matplotlib.pyplot as plt
+            -- fig, ax = plt.subplots(figsize=(10, 8))
+            -- ax.plot([1, 2, 3, 4, 5], [1, 4, 9, 16, 25], 'b-o', label='y = x²')
+            -- ax.scatter([1, 2, 3, 4, 5], [1, 4, 9, 16, 25], s=100, c='red')
+            -- ax.set_title('Square Function')
+            -- ax.set_xlabel('x')
+            -- ax.set_ylabel('y')
+            -- ax.legend(loc='upper left')
+            -- ax.grid(True, linestyle='--', alpha=0.7)
+            -- ax.set_xlim(0, 6)
+            -- ax.set_ylim(0, 30)
+            -- plt.show()
+
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots({figsize={10, 8}})
+            ax:plot({1, 2, 3, 4, 5}, {1, 4, 9, 16, 25}, "b-o", {label="y = x²"})
+            ax:scatter({1, 2, 3, 4, 5}, {1, 4, 9, 16, 25}, {s=100, c="red"})
+            ax:set_title("Square Function")
+            ax:set_xlabel("x")
+            ax:set_ylabel("y")
+            ax:legend({loc="upper left"})
+            ax:grid({linestyle="--", alpha=0.7})
+            ax:set_xlim(0, 6)
+            ax:set_ylim(0, 30)
+            plt.show()
+
+            local svg = fig:to_svg()
+            return svg:find("<svg") ~= nil and svg:find("<path") ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Complete seaborn workflow translation
+    func testTranslationSeabornCompleteWorkflow() throws {
+        let result = try engine.evaluate("""
+            -- Python equivalent:
+            -- import seaborn as sns
+            -- import matplotlib.pyplot as plt
+            -- fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+            -- data = [1, 2, 2, 3, 3, 3, 4, 4, 5, 6, 7, 8]
+            -- sns.histplot(data, kde=True, ax=axes[0])
+            -- axes[0].set_title('Distribution')
+            -- sns.kdeplot(data, fill=True, ax=axes[1])
+            -- axes[1].set_title('KDE Plot')
+            -- plt.show()
+
+            local plt = require("luaswift.plot")
+            local stat = plt.stat
+            local fig, axes = plt.subplots(1, 2, {figsize={12, 5}})
+            local data = {1, 2, 2, 3, 3, 3, 4, 4, 5, 6, 7, 8}
+            stat.histplot(axes[1], data, {kde=true})
+            axes[1]:set_title("Distribution")
+            stat.kdeplot(axes[2], data, {fill=true})
+            axes[2]:set_title("KDE Plot")
+            plt.show()
+
+            return fig:get_context():command_count() > 0
         """)
         XCTAssertEqual(result.boolValue, true)
     }

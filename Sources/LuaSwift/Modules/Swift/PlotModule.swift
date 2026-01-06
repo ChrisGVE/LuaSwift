@@ -2536,9 +2536,19 @@ public struct PlotModule {
         end
     end
 
-    -- plt.show() - no-op in embedded context
+    -- plt.show() - no-op in embedded context (no GUI available)
     function plot.show()
         -- No GUI in embedded context
+    end
+
+    -- plt.ion() - interactive mode on (no-op in embedded context)
+    function plot.ion()
+        -- No interactive mode in embedded context
+    end
+
+    -- plt.ioff() - interactive mode off (no-op in embedded context)
+    function plot.ioff()
+        -- No interactive mode in embedded context
     end
 
     -- ============================================================

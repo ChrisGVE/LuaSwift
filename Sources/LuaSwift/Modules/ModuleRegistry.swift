@@ -77,6 +77,7 @@ public struct ModuleRegistry {
         installPlotModule(in: engine)
         installMathSciModule(in: engine)
         installOptimizeModule(in: engine)
+        installIntegrateModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -302,5 +303,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installOptimizeModule(in engine: LuaEngine) {
         OptimizeModule.register(in: engine)
+    }
+
+    /// Install only the Integrate module.
+    ///
+    /// This module provides numerical integration functions.
+    /// Should be called after MathSciModule to add to math.integrate namespace.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installIntegrateModule(in engine: LuaEngine) {
+        IntegrateModule.register(in: engine)
     }
 }

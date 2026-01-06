@@ -69,23 +69,64 @@ LuaSwift bundles multiple Lua versions selectable via environment variable:
 
 LuaSwift is a Swift wrapper around Lua for iOS/macOS. It bundles the complete Lua C source for App Store compliance (no external dependencies or downloaded code).
 
-### Module Structure
+### Project Structure
 
 ```
 Sources/
-├── CLua/           # Lua 5.4.7 C source (default)
-├── CLua51/         # Lua 5.1.5 C source
-├── CLua52/         # Lua 5.2.4 C source
-├── CLua53/         # Lua 5.3.6 C source
-├── CLua55/         # Lua 5.5.0 C source
-│   ├── *.c         # C implementation files
-│   └── include/    # Header files + module.modulemap
-└── LuaSwift/       # Swift wrapper layer
+├── CLua/                    # Lua 5.4.7 C source (default)
+├── CLua51/                  # Lua 5.1.5 C source
+├── CLua52/                  # Lua 5.2.4 C source
+├── CLua53/                  # Lua 5.3.6 C source
+├── CLua55/                  # Lua 5.5.0 C source
+│   ├── *.c                  # C implementation files
+│   └── include/             # Header files + module.modulemap
+└── LuaSwift/
     ├── LuaEngine.swift      # Main API: run(), evaluate(), register()
     ├── LuaValue.swift       # Type-safe enum for Lua values
     ├── LuaValueServer.swift # Protocol for exposing Swift data to Lua
     ├── LuaError.swift       # Error types
-    └── LuaHelpers.swift     # Swift wrappers for Lua C macros (version-aware)
+    ├── LuaHelpers.swift     # Swift wrappers for Lua C macros
+    ├── CoroutineHandle.swift # Coroutine management
+    ├── ProblemController.swift # Problem flow controller
+    ├── LuaModules/          # Pure Lua modules
+    │   ├── compat.lua       # Lua version compatibility
+    │   ├── serialize.lua    # Table serialization
+    │   └── math_expr.lua    # Math expression parsing (Lua parts)
+    └── Modules/
+        ├── ModuleRegistry.swift # Central module registration
+        └── Swift/           # Swift-backed modules
+            ├── ArrayModule.swift      # NumPy-like N-dimensional arrays
+            ├── ComplexModule.swift    # Complex number arithmetic
+            ├── DebugModule.swift      # Debugging utilities (DEBUG only)
+            ├── GeometryModule.swift   # 2D/3D geometry with SIMD
+            ├── IntegrateModule.swift  # Numerical integration (scipy-inspired)
+            ├── JSONModule.swift       # JSON encode/decode
+            ├── LinAlgModule.swift     # Linear algebra with Accelerate
+            ├── MathExprModule.swift   # Math expression parsing
+            ├── MathSciModule.swift    # Scientific computing namespace
+            ├── MathXModule.swift      # Extended math functions
+            ├── OptimizeModule.swift   # Numerical optimization (scipy-inspired)
+            ├── PlotModule.swift       # matplotlib/seaborn-compatible plotting
+            ├── RegexModule.swift      # Regular expressions
+            ├── SlideRuleModule.swift  # Slide rule simulation
+            ├── StringXModule.swift    # String utilities (Penlight-inspired)
+            ├── SVGModule.swift        # SVG document generation
+            ├── TableXModule.swift     # Table utilities (Penlight-inspired)
+            ├── TOMLModule.swift       # TOML encode/decode
+            ├── TypesModule.swift      # Type detection/conversion
+            ├── UTF8XModule.swift      # UTF-8 string utilities
+            └── YAMLModule.swift       # YAML encode/decode
+
+Tests/LuaSwiftTests/
+├── LuaEngineTests.swift     # Core engine tests
+├── LuaValueTests.swift      # Value type tests
+├── LuaCallbackTests.swift   # Swift callback tests
+├── LuaCoroutineTests.swift  # Coroutine tests
+├── LuaModuleTests.swift     # Pure Lua module tests
+├── BenchmarkTests.swift     # Performance benchmarks
+├── ProblemControllerTests.swift
+├── SerializeModuleTests.swift
+└── [Module]Tests.swift      # One test file per Swift module (22 total)
 ```
 
 ### Core Concepts

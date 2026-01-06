@@ -45,6 +45,7 @@ public struct ModuleRegistry {
     /// - `luaswift.mathexpr`: Mathematical expression parsing and evaluation
     /// - `luaswift.sliderule`: Slide rule simulation for analog computation
     /// - `luaswift.plot`: Matplotlib-compatible plotting with retained vector graphics
+    /// - `luaswift.mathsci`: Unified scientific computing namespace
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -52,6 +53,8 @@ public struct ModuleRegistry {
     /// `svg_module`, `mathexpr_module`, `sliderule_module`, `plt`, `debug_module`.
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
+    /// After calling extend_stdlib(), math subnamespaces are available:
+    /// `math.linalg`, `math.stats`, `math.special`, `math.constants`, etc.
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
@@ -72,6 +75,7 @@ public struct ModuleRegistry {
         installMathExprModule(in: engine)
         installSlideRuleModule(in: engine)
         installPlotModule(in: engine)
+        installMathSciModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -276,5 +280,16 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installPlotModule(in engine: LuaEngine) {
         PlotModule.register(in: engine)
+    }
+
+    /// Install only the MathSci module.
+    ///
+    /// This module sets up math subnamespaces by re-exporting existing modules.
+    /// Should be called after individual modules (MathXModule, LinAlgModule, etc.)
+    /// are already registered.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installMathSciModule(in engine: LuaEngine) {
+        MathSciModule.register(in: engine)
     }
 }

@@ -46,6 +46,7 @@ public struct ModuleRegistry {
     /// - `luaswift.sliderule`: Slide rule simulation for analog computation
     /// - `luaswift.plot`: Matplotlib-compatible plotting with retained vector graphics
     /// - `luaswift.mathsci`: Unified scientific computing namespace
+    /// - `luaswift.distributions`: Probability distributions (norm, t, chi2, f, gamma, beta)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -78,6 +79,7 @@ public struct ModuleRegistry {
         installMathSciModule(in: engine)
         installOptimizeModule(in: engine)
         installIntegrateModule(in: engine)
+        installDistributionsModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -313,5 +315,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installIntegrateModule(in engine: LuaEngine) {
         IntegrateModule.register(in: engine)
+    }
+
+    /// Install only the Distributions module.
+    ///
+    /// This module provides probability distributions (norm, uniform, t, chi2, etc.).
+    /// Should be called after MathSciModule to add to math.stats namespace.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installDistributionsModule(in engine: LuaEngine) {
+        DistributionsModule.register(in: engine)
     }
 }

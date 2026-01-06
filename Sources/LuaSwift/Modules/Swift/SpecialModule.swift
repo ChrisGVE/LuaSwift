@@ -14,9 +14,11 @@ import Darwin
 /// Swift-backed special mathematical functions module for LuaSwift.
 ///
 /// Provides advanced special mathematical functions:
-/// - Error functions: erf, erfc
+/// - Error functions: erf, erfc, erfinv, erfcinv
 /// - Beta functions: beta, betainc
 /// - Bessel functions: j0, j1, jn, y0, y1, yn
+/// - Modified Bessel functions: besseli, besselk
+/// - Gamma functions: digamma/psi, gammainc, gammaincc
 ///
 /// These functions are added to the `math.special` namespace.
 ///
@@ -56,6 +58,10 @@ public struct SpecialModule {
         engine.registerFunction(name: "_luaswift_special_y0", callback: y0Callback)
         engine.registerFunction(name: "_luaswift_special_y1", callback: y1Callback)
         engine.registerFunction(name: "_luaswift_special_yn", callback: ynCallback)
+
+        // Modified Bessel functions
+        engine.registerFunction(name: "_luaswift_special_besseli", callback: besseliCallback)
+        engine.registerFunction(name: "_luaswift_special_besselk", callback: besselkCallback)
 
         // New special functions
         engine.registerFunction(name: "_luaswift_special_digamma", callback: digammaCallback)
@@ -207,6 +213,34 @@ public struct SpecialModule {
                 end
 
                 ----------------------------------------------------------------
+                -- Modified Bessel Function of First Kind: besseli(n, x)
+                --
+                -- Returns I_n(x), the modified Bessel function of the first kind.
+                ----------------------------------------------------------------
+                function special.besseli(n, x)
+                    if type(n) ~= "number" or type(x) ~= "number" then
+                        error("besseli: expected two numbers", 2)
+                    end
+                    return _luaswift_special_besseli(n, x)
+                end
+
+                ----------------------------------------------------------------
+                -- Modified Bessel Function of Second Kind: besselk(n, x)
+                --
+                -- Returns K_n(x), the modified Bessel function of the second kind.
+                -- Note: K_n(x) is undefined for x <= 0.
+                ----------------------------------------------------------------
+                function special.besselk(n, x)
+                    if type(n) ~= "number" or type(x) ~= "number" then
+                        error("besselk: expected two numbers", 2)
+                    end
+                    if x <= 0 then
+                        return math.huge  -- +inf for x <= 0
+                    end
+                    return _luaswift_special_besselk(n, x)
+                end
+
+                ----------------------------------------------------------------
                 -- Digamma Function: digamma(x) / psi(x)
                 --
                 -- Returns the digamma function ψ(x) = d/dx ln(Γ(x)) = Γ'(x)/Γ(x)
@@ -299,6 +333,8 @@ public struct SpecialModule {
                     math.special.y0 = special.y0
                     math.special.y1 = special.y1
                     math.special.yn = special.yn
+                    math.special.besseli = special.besseli
+                    math.special.besselk = special.besselk
                     math.special.digamma = special.digamma
                     math.special.psi = special.psi
                     math.special.erfinv = special.erfinv
@@ -419,6 +455,222 @@ public struct SpecialModule {
             return .number(-.infinity)
         }
         return .number(Darwin.yn(Int32(n), x))
+    }
+
+    // MARK: - Modified Bessel Functions
+
+    /// Modified Bessel function of the first kind I_n(x)
+    private static func besseliCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let n = args[0].numberValue,
+              let x = args[1].numberValue else {
+            throw LuaError.runtimeError("besseli: expected two numbers")
+        }
+        return .number(besseli(Int(n), x))
+    }
+
+    /// Modified Bessel function of the second kind K_n(x)
+    private static func besselkCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let n = args[0].numberValue,
+              let x = args[1].numberValue else {
+            throw LuaError.runtimeError("besselk: expected two numbers")
+        }
+        if x <= 0 {
+            return .number(.infinity)
+        }
+        return .number(besselk(Int(n), x))
+    }
+
+    /// Compute I_n(x) - Modified Bessel function of the first kind
+    /// Uses series expansion for small x and asymptotic expansion for large x
+    private static func besseli(_ n: Int, _ x: Double) -> Double {
+        let absN = abs(n)
+
+        // Handle x = 0
+        if x == 0 {
+            return absN == 0 ? 1.0 : 0.0
+        }
+
+        let absX = abs(x)
+
+        // Use series expansion for moderate x
+        if absX <= 20.0 + Double(absN) {
+            return besseliSeries(absN, absX)
+        } else {
+            // Asymptotic expansion for large x
+            return besseliAsymptotic(absN, absX)
+        }
+    }
+
+    /// Series expansion for I_n(x)
+    /// I_n(x) = (x/2)^n * sum_{k=0}^∞ (x²/4)^k / (k! * (n+k)!)
+    private static func besseliSeries(_ n: Int, _ x: Double) -> Double {
+        let halfX = x / 2.0
+        let quarterX2 = halfX * halfX
+        let eps = 1.0e-15
+        let maxIterations = 200
+
+        // Start with the leading factor (x/2)^n
+        var term = pow(halfX, Double(n)) / tgamma(Double(n) + 1.0)
+        var sum = term
+
+        for k in 1...maxIterations {
+            term *= quarterX2 / (Double(k) * Double(n + k))
+            sum += term
+            if abs(term) < abs(sum) * eps {
+                break
+            }
+        }
+
+        return sum
+    }
+
+    /// Asymptotic expansion for I_n(x) for large x
+    /// I_n(x) ≈ exp(x) / sqrt(2πx) * (1 - μ/(8x) + ...)
+    /// where μ = 4n²
+    private static func besseliAsymptotic(_ n: Int, _ x: Double) -> Double {
+        let mu = 4.0 * Double(n * n)
+        let x8 = 8.0 * x
+
+        // First few terms of the asymptotic series
+        var sum = 1.0
+        var term = 1.0
+        let eps = 1.0e-15
+
+        for k in 1...10 {
+            let k2m1 = Double(2 * k - 1)
+            term *= -(mu - k2m1 * k2m1) / (Double(k) * x8)
+            let newSum = sum + term
+            if abs(term) < abs(sum) * eps {
+                break
+            }
+            sum = newSum
+        }
+
+        return exp(x) / sqrt(2.0 * .pi * x) * sum
+    }
+
+    /// Compute K_n(x) - Modified Bessel function of the second kind
+    private static func besselk(_ n: Int, _ x: Double) -> Double {
+        let absN = abs(n)  // K_n = K_{-n}
+
+        // Handle special cases
+        if x <= 0 {
+            return .infinity
+        }
+
+        // Use different methods based on x size
+        if x <= 2.0 {
+            return besselkSmall(absN, x)
+        } else {
+            return besselkAsymptotic(absN, x)
+        }
+    }
+
+    /// K_n(x) for small x using the relationship with I_n
+    /// K_0(x) = -ln(x/2)*I_0(x) + series
+    /// K_n(x) computed via recurrence from K_0 and K_1
+    private static func besselkSmall(_ n: Int, _ x: Double) -> Double {
+        // Compute K_0(x) and K_1(x) first
+        let k0 = besselk0Small(x)
+        if n == 0 { return k0 }
+
+        let k1 = besselk1Small(x)
+        if n == 1 { return k1 }
+
+        // Use upward recurrence: K_{n+1}(x) = K_{n-1}(x) + (2n/x)*K_n(x)
+        var kPrev = k0
+        var kCurr = k1
+        for m in 1..<n {
+            let kNext = kPrev + (2.0 * Double(m) / x) * kCurr
+            kPrev = kCurr
+            kCurr = kNext
+        }
+
+        return kCurr
+    }
+
+    /// K_0(x) for small x
+    private static func besselk0Small(_ x: Double) -> Double {
+        let halfX = x / 2.0
+        let quarterX2 = halfX * halfX
+        let gamma = 0.5772156649015329  // Euler-Mascheroni constant
+
+        // K_0(x) = -ln(x/2)*I_0(x) + sum_{k=0}^∞ (x²/4)^k * ψ(k+1) / (k!)²
+        // where ψ(k+1) = -γ + sum_{j=1}^k 1/j
+
+        let i0 = besseliSeries(0, x)
+
+        var sum = 0.0
+        var term = 1.0
+        var psi = -gamma
+
+        sum += term * psi
+
+        for k in 1...50 {
+            psi += 1.0 / Double(k)
+            term *= quarterX2 / Double(k * k)
+            sum += term * psi
+            if abs(term) < 1.0e-15 * abs(sum) {
+                break
+            }
+        }
+
+        return -log(halfX) * i0 + sum
+    }
+
+    /// K_1(x) for small x
+    private static func besselk1Small(_ x: Double) -> Double {
+        let halfX = x / 2.0
+        let quarterX2 = halfX * halfX
+        let gamma = 0.5772156649015329
+
+        // K_1(x) = ln(x/2)*I_1(x) + (1/x) + series
+        let i1 = besseliSeries(1, x)
+
+        var sum = 0.0
+        var term = halfX
+        var psiK = -gamma
+        var psiK1 = 1.0 - gamma
+
+        sum += term * (psiK + psiK1) / 2.0
+
+        for k in 1...50 {
+            psiK += 1.0 / Double(k)
+            psiK1 += 1.0 / Double(k + 1)
+            term *= quarterX2 / (Double(k) * Double(k + 1))
+            sum += term * (psiK + psiK1) / 2.0
+            if abs(term) < 1.0e-15 * abs(sum) {
+                break
+            }
+        }
+
+        return log(halfX) * i1 + 1.0 / x - sum
+    }
+
+    /// Asymptotic expansion for K_n(x) for large x
+    /// K_n(x) ≈ sqrt(π/(2x)) * exp(-x) * (1 + μ/(8x) + ...)
+    private static func besselkAsymptotic(_ n: Int, _ x: Double) -> Double {
+        let mu = 4.0 * Double(n * n)
+        let x8 = 8.0 * x
+
+        // Asymptotic series
+        var sum = 1.0
+        var term = 1.0
+        let eps = 1.0e-15
+
+        for k in 1...20 {
+            let k2m1 = Double(2 * k - 1)
+            term *= (mu - k2m1 * k2m1) / (Double(k) * x8)
+            let newSum = sum + term
+            if abs(term) < abs(sum) * eps {
+                break
+            }
+            sum = newSum
+        }
+
+        return sqrt(.pi / (2.0 * x)) * exp(-x) * sum
     }
 
     // MARK: - Digamma and Gamma Functions

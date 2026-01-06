@@ -383,6 +383,125 @@ struct SpecialModuleTests {
         #expect(abs(result.numberValue! - (-0.16040039348492377)) < 1e-10)
     }
 
+    // MARK: - Modified Bessel Function Tests (I_n and K_n)
+
+    @Test("besseli function exists")
+    func testBesseliExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.besseli)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("besseli(0, 0) = 1")
+    func testBesseliZeroZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besseli(0, 0)")
+        #expect(result.numberValue! == 1.0)
+    }
+
+    @Test("besseli(1, 0) = 0")
+    func testBesseliOneZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besseli(1, 0)")
+        #expect(result.numberValue! == 0.0)
+    }
+
+    @Test("besseli(0, 1) ≈ 1.2661")
+    func testBesseliZeroOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besseli(0, 1)")
+        // I_0(1) ≈ 1.2660658777520082
+        #expect(abs(result.numberValue! - 1.2660658777520082) < 1e-8)
+    }
+
+    @Test("besseli(1, 1) ≈ 0.5652")
+    func testBesseliOneOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besseli(1, 1)")
+        // I_1(1) ≈ 0.5651591039924851
+        #expect(abs(result.numberValue! - 0.5651591039924851) < 1e-8)
+    }
+
+    @Test("besseli(2, 2) ≈ 0.6889")
+    func testBesseliTwoTwo() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besseli(2, 2)")
+        // I_2(2) ≈ 0.6889484476987382
+        #expect(abs(result.numberValue! - 0.6889484476987382) < 1e-8)
+    }
+
+    @Test("besselk function exists")
+    func testBesselkExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.besselk)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("besselk(0, 1) ≈ 0.4210")
+    func testBesselkZeroOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besselk(0, 1)")
+        // K_0(1) ≈ 0.42102443824070834
+        #expect(abs(result.numberValue! - 0.42102443824070834) < 1e-6)
+    }
+
+    @Test("besselk(1, 1) ≈ 0.6019")
+    func testBesselkOneOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besselk(1, 1)")
+        // K_1(1) ≈ 0.6019072301972346
+        #expect(abs(result.numberValue! - 0.6019072301972346) < 1e-6)
+    }
+
+    @Test("besselk(2, 2) ≈ 0.2538")
+    func testBesselkTwoTwo() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besselk(2, 2)")
+        // K_2(2) ≈ 0.25375975456605045
+        #expect(abs(result.numberValue! - 0.25375975456605045) < 1e-6)
+    }
+
+    @Test("besselk(x <= 0) returns +inf")
+    func testBesselkNonPositive() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besselk(0, 0)")
+        #expect(result.numberValue!.isInfinite)
+    }
+
+    @Test("besseli(0, 5) ≈ 27.2399")
+    func testBesseliLargeX() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besseli(0, 5)")
+        // I_0(5) ≈ 27.239871823604445
+        #expect(abs(result.numberValue! - 27.239871823604445) < 1e-4)
+    }
+
+    @Test("besselk(0, 5) ≈ 0.003691")
+    func testBesselkLargeX() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.besselk(0, 5)")
+        // K_0(5) ≈ 0.0036910982720826034
+        #expect(abs(result.numberValue! - 0.0036910982720826034) < 1e-6)
+    }
+
+    @Test("besseli recurrence: I_{n+1}(x) = I_{n-1}(x) - (2n/x)*I_n(x)")
+    func testBesseliRecurrence() throws {
+        let engine = try createEngine()
+        // Test at x = 2: I_2(2) should satisfy the recurrence
+        // Actually recurrence is: I_{n-1}(x) - I_{n+1}(x) = (2n/x) * I_n(x)
+        // So: I_0 - I_2 ≈ (2*1/2) * I_1 = I_1
+        let result = try engine.evaluate("""
+            local i0 = math.special.besseli(0, 2)
+            local i1 = math.special.besseli(1, 2)
+            local i2 = math.special.besseli(2, 2)
+            -- Recurrence: I_{n-1}(x) - I_{n+1}(x) = (2n/x) * I_n(x)
+            local lhs = i0 - i2
+            local rhs = (2 * 1 / 2) * i1
+            return math.abs(lhs - rhs)
+        """)
+        #expect(result.numberValue! < 1e-8)
+    }
+
     // MARK: - Existing Special Functions Tests
 
     @Test("math.special.gamma exists (re-exported from mathx)")

@@ -47,6 +47,7 @@ public struct ModuleRegistry {
     /// - `luaswift.plot`: Matplotlib-compatible plotting with retained vector graphics
     /// - `luaswift.mathsci`: Unified scientific computing namespace
     /// - `luaswift.distributions`: Probability distributions (norm, t, chi2, f, gamma, beta)
+    /// - `luaswift.interpolate`: Interpolation functions (interp1d, CubicSpline, PCHIP, Akima)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -80,6 +81,7 @@ public struct ModuleRegistry {
         installOptimizeModule(in: engine)
         installIntegrateModule(in: engine)
         installDistributionsModule(in: engine)
+        installInterpolateModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -325,5 +327,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installDistributionsModule(in engine: LuaEngine) {
         DistributionsModule.register(in: engine)
+    }
+
+    /// Install only the Interpolate module.
+    ///
+    /// This module provides interpolation functions (interp1d, CubicSpline, etc.).
+    /// Should be called after MathSciModule to add to math.interpolate namespace.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installInterpolateModule(in engine: LuaEngine) {
+        InterpolateModule.register(in: engine)
     }
 }

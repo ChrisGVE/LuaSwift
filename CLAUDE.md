@@ -131,6 +131,33 @@ Safe libraries remain: `math`, `string`, `table`, `coroutine`, `utf8`
 
 `LuaEngine` uses `NSLock` for all public methods. For high concurrency, use engine pools rather than sharing a single instance.
 
+### First Principle: "Inspired By" Library Portage
+
+When porting functionality from established libraries (matplotlib, seaborn, scipy, numpy, pandas, statsmodels, manim, Penlight, or any other source), the following principles apply to ALL "inspired by" work:
+
+**Algorithm/Implementation Fidelity:**
+1. **Study the original implementation thoroughly** - Algorithms and design patterns are not copyrightable. Understanding how the original handles edge cases, error conditions, and complex scenarios is essential engineering.
+2. **Implement equivalent robustness** - Naive or simplified implementations defeat the purpose. Port the same considerations for edge cases, error handling, and behavioral nuances.
+3. **Use underlying algorithms when available** - Many core routines are **public domain** (e.g., QUADPACK, MINPACK, ODEPACK, FFTPACK for numerics). These can be studied and ported freely.
+
+**Test Suite Portage:**
+1. **Test cases are facts** - The expected behavior "function X with input Y produces output Z" is not owned by anyone. Port test scenarios and expected outcomes.
+2. **Use standard test cases** - Mathematical facts (∫sin(x)dx from 0 to π = 2), well-known test problems (Rosenbrock for optimization), edge cases (empty inputs, boundary values).
+3. **Cover the same edge cases** - If the original tests for specific error conditions, malformed inputs, or corner cases, our tests should too.
+
+**Licensing Approach:**
+| Source License | Approach |
+|----------------|----------|
+| Public Domain | Study and port freely |
+| BSD-3-Clause (scipy, numpy, matplotlib) | Study implementation, implement in Swift/Lua, attribute if directly inspired |
+| MIT (Penlight, many JS libs) | Study and port with attribution |
+| GPL | Study patterns only, clean-room implementation |
+
+**Quality Standard:**
+- Lesser work defeats the purpose of providing robust Lua capabilities
+- If we can't match the robustness of the original, document limitations clearly
+- Every "inspired by" module must have its algorithms/implementation AND test suite reviewed against the original
+
 ### Swift-Backed Module Replacements
 
 When replacing a pure Lua module with a Swift-backed module, it **must be a complete drop-in replacement**:

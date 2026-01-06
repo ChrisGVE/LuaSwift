@@ -49,6 +49,7 @@ public struct ModuleRegistry {
     /// - `luaswift.distributions`: Probability distributions (norm, t, chi2, f, gamma, beta)
     /// - `luaswift.interpolate`: Interpolation functions (interp1d, CubicSpline, PCHIP, Akima)
     /// - `luaswift.cluster`: Clustering algorithms (kmeans, hierarchical, DBSCAN)
+    /// - `luaswift.spatial`: Spatial algorithms (KDTree, distance functions, Voronoi, Delaunay)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -84,6 +85,7 @@ public struct ModuleRegistry {
         installDistributionsModule(in: engine)
         installInterpolateModule(in: engine)
         installClusterModule(in: engine)
+        installSpatialModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -349,5 +351,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installClusterModule(in engine: LuaEngine) {
         ClusterModule.register(in: engine)
+    }
+
+    /// Install only the Spatial module.
+    ///
+    /// This module provides spatial algorithms (KDTree, distance functions, Voronoi, Delaunay).
+    /// Should be called after MathSciModule to add to math.spatial namespace.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installSpatialModule(in engine: LuaEngine) {
+        SpatialModule.register(in: engine)
     }
 }

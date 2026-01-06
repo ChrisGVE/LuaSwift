@@ -9,12 +9,13 @@
 //
 
 import Foundation
+import Accelerate
 
 /// Swift-backed clustering module for LuaSwift.
 ///
 /// Provides clustering algorithms including k-means, hierarchical clustering,
-/// and DBSCAN. Since these algorithms need access to user data, they are
-/// implemented in Lua for natural integration.
+/// and DBSCAN. All algorithms are implemented in Swift with BLAS/vDSP
+/// optimization for maximum performance.
 ///
 /// ## Lua API
 ///
@@ -40,11 +41,23 @@ import Foundation
 /// ```
 public struct ClusterModule {
 
+    // MARK: - Constants
+
+    private static let DEFAULT_MAX_ITER = 300
+    private static let DEFAULT_TOL = 1e-4
+    private static let DEFAULT_N_INIT = 10
+
     // MARK: - Registration
 
     /// Register the cluster module with a LuaEngine.
     public static func register(in engine: LuaEngine) {
-        // All clustering algorithms implemented in Lua for natural data access
+        // Register Swift callbacks
+        engine.registerFunction(name: "_luaswift_cluster_kmeans", callback: kmeansCallback)
+        engine.registerFunction(name: "_luaswift_cluster_hierarchical", callback: hierarchicalCallback)
+        engine.registerFunction(name: "_luaswift_cluster_dbscan", callback: dbscanCallback)
+        engine.registerFunction(name: "_luaswift_cluster_silhouette_score", callback: silhouetteScoreCallback)
+        engine.registerFunction(name: "_luaswift_cluster_elbow_method", callback: elbowMethodCallback)
+
         do {
             try engine.run("""
                 if not luaswift then luaswift = {} end
@@ -52,672 +65,39 @@ public struct ClusterModule {
 
                 local cluster = {}
 
-                -- Default parameters
-                local DEFAULT_MAX_ITER = 300
-                local DEFAULT_TOL = 1e-4
-                local DEFAULT_N_INIT = 10
-
                 ----------------------------------------------------------------
-                -- Helper functions
-                ----------------------------------------------------------------
-
-                -- Euclidean distance between two points (arrays)
-                local function euclidean_distance(p1, p2)
-                    local sum = 0
-                    for i = 1, #p1 do
-                        local diff = p1[i] - (p2[i] or 0)
-                        sum = sum + diff * diff
-                    end
-                    return math.sqrt(sum)
-                end
-
-                -- Squared Euclidean distance (faster, avoids sqrt)
-                local function squared_distance(p1, p2)
-                    local sum = 0
-                    for i = 1, #p1 do
-                        local diff = p1[i] - (p2[i] or 0)
-                        sum = sum + diff * diff
-                    end
-                    return sum
-                end
-
-                -- Compute centroid of a set of points
-                local function compute_centroid(points)
-                    if #points == 0 then return nil end
-                    local dim = #points[1]
-                    local centroid = {}
-                    for d = 1, dim do
-                        centroid[d] = 0
-                        for i = 1, #points do
-                            centroid[d] = centroid[d] + points[i][d]
-                        end
-                        centroid[d] = centroid[d] / #points
-                    end
-                    return centroid
-                end
-
-                -- Copy a point (array)
-                local function copy_point(p)
-                    local result = {}
-                    for i = 1, #p do result[i] = p[i] end
-                    return result
-                end
-
-                ----------------------------------------------------------------
-                -- kmeans: K-means clustering
-                --
-                -- Arguments:
-                --   data: array of data points (each point is an array of coordinates)
-                --   k: number of clusters
-                --   options: {
-                --     max_iter: maximum iterations (default: 300)
-                --     tol: convergence tolerance (default: 1e-4)
-                --     n_init: number of random initializations (default: 10)
-                --     init: initialization method ("k-means++" or "random", default: "k-means++")
-                --     random_state: random seed (optional)
-                --   }
-                --
-                -- Returns:
-                --   labels: cluster assignment for each point (1-indexed)
-                --   centroids: final cluster centers
-                --   inertia: sum of squared distances to nearest centroid
-                --   n_iter: number of iterations run
+                -- kmeans: K-means clustering (Swift-backed)
                 ----------------------------------------------------------------
                 function cluster.kmeans(data, k, options)
-                    options = options or {}
-                    local max_iter = options.max_iter or DEFAULT_MAX_ITER
-                    local tol = options.tol or DEFAULT_TOL
-                    local n_init = options.n_init or DEFAULT_N_INIT
-                    local init_method = options.init or "k-means++"
-
-                    local n = #data
-                    if n == 0 then
-                        return {
-                            labels = {},
-                            centroids = {},
-                            inertia = 0,
-                            n_iter = 0
-                        }
-                    end
-
-                    local dim = #data[1]
-
-                    -- K-means++ initialization
-                    local function kmeans_plus_plus_init()
-                        local centroids = {}
-                        -- Choose first centroid randomly
-                        local first_idx = math.random(1, n)
-                        centroids[1] = copy_point(data[first_idx])
-
-                        for c = 2, k do
-                            -- Compute D(x)^2 for each point
-                            local distances = {}
-                            local total_dist = 0
-                            for i = 1, n do
-                                local min_dist = math.huge
-                                for j = 1, #centroids do
-                                    local d = squared_distance(data[i], centroids[j])
-                                    if d < min_dist then min_dist = d end
-                                end
-                                distances[i] = min_dist
-                                total_dist = total_dist + min_dist
-                            end
-
-                            -- Choose next centroid with probability proportional to D(x)^2
-                            local r = math.random() * total_dist
-                            local cumsum = 0
-                            for i = 1, n do
-                                cumsum = cumsum + distances[i]
-                                if cumsum >= r then
-                                    centroids[c] = copy_point(data[i])
-                                    break
-                                end
-                            end
-                            if not centroids[c] then
-                                centroids[c] = copy_point(data[n])
-                            end
-                        end
-
-                        return centroids
-                    end
-
-                    -- Random initialization
-                    local function random_init()
-                        local centroids = {}
-                        local used = {}
-                        for c = 1, k do
-                            local idx
-                            repeat
-                                idx = math.random(1, n)
-                            until not used[idx]
-                            used[idx] = true
-                            centroids[c] = copy_point(data[idx])
-                        end
-                        return centroids
-                    end
-
-                    -- Run single k-means iteration
-                    local function run_kmeans(initial_centroids)
-                        local centroids = initial_centroids
-                        local labels = {}
-                        local prev_inertia = math.huge
-                        local n_iter = 0
-
-                        for iter = 1, max_iter do
-                            n_iter = iter
-
-                            -- Assignment step: assign each point to nearest centroid
-                            local clusters = {}
-                            for c = 1, k do clusters[c] = {} end
-
-                            local inertia = 0
-                            for i = 1, n do
-                                local min_dist = math.huge
-                                local best_c = 1
-                                for c = 1, k do
-                                    local d = squared_distance(data[i], centroids[c])
-                                    if d < min_dist then
-                                        min_dist = d
-                                        best_c = c
-                                    end
-                                end
-                                labels[i] = best_c
-                                table.insert(clusters[best_c], data[i])
-                                inertia = inertia + min_dist
-                            end
-
-                            -- Update step: recompute centroids
-                            local new_centroids = {}
-                            for c = 1, k do
-                                if #clusters[c] > 0 then
-                                    new_centroids[c] = compute_centroid(clusters[c])
-                                else
-                                    -- Empty cluster: keep old centroid or reinitialize
-                                    new_centroids[c] = centroids[c]
-                                end
-                            end
-
-                            -- Check for convergence
-                            local max_shift = 0
-                            for c = 1, k do
-                                local shift = euclidean_distance(centroids[c], new_centroids[c])
-                                if shift > max_shift then max_shift = shift end
-                            end
-
-                            centroids = new_centroids
-
-                            if max_shift < tol then
-                                break
-                            end
-
-                            prev_inertia = inertia
-                        end
-
-                        -- Compute final inertia
-                        local final_inertia = 0
-                        for i = 1, n do
-                            final_inertia = final_inertia + squared_distance(data[i], centroids[labels[i]])
-                        end
-
-                        return labels, centroids, final_inertia, n_iter
-                    end
-
-                    -- Run n_init times and keep best result
-                    local best_labels, best_centroids, best_inertia, best_n_iter
-                    best_inertia = math.huge
-
-                    for run = 1, n_init do
-                        local initial_centroids
-                        if init_method == "k-means++" then
-                            initial_centroids = kmeans_plus_plus_init()
-                        else
-                            initial_centroids = random_init()
-                        end
-
-                        local labels, centroids, inertia, n_iter = run_kmeans(initial_centroids)
-
-                        if inertia < best_inertia then
-                            best_labels = labels
-                            best_centroids = centroids
-                            best_inertia = inertia
-                            best_n_iter = n_iter
-                        end
-                    end
-
-                    return {
-                        labels = best_labels,
-                        centroids = best_centroids,
-                        inertia = best_inertia,
-                        n_iter = best_n_iter
-                    }
+                    return _luaswift_cluster_kmeans(data, k, options or {})
                 end
 
                 ----------------------------------------------------------------
-                -- hierarchical: Hierarchical/agglomerative clustering
-                --
-                -- Arguments:
-                --   data: array of data points
-                --   options: {
-                --     linkage: linkage method ("ward", "complete", "average", "single")
-                --     n_clusters: number of clusters to form (optional)
-                --     distance_threshold: distance threshold for cutting (optional)
-                --   }
-                --
-                -- Returns:
-                --   linkage_matrix: n-1 x 4 matrix [cluster1, cluster2, distance, size]
-                --   labels: cluster labels (if n_clusters or distance_threshold specified)
-                --   n_leaves: number of original data points
+                -- hierarchical: Hierarchical/agglomerative clustering (Swift-backed)
                 ----------------------------------------------------------------
                 function cluster.hierarchical(data, options)
-                    options = options or {}
-                    local linkage_method = (options.linkage or "ward"):lower()
-                    local n_clusters = options.n_clusters
-                    local distance_threshold = options.distance_threshold
-
-                    local n = #data
-                    if n == 0 then
-                        return {
-                            linkage_matrix = {},
-                            labels = {},
-                            n_leaves = 0
-                        }
-                    end
-
-                    -- Initialize: each point is its own cluster
-                    local clusters = {}
-                    for i = 1, n do
-                        clusters[i] = {
-                            id = i,
-                            points = {i},  -- indices into original data
-                            centroid = copy_point(data[i]),
-                            size = 1,
-                            active = true
-                        }
-                    end
-
-                    -- Distance cache between clusters
-                    local function cluster_distance(c1, c2)
-                        if linkage_method == "single" then
-                            -- Minimum distance between any two points
-                            local min_d = math.huge
-                            for _, i in ipairs(c1.points) do
-                                for _, j in ipairs(c2.points) do
-                                    local d = squared_distance(data[i], data[j])
-                                    if d < min_d then min_d = d end
-                                end
-                            end
-                            return math.sqrt(min_d)
-
-                        elseif linkage_method == "complete" then
-                            -- Maximum distance between any two points
-                            local max_d = 0
-                            for _, i in ipairs(c1.points) do
-                                for _, j in ipairs(c2.points) do
-                                    local d = squared_distance(data[i], data[j])
-                                    if d > max_d then max_d = d end
-                                end
-                            end
-                            return math.sqrt(max_d)
-
-                        elseif linkage_method == "average" then
-                            -- Average distance between all pairs
-                            local total = 0
-                            local count = 0
-                            for _, i in ipairs(c1.points) do
-                                for _, j in ipairs(c2.points) do
-                                    total = total + euclidean_distance(data[i], data[j])
-                                    count = count + 1
-                                end
-                            end
-                            return total / count
-
-                        elseif linkage_method == "ward" then
-                            -- Ward's method: increase in total within-cluster variance
-                            local n1, n2 = c1.size, c2.size
-                            local centroid_dist = squared_distance(c1.centroid, c2.centroid)
-                            return math.sqrt(2 * n1 * n2 / (n1 + n2) * centroid_dist)
-                        end
-
-                        -- Default to Euclidean between centroids
-                        return euclidean_distance(c1.centroid, c2.centroid)
-                    end
-
-                    -- Build linkage matrix
-                    local linkage_matrix = {}
-                    local next_cluster_id = n + 1
-
-                    for merge = 1, n - 1 do
-                        -- Find closest pair of active clusters
-                        local min_dist = math.huge
-                        local best_i, best_j = nil, nil
-
-                        for i = 1, #clusters do
-                            if clusters[i].active then
-                                for j = i + 1, #clusters do
-                                    if clusters[j].active then
-                                        local d = cluster_distance(clusters[i], clusters[j])
-                                        if d < min_dist then
-                                            min_dist = d
-                                            best_i, best_j = i, j
-                                        end
-                                    end
-                                end
-                            end
-                        end
-
-                        if not best_i then break end
-
-                        local c1, c2 = clusters[best_i], clusters[best_j]
-
-                        -- Merge clusters
-                        local merged_points = {}
-                        for _, p in ipairs(c1.points) do table.insert(merged_points, p) end
-                        for _, p in ipairs(c2.points) do table.insert(merged_points, p) end
-
-                        -- Compute new centroid
-                        local new_size = c1.size + c2.size
-                        local new_centroid = {}
-                        for d = 1, #c1.centroid do
-                            new_centroid[d] = (c1.centroid[d] * c1.size + c2.centroid[d] * c2.size) / new_size
-                        end
-
-                        -- Record in linkage matrix [cluster1_id, cluster2_id, distance, size]
-                        table.insert(linkage_matrix, {c1.id, c2.id, min_dist, new_size})
-
-                        -- Deactivate merged clusters
-                        clusters[best_i].active = false
-                        clusters[best_j].active = false
-
-                        -- Create new cluster
-                        table.insert(clusters, {
-                            id = next_cluster_id,
-                            points = merged_points,
-                            centroid = new_centroid,
-                            size = new_size,
-                            active = true
-                        })
-                        next_cluster_id = next_cluster_id + 1
-                    end
-
-                    -- Cut tree to get labels if requested
-                    local labels = nil
-                    if n_clusters or distance_threshold then
-                        -- Find the cut point
-                        local cut_idx
-                        if n_clusters then
-                            cut_idx = n - n_clusters
-                        else
-                            -- Find first merge above threshold
-                            cut_idx = 0
-                            for i, merge in ipairs(linkage_matrix) do
-                                if merge[3] > distance_threshold then
-                                    cut_idx = i - 1
-                                    break
-                                end
-                                cut_idx = i
-                            end
-                        end
-
-                        -- Assign labels based on cut
-                        labels = {}
-                        for i = 1, n do labels[i] = i end  -- Initially each point is its own cluster
-
-                        -- Apply merges up to cut point
-                        local cluster_map = {}
-                        for i = 1, n do cluster_map[i] = i end
-
-                        local next_label = n + 1
-                        for i = 1, cut_idx do
-                            local merge = linkage_matrix[i]
-                            local c1_id, c2_id = merge[1], merge[2]
-
-                            -- Find all points in c1 and c2, assign them to new cluster
-                            for p = 1, n do
-                                if cluster_map[p] == c1_id or cluster_map[p] == c2_id then
-                                    cluster_map[p] = next_label
-                                end
-                            end
-                            next_label = next_label + 1
-                        end
-
-                        -- Convert to consecutive labels starting from 1
-                        local unique_labels = {}
-                        local label_map = {}
-                        local next_new_label = 1
-                        for i = 1, n do
-                            local old_label = cluster_map[i]
-                            if not label_map[old_label] then
-                                label_map[old_label] = next_new_label
-                                next_new_label = next_new_label + 1
-                            end
-                            labels[i] = label_map[old_label]
-                        end
-                    end
-
-                    return {
-                        linkage_matrix = linkage_matrix,
-                        labels = labels,
-                        n_leaves = n
-                    }
+                    return _luaswift_cluster_hierarchical(data, options or {})
                 end
 
                 ----------------------------------------------------------------
-                -- dbscan: Density-Based Spatial Clustering of Applications with Noise
-                --
-                -- Arguments:
-                --   data: array of data points
-                --   options: {
-                --     eps: maximum distance between two samples in same neighborhood (default: 0.5)
-                --     min_samples: minimum samples in neighborhood to be core point (default: 5)
-                --     metric: distance metric ("euclidean", default: "euclidean")
-                --   }
-                --
-                -- Returns:
-                --   labels: cluster labels (-1 for noise points)
-                --   core_samples: indices of core sample points
-                --   n_clusters: number of clusters found
+                -- dbscan: DBSCAN clustering (Swift-backed)
                 ----------------------------------------------------------------
                 function cluster.dbscan(data, options)
-                    options = options or {}
-                    local eps = options.eps or 0.5
-                    local min_samples = options.min_samples or 5
-
-                    local n = #data
-                    if n == 0 then
-                        return {
-                            labels = {},
-                            core_samples = {},
-                            n_clusters = 0
-                        }
-                    end
-
-                    -- Find neighbors within eps for each point
-                    local function get_neighbors(point_idx)
-                        local neighbors = {}
-                        for i = 1, n do
-                            if euclidean_distance(data[point_idx], data[i]) <= eps then
-                                table.insert(neighbors, i)
-                            end
-                        end
-                        return neighbors
-                    end
-
-                    -- Identify core points
-                    local is_core = {}
-                    local neighbors_cache = {}
-                    for i = 1, n do
-                        neighbors_cache[i] = get_neighbors(i)
-                        is_core[i] = #neighbors_cache[i] >= min_samples
-                    end
-
-                    -- Initialize labels: 0 = unvisited, -1 = noise, >0 = cluster id
-                    local labels = {}
-                    for i = 1, n do labels[i] = 0 end
-
-                    local current_cluster = 0
-                    local core_samples = {}
-
-                    for i = 1, n do
-                        if labels[i] ~= 0 then
-                            -- Already processed
-                        elseif not is_core[i] then
-                            -- Not a core point, mark as noise (might be updated later)
-                            labels[i] = -1
-                        else
-                            -- Start a new cluster from this core point
-                            current_cluster = current_cluster + 1
-                            table.insert(core_samples, i)
-
-                            -- BFS to expand cluster
-                            local queue = {i}
-                            labels[i] = current_cluster
-
-                            while #queue > 0 do
-                                local current = table.remove(queue, 1)
-                                local current_neighbors = neighbors_cache[current]
-
-                                for _, neighbor in ipairs(current_neighbors) do
-                                    if labels[neighbor] == -1 then
-                                        -- Was noise, now border point
-                                        labels[neighbor] = current_cluster
-                                    elseif labels[neighbor] == 0 then
-                                        -- Unvisited
-                                        labels[neighbor] = current_cluster
-
-                                        if is_core[neighbor] then
-                                            -- Add core point to queue
-                                            table.insert(queue, neighbor)
-                                            table.insert(core_samples, neighbor)
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-
-                    return {
-                        labels = labels,
-                        core_samples = core_samples,
-                        n_clusters = current_cluster
-                    }
+                    return _luaswift_cluster_dbscan(data, options or {})
                 end
 
                 ----------------------------------------------------------------
-                -- silhouette_score: Compute silhouette coefficient
-                --
-                -- Arguments:
-                --   data: array of data points
-                --   labels: cluster assignments
-                --
-                -- Returns:
-                --   score: mean silhouette coefficient (-1 to 1, higher is better)
+                -- silhouette_score: Compute silhouette coefficient (Swift-backed)
                 ----------------------------------------------------------------
                 function cluster.silhouette_score(data, labels)
-                    local n = #data
-                    if n < 2 then return 0 end
-
-                    -- Find unique clusters (excluding noise -1)
-                    local clusters = {}
-                    for i = 1, n do
-                        local label = labels[i]
-                        if label > 0 then
-                            if not clusters[label] then clusters[label] = {} end
-                            table.insert(clusters[label], i)
-                        end
-                    end
-
-                    -- Need at least 2 clusters
-                    local cluster_count = 0
-                    for _ in pairs(clusters) do cluster_count = cluster_count + 1 end
-                    if cluster_count < 2 then return 0 end
-
-                    local total_silhouette = 0
-                    local count = 0
-
-                    for i = 1, n do
-                        local label_i = labels[i]
-                        if label_i > 0 then
-                            -- Compute a(i): mean distance to same cluster
-                            local same_cluster = clusters[label_i]
-                            local a_i = 0
-                            if #same_cluster > 1 then
-                                for _, j in ipairs(same_cluster) do
-                                    if j ~= i then
-                                        a_i = a_i + euclidean_distance(data[i], data[j])
-                                    end
-                                end
-                                a_i = a_i / (#same_cluster - 1)
-                            end
-
-                            -- Compute b(i): min mean distance to other clusters
-                            local b_i = math.huge
-                            for other_label, other_cluster in pairs(clusters) do
-                                if other_label ~= label_i then
-                                    local mean_dist = 0
-                                    for _, j in ipairs(other_cluster) do
-                                        mean_dist = mean_dist + euclidean_distance(data[i], data[j])
-                                    end
-                                    mean_dist = mean_dist / #other_cluster
-                                    if mean_dist < b_i then b_i = mean_dist end
-                                end
-                            end
-
-                            -- Silhouette coefficient
-                            local s_i = 0
-                            if math.max(a_i, b_i) > 0 then
-                                s_i = (b_i - a_i) / math.max(a_i, b_i)
-                            end
-
-                            total_silhouette = total_silhouette + s_i
-                            count = count + 1
-                        end
-                    end
-
-                    return count > 0 and (total_silhouette / count) or 0
+                    return _luaswift_cluster_silhouette_score(data, labels)
                 end
 
                 ----------------------------------------------------------------
-                -- elbow_method: Find optimal k using elbow method
-                --
-                -- Arguments:
-                --   data: array of data points
-                --   max_k: maximum k to test (default: 10)
-                --
-                -- Returns:
-                --   inertias: array of inertia values for k=1..max_k
-                --   suggested_k: suggested optimal k (simple heuristic)
+                -- elbow_method: Find optimal k using elbow method (Swift-backed)
                 ----------------------------------------------------------------
                 function cluster.elbow_method(data, max_k)
-                    max_k = max_k or 10
-                    max_k = math.min(max_k, #data)
-
-                    local inertias = {}
-                    for k = 1, max_k do
-                        local result = cluster.kmeans(data, k, {n_init = 3})
-                        inertias[k] = result.inertia
-                    end
-
-                    -- Simple heuristic: find point of maximum curvature
-                    -- Using the "elbow" as point where adding more clusters doesn't help much
-                    local suggested_k = 1
-                    local max_diff_ratio = 0
-
-                    for k = 2, max_k - 1 do
-                        local diff1 = inertias[k-1] - inertias[k]
-                        local diff2 = inertias[k] - inertias[k+1]
-                        if diff2 > 0 then
-                            local ratio = diff1 / diff2
-                            if ratio > max_diff_ratio then
-                                max_diff_ratio = ratio
-                                suggested_k = k
-                            end
-                        end
-                    end
-
-                    return {
-                        inertias = inertias,
-                        suggested_k = suggested_k
-                    }
+                    return _luaswift_cluster_elbow_method(data, max_k or 10)
                 end
 
                 -- Store the module
@@ -731,5 +111,693 @@ public struct ClusterModule {
         } catch {
             // Silently fail
         }
+    }
+
+    // MARK: - Data Extraction Helpers
+
+    /// Extract point from LuaValue (array of numbers)
+    private static func extractPoint(_ value: LuaValue) -> [Double]? {
+        guard let arr = value.arrayValue else { return nil }
+        var result: [Double] = []
+        result.reserveCapacity(arr.count)
+        for val in arr {
+            guard let num = val.numberValue else { return nil }
+            result.append(num)
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    /// Extract array of points from LuaValue
+    private static func extractPoints(_ value: LuaValue) -> [[Double]]? {
+        if let arr = value.arrayValue {
+            if arr.isEmpty { return [] }
+            var result: [[Double]] = []
+            result.reserveCapacity(arr.count)
+            for val in arr {
+                guard let point = extractPoint(val) else { return nil }
+                result.append(point)
+            }
+            return result
+        }
+        if case .table(let dict) = value, dict.isEmpty {
+            return []
+        }
+        return nil
+    }
+
+    /// Extract array of integers (labels) from LuaValue
+    private static func extractLabels(_ value: LuaValue) -> [Int]? {
+        guard let arr = value.arrayValue else { return nil }
+        var result: [Int] = []
+        result.reserveCapacity(arr.count)
+        for val in arr {
+            guard let num = val.numberValue else { return nil }
+            result.append(Int(num))
+        }
+        return result
+    }
+
+    /// Extract options table
+    private static func extractOptions(_ value: LuaValue) -> [String: LuaValue] {
+        if case .table(let dict) = value {
+            return dict
+        }
+        return [:]
+    }
+
+    // MARK: - Distance Functions (BLAS-optimized)
+
+    /// Euclidean distance using BLAS
+    private static func euclideanDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = min(p1.count, p2.count)
+        var diff = [Double](repeating: 0, count: n)
+        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
+        return cblas_dnrm2(Int32(n), diff, 1)
+    }
+
+    /// Squared Euclidean distance using vDSP
+    private static func squaredDistance(_ p1: [Double], _ p2: [Double]) -> Double {
+        let n = min(p1.count, p2.count)
+        var diff = [Double](repeating: 0, count: n)
+        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
+        var result: Double = 0
+        vDSP_dotprD(diff, 1, diff, 1, &result, vDSP_Length(n))
+        return result
+    }
+
+    /// Compute centroid of a set of points using vDSP
+    private static func computeCentroid(_ points: [[Double]]) -> [Double]? {
+        guard !points.isEmpty else { return nil }
+        let dim = points[0].count
+        var centroid = [Double](repeating: 0, count: dim)
+
+        for point in points {
+            vDSP_vaddD(centroid, 1, point, 1, &centroid, 1, vDSP_Length(dim))
+        }
+
+        var divisor = Double(points.count)
+        vDSP_vsdivD(centroid, 1, &divisor, &centroid, 1, vDSP_Length(dim))
+
+        return centroid
+    }
+
+    // MARK: - K-Means Implementation
+
+    private static func kmeansCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let data = extractPoints(args[0]),
+              let k = args[1].numberValue.map({ Int($0) }) else {
+            throw LuaError.runtimeError("kmeans: expected data array and k")
+        }
+
+        let options = args.count >= 3 ? extractOptions(args[2]) : [:]
+        let maxIter = options["max_iter"]?.numberValue.map { Int($0) } ?? DEFAULT_MAX_ITER
+        let tol = options["tol"]?.numberValue ?? DEFAULT_TOL
+        let nInit = options["n_init"]?.numberValue.map { Int($0) } ?? DEFAULT_N_INIT
+        let initMethod = options["init"]?.stringValue ?? "k-means++"
+
+        let n = data.count
+        if n == 0 {
+            return .table([
+                "labels": .array([]),
+                "centroids": .array([]),
+                "inertia": .number(0),
+                "n_iter": .number(0)
+            ])
+        }
+
+        let dim = data[0].count
+
+        // Run n_init times and keep best result
+        var bestLabels: [Int] = []
+        var bestCentroids: [[Double]] = []
+        var bestInertia = Double.infinity
+        var bestNIter = 0
+
+        for _ in 0..<nInit {
+            // Initialize centroids
+            var centroids: [[Double]]
+            if initMethod == "k-means++" {
+                centroids = kmeansPlusPlusInit(data: data, k: k, dim: dim)
+            } else {
+                centroids = randomInit(data: data, k: k)
+            }
+
+            // Run k-means
+            let (labels, finalCentroids, inertia, nIter) = runKMeans(
+                data: data, k: k, initialCentroids: centroids,
+                maxIter: maxIter, tol: tol
+            )
+
+            if inertia < bestInertia {
+                bestLabels = labels
+                bestCentroids = finalCentroids
+                bestInertia = inertia
+                bestNIter = nIter
+            }
+        }
+
+        return .table([
+            "labels": .array(bestLabels.map { .number(Double($0)) }),
+            "centroids": .array(bestCentroids.map { centroid in
+                .array(centroid.map { .number($0) })
+            }),
+            "inertia": .number(bestInertia),
+            "n_iter": .number(Double(bestNIter))
+        ])
+    }
+
+    /// K-means++ initialization
+    private static func kmeansPlusPlusInit(data: [[Double]], k: Int, dim: Int) -> [[Double]] {
+        let n = data.count
+        var centroids: [[Double]] = []
+
+        // Choose first centroid randomly
+        let firstIdx = Int.random(in: 0..<n)
+        centroids.append(data[firstIdx])
+
+        for _ in 1..<k {
+            // Compute D(x)^2 for each point
+            var distances = [Double](repeating: 0, count: n)
+            var totalDist: Double = 0
+
+            for i in 0..<n {
+                var minDist = Double.infinity
+                for centroid in centroids {
+                    let d = squaredDistance(data[i], centroid)
+                    if d < minDist { minDist = d }
+                }
+                distances[i] = minDist
+                totalDist += minDist
+            }
+
+            // Choose next centroid with probability proportional to D(x)^2
+            let r = Double.random(in: 0..<totalDist)
+            var cumsum: Double = 0
+            var chosenIdx = n - 1
+
+            for i in 0..<n {
+                cumsum += distances[i]
+                if cumsum >= r {
+                    chosenIdx = i
+                    break
+                }
+            }
+
+            centroids.append(data[chosenIdx])
+        }
+
+        return centroids
+    }
+
+    /// Random initialization
+    private static func randomInit(data: [[Double]], k: Int) -> [[Double]] {
+        let n = data.count
+        var used = Set<Int>()
+        var centroids: [[Double]] = []
+
+        while centroids.count < k && used.count < n {
+            let idx = Int.random(in: 0..<n)
+            if !used.contains(idx) {
+                used.insert(idx)
+                centroids.append(data[idx])
+            }
+        }
+
+        return centroids
+    }
+
+    /// Run single k-means iteration
+    private static func runKMeans(
+        data: [[Double]], k: Int, initialCentroids: [[Double]],
+        maxIter: Int, tol: Double
+    ) -> (labels: [Int], centroids: [[Double]], inertia: Double, nIter: Int) {
+        let n = data.count
+        var centroids = initialCentroids
+        var labels = [Int](repeating: 0, count: n)
+        var nIter = 0
+
+        for iter in 1...maxIter {
+            nIter = iter
+
+            // Assignment step
+            var clusters: [[Int]] = Array(repeating: [], count: k)
+            var inertia: Double = 0
+
+            for i in 0..<n {
+                var minDist = Double.infinity
+                var bestC = 0
+                for c in 0..<k {
+                    let d = squaredDistance(data[i], centroids[c])
+                    if d < minDist {
+                        minDist = d
+                        bestC = c
+                    }
+                }
+                labels[i] = bestC + 1  // 1-indexed for Lua
+                clusters[bestC].append(i)
+                inertia += minDist
+            }
+
+            // Update step
+            var newCentroids: [[Double]] = []
+            for c in 0..<k {
+                if clusters[c].isEmpty {
+                    newCentroids.append(centroids[c])
+                } else {
+                    let clusterPoints = clusters[c].map { data[$0] }
+                    if let centroid = computeCentroid(clusterPoints) {
+                        newCentroids.append(centroid)
+                    } else {
+                        newCentroids.append(centroids[c])
+                    }
+                }
+            }
+
+            // Check convergence
+            var maxShift: Double = 0
+            for c in 0..<k {
+                let shift = euclideanDistance(centroids[c], newCentroids[c])
+                if shift > maxShift { maxShift = shift }
+            }
+
+            centroids = newCentroids
+
+            if maxShift < tol {
+                break
+            }
+        }
+
+        // Compute final inertia
+        var finalInertia: Double = 0
+        for i in 0..<n {
+            finalInertia += squaredDistance(data[i], centroids[labels[i] - 1])
+        }
+
+        return (labels, centroids, finalInertia, nIter)
+    }
+
+    // MARK: - Hierarchical Clustering Implementation
+
+    private static func hierarchicalCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let data = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("hierarchical: expected data array")
+        }
+
+        let options = args.count >= 2 ? extractOptions(args[1]) : [:]
+        let linkageMethod = (options["linkage"]?.stringValue ?? "ward").lowercased()
+        let nClusters = options["n_clusters"]?.numberValue.map { Int($0) }
+        let distanceThreshold = options["distance_threshold"]?.numberValue
+
+        let n = data.count
+        if n == 0 {
+            return .table([
+                "linkage_matrix": .array([]),
+                "labels": .nil,
+                "n_leaves": .number(0)
+            ])
+        }
+
+        // Initialize clusters
+        var clusters: [HierarchicalCluster] = []
+        for i in 0..<n {
+            clusters.append(HierarchicalCluster(
+                id: i + 1,  // 1-indexed
+                points: [i],
+                centroid: data[i],
+                size: 1,
+                active: true
+            ))
+        }
+
+        // Build linkage matrix
+        var linkageMatrix: [[Double]] = []
+        var nextClusterId = n + 1
+
+        for _ in 0..<(n - 1) {
+            // Find closest pair
+            var minDist = Double.infinity
+            var bestI = -1, bestJ = -1
+
+            for i in 0..<clusters.count {
+                guard clusters[i].active else { continue }
+                for j in (i + 1)..<clusters.count {
+                    guard clusters[j].active else { continue }
+
+                    let d = clusterDistance(
+                        c1: clusters[i], c2: clusters[j],
+                        data: data, method: linkageMethod
+                    )
+                    if d < minDist {
+                        minDist = d
+                        bestI = i
+                        bestJ = j
+                    }
+                }
+            }
+
+            guard bestI >= 0 else { break }
+
+            let c1 = clusters[bestI]
+            let c2 = clusters[bestJ]
+
+            // Merge clusters
+            var mergedPoints = c1.points
+            mergedPoints.append(contentsOf: c2.points)
+
+            let newSize = c1.size + c2.size
+            var newCentroid = [Double](repeating: 0, count: c1.centroid.count)
+            for d in 0..<newCentroid.count {
+                newCentroid[d] = (c1.centroid[d] * Double(c1.size) + c2.centroid[d] * Double(c2.size)) / Double(newSize)
+            }
+
+            // Record in linkage matrix
+            linkageMatrix.append([Double(c1.id), Double(c2.id), minDist, Double(newSize)])
+
+            // Deactivate merged clusters
+            clusters[bestI].active = false
+            clusters[bestJ].active = false
+
+            // Create new cluster
+            clusters.append(HierarchicalCluster(
+                id: nextClusterId,
+                points: mergedPoints,
+                centroid: newCentroid,
+                size: newSize,
+                active: true
+            ))
+            nextClusterId += 1
+        }
+
+        // Cut tree if requested
+        var labels: LuaValue = .nil
+        if nClusters != nil || distanceThreshold != nil {
+            let cutIdx: Int
+            if let nc = nClusters {
+                cutIdx = n - nc
+            } else if let dt = distanceThreshold {
+                var idx = 0
+                for (i, merge) in linkageMatrix.enumerated() {
+                    if merge[2] > dt {
+                        idx = i
+                        break
+                    }
+                    idx = i + 1
+                }
+                cutIdx = idx
+            } else {
+                cutIdx = 0
+            }
+
+            // Assign labels
+            var clusterMap = [Int](0..<n)
+            var nextLabel = n
+
+            for i in 0..<cutIdx {
+                let c1Id = Int(linkageMatrix[i][0])
+                let c2Id = Int(linkageMatrix[i][1])
+
+                for p in 0..<n {
+                    if clusterMap[p] + 1 == c1Id || clusterMap[p] + 1 == c2Id {
+                        clusterMap[p] = nextLabel
+                    }
+                }
+                nextLabel += 1
+            }
+
+            // Convert to consecutive labels
+            var labelMap: [Int: Int] = [:]
+            var nextNewLabel = 1
+            var resultLabels = [Int](repeating: 0, count: n)
+
+            for i in 0..<n {
+                let oldLabel = clusterMap[i]
+                if labelMap[oldLabel] == nil {
+                    labelMap[oldLabel] = nextNewLabel
+                    nextNewLabel += 1
+                }
+                resultLabels[i] = labelMap[oldLabel]!
+            }
+
+            labels = .array(resultLabels.map { .number(Double($0)) })
+        }
+
+        return .table([
+            "linkage_matrix": .array(linkageMatrix.map { row in
+                .array(row.map { .number($0) })
+            }),
+            "labels": labels,
+            "n_leaves": .number(Double(n))
+        ])
+    }
+
+    /// Helper struct for hierarchical clustering
+    private struct HierarchicalCluster {
+        let id: Int
+        var points: [Int]
+        var centroid: [Double]
+        var size: Int
+        var active: Bool
+    }
+
+    /// Compute distance between clusters based on linkage method
+    private static func clusterDistance(
+        c1: HierarchicalCluster, c2: HierarchicalCluster,
+        data: [[Double]], method: String
+    ) -> Double {
+        switch method {
+        case "single":
+            var minD = Double.infinity
+            for i in c1.points {
+                for j in c2.points {
+                    let d = squaredDistance(data[i], data[j])
+                    if d < minD { minD = d }
+                }
+            }
+            return sqrt(minD)
+
+        case "complete":
+            var maxD: Double = 0
+            for i in c1.points {
+                for j in c2.points {
+                    let d = squaredDistance(data[i], data[j])
+                    if d > maxD { maxD = d }
+                }
+            }
+            return sqrt(maxD)
+
+        case "average":
+            var total: Double = 0
+            var count = 0
+            for i in c1.points {
+                for j in c2.points {
+                    total += euclideanDistance(data[i], data[j])
+                    count += 1
+                }
+            }
+            return total / Double(count)
+
+        case "ward":
+            let n1 = Double(c1.size)
+            let n2 = Double(c2.size)
+            let centroidDist = squaredDistance(c1.centroid, c2.centroid)
+            return sqrt(2 * n1 * n2 / (n1 + n2) * centroidDist)
+
+        default:
+            return euclideanDistance(c1.centroid, c2.centroid)
+        }
+    }
+
+    // MARK: - DBSCAN Implementation
+
+    private static func dbscanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let data = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("dbscan: expected data array")
+        }
+
+        let options = args.count >= 2 ? extractOptions(args[1]) : [:]
+        let eps = options["eps"]?.numberValue ?? 0.5
+        let minSamples = options["min_samples"]?.numberValue.map { Int($0) } ?? 5
+
+        let n = data.count
+        if n == 0 {
+            return .table([
+                "labels": .array([]),
+                "core_samples": .array([]),
+                "n_clusters": .number(0)
+            ])
+        }
+
+        // Find neighbors for each point
+        var neighborsCache: [[Int]] = []
+        var isCore = [Bool](repeating: false, count: n)
+
+        for i in 0..<n {
+            var neighbors: [Int] = []
+            for j in 0..<n {
+                if euclideanDistance(data[i], data[j]) <= eps {
+                    neighbors.append(j)
+                }
+            }
+            neighborsCache.append(neighbors)
+            isCore[i] = neighbors.count >= minSamples
+        }
+
+        // Assign clusters
+        var labels = [Int](repeating: 0, count: n)  // 0 = unvisited
+        var currentCluster = 0
+        var coreSamples: [Int] = []
+
+        for i in 0..<n {
+            if labels[i] != 0 {
+                continue
+            }
+            if !isCore[i] {
+                labels[i] = -1  // Noise
+                continue
+            }
+
+            // Start new cluster
+            currentCluster += 1
+            coreSamples.append(i + 1)  // 1-indexed
+
+            // BFS expansion
+            var queue = [i]
+            labels[i] = currentCluster
+
+            while !queue.isEmpty {
+                let current = queue.removeFirst()
+
+                for neighbor in neighborsCache[current] {
+                    if labels[neighbor] == -1 {
+                        // Was noise, now border
+                        labels[neighbor] = currentCluster
+                    } else if labels[neighbor] == 0 {
+                        labels[neighbor] = currentCluster
+                        if isCore[neighbor] {
+                            queue.append(neighbor)
+                            coreSamples.append(neighbor + 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        return .table([
+            "labels": .array(labels.map { .number(Double($0)) }),
+            "core_samples": .array(coreSamples.map { .number(Double($0)) }),
+            "n_clusters": .number(Double(currentCluster))
+        ])
+    }
+
+    // MARK: - Silhouette Score Implementation
+
+    private static func silhouetteScoreCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2,
+              let data = extractPoints(args[0]),
+              let labels = extractLabels(args[1]) else {
+            throw LuaError.runtimeError("silhouette_score: expected data and labels")
+        }
+
+        let n = data.count
+        if n < 2 { return .number(0) }
+
+        // Group points by cluster (excluding noise -1)
+        var clusters: [Int: [Int]] = [:]
+        for (i, label) in labels.enumerated() {
+            if label > 0 {
+                clusters[label, default: []].append(i)
+            }
+        }
+
+        // Need at least 2 clusters
+        if clusters.count < 2 { return .number(0) }
+
+        var totalSilhouette: Double = 0
+        var count = 0
+
+        for i in 0..<n {
+            let labelI = labels[i]
+            if labelI <= 0 { continue }
+
+            guard let sameCluster = clusters[labelI] else { continue }
+
+            // a(i): mean distance to same cluster
+            var aI: Double = 0
+            if sameCluster.count > 1 {
+                for j in sameCluster {
+                    if j != i {
+                        aI += euclideanDistance(data[i], data[j])
+                    }
+                }
+                aI /= Double(sameCluster.count - 1)
+            }
+
+            // b(i): min mean distance to other clusters
+            var bI = Double.infinity
+            for (otherLabel, otherCluster) in clusters {
+                if otherLabel != labelI {
+                    var meanDist: Double = 0
+                    for j in otherCluster {
+                        meanDist += euclideanDistance(data[i], data[j])
+                    }
+                    meanDist /= Double(otherCluster.count)
+                    if meanDist < bI { bI = meanDist }
+                }
+            }
+
+            // Silhouette coefficient
+            let maxAB = max(aI, bI)
+            let sI = maxAB > 0 ? (bI - aI) / maxAB : 0
+
+            totalSilhouette += sI
+            count += 1
+        }
+
+        return .number(count > 0 ? totalSilhouette / Double(count) : 0)
+    }
+
+    // MARK: - Elbow Method Implementation
+
+    private static func elbowMethodCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let data = extractPoints(args[0]) else {
+            throw LuaError.runtimeError("elbow_method: expected data array")
+        }
+
+        var maxK = args.count >= 2 ? (args[1].numberValue.map { Int($0) } ?? 10) : 10
+        maxK = min(maxK, data.count)
+
+        var inertias: [Double] = []
+
+        for k in 1...maxK {
+            // Run k-means with reduced n_init for speed
+            let centroids = kmeansPlusPlusInit(data: data, k: k, dim: data.first?.count ?? 0)
+            let (_, _, inertia, _) = runKMeans(
+                data: data, k: k, initialCentroids: centroids,
+                maxIter: DEFAULT_MAX_ITER, tol: DEFAULT_TOL
+            )
+            inertias.append(inertia)
+        }
+
+        // Simple heuristic: find elbow using maximum curvature
+        var suggestedK = 1
+        var maxDiffRatio: Double = 0
+
+        for k in 2..<(maxK - 1) {
+            let diff1 = inertias[k - 2] - inertias[k - 1]
+            let diff2 = inertias[k - 1] - inertias[k]
+            if diff2 > 0 {
+                let ratio = diff1 / diff2
+                if ratio > maxDiffRatio {
+                    maxDiffRatio = ratio
+                    suggestedK = k
+                }
+            }
+        }
+
+        return .table([
+            "inertias": .array(inertias.map { .number($0) }),
+            "suggested_k": .number(Double(suggestedK))
+        ])
     }
 }

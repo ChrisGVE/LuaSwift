@@ -50,6 +50,7 @@ public struct ModuleRegistry {
     /// - `luaswift.interpolate`: Interpolation functions (interp1d, CubicSpline, PCHIP, Akima)
     /// - `luaswift.cluster`: Clustering algorithms (kmeans, hierarchical, DBSCAN)
     /// - `luaswift.spatial`: Spatial algorithms (KDTree, distance functions, Voronoi, Delaunay)
+    /// - `luaswift.special`: Special functions (erf, erfc, beta, betainc, bessel)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -86,6 +87,7 @@ public struct ModuleRegistry {
         installInterpolateModule(in: engine)
         installClusterModule(in: engine)
         installSpatialModule(in: engine)
+        installSpecialModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -361,5 +363,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installSpatialModule(in engine: LuaEngine) {
         SpatialModule.register(in: engine)
+    }
+
+    /// Install only the Special functions module.
+    ///
+    /// This module provides advanced special mathematical functions (erf, beta, bessel).
+    /// Should be called after MathSciModule to add to math.special namespace.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installSpecialModule(in engine: LuaEngine) {
+        SpecialModule.register(in: engine)
     }
 }

@@ -1082,6 +1082,127 @@ final class ArrayModuleTests: XCTestCase {
         // Result shape should be [3,3]
         XCTAssertEqual(result.numberValue, 33)
     }
+
+    // MARK: - Serialization Round-Trip Tests
+
+    func testSerializationHyperbolic() throws {
+        // Test that hyperbolic function results can be serialized and reconstructed
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1, 2})
+            local b = luaswift.array.sinh(a)
+            local list = b:tolist()
+            local c = luaswift.array.array(list)
+            return c:get(2)  -- sinh(1) ≈ 1.175
+            """)
+        XCTAssertEqual(result.numberValue!, Foundation.sinh(1.0), accuracy: 1e-10)
+    }
+
+    func testSerializationInverseTrig() throws {
+        // Test that inverse trig function results can be serialized and reconstructed
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 0.5, 1})
+            local b = luaswift.array.arcsin(a)
+            local list = b:tolist()
+            local c = luaswift.array.array(list)
+            return c:get(2)  -- arcsin(0.5) = π/6
+            """)
+        XCTAssertEqual(result.numberValue!, Foundation.asin(0.5), accuracy: 1e-10)
+    }
+
+    func testSerializationElementWise() throws {
+        // Test that element-wise operation results can be serialized and reconstructed
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1.7, 2.3, 3.8})
+            local b = luaswift.array.floor(a)
+            local list = b:tolist()
+            local c = luaswift.array.array(list)
+            return c:get(1) + c:get(2) + c:get(3)
+            """)
+        XCTAssertEqual(result.numberValue, 1 + 2 + 3)  // floor: 1, 2, 3
+    }
+
+    func testSerializationConcatenate() throws {
+        // Test that concatenate results can be serialized
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({4, 5, 6})
+            local c = luaswift.array.concatenate({a, b})
+            local list = c:tolist()
+            local d = luaswift.array.array(list)
+            return d:size()
+            """)
+        XCTAssertEqual(result.numberValue, 6)
+    }
+
+    func testSerializationStack() throws {
+        // Test that stack results can be serialized
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({4, 5, 6})
+            local c = luaswift.array.stack({a, b})
+            local list = c:tolist()
+            local d = luaswift.array.array(list)
+            local shape = d:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        XCTAssertEqual(result.numberValue, 23)  // [2,3] shape
+    }
+
+    func testSerializationClip() throws {
+        // Test that clip results can be serialized
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({-5, 0, 5, 10, 15})
+            local b = luaswift.array.clip(a, 0, 10)
+            local list = b:tolist()
+            local c = luaswift.array.array(list)
+            return c:get(1) + c:get(5)  -- clipped: 0 + 10 = 10
+            """)
+        XCTAssertEqual(result.numberValue, 10)
+    }
+
+    func testSerializationArctan2() throws {
+        // Test that arctan2 (binary broadcast) results can be serialized
+        let result = try engine.evaluate("""
+            local y = luaswift.array.array({0, 1, 0})
+            local x = luaswift.array.array({1, 0, -1})
+            local c = luaswift.array.arctan2(y, x)
+            local list = c:tolist()
+            local d = luaswift.array.array(list)
+            return d:get(2)  -- arctan2(1, 0) = π/2
+            """)
+        XCTAssertEqual(result.numberValue!, Double.pi / 2, accuracy: 1e-10)
+    }
+
+    func testSerializationMultiDimensional() throws {
+        // Test that 2D array operations serialize properly
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}})
+            local b = luaswift.array.sin(a)
+            local list = b:tolist()
+            local c = luaswift.array.array(list)
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        XCTAssertEqual(result.numberValue, 23)  // [2,3] shape preserved
+    }
+
+    func testSerializationRoundTrip() throws {
+        // Full round-trip: create → transform → serialize → deserialize → verify
+        let result = try engine.evaluate("""
+            local original = luaswift.array.array({1, 4, 9, 16, 25})
+            local transformed = luaswift.array.sqrt(original)
+            local list = transformed:tolist()
+            local reconstructed = luaswift.array.array(list)
+
+            -- Verify all values
+            local sum = 0
+            for i = 1, 5 do
+                sum = sum + reconstructed:get(i)
+            end
+            return sum  -- 1 + 2 + 3 + 4 + 5 = 15
+            """)
+        XCTAssertEqual(result.numberValue, 15)
+    }
 }
 
 // MARK: - Test DataServer for Array Integration

@@ -1447,6 +1447,75 @@ final class ArrayModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue, 15)
     }
+
+    // MARK: - Phase 2.4 Math Functions
+
+    func testLog2() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 4, 8, 16})
+            local b = luaswift.array.log2(a)
+            return b:get(1) + b:get(2) + b:get(3) + b:get(4) + b:get(5)
+            """)
+        // log2(1)=0, log2(2)=1, log2(4)=2, log2(8)=3, log2(16)=4 → sum=10
+        XCTAssertEqual(result.numberValue!, 10, accuracy: 1e-10)
+    }
+
+    func testLog10() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 10, 100, 1000})
+            local b = luaswift.array.log10(a)
+            return b:get(1) + b:get(2) + b:get(3) + b:get(4)
+            """)
+        // log10(1)=0, log10(10)=1, log10(100)=2, log10(1000)=3 → sum=6
+        XCTAssertEqual(result.numberValue!, 6, accuracy: 1e-10)
+    }
+
+    func testLog1p() throws {
+        // log1p(x) = log(1+x), more accurate for small x
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1, 2})
+            local b = luaswift.array.log1p(a)
+            return b:get(1) + b:get(2) + b:get(3)
+            """)
+        // log1p(0)=log(1)=0, log1p(1)=log(2)≈0.693, log1p(2)=log(3)≈1.099
+        let expected = 0.0 + log(2.0) + log(3.0)
+        XCTAssertEqual(result.numberValue!, expected, accuracy: 1e-10)
+    }
+
+    func testExpm1() throws {
+        // expm1(x) = exp(x) - 1, more accurate for small x
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1})
+            local b = luaswift.array.expm1(a)
+            return b:get(1) + b:get(2)
+            """)
+        // expm1(0)=0, expm1(1)=e-1≈1.718
+        let expected = 0.0 + (exp(1.0) - 1.0)
+        XCTAssertEqual(result.numberValue!, expected, accuracy: 1e-10)
+    }
+
+    func testPower() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4})
+            local b = luaswift.array.array({2, 2, 2, 2})
+            local c = luaswift.array.power(a, b)
+            return c:get(1) + c:get(2) + c:get(3) + c:get(4)
+            """)
+        // 1^2 + 2^2 + 3^2 + 4^2 = 1 + 4 + 9 + 16 = 30
+        XCTAssertEqual(result.numberValue!, 30, accuracy: 1e-10)
+    }
+
+    func testPowerBroadcast() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({2, 3, 4})
+            local b = luaswift.array.array({3})
+            local c = luaswift.array.power(a, b)
+            return c:get(1) + c:get(2) + c:get(3)
+            """)
+        // 2^3 + 3^3 + 4^3 = 8 + 27 + 64 = 99
+        XCTAssertEqual(result.numberValue!, 99, accuracy: 1e-10)
+    }
+
 }
 
 // MARK: - Test DataServer for Array Integration

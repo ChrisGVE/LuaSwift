@@ -67,6 +67,11 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_sqrt", callback: sqrtCallback)
         engine.registerFunction(name: "_luaswift_array_exp", callback: expCallback)
         engine.registerFunction(name: "_luaswift_array_log", callback: logCallback)
+        engine.registerFunction(name: "_luaswift_array_log2", callback: log2Callback)
+        engine.registerFunction(name: "_luaswift_array_log10", callback: log10Callback)
+        engine.registerFunction(name: "_luaswift_array_log1p", callback: log1pCallback)
+        engine.registerFunction(name: "_luaswift_array_expm1", callback: expm1Callback)
+        engine.registerFunction(name: "_luaswift_array_power", callback: powerCallback)
         engine.registerFunction(name: "_luaswift_array_sin", callback: sinCallback)
         engine.registerFunction(name: "_luaswift_array_cos", callback: cosCallback)
         engine.registerFunction(name: "_luaswift_array_tan", callback: tanCallback)
@@ -177,6 +182,11 @@ public struct ArrayModule {
                 local _sqrt = _luaswift_array_sqrt
                 local _exp = _luaswift_array_exp
                 local _log = _luaswift_array_log
+                local _log2 = _luaswift_array_log2
+                local _log10 = _luaswift_array_log10
+                local _log1p = _luaswift_array_log1p
+                local _expm1 = _luaswift_array_expm1
+                local _power = _luaswift_array_power
                 local _sin = _luaswift_array_sin
                 local _cos = _luaswift_array_cos
                 local _tan = _luaswift_array_tan
@@ -436,6 +446,27 @@ public struct ArrayModule {
                     log = function(a)
                         local data = type(a) == "table" and a._data or a
                         return luaswift.array._wrap(_log(data))
+                    end,
+                    log2 = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_log2(data))
+                    end,
+                    log10 = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_log10(data))
+                    end,
+                    log1p = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_log1p(data))
+                    end,
+                    expm1 = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_expm1(data))
+                    end,
+                    power = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.array._wrap(_power(a_data, b_data))
                     end,
                     sin = function(a)
                         local data = type(a) == "table" and a._data or a
@@ -1704,6 +1735,62 @@ public struct ArrayModule {
         vvlog(&result, arrayData.data, &count)
 
         return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func log2Callback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.log2: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvlog2(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func log10Callback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.log10: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvlog10(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func log1pCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.log1p: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvlog1p(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func expm1Callback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.expm1: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvexpm1(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func powerCallback(_ args: [LuaValue]) throws -> LuaValue {
+        return try binaryOp(args, op: pow, name: "power")
     }
 
     private static func sinCallback(_ args: [LuaValue]) throws -> LuaValue {

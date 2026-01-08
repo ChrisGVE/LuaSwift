@@ -743,4 +743,208 @@ struct SpecialModuleTests {
         // P(0.5, 1) = erf(1) ≈ 0.8427007929497148
         #expect(abs(result.numberValue! - 0.8427007929497148) < 1e-6)
     }
+
+    // MARK: - Elliptic Integral Tests
+
+    @Test("ellipk function exists")
+    func testEllipkExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.ellipk)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("ellipk(0) = π/2")
+    func testEllipkZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.ellipk(0)")
+        #expect(abs(result.numberValue! - Double.pi / 2) < 1e-10)
+    }
+
+    @Test("ellipk(0.5) ≈ 1.8541")
+    func testEllipkHalf() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.ellipk(0.5)")
+        // K(0.5) ≈ 1.8540746773013719
+        #expect(abs(result.numberValue! - 1.8540746773013719) < 1e-8)
+    }
+
+    @Test("ellipk(0.99) ≈ 3.6956")
+    func testEllipkNearOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.ellipk(0.99)")
+        // K(0.99) ≈ 3.6956373629898746
+        #expect(abs(result.numberValue! - 3.6956373629898746) < 1e-5)
+    }
+
+    @Test("ellipk throws for m >= 1")
+    func testEllipkRangeError() throws {
+        let engine = try createEngine()
+        #expect(throws: Error.self) {
+            try engine.evaluate("return math.special.ellipk(1)")
+        }
+    }
+
+    @Test("ellipe function exists")
+    func testEllipeExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.ellipe)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("ellipe(0) = π/2")
+    func testEllipeZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.ellipe(0)")
+        #expect(abs(result.numberValue! - Double.pi / 2) < 1e-10)
+    }
+
+    @Test("ellipe(1) = 1")
+    func testEllipeOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.ellipe(1)")
+        #expect(abs(result.numberValue! - 1.0) < 1e-10)
+    }
+
+    @Test("ellipe(0.5) ≈ 1.3506")
+    func testEllipeHalf() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.ellipe(0.5)")
+        // E(0.5) ≈ 1.3506438810476755
+        #expect(abs(result.numberValue! - 1.3506438810476755) < 1e-8)
+    }
+
+    @Test("Legendre relation: K(m)*E(1-m) + E(m)*K(1-m) - K(m)*K(1-m) = π/2")
+    func testLegendreRelation() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local m = 0.3
+            local Km = math.special.ellipk(m)
+            local Em = math.special.ellipe(m)
+            local K1m = math.special.ellipk(1 - m)
+            local E1m = math.special.ellipe(1 - m)
+            local lhs = Km * E1m + Em * K1m - Km * K1m
+            return math.abs(lhs - math.pi / 2)
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    // MARK: - Riemann Zeta Function Tests
+
+    @Test("zeta function exists")
+    func testZetaExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.zeta)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("zeta(2) = π²/6")
+    func testZetaTwo() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.zeta(2)")
+        // ζ(2) = π²/6 ≈ 1.6449340668482264
+        #expect(abs(result.numberValue! - Double.pi * Double.pi / 6) < 1e-4)
+    }
+
+    @Test("zeta(4) = π⁴/90")
+    func testZetaFour() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.zeta(4)")
+        // ζ(4) = π⁴/90 ≈ 1.0823232337111381
+        let expected = pow(Double.pi, 4) / 90
+        #expect(abs(result.numberValue! - expected) < 1e-6)
+    }
+
+    @Test("zeta(0) = -1/2")
+    func testZetaZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.zeta(0)")
+        #expect(abs(result.numberValue! - (-0.5)) < 1e-10)
+    }
+
+    @Test("zeta(1) = infinity (pole)")
+    func testZetaOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.zeta(1)")
+        #expect(result.numberValue!.isInfinite)
+    }
+
+    @Test("zeta(-2) = 0 (trivial zero)")
+    func testZetaNegTwo() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.zeta(-2)")
+        #expect(abs(result.numberValue!) < 1e-10)
+    }
+
+    @Test("zeta(3) ≈ 1.2021 (Apéry's constant)")
+    func testZetaThree() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.zeta(3)")
+        // ζ(3) ≈ 1.202056903159594 (Apéry's constant)
+        #expect(abs(result.numberValue! - 1.202056903159594) < 1e-5)
+    }
+
+    // MARK: - Lambert W Function Tests
+
+    @Test("lambertw function exists")
+    func testLambertwExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.lambertw)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("lambertw(0) = 0")
+    func testLambertwZero() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.lambertw(0)")
+        #expect(abs(result.numberValue!) < 1e-10)
+    }
+
+    @Test("lambertw(e) = 1")
+    func testLambertwE() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.lambertw(math.exp(1))")
+        #expect(abs(result.numberValue! - 1.0) < 1e-10)
+    }
+
+    @Test("lambertw(1) ≈ 0.5671")
+    func testLambertwOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.lambertw(1)")
+        // W(1) ≈ 0.5671432904097839
+        #expect(abs(result.numberValue! - 0.5671432904097839) < 1e-8)
+    }
+
+    @Test("W(x) * exp(W(x)) = x identity")
+    func testLambertwIdentity() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local x = 2.5
+            local w = math.special.lambertw(x)
+            return math.abs(w * math.exp(w) - x)
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("lambertw(-1/e) = -1")
+    func testLambertwBranchPoint() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.lambertw(-1 / math.exp(1))")
+        #expect(abs(result.numberValue! - (-1.0)) < 1e-8)
+    }
+
+    @Test("lambertw throws for x < -1/e")
+    func testLambertwRangeError() throws {
+        let engine = try createEngine()
+        #expect(throws: Error.self) {
+            try engine.evaluate("return math.special.lambertw(-1)")
+        }
+    }
+
+    @Test("lambertw(100) ≈ 3.3856")
+    func testLambertwLarge() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.lambertw(100)")
+        // W(100) ≈ 3.3856301402900502
+        #expect(abs(result.numberValue! - 3.3856301402900502) < 1e-6)
+    }
 }

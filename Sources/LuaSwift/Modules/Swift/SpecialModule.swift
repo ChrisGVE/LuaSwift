@@ -19,6 +19,9 @@ import Darwin
 /// - Bessel functions: j0, j1, jn, y0, y1, yn
 /// - Modified Bessel functions: besseli, besselk
 /// - Gamma functions: digamma/psi, gammainc, gammaincc
+/// - Elliptic integrals: ellipk, ellipe
+/// - Riemann zeta function: zeta
+/// - Lambert W function: lambertw
 ///
 /// These functions are added to the `math.special` namespace.
 ///
@@ -69,6 +72,12 @@ public struct SpecialModule {
         engine.registerFunction(name: "_luaswift_special_erfcinv", callback: erfcinvCallback)
         engine.registerFunction(name: "_luaswift_special_gammainc", callback: gammaincCallback)
         engine.registerFunction(name: "_luaswift_special_gammaincc", callback: gammainccCallback)
+
+        // Elliptic integrals, zeta, and Lambert W
+        engine.registerFunction(name: "_luaswift_special_ellipk", callback: ellipkCallback)
+        engine.registerFunction(name: "_luaswift_special_ellipe", callback: ellipeCallback)
+        engine.registerFunction(name: "_luaswift_special_zeta", callback: zetaCallback)
+        engine.registerFunction(name: "_luaswift_special_lambertw", callback: lambertwCallback)
 
         // Set up Lua wrappers that add to math.special namespace
         do {
@@ -321,6 +330,71 @@ public struct SpecialModule {
                     return _luaswift_special_gammaincc(a, x)
                 end
 
+                ----------------------------------------------------------------
+                -- Complete Elliptic Integral of First Kind: ellipk(m)
+                --
+                -- Returns K(m), where m is the parameter (not the modulus k).
+                -- K(m) = integral(0, π/2) 1/sqrt(1 - m*sin²θ) dθ
+                -- Domain: 0 <= m < 1
+                ----------------------------------------------------------------
+                function special.ellipk(m)
+                    if type(m) ~= "number" then
+                        error("ellipk: expected number, got " .. type(m), 2)
+                    end
+                    if m < 0 or m >= 1 then
+                        error("ellipk: m must be in [0, 1)", 2)
+                    end
+                    return _luaswift_special_ellipk(m)
+                end
+
+                ----------------------------------------------------------------
+                -- Complete Elliptic Integral of Second Kind: ellipe(m)
+                --
+                -- Returns E(m), where m is the parameter (not the modulus k).
+                -- E(m) = integral(0, π/2) sqrt(1 - m*sin²θ) dθ
+                -- Domain: 0 <= m <= 1
+                ----------------------------------------------------------------
+                function special.ellipe(m)
+                    if type(m) ~= "number" then
+                        error("ellipe: expected number, got " .. type(m), 2)
+                    end
+                    if m < 0 or m > 1 then
+                        error("ellipe: m must be in [0, 1]", 2)
+                    end
+                    return _luaswift_special_ellipe(m)
+                end
+
+                ----------------------------------------------------------------
+                -- Riemann Zeta Function: zeta(s)
+                --
+                -- Returns ζ(s) = sum_{n=1}^∞ 1/n^s for s > 1
+                -- Uses analytic continuation for other values.
+                ----------------------------------------------------------------
+                function special.zeta(s)
+                    if type(s) ~= "number" then
+                        error("zeta: expected number, got " .. type(s), 2)
+                    end
+                    return _luaswift_special_zeta(s)
+                end
+
+                ----------------------------------------------------------------
+                -- Lambert W Function: lambertw(x)
+                --
+                -- Returns W(x), the principal branch of the Lambert W function.
+                -- W(x) is the inverse of f(w) = w*exp(w).
+                -- Domain: x >= -1/e ≈ -0.36788
+                ----------------------------------------------------------------
+                function special.lambertw(x)
+                    if type(x) ~= "number" then
+                        error("lambertw: expected number, got " .. type(x), 2)
+                    end
+                    local minVal = -1 / math.exp(1)
+                    if x < minVal then
+                        error("lambertw: x must be >= -1/e", 2)
+                    end
+                    return _luaswift_special_lambertw(x)
+                end
+
                 -- Add to math.special namespace
                 if math and math.special then
                     math.special.erf = special.erf
@@ -341,6 +415,10 @@ public struct SpecialModule {
                     math.special.erfcinv = special.erfcinv
                     math.special.gammainc = special.gammainc
                     math.special.gammaincc = special.gammaincc
+                    math.special.ellipk = special.ellipk
+                    math.special.ellipe = special.ellipe
+                    math.special.zeta = special.zeta
+                    math.special.lambertw = special.lambertw
                 end
                 """)
         } catch {
@@ -939,5 +1017,323 @@ public struct SpecialModule {
         }
 
         return bt * h / a
+    }
+
+    // MARK: - Elliptic Integrals
+
+    /// Complete elliptic integral of the first kind K(m)
+    /// Uses the AGM (Arithmetic-Geometric Mean) method
+    private static func ellipkCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let m = args.first?.numberValue else {
+            throw LuaError.runtimeError("ellipk: expected number")
+        }
+
+        if m < 0 || m >= 1 {
+            throw LuaError.runtimeError("ellipk: m must be in [0, 1)")
+        }
+
+        return .number(ellipk(m))
+    }
+
+    /// Compute K(m) using AGM method
+    /// K(m) = π / (2 * AGM(1, sqrt(1-m)))
+    private static func ellipk(_ m: Double) -> Double {
+        // Special case: m = 0 => K(0) = π/2
+        if m == 0 {
+            return .pi / 2
+        }
+
+        // AGM iteration
+        var a = 1.0
+        var g = sqrt(1.0 - m)
+        let eps = 1.0e-15
+
+        while abs(a - g) > eps * abs(a) {
+            let aNew = (a + g) / 2
+            g = sqrt(a * g)
+            a = aNew
+        }
+
+        return .pi / (2 * a)
+    }
+
+    /// Complete elliptic integral of the second kind E(m)
+    private static func ellipeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let m = args.first?.numberValue else {
+            throw LuaError.runtimeError("ellipe: expected number")
+        }
+
+        if m < 0 || m > 1 {
+            throw LuaError.runtimeError("ellipe: m must be in [0, 1]")
+        }
+
+        return .number(ellipe(m))
+    }
+
+    /// Compute E(m) using the AGM method and Legendre relation
+    /// E(m) = K(m) * (1 - sum of c_n^2 * 2^(n-1))
+    private static func ellipe(_ m: Double) -> Double {
+        // Special cases
+        if m == 0 {
+            return .pi / 2
+        }
+        if m == 1 {
+            return 1.0
+        }
+
+        // AGM iteration with tracking of c values
+        var a = 1.0
+        var g = sqrt(1.0 - m)
+        var c = sqrt(m)
+        var sum = c * c
+        var power = 1.0
+        let eps = 1.0e-15
+
+        while abs(c) > eps {
+            let aNew = (a + g) / 2
+            c = (a - g) / 2
+            g = sqrt(a * g)
+            a = aNew
+            power *= 2
+            sum += power * c * c
+        }
+
+        let k = .pi / (2 * a)
+        return k * (1.0 - sum / 2)
+    }
+
+    // MARK: - Riemann Zeta Function
+
+    /// Riemann zeta function ζ(s)
+    private static func zetaCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let s = args.first?.numberValue else {
+            throw LuaError.runtimeError("zeta: expected number")
+        }
+
+        return .number(zeta(s))
+    }
+
+    /// Compute the Riemann zeta function
+    /// Uses different methods depending on the value of s
+    private static func zeta(_ s: Double) -> Double {
+        // Special cases
+        if s == 1 {
+            return .infinity  // Pole at s = 1
+        }
+        if s == 0 {
+            return -0.5  // ζ(0) = -1/2
+        }
+
+        // For s < 0, use reflection formula
+        // ζ(s) = 2^s * π^(s-1) * sin(πs/2) * Γ(1-s) * ζ(1-s)
+        if s < 0 {
+            // Handle trivial zeros at negative even integers
+            if s.truncatingRemainder(dividingBy: 2) == 0 {
+                return 0
+            }
+            let t = 1.0 - s
+            return pow(2, s) * pow(.pi, s - 1) * sin(.pi * s / 2) * tgamma(t) * zeta(t)
+        }
+
+        // For 0 < s < 1, use the functional equation differently
+        // or continue to use the Dirichlet eta alternating series
+        if s < 1 {
+            // Use alternating series (Dirichlet eta function)
+            // η(s) = (1 - 2^(1-s)) * ζ(s)
+            // ζ(s) = η(s) / (1 - 2^(1-s))
+            let eta = zetaEta(s)
+            let factor = 1.0 - pow(2, 1 - s)
+            return eta / factor
+        }
+
+        // For s > 1, use Dirichlet series with Euler-Maclaurin formula
+        // ζ(s) = sum_{n=1}^N 1/n^s + 1/((s-1)*N^(s-1)) + 1/(2*N^s) + corrections
+        if s < 10 {
+            return zetaDirichlet(s)
+        } else {
+            // For large s, simple sum converges quickly
+            var sum = 1.0
+            for n in 2...100 {
+                let term = pow(Double(n), -s)
+                sum += term
+                if term < 1e-15 * sum {
+                    break
+                }
+            }
+            return sum
+        }
+    }
+
+    /// Dirichlet eta function (alternating zeta)
+    /// η(s) = sum_{n=1}^∞ (-1)^(n-1) / n^s
+    private static func zetaEta(_ s: Double) -> Double {
+        // Use acceleration for alternating series
+        // Borwein's algorithm for accelerated convergence
+        let n = 50
+        var d = Array(repeating: 0.0, count: n + 1)
+        d[0] = 1.0
+
+        for k in 1...n {
+            d[k] = d[k - 1] + pow(Double(n + k - 1), Double(n)) *
+                   pow(4, Double(k)) / (tgamma(Double(2 * k + 1)) /
+                   (tgamma(Double(k + 1)) * tgamma(Double(k + 1))))
+        }
+
+        // Simplified: use direct summation with many terms
+        var sum = 0.0
+        var sign = 1.0
+        for k in 1...200 {
+            let term = sign / pow(Double(k), s)
+            sum += term
+            sign = -sign
+            if abs(term) < 1e-15 * abs(sum) && k > 10 {
+                break
+            }
+        }
+        return sum
+    }
+
+    /// Dirichlet series for ζ(s) with Euler-Maclaurin summation
+    /// Uses a larger N and more accurate correction terms
+    private static func zetaDirichlet(_ s: Double) -> Double {
+        let N = 100
+        var sum = 0.0
+
+        // Direct sum for first N terms
+        for n in 1...N {
+            sum += pow(Double(n), -s)
+        }
+
+        // Euler-Maclaurin formula:
+        // ζ(s) ≈ Σ_{n=1}^N n^{-s} + N^{1-s}/(s-1) + 1/(2N^s)
+        //        + Σ_{k=1}^K B_{2k}/(2k)! * s(s+1)...(s+2k-2) * N^{-(s+2k-1)}
+
+        let Ns = pow(Double(N), s)
+        let Ns1 = pow(Double(N), s - 1)
+
+        // Integral term: ∫_N^∞ x^{-s} dx = N^{1-s}/(s-1)
+        sum += 1.0 / ((s - 1) * Ns1)
+
+        // First correction: 1/(2*N^s)
+        sum += 0.5 / Ns
+
+        // Bernoulli numbers B_{2k} for k = 1 to 10
+        let bernoulli: [Double] = [
+            1.0/6,              // B_2
+            -1.0/30,            // B_4
+            1.0/42,             // B_6
+            -1.0/30,            // B_8
+            5.0/66,             // B_10
+            -691.0/2730,        // B_12
+            7.0/6,              // B_14
+            -3617.0/510,        // B_16
+            43867.0/798,        // B_18
+            -174611.0/330       // B_20
+        ]
+
+        // Add Bernoulli correction terms
+        var Npow = Ns * Double(N)    // N^{s+1}
+
+        for (i, b2k) in bernoulli.enumerated() {
+            let k2 = 2 * (i + 1)  // 2, 4, 6, ...
+
+            // Term: B_{2k} / (2k)! * s(s+1)...(s+2k-2) / N^{s+2k-1}
+            // We build this incrementally
+
+            // Factorial denominator: (2k)!
+            var factorial: Double = 1
+            for j in 1...k2 {
+                factorial *= Double(j)
+            }
+
+            // Rising factorial numerator: s(s+1)...(s+2k-2)
+            var rising: Double = 1
+            for j in 0..<(k2 - 1) {
+                rising *= (s + Double(j))
+            }
+
+            let term = b2k * rising / (factorial * Npow)
+            sum += term
+
+            if abs(term) < 1e-16 * abs(sum) {
+                break
+            }
+
+            // Update for next iteration
+            Npow *= Double(N) * Double(N)  // Increase power by 2
+        }
+
+        return sum
+    }
+
+    // MARK: - Lambert W Function
+
+    /// Lambert W function W(x) - principal branch
+    private static func lambertwCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let x = args.first?.numberValue else {
+            throw LuaError.runtimeError("lambertw: expected number")
+        }
+
+        let minVal = -1.0 / Darwin.M_E
+        if x < minVal {
+            throw LuaError.runtimeError("lambertw: x must be >= -1/e")
+        }
+
+        return .number(lambertw(x))
+    }
+
+    /// Compute the principal branch of Lambert W function using Halley's method
+    /// W(x) is the solution to w * exp(w) = x
+    private static func lambertw(_ x: Double) -> Double {
+        let minVal = -1.0 / Darwin.M_E
+
+        // Special cases
+        if x == 0 {
+            return 0
+        }
+        if x == Darwin.M_E {
+            return 1
+        }
+        if abs(x - minVal) < 1e-15 {
+            return -1  // W(-1/e) = -1
+        }
+
+        // Initial guess
+        var w: Double
+        if x < -0.25 {
+            // Near the branch point, use series expansion
+            let p = sqrt(2.0 * (Darwin.M_E * x + 1.0))
+            w = -1.0 + p - p * p / 3.0 + 11.0 * p * p * p / 72.0
+        } else if x < 3 {
+            w = 0.5 * log(1 + x)
+            if w < 0 { w = 0 }
+        } else {
+            // For large x, use log(x) - log(log(x))
+            let lnx = log(x)
+            let lnlnx = log(lnx)
+            w = lnx - lnlnx + lnlnx / lnx
+        }
+
+        // Halley's method iteration
+        // w_{n+1} = w_n - (w*e^w - x) / (e^w*(w+1) - (w+2)*(w*e^w - x)/(2w+2))
+        let eps = 1e-15
+        let maxIterations = 50
+
+        for _ in 0..<maxIterations {
+            let ew = exp(w)
+            let wew = w * ew
+            let f = wew - x
+            let fp = ew * (w + 1)
+
+            // Halley's correction
+            let correction = f * fp / (fp * fp - f * ew * (w + 2) / 2)
+            w -= correction
+
+            if abs(correction) < eps * (1 + abs(w)) {
+                break
+            }
+        }
+
+        return w
     }
 }

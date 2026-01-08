@@ -357,9 +357,7 @@ public struct MathXModule {
         guard let x = args.first?.numberValue else {
             throw LuaError.callbackError("log10 requires a numeric argument")
         }
-        guard x > 0 else {
-            throw LuaError.callbackError("log10 requires positive argument")
-        }
+        // Returns -inf for 0, nan for negative (numpy behavior)
         return .number(Darwin.log10(x))
     }
 
@@ -367,9 +365,7 @@ public struct MathXModule {
         guard let x = args.first?.numberValue else {
             throw LuaError.callbackError("log2 requires a numeric argument")
         }
-        guard x > 0 else {
-            throw LuaError.callbackError("log2 requires positive argument")
-        }
+        // Returns -inf for 0, nan for negative (numpy behavior)
         return .number(Darwin.log2(x))
     }
 

@@ -2040,6 +2040,220 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(arr[3], 3)  // 6-3
     }
 
+    // MARK: - Phase 3.3 Signal Processing Tests
+
+    func testCorrelateFull() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local v = luaswift.array.array({0, 1, 0.5})
+            local c = luaswift.array.correlate(a, v, "full")
+            return c:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Full correlation: output length = n + m - 1 = 3 + 3 - 1 = 5
+        XCTAssertEqual(list.count, 5)
+        // Correlation at offset 0 (centered): 1*0.5 + 2*1 + 3*0 = 2.5
+        XCTAssertEqual(list[2], 2.5, accuracy: 1e-10)
+    }
+
+    func testCorrelateValid() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local v = luaswift.array.array({1, 1, 1})
+            local c = luaswift.array.correlate(a, v, "valid")
+            return c:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Valid mode: output length = max(n, m) - min(n, m) + 1 = 5 - 3 + 1 = 3
+        XCTAssertEqual(list.count, 3)
+        // Moving sum of 3 elements
+        XCTAssertEqual(list[0], 6, accuracy: 1e-10)  // 1+2+3
+        XCTAssertEqual(list[1], 9, accuracy: 1e-10)  // 2+3+4
+        XCTAssertEqual(list[2], 12, accuracy: 1e-10) // 3+4+5
+    }
+
+    func testCorrelateSame() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4})
+            local v = luaswift.array.array({1, 2})
+            local c = luaswift.array.correlate(a, v, "same")
+            return {c:size()}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        // Same mode: output length = max(n, m) = 4
+        XCTAssertEqual(arr[0], 4)
+    }
+
+    func testConvolveFull() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local v = luaswift.array.array({0, 1, 0.5})
+            local c = luaswift.array.convolve(a, v, "full")
+            return c:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Full convolution: output length = n + m - 1 = 5
+        XCTAssertEqual(list.count, 5)
+        // Convolution: sum of a[k] * v[n-k]
+        // At n=0: a[0]*v[0] = 1*0 = 0
+        XCTAssertEqual(list[0], 0, accuracy: 1e-10)
+        // At n=1: a[0]*v[1] + a[1]*v[0] = 1*1 + 2*0 = 1
+        XCTAssertEqual(list[1], 1, accuracy: 1e-10)
+        // At n=2: a[0]*v[2] + a[1]*v[1] + a[2]*v[0] = 1*0.5 + 2*1 + 3*0 = 2.5
+        XCTAssertEqual(list[2], 2.5, accuracy: 1e-10)
+    }
+
+    func testConvolveValid() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local v = luaswift.array.array({1, 0, -1})
+            local c = luaswift.array.convolve(a, v, "valid")
+            return c:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Valid mode: output length = 5 - 3 + 1 = 3
+        XCTAssertEqual(list.count, 3)
+        // Convolution flips kernel: [-1, 0, 1], so output[i] = a[i+2] - a[i]
+        XCTAssertEqual(list[0], 2, accuracy: 1e-10)  // 3 - 1
+        XCTAssertEqual(list[1], 2, accuracy: 1e-10)  // 4 - 2
+        XCTAssertEqual(list[2], 2, accuracy: 1e-10)  // 5 - 3
+    }
+
+    func testConvolveSame() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4})
+            local v = luaswift.array.array({1, 2, 1})
+            local c = luaswift.array.convolve(a, v, "same")
+            return {c:size()}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        // Same mode: output length = max(n, m) = 4
+        XCTAssertEqual(arr[0], 4)
+    }
+
+    func testGradient1D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 4, 7, 11})
+            local g = luaswift.array.gradient(a)
+            return g:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Forward diff at boundary: 2-1 = 1
+        XCTAssertEqual(list[0], 1, accuracy: 1e-10)
+        // Central diff: (4-1)/2 = 1.5
+        XCTAssertEqual(list[1], 1.5, accuracy: 1e-10)
+        // Central diff: (7-2)/2 = 2.5
+        XCTAssertEqual(list[2], 2.5, accuracy: 1e-10)
+        // Central diff: (11-4)/2 = 3.5
+        XCTAssertEqual(list[3], 3.5, accuracy: 1e-10)
+        // Backward diff at boundary: 11-7 = 4
+        XCTAssertEqual(list[4], 4, accuracy: 1e-10)
+    }
+
+    func testGradientWithSpacing() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 2, 6, 12})
+            local g = luaswift.array.gradient(a, 2)  -- spacing = 2
+            return g:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Forward: (2-0)/2 = 1
+        XCTAssertEqual(list[0], 1, accuracy: 1e-10)
+        // Central: (6-0)/(2*2) = 1.5
+        XCTAssertEqual(list[1], 1.5, accuracy: 1e-10)
+        // Central: (12-2)/(2*2) = 2.5
+        XCTAssertEqual(list[2], 2.5, accuracy: 1e-10)
+        // Backward: (12-6)/2 = 3
+        XCTAssertEqual(list[3], 3, accuracy: 1e-10)
+    }
+
+    func testGradient2D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 4}, {3, 5, 8}})
+            local gy, gx = luaswift.array.gradient(a)
+            return {gy:get(1, 1), gy:get(1, 2), gx:get(1, 1), gx:get(1, 2)}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        // gy is gradient along axis 1 (rows): (3-1)=2, (5-2)=3
+        XCTAssertEqual(arr[0], 2, accuracy: 1e-10)
+        XCTAssertEqual(arr[1], 3, accuracy: 1e-10)
+        // gx is gradient along axis 2 (cols): forward at [1,1]: 2-1=1, central at [1,2]: (4-1)/2=1.5
+        XCTAssertEqual(arr[2], 1, accuracy: 1e-10)
+        XCTAssertEqual(arr[3], 1.5, accuracy: 1e-10)
+    }
+
+    func testGradientWithAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 3, 6}, {2, 5, 9}})
+            local g = luaswift.array.gradient(a, 1, 2)  -- gradient along axis 2 (columns)
+            return {g:get(1, 1), g:get(1, 2), g:get(1, 3)}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        // Forward at [1,1]: 3-1=2
+        XCTAssertEqual(arr[0], 2, accuracy: 1e-10)
+        // Central at [1,2]: (6-1)/2=2.5
+        XCTAssertEqual(arr[1], 2.5, accuracy: 1e-10)
+        // Backward at [1,3]: 6-3=3
+        XCTAssertEqual(arr[2], 3, accuracy: 1e-10)
+    }
+
+    func testInterpBasic() throws {
+        let result = try engine.evaluate("""
+            local xp = luaswift.array.array({0, 1, 2, 3})
+            local fp = luaswift.array.array({0, 1, 4, 9})  -- y = x^2 at integer points
+            local x = luaswift.array.array({0.5, 1.5, 2.5})
+            local y = luaswift.array.interp(x, xp, fp)
+            return y:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Linear interpolation: midpoints
+        XCTAssertEqual(list[0], 0.5, accuracy: 1e-10)   // Between 0 and 1
+        XCTAssertEqual(list[1], 2.5, accuracy: 1e-10)   // Between 1 and 4
+        XCTAssertEqual(list[2], 6.5, accuracy: 1e-10)   // Between 4 and 9
+    }
+
+    func testInterpScalar() throws {
+        let result = try engine.evaluate("""
+            local xp = luaswift.array.array({0, 1, 2})
+            local fp = luaswift.array.array({0, 10, 20})
+            return luaswift.array.interp(0.5, xp, fp)
+            """)
+        XCTAssertEqual(result.numberValue!, 5, accuracy: 1e-10)
+    }
+
+    func testInterpExtrapolation() throws {
+        let result = try engine.evaluate("""
+            local xp = luaswift.array.array({1, 2, 3})
+            local fp = luaswift.array.array({10, 20, 30})
+            local y1 = luaswift.array.interp(0, xp, fp)        -- below range, use first value
+            local y2 = luaswift.array.interp(5, xp, fp)        -- above range, use last value
+            local y3 = luaswift.array.interp(0, xp, fp, -99)   -- custom left value
+            local y4 = luaswift.array.interp(5, xp, fp, nil, 99) -- custom right value
+            return {y1, y2, y3, y4}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(arr[0], 10, accuracy: 1e-10)   // Default: first value
+        XCTAssertEqual(arr[1], 30, accuracy: 1e-10)   // Default: last value
+        XCTAssertEqual(arr[2], -99, accuracy: 1e-10)  // Custom left
+        XCTAssertEqual(arr[3], 99, accuracy: 1e-10)   // Custom right
+    }
+
+    func testInterpAtKnownPoints() throws {
+        let result = try engine.evaluate("""
+            local xp = luaswift.array.array({0, 1, 2, 3})
+            local fp = luaswift.array.array({5, 15, 25, 35})
+            local x = luaswift.array.array({0, 1, 2, 3})
+            local y = luaswift.array.interp(x, xp, fp)
+            return y:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Interpolating at exact known points should return exact values
+        XCTAssertEqual(list[0], 5, accuracy: 1e-10)
+        XCTAssertEqual(list[1], 15, accuracy: 1e-10)
+        XCTAssertEqual(list[2], 25, accuracy: 1e-10)
+        XCTAssertEqual(list[3], 35, accuracy: 1e-10)
+    }
+
 }
 
 // MARK: - Test DataServer for Array Integration

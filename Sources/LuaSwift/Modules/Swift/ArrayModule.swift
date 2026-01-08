@@ -180,6 +180,12 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_delete", callback: deleteCallback)
         engine.registerFunction(name: "_luaswift_array_diff", callback: diffCallback)
 
+        // Register signal processing (Phase 3.3)
+        engine.registerFunction(name: "_luaswift_array_correlate", callback: correlateCallback)
+        engine.registerFunction(name: "_luaswift_array_convolve", callback: convolveCallback)
+        engine.registerFunction(name: "_luaswift_array_gradient", callback: gradientCallback)
+        engine.registerFunction(name: "_luaswift_array_interp", callback: interpCallback)
+
         // Set up the luaswift.array namespace with Lua wrapper code
         do {
             try engine.run("""
@@ -298,6 +304,10 @@ public struct ArrayModule {
                 local _insert = _luaswift_array_insert
                 local _delete = _luaswift_array_delete
                 local _diff = _luaswift_array_diff
+                local _correlate = _luaswift_array_correlate
+                local _convolve = _luaswift_array_convolve
+                local _gradient = _luaswift_array_gradient
+                local _interp = _luaswift_array_interp
 
                 -- Define array metatable
                 local array_mt = {
@@ -998,6 +1008,41 @@ public struct ArrayModule {
                         local data = type(a) == "table" and a._data or a
                         return luaswift.array._wrap(_diff(data, n, axis))
                     end,
+
+                    -- Signal processing (Phase 3.3)
+                    correlate = function(a, v, mode)
+                        local a_data = type(a) == "table" and a._data or a
+                        local v_data = type(v) == "table" and v._data or v
+                        return luaswift.array._wrap(_correlate(a_data, v_data, mode))
+                    end,
+                    convolve = function(a, v, mode)
+                        local a_data = type(a) == "table" and a._data or a
+                        local v_data = type(v) == "table" and v._data or v
+                        return luaswift.array._wrap(_convolve(a_data, v_data, mode))
+                    end,
+                    gradient = function(a, spacing, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local result = _gradient(data, spacing, axis)
+                        -- Check for multi-axis result (table with string keys from Swift)
+                        if type(result) == "table" and result["1"] then
+                            local wrapped = {}
+                            local i = 1
+                            while result[tostring(i)] do
+                                wrapped[i] = luaswift.array._wrap(result[tostring(i)])
+                                i = i + 1
+                            end
+                            return table.unpack(wrapped)
+                        end
+                        return luaswift.array._wrap(result)
+                    end,
+                    interp = function(x, xp, fp, left, right)
+                        local x_data = type(x) == "table" and x._data or x
+                        local xp_data = type(xp) == "table" and xp._data or xp
+                        local fp_data = type(fp) == "table" and fp._data or fp
+                        local result = _interp(x_data, xp_data, fp_data, left, right)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
                 }
 
                 -- Clean up temporary globals
@@ -1076,6 +1121,10 @@ public struct ArrayModule {
                 _luaswift_array_insert = nil
                 _luaswift_array_delete = nil
                 _luaswift_array_diff = nil
+                _luaswift_array_correlate = nil
+                _luaswift_array_convolve = nil
+                _luaswift_array_gradient = nil
+                _luaswift_array_interp = nil
                 """)
         } catch {
             print("ArrayModule: Failed to initialize Lua wrapper: \(error)")
@@ -4831,5 +4880,335 @@ public struct ArrayModule {
         }
 
         return createArrayTable(ArrayData(shape: currentShape, data: currentData))
+    }
+
+    // MARK: - Signal Processing (Phase 3.3)
+
+    /// correlate: Cross-correlation of two 1D sequences
+    /// Modes: "full" (default), "same", "valid"
+    private static func correlateCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.correlate: requires two array arguments")
+        }
+
+        let aData = try extractArrayData(args[0])
+        let vData = try extractArrayData(args[1])
+
+        // Both must be 1D
+        guard aData.ndim == 1 && vData.ndim == 1 else {
+            throw LuaError.callbackError("array.correlate: both inputs must be 1D arrays")
+        }
+
+        let mode = args.count >= 3 ? (args[2].stringValue ?? "full") : "full"
+
+        let a = aData.data
+        let v = vData.data
+        let n = a.count
+        let m = v.count
+
+        // Calculate output size based on mode
+        let fullSize = n + m - 1
+        let outputSize: Int
+        let outputOffset: Int
+
+        switch mode {
+        case "full":
+            outputSize = fullSize
+            outputOffset = 0
+        case "same":
+            outputSize = max(n, m)
+            outputOffset = (fullSize - outputSize) / 2
+        case "valid":
+            outputSize = max(0, max(n, m) - min(n, m) + 1)
+            outputOffset = min(n, m) - 1
+        default:
+            throw LuaError.callbackError("array.correlate: mode must be 'full', 'same', or 'valid'")
+        }
+
+        // Compute full cross-correlation using vDSP if possible
+        // For cross-correlation, we reverse v and compute convolution
+        var vReversed = [Double](repeating: 0, count: m)
+        for i in 0..<m {
+            vReversed[i] = v[m - 1 - i]
+        }
+
+        // Pad 'a' with zeros for full convolution
+        var aPadded = [Double](repeating: 0, count: n + 2 * (m - 1))
+        for i in 0..<n {
+            aPadded[i + m - 1] = a[i]
+        }
+
+        // Compute convolution using vDSP_conv
+        var fullResult = [Double](repeating: 0, count: fullSize)
+        vDSP_convD(aPadded, 1, vReversed, 1, &fullResult, 1, vDSP_Length(fullSize), vDSP_Length(m))
+
+        // Extract the requested portion
+        var result = [Double](repeating: 0, count: outputSize)
+        for i in 0..<outputSize {
+            result[i] = fullResult[outputOffset + i]
+        }
+
+        return createArrayTable(ArrayData(shape: [outputSize], data: result))
+    }
+
+    /// convolve: Discrete linear convolution of two 1D sequences
+    /// Modes: "full" (default), "same", "valid"
+    private static func convolveCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.convolve: requires two array arguments")
+        }
+
+        let aData = try extractArrayData(args[0])
+        let vData = try extractArrayData(args[1])
+
+        // Both must be 1D
+        guard aData.ndim == 1 && vData.ndim == 1 else {
+            throw LuaError.callbackError("array.convolve: both inputs must be 1D arrays")
+        }
+
+        let mode = args.count >= 3 ? (args[2].stringValue ?? "full") : "full"
+
+        let a = aData.data
+        let v = vData.data
+        let n = a.count
+        let m = v.count
+
+        // Calculate output size based on mode
+        let fullSize = n + m - 1
+        let outputSize: Int
+        let outputOffset: Int
+
+        switch mode {
+        case "full":
+            outputSize = fullSize
+            outputOffset = 0
+        case "same":
+            outputSize = max(n, m)
+            outputOffset = (fullSize - outputSize) / 2
+        case "valid":
+            outputSize = max(0, max(n, m) - min(n, m) + 1)
+            outputOffset = min(n, m) - 1
+        default:
+            throw LuaError.callbackError("array.convolve: mode must be 'full', 'same', or 'valid'")
+        }
+
+        // Pad 'a' with zeros for full convolution
+        var aPadded = [Double](repeating: 0, count: n + 2 * (m - 1))
+        for i in 0..<n {
+            aPadded[i + m - 1] = a[i]
+        }
+
+        // Use vDSP_conv for convolution (no reversal needed for standard convolution)
+        // Actually vDSP_conv computes correlation, so we need to reverse v for convolution
+        var vReversed = [Double](repeating: 0, count: m)
+        for i in 0..<m {
+            vReversed[i] = v[m - 1 - i]
+        }
+
+        var fullResult = [Double](repeating: 0, count: fullSize)
+        vDSP_convD(aPadded, 1, vReversed, 1, &fullResult, 1, vDSP_Length(fullSize), vDSP_Length(m))
+
+        // Extract the requested portion
+        var result = [Double](repeating: 0, count: outputSize)
+        for i in 0..<outputSize {
+            result[i] = fullResult[outputOffset + i]
+        }
+
+        return createArrayTable(ArrayData(shape: [outputSize], data: result))
+    }
+
+    /// gradient: Return the gradient of an N-dimensional array
+    /// Uses second-order central differences in the interior and first-order one-sides at boundaries
+    private static func gradientCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard !args.isEmpty else {
+            throw LuaError.callbackError("array.gradient: requires array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Get spacing (default 1.0)
+        let spacing: Double
+        if args.count >= 2 && args[1] != .nil {
+            if let s = args[1].numberValue {
+                spacing = s
+            } else {
+                spacing = 1.0
+            }
+        } else {
+            spacing = 1.0
+        }
+
+        // Get axis (optional) - if not specified, compute gradient along all axes
+        let specifiedAxis: Int?
+        if args.count >= 3 && args[2] != .nil {
+            if let a = args[2].intValue {
+                specifiedAxis = a - 1  // Convert to 0-based
+            } else {
+                specifiedAxis = nil
+            }
+        } else {
+            specifiedAxis = nil
+        }
+
+        // Helper function to compute gradient along a specific axis
+        func computeGradientAlongAxis(_ axis0: Int) -> ArrayData {
+            let axisSize = arrayData.shape[axis0]
+            var resultData = [Double](repeating: 0, count: arrayData.size)
+
+            // Calculate strides
+            var strides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                strides[i] = strides[i + 1] * arrayData.shape[i + 1]
+            }
+
+            let axisStride = strides[axis0]
+
+            for flatIdx in 0..<arrayData.size {
+                // Convert flat index to coordinates
+                var remaining = flatIdx
+                var coords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    coords[d] = remaining / strides[d]
+                    remaining = remaining % strides[d]
+                }
+
+                let i = coords[axis0]
+
+                if axisSize == 1 {
+                    // Can't compute gradient with only one point
+                    resultData[flatIdx] = 0
+                } else if i == 0 {
+                    // Forward difference at left boundary
+                    let nextIdx = flatIdx + axisStride
+                    resultData[flatIdx] = (arrayData.data[nextIdx] - arrayData.data[flatIdx]) / spacing
+                } else if i == axisSize - 1 {
+                    // Backward difference at right boundary
+                    let prevIdx = flatIdx - axisStride
+                    resultData[flatIdx] = (arrayData.data[flatIdx] - arrayData.data[prevIdx]) / spacing
+                } else {
+                    // Central difference in interior
+                    let prevIdx = flatIdx - axisStride
+                    let nextIdx = flatIdx + axisStride
+                    resultData[flatIdx] = (arrayData.data[nextIdx] - arrayData.data[prevIdx]) / (2 * spacing)
+                }
+            }
+
+            return ArrayData(shape: arrayData.shape, data: resultData)
+        }
+
+        if let axis0 = specifiedAxis {
+            // Single axis specified
+            guard axis0 >= 0 && axis0 < arrayData.ndim else {
+                throw LuaError.callbackError("array.gradient: axis out of bounds")
+            }
+            let gradData = computeGradientAlongAxis(axis0)
+            return createArrayTable(gradData)
+        } else {
+            // Compute gradient along all axes and return as table of arrays
+            if arrayData.ndim == 1 {
+                // For 1D array, just return the gradient (not wrapped in table)
+                let gradData = computeGradientAlongAxis(0)
+                return createArrayTable(gradData)
+            } else {
+                // For N-D array, return table of gradients
+                var results: [LuaValue] = []
+                for axis0 in 0..<arrayData.ndim {
+                    let gradData = computeGradientAlongAxis(axis0)
+                    results.append(createArrayTable(gradData))
+                }
+
+                // Return as table with integer keys (1-indexed)
+                var resultTable: [String: LuaValue] = [:]
+                for (i, grad) in results.enumerated() {
+                    resultTable[String(i + 1)] = grad
+                }
+                return .table(resultTable)
+            }
+        }
+    }
+
+    /// interp: 1D linear interpolation
+    /// Returns interpolated values for the given x coordinates
+    private static func interpCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 3 else {
+            throw LuaError.callbackError("array.interp: requires x, xp, and fp arguments")
+        }
+
+        // x can be a scalar or array
+        let xIsScalar: Bool
+        let xValues: [Double]
+        if let scalar = args[0].numberValue {
+            xIsScalar = true
+            xValues = [scalar]
+        } else {
+            xIsScalar = false
+            let xData = try extractArrayData(args[0])
+            xValues = xData.data
+        }
+
+        let xpData = try extractArrayData(args[1])
+        let fpData = try extractArrayData(args[2])
+
+        // xp and fp must be 1D and same length
+        guard xpData.ndim == 1 && fpData.ndim == 1 else {
+            throw LuaError.callbackError("array.interp: xp and fp must be 1D arrays")
+        }
+        guard xpData.size == fpData.size else {
+            throw LuaError.callbackError("array.interp: xp and fp must have the same length")
+        }
+        guard xpData.size >= 1 else {
+            throw LuaError.callbackError("array.interp: xp and fp must not be empty")
+        }
+
+        let xp = xpData.data
+        let fp = fpData.data
+
+        // Get left and right extrapolation values (default to boundary values)
+        let leftVal: Double
+        if args.count >= 4 && args[3] != .nil {
+            leftVal = args[3].numberValue ?? fp[0]
+        } else {
+            leftVal = fp[0]
+        }
+
+        let rightVal: Double
+        if args.count >= 5 && args[4] != .nil {
+            rightVal = args[4].numberValue ?? fp[fp.count - 1]
+        } else {
+            rightVal = fp[fp.count - 1]
+        }
+
+        // Perform interpolation using binary search for efficiency
+        var result = [Double](repeating: 0, count: xValues.count)
+
+        for (i, x) in xValues.enumerated() {
+            if x <= xp[0] {
+                result[i] = leftVal
+            } else if x >= xp[xp.count - 1] {
+                result[i] = rightVal
+            } else {
+                // Binary search to find the right interval
+                var lo = 0
+                var hi = xp.count - 1
+                while hi - lo > 1 {
+                    let mid = (lo + hi) / 2
+                    if xp[mid] <= x {
+                        lo = mid
+                    } else {
+                        hi = mid
+                    }
+                }
+
+                // Linear interpolation between xp[lo] and xp[hi]
+                let t = (x - xp[lo]) / (xp[hi] - xp[lo])
+                result[i] = fp[lo] + t * (fp[hi] - fp[lo])
+            }
+        }
+
+        if xIsScalar {
+            return .number(result[0])
+        } else {
+            return createArrayTable(ArrayData(shape: [result.count], data: result))
+        }
     }
 }

@@ -794,4 +794,200 @@ final class LinAlgModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "linalg.matrix")
     }
+
+    // MARK: - Edge Cases: 1x1 Matrices
+
+    func testOneByOneMatrixDet() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{5}})
+            return m:det()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 5.0, accuracy: 1e-10)
+    }
+
+    func testOneByOneMatrixInv() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{4}})
+            local inv = m:inv()
+            return inv:get(1,1)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 0.25, accuracy: 1e-10)
+    }
+
+    func testOneByOneMatrixEigen() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{7}})
+            local vals, vecs = m:eigen()
+            return vals:get(1,1)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 7.0, accuracy: 1e-10)
+    }
+
+    func testOneByOneMatrixSVD() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{3}})
+            local U, S, V = m:svd(true)
+            return S:get(1,1)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-10)
+    }
+
+    // MARK: - Edge Cases: Singular Matrices
+
+    func testSingularMatrixDetIsZero() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2},{2,4}})
+            return math.abs(m:det()) < 1e-10
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSingularMatrixRank() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2,3},{2,4,6},{3,6,9}})
+            return m:rank()
+            """)
+
+        XCTAssertEqual(result.numberValue, 1)  // All rows are multiples of first
+    }
+
+    func testSingularMatrixCond() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2},{2,4}})
+            return m:cond()
+            """)
+
+        XCTAssertTrue(result.numberValue!.isInfinite)
+    }
+
+    // MARK: - Edge Cases: Identity Matrix Properties
+
+    func testIdentityMatrixDet() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.eye(4)
+            return m:det()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testIdentityMatrixInverse() throws {
+        // Inverse of identity is identity
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.eye(3)
+            local inv = m:inv()
+            return inv:get(1,1) + inv:get(2,2) + inv:get(3,3)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-10)  // Trace = 3
+    }
+
+    func testIdentityMatrixEigen() throws {
+        // All eigenvalues of identity are 1
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.eye(3)
+            local vals, vecs = m:eigen()
+            return vals:get(1,1) + vals:get(2,1) + vals:get(3,1)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-10)  // Sum of eigenvalues = 3
+    }
+
+    // MARK: - Edge Cases: Diagonal Matrices
+
+    func testDiagonalMatrixDet() throws {
+        // Determinant is product of diagonal elements
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{2,0,0},{0,3,0},{0,0,4}})
+            return m:det()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 24.0, accuracy: 1e-10)
+    }
+
+    func testDiagonalMatrixInverse() throws {
+        // Inverse diagonal has reciprocal elements
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{2,0},{0,4}})
+            local inv = m:inv()
+            return inv:get(1,1) * inv:get(2,2)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 0.125, accuracy: 1e-10)  // 0.5 * 0.25
+    }
+
+    // MARK: - Edge Cases: Solve with Singular/Near-Singular
+
+    func testSolveIdentity() throws {
+        // Solving Ix = b should give x = b
+        let result = try engine.evaluate("""
+            local I = luaswift.linalg.eye(3)
+            local b = luaswift.linalg.vector({1, 2, 3})
+            local x = luaswift.linalg.solve(I, b)
+            return x:get(1,1) + x:get(2,1) + x:get(3,1)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 6.0, accuracy: 1e-10)
+    }
+
+    // MARK: - Edge Cases: Transpose Properties
+
+    func testTransposeOfTranspose() throws {
+        // (A^T)^T = A
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2,3},{4,5,6}})
+            local tt = m:transpose():transpose()
+            return tt:get(1,1) + tt:get(2,3)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 7.0, accuracy: 1e-10)  // 1 + 6
+    }
+
+    // MARK: - Edge Cases: Norm Properties
+
+    func testNormZeroVector() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.zeros(5)
+            return v:norm()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testNormUnitVector() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.vector({1, 0, 0, 0})
+            return v:norm()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    // MARK: - Edge Cases: Dot Product Properties
+
+    func testDotProductOrthogonal() throws {
+        // Orthogonal vectors have dot product 0
+        let result = try engine.evaluate("""
+            local v1 = luaswift.linalg.vector({1, 0, 0})
+            local v2 = luaswift.linalg.vector({0, 1, 0})
+            return v1:dot(v2)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testDotProductParallel() throws {
+        // Parallel vectors: v·v = ||v||^2
+        let result = try engine.evaluate("""
+            local v = luaswift.linalg.vector({3, 4})
+            return v:dot(v)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 25.0, accuracy: 1e-10)  // 3^2 + 4^2
+    }
 }

@@ -500,6 +500,81 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 20)  // 10 + (-20) + 30
     }
 
+    func testGreaterEqual() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({0, 2, 4})
+            local c = luaswift.array.greater_equal(a, b)
+            return c:get(1) + c:get(2) + c:get(3)
+            """)
+
+        XCTAssertEqual(result.numberValue, 2)  // 1 + 1 + 0 (1>=0, 2>=2, 3>=4)
+    }
+
+    func testLessEqual() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({0, 2, 4})
+            local c = luaswift.array.less_equal(a, b)
+            return c:get(1) + c:get(2) + c:get(3)
+            """)
+
+        XCTAssertEqual(result.numberValue, 2)  // 0 + 1 + 1 (1<=0, 2<=2, 3<=4)
+    }
+
+    func testNotEqual() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({1, 0, 3})
+            local c = luaswift.array.not_equal(a, b)
+            return c:get(1) + c:get(2) + c:get(3)
+            """)
+
+        XCTAssertEqual(result.numberValue, 1)  // 0 + 1 + 0 (1!=1, 2!=0, 3!=3)
+    }
+
+    func testIsnan() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 0/0, 3, math.huge})
+            local c = luaswift.array.isnan(a)
+            return c:get(1) + c:get(2) + c:get(3) + c:get(4)
+            """)
+
+        XCTAssertEqual(result.numberValue, 1)  // 0 + 1 + 0 + 0 (only NaN is NaN)
+    }
+
+    func testIsinf() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, math.huge, -math.huge, 0/0})
+            local c = luaswift.array.isinf(a)
+            return c:get(1) + c:get(2) + c:get(3) + c:get(4)
+            """)
+
+        XCTAssertEqual(result.numberValue, 2)  // 0 + 1 + 1 + 0 (+inf, -inf)
+    }
+
+    func testIsfinite() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, math.huge, 3, 0/0})
+            local c = luaswift.array.isfinite(a)
+            return c:get(1) + c:get(2) + c:get(3) + c:get(4)
+            """)
+
+        XCTAssertEqual(result.numberValue, 2)  // 1 + 0 + 1 + 0 (only 1 and 3 are finite)
+    }
+
+    func testComparisonBroadcasting() throws {
+        // Test broadcasting with scalar
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local ge = luaswift.array.greater_equal(a, 3)
+            local le = luaswift.array.less_equal(a, 3)
+            return ge:get(3) + ge:get(4) + le:get(1) + le:get(3)
+            """)
+
+        XCTAssertEqual(result.numberValue, 4)  // 1 + 1 + 1 + 1
+    }
+
     // MARK: - Dot Product
 
     func testDotVectors() throws {

@@ -109,6 +109,12 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_equal", callback: equalCallback)
         engine.registerFunction(name: "_luaswift_array_greater", callback: greaterCallback)
         engine.registerFunction(name: "_luaswift_array_less", callback: lessCallback)
+        engine.registerFunction(name: "_luaswift_array_greater_equal", callback: greaterEqualCallback)
+        engine.registerFunction(name: "_luaswift_array_less_equal", callback: lessEqualCallback)
+        engine.registerFunction(name: "_luaswift_array_not_equal", callback: notEqualCallback)
+        engine.registerFunction(name: "_luaswift_array_isnan", callback: isnanCallback)
+        engine.registerFunction(name: "_luaswift_array_isinf", callback: isinfCallback)
+        engine.registerFunction(name: "_luaswift_array_isfinite", callback: isfiniteCallback)
         engine.registerFunction(name: "_luaswift_array_where", callback: whereCallback)
 
         // Register serialization
@@ -189,6 +195,12 @@ public struct ArrayModule {
                 local _equal = _luaswift_array_equal
                 local _greater = _luaswift_array_greater
                 local _less = _luaswift_array_less
+                local _greater_equal = _luaswift_array_greater_equal
+                local _less_equal = _luaswift_array_less_equal
+                local _not_equal = _luaswift_array_not_equal
+                local _isnan = _luaswift_array_isnan
+                local _isinf = _luaswift_array_isinf
+                local _isfinite = _luaswift_array_isfinite
                 local _where = _luaswift_array_where
                 local _tolist = _luaswift_array_tolist
                 local _copy = _luaswift_array_copy
@@ -580,6 +592,33 @@ public struct ArrayModule {
                         local a_data = type(a) == "table" and a._data or a
                         local b_data = type(b) == "table" and b._data or b
                         return luaswift.array._wrap(_less(a_data, b_data))
+                    end,
+                    greater_equal = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.array._wrap(_greater_equal(a_data, b_data))
+                    end,
+                    less_equal = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.array._wrap(_less_equal(a_data, b_data))
+                    end,
+                    not_equal = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.array._wrap(_not_equal(a_data, b_data))
+                    end,
+                    isnan = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_isnan(data))
+                    end,
+                    isinf = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_isinf(data))
+                    end,
+                    isfinite = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_isfinite(data))
                     end,
                     where = function(cond, x, y)
                         local cond_data = type(cond) == "table" and cond._data or cond
@@ -2243,6 +2282,57 @@ public struct ArrayModule {
 
     private static func lessCallback(_ args: [LuaValue]) throws -> LuaValue {
         return try comparisonOp(args, op: { $0 < $1 ? 1.0 : 0.0 }, name: "less")
+    }
+
+    private static func greaterEqualCallback(_ args: [LuaValue]) throws -> LuaValue {
+        return try comparisonOp(args, op: { $0 >= $1 ? 1.0 : 0.0 }, name: "greater_equal")
+    }
+
+    private static func lessEqualCallback(_ args: [LuaValue]) throws -> LuaValue {
+        return try comparisonOp(args, op: { $0 <= $1 ? 1.0 : 0.0 }, name: "less_equal")
+    }
+
+    private static func notEqualCallback(_ args: [LuaValue]) throws -> LuaValue {
+        return try comparisonOp(args, op: { $0 != $1 ? 1.0 : 0.0 }, name: "not_equal")
+    }
+
+    private static func isnanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.isnan: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        var result = [Double](repeating: 0, count: arrayData.size)
+        for i in 0..<arrayData.size {
+            result[i] = arrayData.data[i].isNaN ? 1.0 : 0.0
+        }
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func isinfCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.isinf: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        var result = [Double](repeating: 0, count: arrayData.size)
+        for i in 0..<arrayData.size {
+            result[i] = arrayData.data[i].isInfinite ? 1.0 : 0.0
+        }
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func isfiniteCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.isfinite: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        var result = [Double](repeating: 0, count: arrayData.size)
+        for i in 0..<arrayData.size {
+            result[i] = arrayData.data[i].isFinite ? 1.0 : 0.0
+        }
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
     }
 
     private static func comparisonOp(_ args: [LuaValue], op: (Double, Double) -> Double, name: String) throws -> LuaValue {

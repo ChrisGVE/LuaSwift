@@ -1651,6 +1651,112 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, 3, accuracy: 1e-10)
     }
 
+    // MARK: - Phase 2.6 LinAlg Overlap Functions
+
+    func testTrace() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}, {7, 8, 9}})
+            return luaswift.array.trace(a)
+            """)
+        // trace = 1 + 5 + 9 = 15
+        XCTAssertEqual(result.numberValue!, 15, accuracy: 1e-10)
+    }
+
+    func testTraceOffset() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}, {7, 8, 9}})
+            return luaswift.array.trace(a, 1)
+            """)
+        // trace offset 1 = 2 + 6 = 8
+        XCTAssertEqual(result.numberValue!, 8, accuracy: 1e-10)
+    }
+
+    func testDiagonal() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}, {7, 8, 9}})
+            local d = luaswift.array.diagonal(a)
+            return d:get(1) + d:get(2) + d:get(3)
+            """)
+        // diagonal = [1, 5, 9], sum = 15
+        XCTAssertEqual(result.numberValue!, 15, accuracy: 1e-10)
+    }
+
+    func testDiagonalOffset() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}, {7, 8, 9}})
+            local d = luaswift.array.diagonal(a, 1)
+            return d:get(1) + d:get(2)
+            """)
+        // diagonal offset 1 = [2, 6], sum = 8
+        XCTAssertEqual(result.numberValue!, 8, accuracy: 1e-10)
+    }
+
+    func testDiagCreate() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.array.array({1, 2, 3})
+            local m = luaswift.array.diag(v)
+            local shape = m:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        // diag from [1,2,3] creates 3x3 matrix
+        XCTAssertEqual(result.numberValue, 33)
+    }
+
+    func testDiagCreateValues() throws {
+        let result = try engine.evaluate("""
+            local v = luaswift.array.array({1, 2, 3})
+            local m = luaswift.array.diag(v)
+            return m:get(1,1) + m:get(2,2) + m:get(3,3) + m:get(1,2)
+            """)
+        // 1 + 2 + 3 + 0 = 6
+        XCTAssertEqual(result.numberValue!, 6, accuracy: 1e-10)
+    }
+
+    func testDiagExtract() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local d = luaswift.array.diag(a)
+            return d:get(1) + d:get(2)
+            """)
+        // extract diagonal [1, 4], sum = 5
+        XCTAssertEqual(result.numberValue!, 5, accuracy: 1e-10)
+    }
+
+    func testOuter() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({4, 5})
+            local c = luaswift.array.outer(a, b)
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        // outer product of [1,2,3] and [4,5] is 3x2
+        XCTAssertEqual(result.numberValue, 32)
+    }
+
+    func testOuterValues() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2})
+            local b = luaswift.array.array({3, 4})
+            local c = luaswift.array.outer(a, b)
+            return c:get(1,1) + c:get(1,2) + c:get(2,1) + c:get(2,2)
+            """)
+        // [[1*3, 1*4], [2*3, 2*4]] = [[3,4],[6,8]], sum = 21
+        XCTAssertEqual(result.numberValue!, 21, accuracy: 1e-10)
+    }
+
+    func testMatmul() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.array({{5, 6}, {7, 8}})
+            local c = luaswift.array.matmul(a, b)
+            return c:get(1,1) + c:get(2,2)
+            """)
+        // [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]] = [[19,22],[43,50]]
+        // 19 + 50 = 69
+        XCTAssertEqual(result.numberValue!, 69, accuracy: 1e-10)
+    }
+
 }
 
 // MARK: - Test DataServer for Array Integration

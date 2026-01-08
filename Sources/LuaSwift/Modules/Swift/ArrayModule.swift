@@ -144,6 +144,12 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_bincount", callback: bincountCallback)
         engine.registerFunction(name: "_luaswift_array_ptp", callback: ptpCallback)
 
+        // Register LinAlg overlap functions
+        engine.registerFunction(name: "_luaswift_array_trace", callback: traceCallback)
+        engine.registerFunction(name: "_luaswift_array_diagonal", callback: diagonalCallback)
+        engine.registerFunction(name: "_luaswift_array_diag", callback: diagCallback)
+        engine.registerFunction(name: "_luaswift_array_outer", callback: outerCallback)
+
         // Register serialization
         engine.registerFunction(name: "_luaswift_array_tolist", callback: toListCallback)
         engine.registerFunction(name: "_luaswift_array_copy", callback: copyCallback)
@@ -250,6 +256,10 @@ public struct ArrayModule {
                 local _histogram = _luaswift_array_histogram
                 local _bincount = _luaswift_array_bincount
                 local _ptp = _luaswift_array_ptp
+                local _trace = _luaswift_array_trace
+                local _diagonal = _luaswift_array_diagonal
+                local _diag = _luaswift_array_diag
+                local _outer = _luaswift_array_outer
                 local _tolist = _luaswift_array_tolist
                 local _copy = _luaswift_array_copy
                 local _dot = _luaswift_array_dot
@@ -796,6 +806,30 @@ public struct ArrayModule {
                     ptp = function(a, axis)
                         local data = type(a) == "table" and a._data or a
                         local result = _ptp(data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    trace = function(a, offset)
+                        local data = type(a) == "table" and a._data or a
+                        return _trace(data, offset)
+                    end,
+                    diagonal = function(a, offset)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_diagonal(data, offset))
+                    end,
+                    diag = function(a, k)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_diag(data, k))
+                    end,
+                    outer = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.array._wrap(_outer(a_data, b_data))
+                    end,
+                    matmul = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        local result = _dot(a_data, b_data)
                         if type(result) == "number" then return result end
                         return luaswift.array._wrap(result)
                     end,
@@ -3320,6 +3354,140 @@ public struct ArrayModule {
             guard let minV = values.min(), let maxV = values.max() else { return 0 }
             return maxV - minV
         }
+    }
+
+    // MARK: - LinAlg Overlap Functions
+
+    private static func traceCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.trace: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        guard arrayData.ndim == 2 else {
+            throw LuaError.callbackError("array.trace: input must be 2D")
+        }
+
+        let rows = arrayData.shape[0]
+        let cols = arrayData.shape[1]
+        let offset = args.count > 1 ? (args[1].intValue ?? 0) : 0
+
+        var trace = 0.0
+        let n = min(rows, cols)
+        for i in 0..<n {
+            let row = i
+            let col = i + offset
+            if col >= 0 && col < cols && row >= 0 && row < rows {
+                trace += arrayData.data[row * cols + col]
+            }
+        }
+
+        return .number(trace)
+    }
+
+    private static func diagonalCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.diagonal: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        guard arrayData.ndim == 2 else {
+            throw LuaError.callbackError("array.diagonal: input must be 2D")
+        }
+
+        let rows = arrayData.shape[0]
+        let cols = arrayData.shape[1]
+        let offset = args.count > 1 ? (args[1].intValue ?? 0) : 0
+
+        var diagonal: [Double] = []
+
+        if offset >= 0 {
+            // Upper diagonal or main diagonal
+            let n = min(rows, cols - offset)
+            for i in 0..<n {
+                diagonal.append(arrayData.data[i * cols + (i + offset)])
+            }
+        } else {
+            // Lower diagonal
+            let n = min(rows + offset, cols)
+            for i in 0..<n {
+                diagonal.append(arrayData.data[(i - offset) * cols + i])
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: [diagonal.count], data: diagonal))
+    }
+
+    private static func diagCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.diag: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let k = args.count > 1 ? (args[1].intValue ?? 0) : 0
+
+        if arrayData.ndim == 1 {
+            // Create diagonal matrix from 1D array
+            let n = arrayData.size + abs(k)
+            var result = [Double](repeating: 0, count: n * n)
+
+            for i in 0..<arrayData.size {
+                let row = k >= 0 ? i : i - k
+                let col = k >= 0 ? i + k : i
+                result[row * n + col] = arrayData.data[i]
+            }
+
+            return createArrayTable(ArrayData(shape: [n, n], data: result))
+        } else if arrayData.ndim == 2 {
+            // Extract diagonal from 2D matrix (same as diagonal)
+            let rows = arrayData.shape[0]
+            let cols = arrayData.shape[1]
+
+            var diagonal: [Double] = []
+
+            if k >= 0 {
+                let n = min(rows, cols - k)
+                for i in 0..<n {
+                    diagonal.append(arrayData.data[i * cols + (i + k)])
+                }
+            } else {
+                let n = min(rows + k, cols)
+                for i in 0..<n {
+                    diagonal.append(arrayData.data[(i - k) * cols + i])
+                }
+            }
+
+            return createArrayTable(ArrayData(shape: [diagonal.count], data: diagonal))
+        } else {
+            throw LuaError.callbackError("array.diag: input must be 1D or 2D")
+        }
+    }
+
+    private static func outerCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.outer: requires two arguments")
+        }
+
+        let arr1 = try extractArrayData(args[0])
+        let arr2 = try extractArrayData(args[1])
+
+        guard arr1.ndim == 1 && arr2.ndim == 1 else {
+            throw LuaError.callbackError("array.outer: both inputs must be 1D")
+        }
+
+        let m = arr1.size
+        let n = arr2.size
+        var result = [Double](repeating: 0, count: m * n)
+
+        for i in 0..<m {
+            for j in 0..<n {
+                result[i * n + j] = arr1.data[i] * arr2.data[j]
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: [m, n], data: result))
     }
 
     // MARK: - Utility Functions

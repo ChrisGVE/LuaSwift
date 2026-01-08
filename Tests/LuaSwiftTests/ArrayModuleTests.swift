@@ -575,6 +575,94 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 4)  // 1 + 1 + 1 + 1
     }
 
+    // MARK: - Boolean Reductions
+
+    func testAll() throws {
+        // All non-zero
+        let result1 = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            return luaswift.array.all(a)
+            """)
+        XCTAssertEqual(result1.numberValue, 1)
+
+        // Contains zero
+        let result2 = try engine.evaluate("""
+            local a = luaswift.array.array({1, 0, 3})
+            return luaswift.array.all(a)
+            """)
+        XCTAssertEqual(result2.numberValue, 0)
+    }
+
+    func testAllAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {0, 4}})
+            local r = luaswift.array.all(a, 1)
+            return r:get(1) + r:get(2)
+            """)
+        XCTAssertEqual(result.numberValue, 1)  // 0 + 1 (first col has 0, second all non-zero)
+    }
+
+    func testAny() throws {
+        // All zeros
+        let result1 = try engine.evaluate("""
+            local a = luaswift.array.array({0, 0, 0})
+            return luaswift.array.any(a)
+            """)
+        XCTAssertEqual(result1.numberValue, 0)
+
+        // Contains non-zero
+        let result2 = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1, 0})
+            return luaswift.array.any(a)
+            """)
+        XCTAssertEqual(result2.numberValue, 1)
+    }
+
+    func testAnyAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{0, 0}, {1, 0}})
+            local r = luaswift.array.any(a, 1)
+            return r:get(1) + r:get(2)
+            """)
+        XCTAssertEqual(result.numberValue, 1)  // 1 + 0 (first col has 1, second all zero)
+    }
+
+    func testCumsum() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4})
+            local c = luaswift.array.cumsum(a)
+            return c:get(1) + c:get(2) + c:get(3) + c:get(4)
+            """)
+        XCTAssertEqual(result.numberValue, 20)  // 1 + 3 + 6 + 10
+    }
+
+    func testCumsumAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local c = luaswift.array.cumsum(a, 1)
+            return c:get(1, 1) + c:get(2, 1) + c:get(1, 2) + c:get(2, 2)
+            """)
+        XCTAssertEqual(result.numberValue, 13)  // 1 + 4 + 2 + 6 (cumsum down columns)
+    }
+
+    func testCumprod() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4})
+            local c = luaswift.array.cumprod(a)
+            return c:get(1) + c:get(2) + c:get(3) + c:get(4)
+            """)
+        XCTAssertEqual(result.numberValue, 33)  // 1 + 2 + 6 + 24
+    }
+
+    func testCumprodAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local c = luaswift.array.cumprod(a, 1)
+            return c:get(1, 1) + c:get(2, 1) + c:get(1, 2) + c:get(2, 2)
+            """)
+        XCTAssertEqual(result.numberValue, 14)  // 1 + 3 + 2 + 8 (cumprod down columns)
+    }
+
     // MARK: - Dot Product
 
     func testDotVectors() throws {

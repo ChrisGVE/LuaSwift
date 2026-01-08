@@ -117,6 +117,12 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_isfinite", callback: isfiniteCallback)
         engine.registerFunction(name: "_luaswift_array_where", callback: whereCallback)
 
+        // Register boolean reductions
+        engine.registerFunction(name: "_luaswift_array_all", callback: allCallback)
+        engine.registerFunction(name: "_luaswift_array_any", callback: anyCallback)
+        engine.registerFunction(name: "_luaswift_array_cumsum", callback: cumsumCallback)
+        engine.registerFunction(name: "_luaswift_array_cumprod", callback: cumprodCallback)
+
         // Register serialization
         engine.registerFunction(name: "_luaswift_array_tolist", callback: toListCallback)
         engine.registerFunction(name: "_luaswift_array_copy", callback: copyCallback)
@@ -202,6 +208,10 @@ public struct ArrayModule {
                 local _isinf = _luaswift_array_isinf
                 local _isfinite = _luaswift_array_isfinite
                 local _where = _luaswift_array_where
+                local _all = _luaswift_array_all
+                local _any = _luaswift_array_any
+                local _cumsum = _luaswift_array_cumsum
+                local _cumprod = _luaswift_array_cumprod
                 local _tolist = _luaswift_array_tolist
                 local _copy = _luaswift_array_copy
                 local _dot = _luaswift_array_dot
@@ -625,6 +635,28 @@ public struct ArrayModule {
                         local x_data = type(x) == "table" and x._data or x
                         local y_data = type(y) == "table" and y._data or y
                         return luaswift.array._wrap(_where(cond_data, x_data, y_data))
+                    end,
+
+                    -- Boolean reductions
+                    all = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local result = _all(data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    any = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local result = _any(data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    cumsum = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_cumsum(data, axis))
+                    end,
+                    cumprod = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_cumprod(data, axis))
                     end,
 
                     -- Linear algebra
@@ -2427,6 +2459,143 @@ public struct ArrayModule {
         }
 
         return createArrayTable(ArrayData(shape: resultShape, data: result))
+    }
+
+    // MARK: - Boolean Reductions
+
+    private static func allCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.all: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let axis = args.count > 1 ? args[1].intValue : nil
+
+        if let axis = axis {
+            // Reduce along axis
+            return try reduceAlongAxis(arrayData, axis: axis) { slice in
+                for val in slice {
+                    if val == 0 { return 0.0 }
+                }
+                return 1.0
+            }
+        } else {
+            // Global reduction
+            for val in arrayData.data {
+                if val == 0 { return .number(0) }
+            }
+            return .number(1)
+        }
+    }
+
+    private static func anyCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.any: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let axis = args.count > 1 ? args[1].intValue : nil
+
+        if let axis = axis {
+            // Reduce along axis
+            return try reduceAlongAxis(arrayData, axis: axis) { slice in
+                for val in slice {
+                    if val != 0 { return 1.0 }
+                }
+                return 0.0
+            }
+        } else {
+            // Global reduction
+            for val in arrayData.data {
+                if val != 0 { return .number(1) }
+            }
+            return .number(0)
+        }
+    }
+
+    private static func cumsumCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.cumsum: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let axis = args.count > 1 ? args[1].intValue : nil
+
+        if axis == nil {
+            // Flatten and compute cumulative sum
+            var result = [Double](repeating: 0, count: arrayData.size)
+            var cumsum = 0.0
+            for i in 0..<arrayData.size {
+                cumsum += arrayData.data[i]
+                result[i] = cumsum
+            }
+            return createArrayTable(ArrayData(shape: [arrayData.size], data: result))
+        } else {
+            // Compute along axis
+            return try cumulativeAlongAxis(arrayData, axis: axis!, initialValue: 0.0) { cumsum, val in
+                cumsum + val
+            }
+        }
+    }
+
+    private static func cumprodCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.cumprod: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let axis = args.count > 1 ? args[1].intValue : nil
+
+        if axis == nil {
+            // Flatten and compute cumulative product
+            var result = [Double](repeating: 0, count: arrayData.size)
+            var cumprod = 1.0
+            for i in 0..<arrayData.size {
+                cumprod *= arrayData.data[i]
+                result[i] = cumprod
+            }
+            return createArrayTable(ArrayData(shape: [arrayData.size], data: result))
+        } else {
+            // Compute along axis
+            return try cumulativeAlongAxis(arrayData, axis: axis!, initialValue: 1.0) { cumprod, val in
+                cumprod * val
+            }
+        }
+    }
+
+    /// Cumulative operation along a specific axis
+    private static func cumulativeAlongAxis(_ arrayData: ArrayData, axis: Int, initialValue: Double, op: (Double, Double) -> Double) throws -> LuaValue {
+        let axisIndex = axis - 1  // Convert to 0-based
+        guard axisIndex >= 0 && axisIndex < arrayData.ndim else {
+            throw LuaError.callbackError("array.cum*: axis out of range")
+        }
+
+        let axisSize = arrayData.shape[axisIndex]
+        var result = [Double](repeating: 0, count: arrayData.size)
+
+        // Compute strides
+        var strides = [Int](repeating: 1, count: arrayData.ndim)
+        for d in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+            strides[d] = strides[d + 1] * arrayData.shape[d + 1]
+        }
+
+        // Calculate iteration pattern
+        let innerSize = strides[axisIndex]  // Elements after axis position
+        let outerCount = arrayData.size / (axisSize * innerSize)  // Complete outer blocks
+
+        for outerIdx in 0..<outerCount {
+            for innerIdx in 0..<innerSize {
+                var cumVal = initialValue
+
+                for axisPos in 0..<axisSize {
+                    let flatIdx = outerIdx * (axisSize * innerSize) + axisPos * innerSize + innerIdx
+                    cumVal = op(cumVal, arrayData.data[flatIdx])
+                    result[flatIdx] = cumVal
+                }
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
     }
 
     // MARK: - Utility Functions

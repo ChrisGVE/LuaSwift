@@ -226,3 +226,40 @@ Swift optimizations are encouraged but must not affect observable behavior. The 
 3. Replicate all internal behaviors (e.g., nested groups returning group objects, not self)
 4. Delete the original Lua file only after the Swift version is verified complete
 5. Never mark the Lua module as "deprecated" - either fully replace it or don't
+
+### Strategic Direction: Swift Module Independence
+
+**Vision:** All Swift-backed modules in LuaSwift are on a trajectory to become **independent Swift libraries**. Once extracted, LuaSwift will consume these libraries as optional dependencies, providing thin Lua binding shims.
+
+**Current State (Tactical):**
+- Swift modules are developed within LuaSwift for convenience
+- Modules are implemented in Swift with Lua API entry points
+- Tests cover both Swift functionality and Lua bindings
+
+**Future State (Strategic):**
+- Each major Swift module becomes its own Swift Package (e.g., `SwiftArray`, `SwiftLinAlg`, `SwiftDistributions`)
+- These packages have no Lua dependency - pure Swift APIs
+- LuaSwift becomes a thin integration layer:
+  - Imports the Swift packages as dependencies
+  - Provides Lua bindings via the existing shim pattern
+  - Handles type conversion between Lua values and Swift types
+
+**Implications for Development:**
+1. **API Design**: Design Swift APIs first, then wrap for Lua. Never let Lua idioms drive Swift API design.
+2. **Type System**: Swift modules should use proper Swift types (generics, protocols, enums). Lua bindings handle conversion.
+3. **Dependencies**: Swift modules may depend on each other (e.g., Distributions depends on Array). Plan the dependency graph.
+4. **Testing**: Write Swift-native tests in addition to Lua integration tests. Swift tests travel with the extracted package.
+5. **Documentation**: Document the Swift API independently. Lua binding docs reference the Swift docs.
+
+**Module Extraction Priority** (based on standalone utility and downstream dependencies):
+1. **ArrayModule** → `SwiftNDArray` - Foundation for scientific computing; statsmodels, scipy equivalents depend on it
+2. **LinAlgModule** → `SwiftLinAlg` - Matrix operations; may merge with or depend on NDArray
+3. **ComplexModule** → `SwiftComplex` - Complex number support; integrates with NDArray for complex arrays
+4. **DistributionsModule** → `SwiftDistributions` - Probability distributions; depends on Array
+5. **IntegrateModule** → `SwiftIntegrate` - Numerical integration; depends on Array
+6. **OptimizeModule** → `SwiftOptimize` - Optimization; depends on Array, LinAlg
+7. **GeometryModule** → `SwiftGeometry` - 2D/3D geometry with SIMD
+8. **MathXModule** → `SwiftMathX` - Extended math functions
+9. Utility modules (JSON, TOML, YAML, Regex, StringX, etc.) - Lower priority, many Swift alternatives exist
+
+**Critical Path**: ArrayModule is foundational. Its architecture (especially dtype support) affects all dependent modules. Prioritize getting Array right before extracting others.

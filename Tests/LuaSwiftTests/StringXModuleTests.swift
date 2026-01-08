@@ -1201,4 +1201,105 @@ final class StringXModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.stringValue, "b")
     }
+
+    // MARK: - Additional Edge Case Tests (Penlight Review)
+
+    func testReplaceEmptyOldString() throws {
+        // Replace with empty old string should return original
+        let result = try engine.evaluate("""
+            return stringx.replace("hello", "", "x")
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testCountEmptyPatternReturnsZero() throws {
+        // Count with empty pattern should return 0
+        let result = try engine.evaluate("""
+            return stringx.count("hello", "")
+            """)
+        XCTAssertEqual(result.numberValue, 0)
+    }
+
+    func testJoinEmptyArrayReturnsEmpty() throws {
+        // Join with empty array
+        let result = try engine.evaluate("""
+            return stringx.join({}, ",")
+            """)
+        XCTAssertEqual(result.stringValue, "")
+    }
+
+    func testJoinSingleElementNoSeparator() throws {
+        // Join with single element - no separator added
+        let result = try engine.evaluate("""
+            return stringx.join({"hello"}, ",")
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testStripOnlyWhitespace() throws {
+        // Strip string that is only whitespace
+        let result = try engine.evaluate("""
+            return stringx.strip("   \\t\\n   ")
+            """)
+        XCTAssertEqual(result.stringValue, "")
+    }
+
+    func testSplitEmptyResult() throws {
+        // Split empty string
+        let result = try engine.evaluate("""
+            local parts = stringx.split("", ",")
+            return #parts
+            """)
+        XCTAssertEqual(result.numberValue, 1)  // Returns array with one empty string
+    }
+
+    func testReplaceZeroCount() throws {
+        // Replace with count 0 should not replace anything
+        let result = try engine.evaluate("""
+            return stringx.replace("hello", "l", "x", 0)
+            """)
+        XCTAssertEqual(result.stringValue, "hello")
+    }
+
+    func testCapitalizeAlreadyCapitalized() throws {
+        // Capitalize already capitalized string
+        let result = try engine.evaluate("""
+            return stringx.capitalize("Hello World")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello world")  // Lowercases rest
+    }
+
+    func testTitleWithMultipleSpaces() throws {
+        // Title with multiple spaces between words
+        let result = try engine.evaluate("""
+            return stringx.title("hello   world")
+            """)
+        XCTAssertEqual(result.stringValue, "Hello   World")
+    }
+
+    func testWrapZeroWidth() throws {
+        // Wrap with zero width returns original
+        let result = try engine.evaluate("""
+            return stringx.wrap("hello world", 0)
+            """)
+        XCTAssertEqual(result.stringValue, "hello world")
+    }
+
+    func testPadAlreadyWider() throws {
+        // Padding when string is already wider than target
+        let result = try engine.evaluate("""
+            return stringx.lpad("hello", 3)
+            """)
+        XCTAssertEqual(result.stringValue, "hello")  // Returns unchanged
+    }
+
+    func testSplitlinesOnlyNewlines() throws {
+        // Splitlines with only newlines
+        let result = try engine.evaluate("""
+            local lines = stringx.splitlines("\\n\\n")
+            return #lines
+            """)
+        XCTAssertEqual(result.numberValue, 3)  // Two newlines = 3 empty lines
+    }
+
 }

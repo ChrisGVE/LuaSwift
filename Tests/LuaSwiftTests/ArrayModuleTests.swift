@@ -927,6 +927,161 @@ final class ArrayModuleTests: XCTestCase {
         // C fmod: -7 % 3 = -1 (result has sign of dividend)
         XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-10)
     }
+
+    // MARK: - Broadcasting Edge Cases
+
+    func testBroadcastScalarPlusArray() throws {
+        // Scalar + 1D array
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1})  -- shape [1]
+            local b = luaswift.array.array({10, 20, 30})  -- shape [3]
+            local c = a + b
+            return c:get(1) + c:get(2) + c:get(3)
+            """)
+        XCTAssertEqual(result.numberValue, 11 + 21 + 31)
+    }
+
+    func testBroadcast2DWith1D() throws {
+        // 2D [2,3] + 1D [3] -> [2,3]
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}})  -- shape [2,3]
+            local b = luaswift.array.array({10, 20, 30})  -- shape [3]
+            local c = a + b
+            local shape = c:shape()
+            return shape[1] * 100 + shape[2] * 10 + c:get(2, 3)
+            """)
+        // Shape should be [2,3], c[2,3] = 6 + 30 = 36
+        XCTAssertEqual(result.numberValue, 2 * 100 + 3 * 10 + 36)
+    }
+
+    func testBroadcast3D() throws {
+        // 3D broadcasting: [2,1,3] + [1,4,1] -> [2,4,3]
+        let result = try engine.evaluate("""
+            local a = luaswift.array.reshape(luaswift.array.array({1,2,3,4,5,6}), {2,1,3})
+            local b = luaswift.array.reshape(luaswift.array.array({10,20,30,40}), {1,4,1})
+            local c = a + b
+            local shape = c:shape()
+            return shape[1] * 100 + shape[2] * 10 + shape[3]
+            """)
+        // Result shape should be [2,4,3]
+        XCTAssertEqual(result.numberValue, 2 * 100 + 4 * 10 + 3)
+    }
+
+    func testBroadcast4D() throws {
+        // 4D broadcasting: [1,2,1,3] + [2,1,4,1] -> [2,2,4,3]
+        let result = try engine.evaluate("""
+            local a = luaswift.array.reshape(luaswift.array.arange(1, 7), {1,2,1,3})  -- 6 elements
+            local b = luaswift.array.reshape(luaswift.array.arange(1, 9), {2,1,4,1})  -- 8 elements
+            local c = a + b
+            local shape = c:shape()
+            return shape[1] * 1000 + shape[2] * 100 + shape[3] * 10 + shape[4]
+            """)
+        // Result shape should be [2,2,4,3]
+        XCTAssertEqual(result.numberValue, 2243)  // 2*1000 + 2*100 + 4*10 + 3
+    }
+
+    func testBroadcastIncompatibleShapesError() throws {
+        // [3] + [4] should error - incompatible shapes
+        do {
+            _ = try engine.evaluate("""
+                local a = luaswift.array.array({1, 2, 3})
+                local b = luaswift.array.array({1, 2, 3, 4})
+                return a + b
+                """)
+            XCTFail("Expected an error for incompatible shapes")
+        } catch {
+            let errorMessage = String(describing: error)
+            XCTAssertTrue(errorMessage.contains("broadcast"), "Error should mention broadcasting: \(errorMessage)")
+        }
+    }
+
+    func testBroadcastIncompatible2DError() throws {
+        // [2,3] + [2,4] should error - incompatible last dimension
+        do {
+            _ = try engine.evaluate("""
+                local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}})
+                local b = luaswift.array.array({{1, 2, 3, 4}, {5, 6, 7, 8}})
+                return a + b
+                """)
+            XCTFail("Expected an error for incompatible shapes")
+        } catch {
+            let errorMessage = String(describing: error)
+            XCTAssertTrue(errorMessage.contains("broadcast"), "Error should mention broadcasting: \(errorMessage)")
+        }
+    }
+
+    func testBroadcastSameShape() throws {
+        // Same shape should work without broadcasting
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.array({{10, 20}, {30, 40}})
+            local c = a + b
+            return c:get(2, 2)
+            """)
+        XCTAssertEqual(result.numberValue, 44)
+    }
+
+    func testBroadcastColumnVector() throws {
+        // [3,1] + [1,4] -> [3,4]
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1}, {2}, {3}})  -- [3,1]
+            local b = luaswift.array.array({{10, 20, 30, 40}})  -- [1,4]
+            local c = a + b
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        XCTAssertEqual(result.numberValue, 34)
+    }
+
+    func testBroadcastMultiplication() throws {
+        // Broadcasting with multiplication
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1}, {2}, {3}})  -- [3,1]
+            local b = luaswift.array.array({10, 20, 30})  -- [3]
+            local c = a * b
+            return c:get(2, 2)  -- 2 * 20 = 40
+            """)
+        XCTAssertEqual(result.numberValue, 40)
+    }
+
+    func testBroadcastWhereOperation() throws {
+        // where() with broadcasting
+        let result = try engine.evaluate("""
+            local cond = luaswift.array.array({{1, 0}, {0, 1}})
+            local x = luaswift.array.array({10})  -- scalar broadcast
+            local y = luaswift.array.array({20})  -- scalar broadcast
+            local c = luaswift.array.where(cond, x, y)
+            return c:get(1, 1) + c:get(1, 2) + c:get(2, 1) + c:get(2, 2)
+            """)
+        // cond: [[1,0],[0,1]] -> result: [[10,20],[20,10]]
+        XCTAssertEqual(result.numberValue, 10 + 20 + 20 + 10)
+    }
+
+    func testBroadcastArctan2() throws {
+        // arctan2 with broadcasting: [3,1] and [1,3]
+        let result = try engine.evaluate("""
+            local y = luaswift.array.array({{0}, {1}, {0}})  -- [3,1]
+            local x = luaswift.array.array({{1, 0, -1}})  -- [1,3]
+            local c = luaswift.array.arctan2(y, x)
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        // Result shape should be [3,3]
+        XCTAssertEqual(result.numberValue, 33)
+    }
+
+    func testBroadcastModOperation() throws {
+        // mod with broadcasting
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{7, 8, 9}})  -- [1,3]
+            local b = luaswift.array.array({{3}, {4}, {5}})  -- [3,1]
+            local c = luaswift.array.mod(a, b)
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        // Result shape should be [3,3]
+        XCTAssertEqual(result.numberValue, 33)
+    }
 }
 
 // MARK: - Test DataServer for Array Integration

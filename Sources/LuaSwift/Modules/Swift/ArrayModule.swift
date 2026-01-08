@@ -1426,6 +1426,7 @@ public struct ArrayModule {
         return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
     }
 
+    /// Binary operation with Accelerate optimization for add, sub, mul, div
     private static func binaryOp(_ args: [LuaValue], op: (Double, Double) -> Double, name: String) throws -> LuaValue {
         guard args.count >= 2 else {
             throw LuaError.callbackError("array.\(name): requires two arguments")
@@ -1441,21 +1442,53 @@ public struct ArrayModule {
         }
 
         if isScalar1 {
-            let scalar = args[0].numberValue!
+            var scalar = args[0].numberValue!
             let arrayData = try extractArrayData(args[1])
             var result = [Double](repeating: 0, count: arrayData.size)
-            for i in 0..<arrayData.size {
-                result[i] = op(scalar, arrayData.data[i])
+            let n = vDSP_Length(arrayData.size)
+
+            // Use Accelerate for scalar + array operations
+            switch name {
+            case "add":
+                vDSP_vsaddD(arrayData.data, 1, &scalar, &result, 1, n)
+            case "sub":
+                // scalar - array = -(array - scalar) = -array + scalar
+                vDSP_vnegD(arrayData.data, 1, &result, 1, n)
+                vDSP_vsaddD(result, 1, &scalar, &result, 1, n)
+            case "mul":
+                vDSP_vsmulD(arrayData.data, 1, &scalar, &result, 1, n)
+            case "div":
+                // scalar / array: use vDSP_svdivD
+                vDSP_svdivD(&scalar, arrayData.data, 1, &result, 1, n)
+            default:
+                for i in 0..<arrayData.size {
+                    result[i] = op(scalar, arrayData.data[i])
+                }
             }
             return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
         }
 
         if isScalar2 {
             let arrayData = try extractArrayData(args[0])
-            let scalar = args[1].numberValue!
+            var scalar = args[1].numberValue!
             var result = [Double](repeating: 0, count: arrayData.size)
-            for i in 0..<arrayData.size {
-                result[i] = op(arrayData.data[i], scalar)
+            let n = vDSP_Length(arrayData.size)
+
+            // Use Accelerate for array + scalar operations
+            switch name {
+            case "add":
+                vDSP_vsaddD(arrayData.data, 1, &scalar, &result, 1, n)
+            case "sub":
+                var negScalar = -scalar
+                vDSP_vsaddD(arrayData.data, 1, &negScalar, &result, 1, n)
+            case "mul":
+                vDSP_vsmulD(arrayData.data, 1, &scalar, &result, 1, n)
+            case "div":
+                vDSP_vsdivD(arrayData.data, 1, &scalar, &result, 1, n)
+            default:
+                for i in 0..<arrayData.size {
+                    result[i] = op(arrayData.data[i], scalar)
+                }
             }
             return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
         }
@@ -1468,9 +1501,26 @@ public struct ArrayModule {
         let broadcast1 = broadcastTo(arr1, shape: resultShape)
         let broadcast2 = broadcastTo(arr2, shape: resultShape)
 
-        var result = [Double](repeating: 0, count: resultShape.reduce(1, *))
-        for i in 0..<result.count {
-            result[i] = op(broadcast1.data[i], broadcast2.data[i])
+        let size = resultShape.reduce(1, *)
+        var result = [Double](repeating: 0, count: size)
+        let n = vDSP_Length(size)
+
+        // Use Accelerate for array + array operations
+        switch name {
+        case "add":
+            vDSP_vaddD(broadcast1.data, 1, broadcast2.data, 1, &result, 1, n)
+        case "sub":
+            // vDSP_vsubD computes B - A, so we swap order
+            vDSP_vsubD(broadcast2.data, 1, broadcast1.data, 1, &result, 1, n)
+        case "mul":
+            vDSP_vmulD(broadcast1.data, 1, broadcast2.data, 1, &result, 1, n)
+        case "div":
+            // vDSP_vdivD computes B / A, so we swap order
+            vDSP_vdivD(broadcast2.data, 1, broadcast1.data, 1, &result, 1, n)
+        default:
+            for i in 0..<size {
+                result[i] = op(broadcast1.data[i], broadcast2.data[i])
+            }
         }
 
         return createArrayTable(ArrayData(shape: resultShape, data: result))
@@ -1805,18 +1855,32 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(arg)
+        let n = vDSP_Length(arrayData.size)
+
+        // Vectorized sign using Accelerate:
+        // sign(x) = x / (abs(x) + epsilon), then round to handle epsilon artifacts
+        // For zeros: 0 / epsilon = 0 ✓
+
+        // Step 1: Compute abs(x)
+        var absX = [Double](repeating: 0, count: arrayData.size)
+        vDSP_vabsD(arrayData.data, 1, &absX, 1, n)
+
+        // Step 2: Add tiny epsilon to avoid division by zero
+        // Using Double.leastNonzeroMagnitude ensures 0/eps ≈ 0
+        var epsilon = Double.leastNonzeroMagnitude
+        vDSP_vsaddD(absX, 1, &epsilon, &absX, 1, n)
+
+        // Step 3: Divide x by (abs(x) + epsilon)
+        // vDSP_vdivD computes B/A, so: result = data / absX
         var result = [Double](repeating: 0, count: arrayData.size)
-        for i in 0..<arrayData.size {
-            let val = arrayData.data[i]
-            if val > 0 {
-                result[i] = 1.0
-            } else if val < 0 {
-                result[i] = -1.0
-            } else {
-                result[i] = 0.0
-            }
-        }
-        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        vDSP_vdivD(absX, 1, arrayData.data, 1, &result, 1, n)
+
+        // Step 4: Round to nearest integer to get exactly -1, 0, or 1
+        // This handles any floating point artifacts from the division
+        var intResult = [Double](repeating: 0, count: arrayData.size)
+        vvnint(&intResult, result, [Int32(arrayData.size)])
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: intResult))
     }
 
     private static func modCallback(_ args: [LuaValue]) throws -> LuaValue {

@@ -594,8 +594,11 @@ public struct MathXModule {
         // For n <= 20, use exact integer multiplication
         // For n > 20, use lgamma for approximate result
         if n <= 20 {
+            if n <= 1 {
+                return .number(1.0)  // 0! = 1! = 1
+            }
             var result: Double = 1.0
-            for i in 2...max(2, n) {
+            for i in 2...n {
                 result *= Double(i)
             }
             return .number(result)

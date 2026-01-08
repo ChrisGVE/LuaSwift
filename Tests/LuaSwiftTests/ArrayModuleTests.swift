@@ -635,6 +635,69 @@ final class ArrayModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue!, 3.6, accuracy: 1e-10)  // 0.1+0.5+1.0+2.0 = 3.6
     }
+
+    // MARK: - Array Manipulation
+
+    func testConcatenate1D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({4, 5, 6})
+            local c = luaswift.array.concatenate({a, b})
+            return c:size()
+            """)
+        XCTAssertEqual(result.numberValue, 6)
+    }
+
+    func testConcatenate2D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.array({{5, 6}, {7, 8}})
+            local c = luaswift.array.concatenate({a, b}, 1)
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        XCTAssertEqual(result.numberValue, 42)  // 4 rows, 2 cols
+    }
+
+    func testStack() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.array({4, 5, 6})
+            local c = luaswift.array.stack({a, b})
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        XCTAssertEqual(result.numberValue, 23)  // 2 arrays, 3 elements each
+    }
+
+    func testVstack() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.array({{5, 6}})
+            local c = luaswift.array.vstack({a, b})
+            local shape = c:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        XCTAssertEqual(result.numberValue, 32)  // 3 rows, 2 cols
+    }
+
+    func testSplit() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5, 6})
+            local parts = luaswift.array.split(a, 3)
+            return #parts
+            """)
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    func testSplitValues() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5, 6})
+            local parts = luaswift.array.split(a, 3)
+            return parts[1]:get(1) + parts[2]:get(1) * 10 + parts[3]:get(1) * 100
+            """)
+        XCTAssertEqual(result.numberValue, 1 + 3 * 10 + 5 * 100)  // 531
+    }
 }
 
 // MARK: - Test DataServer for Array Integration

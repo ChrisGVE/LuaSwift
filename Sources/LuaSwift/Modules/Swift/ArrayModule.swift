@@ -95,6 +95,11 @@ public struct ArrayModule {
         // Register dot product
         engine.registerFunction(name: "_luaswift_array_dot", callback: dotCallback)
 
+        // Register array manipulation
+        engine.registerFunction(name: "_luaswift_array_concatenate", callback: concatenateCallback)
+        engine.registerFunction(name: "_luaswift_array_stack", callback: stackCallback)
+        engine.registerFunction(name: "_luaswift_array_split", callback: splitCallback)
+
         // Set up the luaswift.array namespace with Lua wrapper code
         do {
             try engine.run("""
@@ -148,6 +153,9 @@ public struct ArrayModule {
                 local _tolist = _luaswift_array_tolist
                 local _copy = _luaswift_array_copy
                 local _dot = _luaswift_array_dot
+                local _concatenate = _luaswift_array_concatenate
+                local _stack = _luaswift_array_stack
+                local _split = _luaswift_array_split
 
                 -- Define array metatable
                 local array_mt = {
@@ -459,6 +467,65 @@ public struct ArrayModule {
                         local data = type(a) == "table" and a._data or a
                         return luaswift.array._wrap(_reshape(data, new_shape))
                     end,
+
+                    -- Array manipulation
+                    concatenate = function(arrays, axis)
+                        local arr_data = {}
+                        for i, a in ipairs(arrays) do
+                            arr_data[i] = type(a) == "table" and a._data or a
+                        end
+                        return luaswift.array._wrap(_concatenate(arr_data, axis))
+                    end,
+                    stack = function(arrays, axis)
+                        local arr_data = {}
+                        for i, a in ipairs(arrays) do
+                            arr_data[i] = type(a) == "table" and a._data or a
+                        end
+                        return luaswift.array._wrap(_stack(arr_data, axis))
+                    end,
+                    vstack = function(arrays)
+                        local arr_data = {}
+                        for i, a in ipairs(arrays) do
+                            arr_data[i] = type(a) == "table" and a._data or a
+                        end
+                        return luaswift.array._wrap(_concatenate(arr_data, 1))
+                    end,
+                    hstack = function(arrays)
+                        local arr_data = {}
+                        for i, a in ipairs(arrays) do
+                            -- For 1D arrays, concatenate along axis 1 (the only axis)
+                            local data = type(a) == "table" and a._data or a
+                            arr_data[i] = data
+                        end
+                        return luaswift.array._wrap(_concatenate(arr_data, 2))
+                    end,
+                    split = function(a, indices_or_sections, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local results = _split(data, indices_or_sections, axis)
+                        local wrapped = {}
+                        for i, r in ipairs(results) do
+                            wrapped[i] = luaswift.array._wrap(r)
+                        end
+                        return wrapped
+                    end,
+                    vsplit = function(a, indices_or_sections)
+                        local data = type(a) == "table" and a._data or a
+                        local results = _split(data, indices_or_sections, 1)
+                        local wrapped = {}
+                        for i, r in ipairs(results) do
+                            wrapped[i] = luaswift.array._wrap(r)
+                        end
+                        return wrapped
+                    end,
+                    hsplit = function(a, indices_or_sections)
+                        local data = type(a) == "table" and a._data or a
+                        local results = _split(data, indices_or_sections, 2)
+                        local wrapped = {}
+                        for i, r in ipairs(results) do
+                            wrapped[i] = luaswift.array._wrap(r)
+                        end
+                        return wrapped
+                    end,
                 }
 
                 -- Clean up temporary globals
@@ -509,6 +576,9 @@ public struct ArrayModule {
                 _luaswift_array_tolist = nil
                 _luaswift_array_copy = nil
                 _luaswift_array_dot = nil
+                _luaswift_array_concatenate = nil
+                _luaswift_array_stack = nil
+                _luaswift_array_split = nil
                 """)
         } catch {
             print("ArrayModule: Failed to initialize Lua wrapper: \(error)")
@@ -1877,5 +1947,246 @@ public struct ArrayModule {
         }
 
         throw LuaError.callbackError("array.dot: unsupported operand dimensions")
+    }
+
+    // MARK: - Array Manipulation
+
+    private static func concatenateCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arraysArg = args.first else {
+            throw LuaError.callbackError("array.concatenate: missing arrays argument")
+        }
+
+        // Get axis (default 0, but 1-based in Lua so default 1)
+        let axis = (args.count >= 2 ? args[1].intValue : nil) ?? 1
+        let axis0 = axis - 1  // Convert to 0-based
+
+        // Extract arrays from table
+        var arrays: [ArrayData] = []
+        if let tbl = arraysArg.tableValue {
+            var i = 1
+            while let arr = tbl[String(i)] {
+                arrays.append(try extractArrayData(arr))
+                i += 1
+            }
+        } else if let arr = arraysArg.arrayValue {
+            for item in arr {
+                arrays.append(try extractArrayData(item))
+            }
+        }
+
+        guard arrays.count >= 1 else {
+            throw LuaError.callbackError("array.concatenate: need at least one array")
+        }
+
+        let ndim = arrays[0].ndim
+        guard axis0 >= 0 && axis0 < ndim else {
+            throw LuaError.callbackError("array.concatenate: axis out of bounds")
+        }
+
+        // Verify all arrays have same shape except along axis
+        let baseShape = arrays[0].shape
+        for arr in arrays.dropFirst() {
+            guard arr.ndim == ndim else {
+                throw LuaError.callbackError("array.concatenate: all arrays must have same ndim")
+            }
+            for d in 0..<ndim where d != axis0 {
+                guard arr.shape[d] == baseShape[d] else {
+                    throw LuaError.callbackError("array.concatenate: arrays must match on all axes except concatenation axis")
+                }
+            }
+        }
+
+        // Calculate result shape
+        var resultShape = baseShape
+        resultShape[axis0] = arrays.reduce(0) { $0 + $1.shape[axis0] }
+
+        let resultSize = resultShape.reduce(1, *)
+        var resultData = [Double](repeating: 0, count: resultSize)
+
+        // Calculate strides for result
+        var resultStrides = [Int](repeating: 1, count: ndim)
+        for i in stride(from: ndim - 2, through: 0, by: -1) {
+            resultStrides[i] = resultStrides[i + 1] * resultShape[i + 1]
+        }
+
+        // Copy data from each array
+        var axisOffset = 0
+        for arr in arrays {
+            // For each element in this array
+            for i in 0..<arr.size {
+                // Calculate multi-dim index in source array
+                var remaining = i
+                var srcIndices = [Int](repeating: 0, count: ndim)
+                for d in stride(from: ndim - 1, through: 0, by: -1) {
+                    srcIndices[d] = remaining % arr.shape[d]
+                    remaining /= arr.shape[d]
+                }
+
+                // Calculate destination index (offset along concat axis)
+                var dstIndices = srcIndices
+                dstIndices[axis0] += axisOffset
+
+                var dstFlatIdx = 0
+                for d in 0..<ndim {
+                    dstFlatIdx += dstIndices[d] * resultStrides[d]
+                }
+
+                resultData[dstFlatIdx] = arr.data[i]
+            }
+
+            axisOffset += arr.shape[axis0]
+        }
+
+        return createArrayTable(ArrayData(shape: resultShape, data: resultData))
+    }
+
+    private static func stackCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arraysArg = args.first else {
+            throw LuaError.callbackError("array.stack: missing arrays argument")
+        }
+
+        let axis = (args.count >= 2 ? args[1].intValue : nil) ?? 1
+        let axis0 = axis - 1
+
+        // Extract arrays
+        var arrays: [ArrayData] = []
+        if let tbl = arraysArg.tableValue {
+            var i = 1
+            while let arr = tbl[String(i)] {
+                arrays.append(try extractArrayData(arr))
+                i += 1
+            }
+        } else if let arr = arraysArg.arrayValue {
+            for item in arr {
+                arrays.append(try extractArrayData(item))
+            }
+        }
+
+        guard arrays.count >= 1 else {
+            throw LuaError.callbackError("array.stack: need at least one array")
+        }
+
+        // All arrays must have same shape
+        let baseShape = arrays[0].shape
+        for arr in arrays.dropFirst() {
+            guard arr.shape == baseShape else {
+                throw LuaError.callbackError("array.stack: all arrays must have same shape")
+            }
+        }
+
+        // Insert new axis
+        var resultShape = baseShape
+        resultShape.insert(arrays.count, at: axis0)
+
+        let resultSize = resultShape.reduce(1, *)
+        var resultData = [Double](repeating: 0, count: resultSize)
+
+        // Calculate strides
+        var resultStrides = [Int](repeating: 1, count: resultShape.count)
+        for i in stride(from: resultShape.count - 2, through: 0, by: -1) {
+            resultStrides[i] = resultStrides[i + 1] * resultShape[i + 1]
+        }
+
+        // Copy data
+        for (arrIdx, arr) in arrays.enumerated() {
+            for i in 0..<arr.size {
+                // Calculate source indices
+                var remaining = i
+                var srcIndices = [Int](repeating: 0, count: baseShape.count)
+                for d in stride(from: baseShape.count - 1, through: 0, by: -1) {
+                    srcIndices[d] = remaining % baseShape[d]
+                    remaining /= baseShape[d]
+                }
+
+                // Insert array index at axis position
+                var dstIndices = srcIndices
+                dstIndices.insert(arrIdx, at: axis0)
+
+                var dstFlatIdx = 0
+                for d in 0..<resultShape.count {
+                    dstFlatIdx += dstIndices[d] * resultStrides[d]
+                }
+
+                resultData[dstFlatIdx] = arr.data[i]
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: resultShape, data: resultData))
+    }
+
+    private static func splitCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.split: requires array and indices_or_sections")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let axis = (args.count >= 3 ? args[2].intValue : nil) ?? 1
+        let axis0 = axis - 1
+
+        guard axis0 >= 0 && axis0 < arrayData.ndim else {
+            throw LuaError.callbackError("array.split: axis out of bounds")
+        }
+
+        let axisSize = arrayData.shape[axis0]
+        var splitPoints: [Int] = []
+
+        // Determine split points
+        if let sections = args[1].intValue {
+            // Equal split
+            guard axisSize % sections == 0 else {
+                throw LuaError.callbackError("array.split: array not evenly divisible")
+            }
+            let chunkSize = axisSize / sections
+            for i in 1..<sections {
+                splitPoints.append(i * chunkSize)
+            }
+        } else if let indices = args[1].arrayValue {
+            splitPoints = indices.compactMap { $0.intValue }
+        } else if let tbl = args[1].tableValue {
+            var i = 1
+            while let idx = tbl[String(i)]?.intValue {
+                splitPoints.append(idx)
+                i += 1
+            }
+        }
+
+        // Create split arrays
+        var resultArrays: [LuaValue] = []
+        var prevIdx = 0
+        let allPoints = splitPoints + [axisSize]
+
+        for endIdx in allPoints {
+            // Create sub-array shape
+            var subShape = arrayData.shape
+            subShape[axis0] = endIdx - prevIdx
+            let subSize = subShape.reduce(1, *)
+            var subData = [Double](repeating: 0, count: subSize)
+
+            // Copy data for this slice
+            var subStrides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                subStrides[i] = subStrides[i + 1] * subShape[i + 1]
+            }
+
+            for i in 0..<subSize {
+                var remaining = i
+                var subIndices = [Int](repeating: 0, count: arrayData.ndim)
+                for d in stride(from: arrayData.ndim - 1, through: 0, by: -1) {
+                    subIndices[d] = remaining % subShape[d]
+                    remaining /= subShape[d]
+                }
+
+                var srcIndices = subIndices
+                srcIndices[axis0] += prevIdx
+
+                let srcFlatIdx = arrayData.flatIndex(srcIndices)
+                subData[i] = arrayData.data[srcFlatIdx]
+            }
+
+            resultArrays.append(createArrayTable(ArrayData(shape: subShape, data: subData)))
+            prevIdx = endIdx
+        }
+
+        return .array(resultArrays)
     }
 }

@@ -348,4 +348,30 @@ final class MathXModuleTests: XCTestCase {
         let result = try engine.evaluate("return type(mathx)")
         XCTAssertEqual(result.stringValue, "table")
     }
+
+    // MARK: - Standard Lua Math Constants Verification (Task 154)
+
+    func testMathPiConstant() throws {
+        // Verify math.pi is available in standard Lua
+        let result = try engine.evaluate("return math.pi")
+        XCTAssertEqual(result.numberValue!, Double.pi, accuracy: 1e-15)
+    }
+
+    func testMathHugeConstant() throws {
+        // Verify math.huge (infinity) is available
+        let result = try engine.evaluate("return math.huge")
+        XCTAssertTrue(result.numberValue!.isInfinite)
+    }
+
+    func testMathMaxIntegerConstant() throws {
+        // Verify math.maxinteger is available (Lua 5.3+)
+        let result = try engine.evaluate("return math.maxinteger")
+        XCTAssertNotNil(result.numberValue)
+    }
+
+    func testMathMinIntegerConstant() throws {
+        // Verify math.mininteger is available (Lua 5.3+)
+        let result = try engine.evaluate("return math.mininteger")
+        XCTAssertNotNil(result.numberValue)
+    }
 }

@@ -322,6 +322,145 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 2)  // Rank-deficient matrix
     }
 
+    // MARK: - Condition Number
+
+    func testCondWellConditioned() throws {
+        // Identity matrix has condition number 1
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.eye(3)
+            return m:cond()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testCondModerateCondition() throws {
+        // Diagonal matrix with known condition number
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{10,0},{0,1}})
+            return m:cond()
+            """)
+
+        XCTAssertEqual(result.numberValue!, 10.0, accuracy: 1e-10)
+    }
+
+    func testCondNearSingular() throws {
+        // Matrix that's nearly singular should have very high condition number
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2,3},{4,5,6},{7,8,9.00001}})
+            return m:cond()
+            """)
+
+        // Should be very large but not infinite
+        XCTAssertTrue(result.numberValue! > 1e6)
+        XCTAssertTrue(result.numberValue!.isFinite)
+    }
+
+    func testCondSingularMatrix() throws {
+        // Singular matrix has very high (or infinite) condition number
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2,3},{4,5,6},{7,8,9}})
+            return m:cond()
+            """)
+
+        let cond = result.numberValue!
+        // Due to floating point, might not be exactly infinite but should be very large
+        // In practice, the rank-deficient matrix has condition number > 1e15
+        XCTAssertTrue(cond > 1e14 || cond.isInfinite, "Expected cond > 1e14 or inf, got \(cond)")
+    }
+
+    func testCondNamespaceFunction() throws {
+        // Test namespace access
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{4,0},{0,2}})
+            return luaswift.linalg.cond(m)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 2.0, accuracy: 1e-10)
+    }
+
+    // MARK: - Pseudo-inverse
+
+    func testPinvSquareMatrix() throws {
+        // For invertible square matrix, pinv should equal inv
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2},{3,4}})
+            local pinv_m = m:pinv()
+            local inv_m = m:inv()
+            -- Check if all elements are approximately equal
+            local max_diff = 0
+            for i = 1, 2 do
+                for j = 1, 2 do
+                    local diff = math.abs(pinv_m:get(i,j) - inv_m:get(i,j))
+                    if diff > max_diff then max_diff = diff end
+                end
+            end
+            return max_diff
+            """)
+
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testPinvRectangularTall() throws {
+        // For tall rectangular matrix (more rows than cols)
+        // A+ * A should be identity (cols x cols)
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,0},{0,1},{0,0}})
+            local pinv_m = m:pinv()
+            -- pinv should be 2x3
+            return {pinv_m:rows(), pinv_m:cols()}
+            """)
+
+        let arr = result.arrayValue!
+        XCTAssertEqual(arr[0].numberValue, 2)  // rows
+        XCTAssertEqual(arr[1].numberValue, 3)  // cols
+    }
+
+    func testPinvRectangularWide() throws {
+        // For wide rectangular matrix (more cols than rows)
+        // A * A+ should be identity (rows x rows)
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,0,0},{0,1,0}})
+            local pinv_m = m:pinv()
+            -- pinv should be 3x2
+            return {pinv_m:rows(), pinv_m:cols()}
+            """)
+
+        let arr = result.arrayValue!
+        XCTAssertEqual(arr[0].numberValue, 3)  // rows
+        XCTAssertEqual(arr[1].numberValue, 2)  // cols
+    }
+
+    func testPinvMoorePenroseProperty() throws {
+        // Test one of the Moore-Penrose conditions: A * A+ * A = A
+        let result = try engine.evaluate("""
+            local A = luaswift.linalg.matrix({{1,2},{3,4},{5,6}})
+            local Ap = A:pinv()
+            local AApA = A:dot(Ap):dot(A)
+            -- Check if A and AApA are approximately equal
+            local diff = 0
+            for i = 1, A:rows() do
+                for j = 1, A:cols() do
+                    diff = diff + math.abs(A:get(i,j) - AApA:get(i,j))
+                end
+            end
+            return diff
+            """)
+
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testPinvNamespaceFunction() throws {
+        // Test namespace access
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,0},{0,2}})
+            local pinv_m = luaswift.linalg.pinv(m)
+            return pinv_m:get(2,2)
+            """)
+
+        XCTAssertEqual(result.numberValue!, 0.5, accuracy: 1e-10)
+    }
+
     // MARK: - Decompositions
 
     func testLU() throws {

@@ -100,6 +100,8 @@ public struct LinAlgModule {
         engine.registerFunction(name: "_luaswift_linalg_trace", callback: traceCallback)
         engine.registerFunction(name: "_luaswift_linalg_norm", callback: normCallback)
         engine.registerFunction(name: "_luaswift_linalg_rank", callback: rankCallback)
+        engine.registerFunction(name: "_luaswift_linalg_cond", callback: condCallback)
+        engine.registerFunction(name: "_luaswift_linalg_pinv", callback: pinvCallback)
 
         // Register decompositions
         engine.registerFunction(name: "_luaswift_linalg_lu", callback: luCallback)
@@ -172,6 +174,8 @@ public struct LinAlgModule {
                 local _logm = _luaswift_linalg_logm
                 local _sqrtm = _luaswift_linalg_sqrtm
                 local _funm = _luaswift_linalg_funm
+                local _cond = _luaswift_linalg_cond
+                local _pinv = _luaswift_linalg_pinv
 
                 -- Matrix/Vector metatable
                 local linalg_mt = {
@@ -229,6 +233,8 @@ public struct LinAlgModule {
                             logm = function(_) return luaswift.linalg._wrap(_logm(self._data)) end,
                             sqrtm = function(_) return luaswift.linalg._wrap(_sqrtm(self._data)) end,
                             funm = function(_, f) return luaswift.linalg._wrap(_funm(self._data, f)) end,
+                            cond = function(_, p) return _cond(self._data, p) end,
+                            pinv = function(_, rcond) return luaswift.linalg._wrap(_pinv(self._data, rcond)) end,
                         }
                         return methods[key]
                     end,
@@ -368,6 +374,14 @@ public struct LinAlgModule {
                         local A_data = type(A) == "table" and A._data or A
                         return luaswift.linalg._wrap(_funm(A_data, f))
                     end,
+                    cond = function(A, p)
+                        local A_data = type(A) == "table" and A._data or A
+                        return _cond(A_data, p)
+                    end,
+                    pinv = function(A, rcond)
+                        local A_data = type(A) == "table" and A._data or A
+                        return luaswift.linalg._wrap(_pinv(A_data, rcond))
+                    end,
                 }
 
                 -- Clean up temporary globals
@@ -414,6 +428,8 @@ public struct LinAlgModule {
                 _luaswift_linalg_logm = nil
                 _luaswift_linalg_sqrtm = nil
                 _luaswift_linalg_funm = nil
+                _luaswift_linalg_cond = nil
+                _luaswift_linalg_pinv = nil
                 """)
         } catch {
             // Silently fail if setup fails
@@ -1209,6 +1225,153 @@ public struct LinAlgModule {
         }
 
         return .number(Double(rank))
+    }
+
+    private static func condCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("linalg.cond: missing argument")
+        }
+
+        let (rows, cols, data) = try extractMatrixData(arg)
+
+        // Optional p parameter for norm type (default: 2-norm condition number)
+        // p = 2: uses SVD (default)
+        // p = 1: uses 1-norm
+        // p = -1 (fro): uses Frobenius norm
+        // Note: We implement 2-norm via SVD which is the standard approach
+        // Future: implement other norm types
+        let _ = args.count > 1 ? args[1].numberValue : nil
+
+        // Convert to column-major for LAPACK (SVD)
+        var a = [Double](repeating: 0, count: rows * cols)
+        for i in 0..<rows {
+            for j in 0..<cols {
+                a[j * rows + i] = data[i * cols + j]
+            }
+        }
+
+        var m1 = __CLPK_integer(rows)
+        var n1 = __CLPK_integer(cols)
+        var lda1 = __CLPK_integer(rows)
+        let minDim = min(rows, cols)
+        var s = [Double](repeating: 0, count: minDim)
+        var u = [Double](repeating: 0, count: 1)  // Not needed
+        var vt = [Double](repeating: 0, count: 1)  // Not needed
+        var ldu: __CLPK_integer = 1
+        var ldvt: __CLPK_integer = 1
+        var info: __CLPK_integer = 0
+
+        // Query workspace
+        var lwork: __CLPK_integer = -1
+        var work = [Double](repeating: 0, count: 1)
+        var jobu = Int8(UInt8(ascii: "N"))
+        var jobvt = Int8(UInt8(ascii: "N"))
+
+        dgesvd_(&jobu, &jobvt, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
+
+        lwork = __CLPK_integer(work[0])
+        work = [Double](repeating: 0, count: Int(lwork))
+
+        var m2 = __CLPK_integer(rows)
+        var n2 = __CLPK_integer(cols)
+        var lda2 = __CLPK_integer(rows)
+        dgesvd_(&jobu, &jobvt, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("linalg.cond: SVD computation failed")
+        }
+
+        // Singular values are sorted in descending order
+        let sMax = s[0]
+        let sMin = s[minDim - 1]  // Last (smallest) singular value
+
+        // Tolerance for considering a singular value as zero
+        let tol = max(Double(rows), Double(cols)) * sMax * 2.220446049250313e-16
+
+        // If minimum singular value is essentially zero, matrix is singular
+        if sMin <= tol {
+            return .number(Double.infinity)
+        }
+
+        // Condition number = max(s) / min(s)
+        return .number(sMax / sMin)
+    }
+
+    private static func pinvCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("linalg.pinv: missing argument")
+        }
+
+        let (rows, cols, data) = try extractMatrixData(arg)
+        let minDim = min(rows, cols)
+
+        // Optional rcond parameter for cutoff ratio
+        let rcond = args.count > 1 ? (args[1].numberValue ?? 1e-15) : 1e-15
+
+        // Convert to column-major for LAPACK
+        var a = [Double](repeating: 0, count: rows * cols)
+        for i in 0..<rows {
+            for j in 0..<cols {
+                a[j * rows + i] = data[i * cols + j]
+            }
+        }
+
+        var m1 = __CLPK_integer(rows)
+        var n1 = __CLPK_integer(cols)
+        var lda1 = __CLPK_integer(rows)
+        var s = [Double](repeating: 0, count: minDim)
+        var u = [Double](repeating: 0, count: rows * rows)
+        var vt = [Double](repeating: 0, count: cols * cols)
+        var ldu = __CLPK_integer(rows)
+        var ldvt = __CLPK_integer(cols)
+        var info: __CLPK_integer = 0
+
+        // Query workspace
+        var lwork: __CLPK_integer = -1
+        var work = [Double](repeating: 0, count: 1)
+        var jobu = Int8(UInt8(ascii: "A"))
+        var jobvt = Int8(UInt8(ascii: "A"))
+
+        dgesvd_(&jobu, &jobvt, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
+
+        lwork = __CLPK_integer(work[0])
+        work = [Double](repeating: 0, count: Int(lwork))
+
+        var m2 = __CLPK_integer(rows)
+        var n2 = __CLPK_integer(cols)
+        var lda2 = __CLPK_integer(rows)
+        dgesvd_(&jobu, &jobvt, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("linalg.pinv: SVD computation failed")
+        }
+
+        // Compute tolerance for singular value cutoff
+        let tol = rcond * s[0]
+
+        // Compute V * Σ^(-1) * U^T
+        // Result is cols x rows matrix
+        var result = [Double](repeating: 0, count: cols * rows)
+
+        for i in 0..<cols {       // result row
+            for j in 0..<rows {   // result col
+                var sum = 0.0
+                for k in 0..<minDim {
+                    if s[k] > tol {
+                        // Vt is stored in column-major (cols x cols)
+                        // V = Vt^T, so V[i,k] = Vt[k,i] = vt[i * cols + k]
+                        // U is stored in column-major (rows x rows)
+                        // U[j,k] = u[k * rows + j]
+                        let v_ik = vt[i * cols + k]
+                        let u_jk = u[k * rows + j]
+                        sum += v_ik * (1.0 / s[k]) * u_jk
+                    }
+                }
+                result[i * rows + j] = sum
+            }
+        }
+
+        return createMatrixTable(rows: cols, cols: rows, data: result)
     }
 
     // MARK: - Decompositions

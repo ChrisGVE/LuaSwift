@@ -493,6 +493,51 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 2)
     }
 
+    func testSVDDiagonalMatrix() throws {
+        // Default behavior: S is diagonal matrix (rows x cols)
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2},{3,4}})
+            local U, S, V = m:svd()
+            return {S:rows(), S:cols()}
+            """)
+
+        let arr = result.arrayValue!
+        XCTAssertEqual(arr[0].numberValue, 2)  // rows
+        XCTAssertEqual(arr[1].numberValue, 2)  // cols
+    }
+
+    func testSVD1DSingularValues() throws {
+        // With return1D=true: S is 1D vector (min(rows,cols) x 1)
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2},{3,4}})
+            local U, S, V = m:svd(true)
+            return {S:rows(), S:cols(), S:size()}
+            """)
+
+        let arr = result.arrayValue!
+        XCTAssertEqual(arr[0].numberValue, 2)  // rows = min(2,2) = 2
+        XCTAssertEqual(arr[1].numberValue, 1)  // cols = 1 (1D vector)
+        XCTAssertEqual(arr[2].numberValue, 2)  // size = 2 singular values
+    }
+
+    func testSVD1DRectangular() throws {
+        // Test with rectangular matrix (3x2)
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1,2},{3,4},{5,6}})
+            local U, S, V = m:svd(true)
+            return {S:rows(), S:cols(), S:get(1,1), S:get(2,1)}
+            """)
+
+        let arr = result.arrayValue!
+        XCTAssertEqual(arr[0].numberValue, 2)  // min(3,2) = 2 singular values
+        XCTAssertEqual(arr[1].numberValue, 1)  // 1D vector
+        // Singular values should be positive
+        XCTAssertTrue(arr[2].numberValue! > 0)
+        XCTAssertTrue(arr[3].numberValue! > 0)
+        // First should be larger than second (sorted descending)
+        XCTAssertTrue(arr[2].numberValue! > arr[3].numberValue!)
+    }
+
     func testEigen() throws {
         let result = try engine.evaluate("""
             local m = luaswift.linalg.matrix({{1,0},{0,2}})

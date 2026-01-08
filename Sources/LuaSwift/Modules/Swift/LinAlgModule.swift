@@ -216,8 +216,8 @@ public struct LinAlgModule {
                                 local result = _qr(self._data)
                                 return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
                             end,
-                            svd = function(_)
-                                local result = _svd(self._data)
+                            svd = function(_, return1D)
+                                local result = _svd(self._data, return1D)
                                 return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2]), luaswift.linalg._wrap(result[3])
                             end,
                             eigen = function(_)
@@ -1523,6 +1523,10 @@ public struct LinAlgModule {
         let (rows, cols, data) = try extractMatrixData(arg)
         let minDim = min(rows, cols)
 
+        // Optional second argument: if true, return singular values as 1D vector (numpy-compatible)
+        // Default is false for backward compatibility (returns diagonal matrix)
+        let return1D = args.count > 1 && (args[1].boolValue ?? false)
+
         // Convert to column-major for LAPACK
         var a = [Double](repeating: 0, count: rows * cols)
         for i in 0..<rows {
@@ -1569,10 +1573,18 @@ public struct LinAlgModule {
             }
         }
 
-        // S as diagonal matrix
-        var S = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<minDim {
-            S[i * cols + i] = s[i]
+        // S: either 1D vector (numpy-compatible) or diagonal matrix (backward-compatible)
+        let sValue: LuaValue
+        if return1D {
+            // Return as 1D vector (numpy.linalg.svd default behavior)
+            sValue = createMatrixTable(rows: minDim, cols: 1, data: s)
+        } else {
+            // Return as diagonal matrix (current behavior for backward compatibility)
+            var S = [Double](repeating: 0, count: rows * cols)
+            for i in 0..<minDim {
+                S[i * cols + i] = s[i]
+            }
+            sValue = createMatrixTable(rows: rows, cols: cols, data: S)
         }
 
         // Convert Vt to row-major (and it's already transposed)
@@ -1585,7 +1597,7 @@ public struct LinAlgModule {
 
         return .array([
             createMatrixTable(rows: rows, cols: rows, data: U),
-            createMatrixTable(rows: rows, cols: cols, data: S),
+            sValue,
             createMatrixTable(rows: cols, cols: cols, data: V)
         ])
     }

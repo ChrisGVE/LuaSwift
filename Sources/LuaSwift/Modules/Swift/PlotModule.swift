@@ -898,6 +898,7 @@ public struct PlotModule {
         // Drawing
         engine.registerFunction(name: "_luaswift_plot_stroke", callback: strokeCallback)
         engine.registerFunction(name: "_luaswift_plot_fill", callback: fillCallback)
+        engine.registerFunction(name: "_luaswift_plot_set_alpha", callback: setAlphaCallback)
 
         // State
         engine.registerFunction(name: "_luaswift_plot_save", callback: saveCallback)
@@ -1122,6 +1123,15 @@ public struct PlotModule {
         return .nil
     }
 
+    private static let setAlphaCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 2,
+              let id = args[0].intValue,
+              let alpha = args[1].numberValue,
+              let context = getContext(id) else { return .nil }
+        context.setAlpha(max(0, min(1, alpha)))
+        return .nil
+    }
+
     private static let saveCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard let id = args.first?.intValue,
               let context = getContext(id) else { return .nil }
@@ -1268,6 +1278,7 @@ public struct PlotModule {
     local _set_fill = _luaswift_plot_set_fill
     local _stroke = _luaswift_plot_stroke
     local _fill = _luaswift_plot_fill
+    local _set_alpha = _luaswift_plot_set_alpha
     local _save = _luaswift_plot_save
     local _restore = _luaswift_plot_restore
     local _to_svg = _luaswift_plot_to_svg
@@ -1291,6 +1302,7 @@ public struct PlotModule {
     function DrawingContext:set_fill(color) _set_fill(self._id, color) return self end
     function DrawingContext:stroke() _stroke(self._id) return self end
     function DrawingContext:fill() _fill(self._id) return self end
+    function DrawingContext:set_alpha(alpha) _set_alpha(self._id, alpha) return self end
     function DrawingContext:save() _save(self._id) return self end
     function DrawingContext:restore() _restore(self._id) return self end
     function DrawingContext:clear() _clear_context(self._id) return self end
@@ -1404,13 +1416,269 @@ public struct PlotModule {
         return self._figure._context
     end
 
+    -- Color shorthand map (matplotlib single-character colors)
+    local COLOR_MAP = {
+        b = "blue", g = "green", r = "red", c = "cyan",
+        m = "magenta", y = "yellow", k = "black", w = "white"
+    }
+
+    -- Linestyle shorthand map
+    local LINESTYLE_MAP = {
+        ["-"] = "-", ["--"] = "--", ["-."] = "-.", [":"] = ":"
+    }
+
+    -- Marker character set
+    local MARKER_CHARS = {
+        o = true, s = true, ["^"] = true, v = true, ["<"] = true, [">"] = true,
+        d = true, D = true, p = true, h = true, H = true,
+        ["+"] = true, x = true, ["*"] = true, ["."] = true, [","] = true
+    }
+
+    -- Parse matplotlib format string (e.g., 'r--o', 'b-', 'g^')
+    local function parse_format_string(fmt)
+        if not fmt or fmt == "" then return nil, nil, nil end
+
+        local color, linestyle, marker = nil, nil, nil
+        local i = 1
+        local len = #fmt
+
+        while i <= len do
+            local c = fmt:sub(i, i)
+
+            -- Check for color shorthand
+            if COLOR_MAP[c] then
+                color = COLOR_MAP[c]
+                i = i + 1
+            -- Check for linestyle (multi-char first)
+            elseif fmt:sub(i, i + 1) == "--" then
+                linestyle = "--"
+                i = i + 2
+            elseif fmt:sub(i, i + 1) == "-." then
+                linestyle = "-."
+                i = i + 2
+            elseif c == "-" then
+                linestyle = "-"
+                i = i + 1
+            elseif c == ":" then
+                linestyle = ":"
+                i = i + 1
+            -- Check for marker
+            elseif MARKER_CHARS[c] then
+                marker = c
+                i = i + 1
+            else
+                i = i + 1  -- Skip unknown characters
+            end
+        end
+
+        return color, linestyle, marker
+    end
+
+    -- Draw a marker at (cx, cy) with given size
+    local function draw_marker(ctx, marker, cx, cy, size, fill_color, edge_color, edge_width)
+        local r = size / 2
+        edge_width = edge_width or 1
+
+        if marker == "o" then  -- Circle
+            ctx:set_fill(fill_color)
+            ctx:circle(cx, cy, r)
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                ctx:circle(cx, cy, r)
+                ctx:stroke()
+            end
+        elseif marker == "s" then  -- Square
+            ctx:set_fill(fill_color)
+            ctx:rect(cx - r, cy - r, size, size)
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                ctx:rect(cx - r, cy - r, size, size)
+                ctx:stroke()
+            end
+        elseif marker == "^" then  -- Triangle up
+            ctx:set_fill(fill_color)
+            ctx:move_to(cx, cy - r)
+            ctx:line_to(cx + r, cy + r)
+            ctx:line_to(cx - r, cy + r)
+            ctx:close_path()
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                ctx:move_to(cx, cy - r)
+                ctx:line_to(cx + r, cy + r)
+                ctx:line_to(cx - r, cy + r)
+                ctx:close_path()
+                ctx:stroke()
+            end
+        elseif marker == "v" then  -- Triangle down
+            ctx:set_fill(fill_color)
+            ctx:move_to(cx, cy + r)
+            ctx:line_to(cx + r, cy - r)
+            ctx:line_to(cx - r, cy - r)
+            ctx:close_path()
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                ctx:move_to(cx, cy + r)
+                ctx:line_to(cx + r, cy - r)
+                ctx:line_to(cx - r, cy - r)
+                ctx:close_path()
+                ctx:stroke()
+            end
+        elseif marker == "<" then  -- Triangle left
+            ctx:set_fill(fill_color)
+            ctx:move_to(cx - r, cy)
+            ctx:line_to(cx + r, cy - r)
+            ctx:line_to(cx + r, cy + r)
+            ctx:close_path()
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                ctx:move_to(cx - r, cy)
+                ctx:line_to(cx + r, cy - r)
+                ctx:line_to(cx + r, cy + r)
+                ctx:close_path()
+                ctx:stroke()
+            end
+        elseif marker == ">" then  -- Triangle right
+            ctx:set_fill(fill_color)
+            ctx:move_to(cx + r, cy)
+            ctx:line_to(cx - r, cy - r)
+            ctx:line_to(cx - r, cy + r)
+            ctx:close_path()
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                ctx:move_to(cx + r, cy)
+                ctx:line_to(cx - r, cy - r)
+                ctx:line_to(cx - r, cy + r)
+                ctx:close_path()
+                ctx:stroke()
+            end
+        elseif marker == "d" or marker == "D" then  -- Diamond
+            local dr = marker == "D" and r * 1.2 or r
+            ctx:set_fill(fill_color)
+            ctx:move_to(cx, cy - dr)
+            ctx:line_to(cx + dr, cy)
+            ctx:line_to(cx, cy + dr)
+            ctx:line_to(cx - dr, cy)
+            ctx:close_path()
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                ctx:move_to(cx, cy - dr)
+                ctx:line_to(cx + dr, cy)
+                ctx:line_to(cx, cy + dr)
+                ctx:line_to(cx - dr, cy)
+                ctx:close_path()
+                ctx:stroke()
+            end
+        elseif marker == "+" then  -- Plus
+            ctx:set_stroke(fill_color, edge_width)
+            ctx:move_to(cx - r, cy)
+            ctx:line_to(cx + r, cy)
+            ctx:stroke()
+            ctx:move_to(cx, cy - r)
+            ctx:line_to(cx, cy + r)
+            ctx:stroke()
+        elseif marker == "x" then  -- X
+            ctx:set_stroke(fill_color, edge_width)
+            ctx:move_to(cx - r, cy - r)
+            ctx:line_to(cx + r, cy + r)
+            ctx:stroke()
+            ctx:move_to(cx + r, cy - r)
+            ctx:line_to(cx - r, cy + r)
+            ctx:stroke()
+        elseif marker == "*" then  -- Star (6-pointed)
+            ctx:set_stroke(fill_color, edge_width)
+            -- Horizontal
+            ctx:move_to(cx - r, cy)
+            ctx:line_to(cx + r, cy)
+            ctx:stroke()
+            -- Diagonal /
+            ctx:move_to(cx - r * 0.866, cy - r * 0.5)
+            ctx:line_to(cx + r * 0.866, cy + r * 0.5)
+            ctx:stroke()
+            -- Diagonal \
+            ctx:move_to(cx - r * 0.866, cy + r * 0.5)
+            ctx:line_to(cx + r * 0.866, cy - r * 0.5)
+            ctx:stroke()
+        elseif marker == "." then  -- Point (small circle)
+            ctx:set_fill(fill_color)
+            ctx:circle(cx, cy, r * 0.3)
+            ctx:fill()
+        elseif marker == "," then  -- Pixel (tiny dot)
+            ctx:set_fill(fill_color)
+            ctx:circle(cx, cy, 1)
+            ctx:fill()
+        elseif marker == "p" then  -- Pentagon
+            ctx:set_fill(fill_color)
+            for j = 0, 4 do
+                local angle = math.pi / 2 + j * 2 * math.pi / 5
+                local px, py = cx + r * math.cos(angle), cy - r * math.sin(angle)
+                if j == 0 then ctx:move_to(px, py) else ctx:line_to(px, py) end
+            end
+            ctx:close_path()
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                for j = 0, 4 do
+                    local angle = math.pi / 2 + j * 2 * math.pi / 5
+                    local px, py = cx + r * math.cos(angle), cy - r * math.sin(angle)
+                    if j == 0 then ctx:move_to(px, py) else ctx:line_to(px, py) end
+                end
+                ctx:close_path()
+                ctx:stroke()
+            end
+        elseif marker == "h" or marker == "H" then  -- Hexagon
+            local hr = marker == "H" and r * 1.2 or r
+            ctx:set_fill(fill_color)
+            for j = 0, 5 do
+                local angle = j * math.pi / 3
+                local px, py = cx + hr * math.cos(angle), cy - hr * math.sin(angle)
+                if j == 0 then ctx:move_to(px, py) else ctx:line_to(px, py) end
+            end
+            ctx:close_path()
+            ctx:fill()
+            if edge_color then
+                ctx:set_stroke(edge_color, edge_width)
+                for j = 0, 5 do
+                    local angle = j * math.pi / 3
+                    local px, py = cx + hr * math.cos(angle), cy - hr * math.sin(angle)
+                    if j == 0 then ctx:move_to(px, py) else ctx:line_to(px, py) end
+                end
+                ctx:close_path()
+                ctx:stroke()
+            end
+        end
+    end
+
     -- Basic plot method (matches matplotlib ax.plot())
-    function Axes:plot(x, y, opts)
+    -- Supports: ax:plot(y), ax:plot(x, y), ax:plot(x, y, fmt), ax:plot(x, y, opts), ax:plot(x, y, fmt, opts)
+    function Axes:plot(x, y, fmt_or_opts, opts)
+        -- Handle various argument patterns
+        local fmt = nil
         if type(y) == "table" and y[1] == nil then
             -- Called as ax:plot(x, opts) - y values only
             opts = y
             y = x
             x = nil
+        elseif type(y) == "string" then
+            -- Called as ax:plot(y, fmt) - y values with format string
+            fmt = y
+            y = x
+            x = nil
+            opts = fmt_or_opts or {}
+        elseif type(fmt_or_opts) == "string" then
+            -- Called as ax:plot(x, y, fmt) or ax:plot(x, y, fmt, opts)
+            fmt = fmt_or_opts
+            opts = opts or {}
+        elseif type(fmt_or_opts) == "table" then
+            opts = fmt_or_opts
+        else
+            opts = opts or {}
         end
         opts = opts or {}
 
@@ -1420,15 +1688,28 @@ public struct PlotModule {
             for i = 1, #y do x[i] = i end
         end
 
-        -- Get styling
-        local color = opts.color or opts.c or "blue"
+        -- Parse format string if provided
+        local fmt_color, fmt_linestyle, fmt_marker = nil, nil, nil
+        if fmt then
+            fmt_color, fmt_linestyle, fmt_marker = parse_format_string(fmt)
+        end
+
+        -- Get styling (format string takes precedence, then opts, then defaults)
+        local color = fmt_color or opts.color or opts.c or "blue"
         local linewidth = opts.linewidth or opts.lw or 1
-        local linestyle = opts.linestyle or opts.ls or "-"
+        local linestyle = fmt_linestyle or opts.linestyle or opts.ls or "-"
+        local alpha = opts.alpha or 1.0
+
+        -- Marker parameters
+        local marker = fmt_marker or opts.marker
+        local markersize = opts.markersize or opts.ms or 6
+        local markerfacecolor = opts.markerfacecolor or opts.mfc or color
+        local markeredgecolor = opts.markeredgecolor or opts.mec
+        local markeredgewidth = opts.markeredgewidth or opts.mew or 1
 
         local ctx = self:get_context()
-        ctx:set_stroke(color, linewidth, linestyle)
 
-        -- Draw line
+        -- Draw line and/or markers
         if #x > 0 then
             -- Transform data to figure coordinates
             local margin = 50
@@ -1453,17 +1734,34 @@ public struct PlotModule {
             local function tx(v) return margin + (v - xmin) / (xmax - xmin) * plot_width end
             local function ty(v) return margin + (v - ymin) / (ymax - ymin) * plot_height end
 
-            ctx:move_to(tx(x[1]), ty(y[1]))
-            for i = 2, #x do
-                ctx:line_to(tx(x[i]), ty(y[i]))
+            -- Apply alpha
+            ctx:save()
+            ctx:set_alpha(alpha)
+
+            -- Draw line (only if linestyle is not "none" or "")
+            if linestyle and linestyle ~= "" and linestyle ~= "none" then
+                ctx:set_stroke(color, linewidth, linestyle)
+                ctx:move_to(tx(x[1]), ty(y[1]))
+                for i = 2, #x do
+                    ctx:line_to(tx(x[i]), ty(y[i]))
+                end
+                ctx:stroke()
             end
-            ctx:stroke()
+
+            -- Draw markers
+            if marker then
+                for i = 1, #x do
+                    draw_marker(ctx, marker, tx(x[i]), ty(y[i]), markersize, markerfacecolor, markeredgecolor, markeredgewidth)
+                end
+            end
+
+            ctx:restore()
         end
 
         -- Store for legend
         if opts.label then
             self._legend_entries = self._legend_entries or {}
-            table.insert(self._legend_entries, {label = opts.label, color = color})
+            table.insert(self._legend_entries, {label = opts.label, color = color, marker = marker})
         end
 
         return self
@@ -1472,12 +1770,19 @@ public struct PlotModule {
     -- Scatter plot (matches matplotlib ax.scatter())
     function Axes:scatter(x, y, opts)
         opts = opts or {}
-        local s = opts.s or 20
-        local c = opts.c or opts.color or "blue"
+        local s = opts.s or 20  -- Can be scalar or array
+        local c = opts.c or opts.color or "blue"  -- Can be scalar or array
         local marker = opts.marker or "o"
+        local alpha = opts.alpha or 1.0
+        local edgecolors = opts.edgecolors or opts.edgecolor
+        local linewidths = opts.linewidths or opts.linewidth or 1
 
         local ctx = self:get_context()
-        local radius = math.sqrt(s) / 2
+
+        -- Check if s is array-valued
+        local s_is_array = type(s) == "table"
+        -- Check if c is array-valued (for colormap support)
+        local c_is_array = type(c) == "table"
 
         -- Transform coordinates
         local margin = 50
@@ -1498,11 +1803,23 @@ public struct PlotModule {
         local function tx(v) return margin + (v - xmin) / (xmax - xmin) * plot_width end
         local function ty(v) return margin + (v - ymin) / (ymax - ymin) * plot_height end
 
+        -- Apply alpha
+        ctx:save()
+        ctx:set_alpha(alpha)
+
         for i = 1, #x do
-            ctx:set_fill(c)
-            ctx:circle(tx(x[i]), ty(y[i]), radius)
-            ctx:fill()
+            -- Get per-point size
+            local point_size = s_is_array and s[i] or s
+            local radius = math.sqrt(point_size) / 2
+
+            -- Get per-point color (array of colors or single color)
+            local point_color = c_is_array and c[i] or c
+
+            -- Draw marker
+            draw_marker(ctx, marker, tx(x[i]), ty(y[i]), radius * 2, point_color, edgecolors, linewidths)
         end
+
+        ctx:restore()
 
         return self
     end
@@ -1513,6 +1830,9 @@ public struct PlotModule {
         local width = opts.width or 0.8
         local color = opts.color or "blue"
         local edgecolor = opts.edgecolor or "black"
+        local alpha = opts.alpha or 1.0
+        local bottom = opts.bottom or 0  -- Can be scalar or array for stacked bars
+        local align = opts.align or "center"  -- "center" or "edge"
 
         local ctx = self:get_context()
 
@@ -1523,16 +1843,35 @@ public struct PlotModule {
         local n = #x
         local bar_width = plot_width / n * width
 
-        local hmax = height[1]
-        for i = 2, #height do
-            if height[i] > hmax then hmax = height[i] end
+        -- Check if bottom is array-valued
+        local bottom_is_array = type(bottom) == "table"
+
+        -- Find max height including bottom for scaling
+        local hmax = 0
+        for i = 1, #height do
+            local bot = bottom_is_array and bottom[i] or bottom
+            local top = height[i] + bot
+            if top > hmax then hmax = top end
         end
         if hmax == 0 then hmax = 1 end
 
+        -- Apply alpha
+        ctx:save()
+        ctx:set_alpha(alpha)
+
         for i = 1, n do
-            local bx = margin + (i - 0.5) / n * plot_width - bar_width / 2
+            -- Calculate bar position based on align
+            local bx
+            if align == "edge" then
+                bx = margin + (i - 1) / n * plot_width
+            else  -- "center" (default)
+                bx = margin + (i - 0.5) / n * plot_width - bar_width / 2
+            end
+
+            -- Get bottom value for this bar
+            local bot = bottom_is_array and bottom[i] or bottom
+            local by = margin + (bot / hmax) * plot_height
             local bh = height[i] / hmax * plot_height
-            local by = margin
 
             ctx:set_fill(color)
             ctx:rect(bx, by, bar_width, bh)
@@ -1541,6 +1880,8 @@ public struct PlotModule {
             ctx:rect(bx, by, bar_width, bh)
             ctx:stroke()
         end
+
+        ctx:restore()
 
         return self
     end
@@ -1621,6 +1962,10 @@ public struct PlotModule {
 
         local bar_width = plot_width / bins
 
+        -- Apply alpha
+        ctx:save()
+        ctx:set_alpha(alpha)
+
         for i = 1, bins do
             local bx = margin + (i - 1) * bar_width
             local bh = counts[i] / cmax * plot_height
@@ -1633,6 +1978,8 @@ public struct PlotModule {
             ctx:rect(bx, by, bar_width, bh)
             ctx:stroke()
         end
+
+        ctx:restore()
 
         -- Store for legend
         if opts.label then
@@ -1861,6 +2208,72 @@ public struct PlotModule {
     function Axes:set_ylim(bottom, top)
         self._ylim = {bottom, top}
         return self
+    end
+
+    -- Axis scaling (matches matplotlib ax.set_xscale, ax.set_yscale)
+    -- Supported scales: "linear", "log", "symlog"
+    function Axes:set_xscale(scale, opts)
+        opts = opts or {}
+        self._xscale = scale
+        if scale == "symlog" then
+            self._xscale_linthresh = opts.linthresh or 1  -- Linear threshold
+        end
+        return self
+    end
+
+    function Axes:set_yscale(scale, opts)
+        opts = opts or {}
+        self._yscale = scale
+        if scale == "symlog" then
+            self._yscale_linthresh = opts.linthresh or 1
+        end
+        return self
+    end
+
+    function Axes:get_xscale()
+        return self._xscale or "linear"
+    end
+
+    function Axes:get_yscale()
+        return self._yscale or "linear"
+    end
+
+    -- Scale transform functions
+    local function apply_scale(v, scale, linthresh)
+        if scale == "log" then
+            -- Log scale: values must be positive
+            if v <= 0 then return nil end
+            return math.log10(v)
+        elseif scale == "symlog" then
+            -- Symmetric log: linear near 0, log for larger values
+            linthresh = linthresh or 1
+            if math.abs(v) <= linthresh then
+                return v / linthresh
+            elseif v > 0 then
+                return 1 + math.log10(v / linthresh)
+            else
+                return -1 - math.log10(-v / linthresh)
+            end
+        else
+            return v  -- linear
+        end
+    end
+
+    local function inverse_scale(v, scale, linthresh)
+        if scale == "log" then
+            return math.pow(10, v)
+        elseif scale == "symlog" then
+            linthresh = linthresh or 1
+            if math.abs(v) <= 1 then
+                return v * linthresh
+            elseif v > 0 then
+                return linthresh * math.pow(10, v - 1)
+            else
+                return -linthresh * math.pow(10, -v - 1)
+            end
+        else
+            return v
+        end
     end
 
     function Axes:get_xlim()

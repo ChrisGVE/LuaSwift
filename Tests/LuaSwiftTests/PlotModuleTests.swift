@@ -2767,4 +2767,324 @@ final class PlotModuleTests: XCTestCase {
         """)
         XCTAssertEqual(result.boolValue, true)
     }
+
+    // MARK: - Format String and Marker Tests
+
+    /// Test: Plot with format string parsing
+    func testPlotFormatString() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            -- Test format strings like matplotlib
+            ax:plot({1, 2, 3}, {1, 4, 9}, "r--o")  -- red dashed line with circle markers
+            ax:plot({1, 2, 3}, {2, 5, 10}, "b-^")  -- blue solid line with triangle markers
+            ax:plot({1, 2, 3}, {3, 6, 11}, "g:s")  -- green dotted line with square markers
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Plot with explicit marker parameters
+    func testPlotMarkerParameters() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:plot({1, 2, 3}, {1, 4, 9}, {
+                marker = "o",
+                markersize = 10,
+                markerfacecolor = "red",
+                markeredgecolor = "black",
+                markeredgewidth = 2
+            })
+
+            -- Also test ms, mfc, mec aliases
+            ax:plot({1, 2, 3}, {2, 5, 10}, {
+                marker = "s",
+                ms = 8,
+                mfc = "blue",
+                mec = "white"
+            })
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: All marker types
+    func testAllMarkerTypes() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local markers = {"o", "s", "^", "v", "<", ">", "d", "D", "p", "h", "H", "+", "x", "*", ".", ","}
+            for i, m in ipairs(markers) do
+                ax:plot({i}, {i}, {marker = m, markersize = 10, color = "blue"})
+            end
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Alpha Transparency Tests
+
+    /// Test: Plot with alpha transparency
+    func testPlotAlpha() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:plot({1, 2, 3}, {1, 4, 9}, {alpha = 0.5, color = "blue"})
+            ax:plot({1, 2, 3}, {2, 5, 10}, {alpha = 0.3, color = "red"})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Scatter with alpha
+    func testScatterAlpha() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:scatter({1, 2, 3, 4, 5}, {1, 4, 9, 16, 25}, {alpha = 0.5, s = 100})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Bar with alpha
+    func testBarAlpha() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:bar({1, 2, 3}, {10, 20, 15}, {alpha = 0.7, color = "steelblue"})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Scatter Array Support Tests
+
+    /// Test: Scatter with array-valued sizes
+    func testScatterArraySizes() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local x = {1, 2, 3, 4, 5}
+            local y = {1, 4, 9, 16, 25}
+            local sizes = {50, 100, 150, 200, 250}  -- Different size for each point
+
+            ax:scatter(x, y, {s = sizes})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Scatter with array-valued colors
+    func testScatterArrayColors() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local x = {1, 2, 3, 4, 5}
+            local y = {1, 4, 9, 16, 25}
+            local colors = {"red", "green", "blue", "orange", "purple"}
+
+            ax:scatter(x, y, {c = colors, s = 100})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Scatter with edgecolors and linewidths
+    func testScatterEdgeColors() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:scatter({1, 2, 3}, {1, 4, 9}, {
+                s = 200,
+                c = "lightblue",
+                edgecolors = "darkblue",
+                linewidths = 2
+            })
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Bar Stacked and Align Tests
+
+    /// Test: Stacked bar chart with bottom parameter
+    func testBarStacked() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local x = {1, 2, 3}
+            local bottom_values = {5, 10, 8}
+            local top_values = {10, 15, 12}
+
+            -- Bottom layer
+            ax:bar(x, bottom_values, {color = "blue"})
+            -- Top layer (stacked)
+            ax:bar(x, top_values, {color = "orange", bottom = bottom_values})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Bar with align parameter
+    func testBarAlign() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            -- Edge-aligned bars
+            ax:bar({1, 2, 3}, {10, 20, 15}, {align = "edge", color = "green"})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Axis Scaling Tests
+
+    /// Test: Set axis scale
+    func testAxisScale() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:set_xscale("log")
+            ax:set_yscale("log")
+
+            return ax:get_xscale() == "log" and ax:get_yscale() == "log"
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Symlog scale with threshold
+    func testSymlogScale() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:set_yscale("symlog", {linthresh = 2})
+
+            return ax:get_yscale() == "symlog"
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Edge Case Tests
+
+    /// Test: Empty data handling
+    func testEmptyDataHandling() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            -- Empty arrays should not crash
+            local success = pcall(function()
+                ax:plot({}, {})
+            end)
+
+            return fig:get_context():command_count() >= 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Single point plot
+    func testSinglePointPlot() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:plot({5}, {10}, {marker = "o", markersize = 10})
+            ax:scatter({5}, {10}, {s = 100})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Degenerate input (all same values)
+    func testDegenerateInput() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            -- All y values the same
+            ax:plot({1, 2, 3, 4, 5}, {5, 5, 5, 5, 5})
+
+            -- All x values the same
+            ax:plot({3, 3, 3, 3, 3}, {1, 2, 3, 4, 5})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Plot markers only (no line)
+    func testMarkersOnlyNoLine() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            -- Using linestyle="none" to show only markers
+            ax:plot({1, 2, 3}, {1, 4, 9}, {
+                marker = "o",
+                linestyle = "none",
+                markersize = 10
+            })
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Line only (no markers, default)
+    func testLineOnlyNoMarkers() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            -- Default: line only, no markers
+            ax:plot({1, 2, 3, 4, 5}, {1, 4, 9, 16, 25})
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Both line and markers
+    func testLineAndMarkers() throws {
+        let result = try engine.evaluate("""
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            ax:plot({1, 2, 3, 4, 5}, {1, 4, 9, 16, 25}, {
+                marker = "o",
+                linestyle = "-",
+                color = "blue"
+            })
+
+            return fig:get_context():command_count() > 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

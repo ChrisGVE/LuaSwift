@@ -1522,4 +1522,212 @@ final class TableXModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, false)
     }
+
+    // MARK: - Additional Edge Case Tests (Penlight Review)
+
+    func testMapEmptyTable() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            return tablex.map({}, function(v) return v * 2 end)
+            """)
+
+        // Empty result can be array or table
+        if let array = result.arrayValue {
+            XCTAssertEqual(array.count, 0)
+        } else if let table = result.tableValue {
+            XCTAssertEqual(table.count, 0)
+        } else {
+            XCTFail("Expected empty result")
+        }
+    }
+
+    func testFilterReturnsEmpty() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local arr = {1, 2, 3}
+            return tablex.filter(arr, function(v) return v > 100 end)
+            """)
+
+        // Empty result can be array or table
+        if let array = result.arrayValue {
+            XCTAssertEqual(array.count, 0)
+        } else if let table = result.tableValue {
+            XCTAssertEqual(table.count, 0)
+        } else {
+            XCTFail("Expected empty result")
+        }
+    }
+
+    func testReduceSingleElement() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local arr = {42}
+            return tablex.reduce(arr, function(acc, v) return acc + v end, 0)
+            """)
+
+        XCTAssertEqual(result.numberValue, 42)
+    }
+
+    func testReduceEmptyTable() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            return tablex.reduce({}, function(acc, v) return acc + v end, 100)
+            """)
+
+        // With empty table, returns initial value
+        XCTAssertEqual(result.numberValue, 100)
+    }
+
+    func testDeepcopyEmptyTable() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local t = {}
+            local copy = tablex.deepcopy(t)
+            copy.new_key = "value"
+            return {original_empty = next(t) == nil, copy_has_key = copy.new_key ~= nil}
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["original_empty"]?.boolValue, true)
+        XCTAssertEqual(table["copy_has_key"]?.boolValue, true)
+    }
+
+    func testDeepmergeEmptyTables() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local merged = tablex.deepmerge({}, {})
+            return next(merged) == nil
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testDeepmergeOneEmpty() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local merged = tablex.deepmerge({a = 1}, {})
+            return merged.a
+            """)
+
+        XCTAssertEqual(result.numberValue, 1)
+    }
+
+    func testCopyEmptyTable() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local copy = tablex.copy({})
+            return next(copy) == nil
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testFindFirstOccurrence() throws {
+        // Find should return the first matching key
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local arr = {10, 20, 20, 30}
+            return tablex.find(arr, 20)
+            """)
+
+        // Should return 2 (first occurrence)
+        XCTAssertEqual(result.numberValue, 2)
+    }
+
+    func testUniqueSingleElement() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            return tablex.unique({42})
+            """)
+
+        guard let array = result.arrayValue else {
+            XCTFail("Expected array result")
+            return
+        }
+
+        XCTAssertEqual(array.count, 1)
+        XCTAssertEqual(array[0].numberValue, 42)
+    }
+
+    func testSliceEmptyResult() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local arr = {1, 2, 3}
+            return tablex.slice(arr, 10, 20)
+            """)
+
+        // Slice beyond bounds returns empty
+        if let array = result.arrayValue {
+            XCTAssertEqual(array.count, 0)
+        } else if let table = result.tableValue {
+            XCTAssertEqual(table.count, 0)
+        } else {
+            XCTFail("Expected empty result")
+        }
+    }
+
+    func testDeepEqualsWithNilValues() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local t1 = {a = 1, b = nil}
+            local t2 = {a = 1}
+            return tablex.deepequals(t1, t2)
+            """)
+
+        // nil values are equivalent to missing keys
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCycleDetectionInLuaDeepCopy() throws {
+        // Test cycle detection works in Lua (we can't return cyclic structure to Swift)
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local t = {a = 1}
+            t.self = t  -- Create cycle
+
+            -- This should not hang due to cycle detection
+            local copy = tablex.deepcopy(t)
+
+            -- Verify the copy exists and has the original value
+            return copy.a == 1 and copy.self == copy
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testForeachWithKey() throws {
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local keys = {}
+            tablex.foreach({a = 1, b = 2}, function(v, k)
+                keys[#keys + 1] = k
+            end)
+            table.sort(keys)
+            return keys[1] .. keys[2]
+            """)
+
+        XCTAssertEqual(result.stringValue, "ab")
+    }
+
+    func testInvertDuplicateValues() throws {
+        // When values are duplicated, last one wins
+        let result = try engine.evaluate("""
+            local tablex = luaswift.tablex
+            local t = {a = "x", b = "x", c = "y"}
+            local inv = tablex.invert(t)
+            return {has_x = inv.x ~= nil, has_y = inv.y ~= nil}
+            """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["has_x"]?.boolValue, true)
+        XCTAssertEqual(table["has_y"]?.boolValue, true)
+    }
 }

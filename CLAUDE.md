@@ -210,6 +210,35 @@ When porting functionality from established libraries (matplotlib, seaborn, scip
 - Only the Lua API entry points should be in Lua - no algorithmic code in Lua
 - This ensures modules are available to Swift applications directly, not just via Lua
 
+### Second Principle: Cross-Library Module Interactions
+
+When Swift modules within LuaSwift interact with each other (or with future extracted Swift libraries), the following principles apply:
+
+**Invisible to Lua API:**
+- Cross Swift library/module interactions are implementation details invisible to Lua scripts
+- Lua code sees only the public API of each module; internal Swift-to-Swift communication is transparent
+- Example: PlotModule may use ArrayModule internally for data handling, but Lua scripts interact with each independently
+
+**Optional Dependencies:**
+- Cross-module functionality creates optional dependencies
+- If a dependent module is not compiled/available, related functionality is gracefully unavailable
+- Modules must handle missing dependencies without crashing (check availability, provide meaningful errors)
+- Example: If PlotModule is compiled without ArrayModule, array-based plotting features are unavailable
+
+**Deferring Complex API Elements:**
+- API elements that are unnecessarily complex for a Lua library context can be deferred
+- Create tasks in task-master under the `Swift-API` tag for:
+  - Features that make sense only for Swift consumers
+  - Advanced features requiring complex type systems not expressible in Lua
+  - Performance optimizations that add API complexity
+- The Lua API remains clean and approachable; Swift API can be richer
+
+**Practical Implications:**
+1. Design modules with clear boundaries for optional features
+2. Use Swift's `#if` or runtime checks for optional module availability
+3. Document which features require which module combinations
+4. Keep the Lua API surface minimal and idiomatic
+
 ### Swift-Backed Module Replacements
 
 When replacing a pure Lua module with a Swift-backed module, it **must be a complete drop-in replacement**:

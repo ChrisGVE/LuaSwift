@@ -150,6 +150,14 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_diag", callback: diagCallback)
         engine.registerFunction(name: "_luaswift_array_outer", callback: outerCallback)
 
+        // Register creation functions (Phase 3.1)
+        engine.registerFunction(name: "_luaswift_array_eye", callback: eyeCallback)
+        engine.registerFunction(name: "_luaswift_array_identity", callback: identityCallback)
+        engine.registerFunction(name: "_luaswift_array_empty", callback: emptyCallback)
+        engine.registerFunction(name: "_luaswift_array_zeros_like", callback: zerosLikeCallback)
+        engine.registerFunction(name: "_luaswift_array_ones_like", callback: onesLikeCallback)
+        engine.registerFunction(name: "_luaswift_array_full_like", callback: fullLikeCallback)
+
         // Register serialization
         engine.registerFunction(name: "_luaswift_array_tolist", callback: toListCallback)
         engine.registerFunction(name: "_luaswift_array_copy", callback: copyCallback)
@@ -260,6 +268,12 @@ public struct ArrayModule {
                 local _diagonal = _luaswift_array_diagonal
                 local _diag = _luaswift_array_diag
                 local _outer = _luaswift_array_outer
+                local _eye = _luaswift_array_eye
+                local _identity = _luaswift_array_identity
+                local _empty = _luaswift_array_empty
+                local _zeros_like = _luaswift_array_zeros_like
+                local _ones_like = _luaswift_array_ones_like
+                local _full_like = _luaswift_array_full_like
                 local _tolist = _luaswift_array_tolist
                 local _copy = _luaswift_array_copy
                 local _dot = _luaswift_array_dot
@@ -832,6 +846,29 @@ public struct ArrayModule {
                         local result = _dot(a_data, b_data)
                         if type(result) == "number" then return result end
                         return luaswift.array._wrap(result)
+                    end,
+
+                    -- Creation functions (Phase 3.1)
+                    eye = function(n, m, k)
+                        return luaswift.array._wrap(_eye(n, m, k))
+                    end,
+                    identity = function(n)
+                        return luaswift.array._wrap(_identity(n))
+                    end,
+                    empty = function(shape)
+                        return luaswift.array._wrap(_empty(shape))
+                    end,
+                    zeros_like = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_zeros_like(data))
+                    end,
+                    ones_like = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_ones_like(data))
+                    end,
+                    full_like = function(a, fill_value)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_full_like(data, fill_value))
                     end,
 
                     -- Linear algebra
@@ -3488,6 +3525,109 @@ public struct ArrayModule {
         }
 
         return createArrayTable(ArrayData(shape: [m, n], data: result))
+    }
+
+    // MARK: - Creation Functions (Phase 3.1)
+
+    private static func eyeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1, let n = args[0].intValue else {
+            throw LuaError.callbackError("array.eye: requires n (number of rows)")
+        }
+
+        let m = args.count > 1 ? (args[1].intValue ?? n) : n
+        let k = args.count > 2 ? (args[2].intValue ?? 0) : 0
+
+        var data = [Double](repeating: 0, count: n * m)
+
+        let diagLen = min(n, m)
+        for i in 0..<diagLen {
+            let row = i
+            let col = i + k
+            if col >= 0 && col < m && row >= 0 && row < n {
+                data[row * m + col] = 1.0
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: [n, m], data: data))
+    }
+
+    private static func identityCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1, let n = args[0].intValue else {
+            throw LuaError.callbackError("array.identity: requires n (size)")
+        }
+
+        var data = [Double](repeating: 0, count: n * n)
+        for i in 0..<n {
+            data[i * n + i] = 1.0
+        }
+
+        return createArrayTable(ArrayData(shape: [n, n], data: data))
+    }
+
+    private static func emptyCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.empty: requires shape argument")
+        }
+
+        var shape: [Int] = []
+        if let arr = arg.arrayValue {
+            shape = arr.compactMap { $0.intValue }
+        } else if let tbl = arg.tableValue {
+            var i = 1
+            while let dim = tbl[String(i)]?.intValue {
+                shape.append(dim)
+                i += 1
+            }
+        } else if let n = arg.intValue {
+            shape = [n]
+        }
+
+        guard !shape.isEmpty else {
+            throw LuaError.callbackError("array.empty: invalid shape")
+        }
+
+        let size = shape.reduce(1, *)
+        // In our implementation, empty is the same as zeros (no uninitialized memory)
+        let data = [Double](repeating: 0, count: size)
+
+        return createArrayTable(ArrayData(shape: shape, data: data))
+    }
+
+    private static func zerosLikeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.zeros_like: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let data = [Double](repeating: 0, count: arrayData.size)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: data))
+    }
+
+    private static func onesLikeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.ones_like: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let data = [Double](repeating: 1, count: arrayData.size)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: data))
+    }
+
+    private static func fullLikeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.full_like: requires array and fill_value arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        guard let fillValue = args[1].numberValue else {
+            throw LuaError.callbackError("array.full_like: fill_value must be a number")
+        }
+
+        let data = [Double](repeating: fillValue, count: arrayData.size)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: data))
     }
 
     // MARK: - Utility Functions

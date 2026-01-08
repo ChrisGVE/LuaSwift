@@ -1757,6 +1757,87 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, 69, accuracy: 1e-10)
     }
 
+    // MARK: - Phase 3.1 Creation Functions
+
+    func testEye() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.eye(3)
+            return a:get(1,1) + a:get(2,2) + a:get(3,3) + a:get(1,2)
+            """)
+        // 1 + 1 + 1 + 0 = 3
+        XCTAssertEqual(result.numberValue!, 3, accuracy: 1e-10)
+    }
+
+    func testEyeRectangular() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.eye(2, 3)
+            local shape = a:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        // 2x3 matrix
+        XCTAssertEqual(result.numberValue, 23)
+    }
+
+    func testEyeOffset() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.eye(3, 3, 1)
+            return a:get(1,2) + a:get(2,3)
+            """)
+        // Offset 1 puts 1s on super-diagonal: 1 + 1 = 2
+        XCTAssertEqual(result.numberValue!, 2, accuracy: 1e-10)
+    }
+
+    func testIdentity() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.identity(4)
+            return a:get(1,1) + a:get(2,2) + a:get(3,3) + a:get(4,4)
+            """)
+        // Sum of diagonal = 4
+        XCTAssertEqual(result.numberValue!, 4, accuracy: 1e-10)
+    }
+
+    func testEmpty() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.empty({2, 3})
+            local shape = a:shape()
+            return shape[1] * 10 + shape[2]
+            """)
+        // 2x3 shape
+        XCTAssertEqual(result.numberValue, 23)
+    }
+
+    func testZerosLike() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}})
+            local b = luaswift.array.zeros_like(a)
+            local shape = b:shape()
+            local sum = b:sum()
+            return shape[1] * 100 + shape[2] * 10 + sum
+            """)
+        // Shape 2x3, sum = 0 → 200 + 30 + 0 = 230
+        XCTAssertEqual(result.numberValue!, 230, accuracy: 1e-10)
+    }
+
+    func testOnesLike() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}})
+            local b = luaswift.array.ones_like(a)
+            return b:sum()
+            """)
+        // 2x3 = 6 elements, all 1s → sum = 6
+        XCTAssertEqual(result.numberValue!, 6, accuracy: 1e-10)
+    }
+
+    func testFullLike() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.full_like(a, 7)
+            return b:sum()
+            """)
+        // 2x2 = 4 elements, all 7s → sum = 28
+        XCTAssertEqual(result.numberValue!, 28, accuracy: 1e-10)
+    }
+
 }
 
 // MARK: - Test DataServer for Array Integration

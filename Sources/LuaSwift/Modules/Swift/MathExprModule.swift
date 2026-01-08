@@ -124,7 +124,7 @@ public struct MathExprModule {
             }
 
             // Operators
-            if "+-*/^".contains(char) {
+            if "+-*/^=".contains(char) {
                 tokens.append(.operator(String(char)))
                 index = expression.index(after: index)
                 continue
@@ -583,6 +583,504 @@ public struct MathExprModule {
         end
     end
 
+    -- Find all variables in an AST
+    local function find_variables(ast, result)
+        result = result or {}
+        if ast.type == "variable" then
+            result[ast.name] = true
+        elseif ast.type == "binop" then
+            find_variables(ast.left, result)
+            find_variables(ast.right, result)
+        elseif ast.type == "call" then
+            for _, arg in ipairs(ast.args) do
+                find_variables(arg, result)
+            end
+        end
+        return result
+    end
+
+    -- Find unknowns (variables not in the provided bindings)
+    local function find_unknowns(ast, vars)
+        local all_vars = find_variables(ast)
+        local unknowns = {}
+        for name, _ in pairs(all_vars) do
+            if vars[name] == nil then
+                table.insert(unknowns, name)
+            end
+        end
+        return unknowns
+    end
+
+    -- Check if expression is linear in a variable
+    local function is_linear_in(ast, var_name)
+        if ast.type == "number" or ast.type == "constant" then
+            return true
+        elseif ast.type == "variable" then
+            return true  -- x is linear in x
+        elseif ast.type == "binop" then
+            if ast.op == "+" or ast.op == "-" then
+                return is_linear_in(ast.left, var_name) and is_linear_in(ast.right, var_name)
+            elseif ast.op == "*" or ast.op == "/" then
+                local left_vars = find_variables(ast.left)
+                local right_vars = find_variables(ast.right)
+                -- Linear if variable appears in only one side (not both)
+                if left_vars[var_name] and right_vars[var_name] then
+                    return false  -- x * x is not linear
+                end
+                return is_linear_in(ast.left, var_name) and is_linear_in(ast.right, var_name)
+            elseif ast.op == "^" then
+                -- x^2 is not linear, but x^1 is, and 2^x is not linear in x for solving
+                local left_vars = find_variables(ast.left)
+                local right_vars = find_variables(ast.right)
+                if left_vars[var_name] or right_vars[var_name] then
+                    -- If variable appears in base or exponent of power, not simple linear
+                    return false
+                end
+                return true
+            end
+        elseif ast.type == "call" then
+            -- Function calls with variable are generally non-linear
+            local arg_vars = {}
+            for _, arg in ipairs(ast.args) do
+                local vars_in_arg = find_variables(arg)
+                for k, v in pairs(vars_in_arg) do
+                    arg_vars[k] = true
+                end
+            end
+            if arg_vars[var_name] then
+                return false
+            end
+            return true
+        end
+        return true
+    end
+
+    -- Extract coefficient of variable and constant term from linear expression
+    -- Returns coef, const such that expr = coef * var + const
+    local function extract_linear_coefficients(ast, var_name, vars)
+        if ast.type == "number" then
+            return 0, ast.value
+        elseif ast.type == "constant" then
+            return 0, mathexpr.constants[ast.name]
+        elseif ast.type == "variable" then
+            if ast.name == var_name then
+                return 1, 0
+            else
+                local val = vars[ast.name]
+                if val == nil then
+                    error("undefined variable: " .. ast.name)
+                end
+                return 0, val
+            end
+        elseif ast.type == "binop" then
+            local left_coef, left_const = extract_linear_coefficients(ast.left, var_name, vars)
+            local right_coef, right_const = extract_linear_coefficients(ast.right, var_name, vars)
+
+            if ast.op == "+" then
+                return left_coef + right_coef, left_const + right_const
+            elseif ast.op == "-" then
+                return left_coef - right_coef, left_const - right_const
+            elseif ast.op == "*" then
+                -- (a*x + b) * (c*x + d) = ac*x^2 + (ad+bc)*x + bd
+                -- For linear, one of them must have coef = 0
+                if left_coef == 0 then
+                    return left_const * right_coef, left_const * right_const
+                elseif right_coef == 0 then
+                    return right_const * left_coef, left_const * right_const
+                else
+                    error("non-linear term in multiplication")
+                end
+            elseif ast.op == "/" then
+                -- (a*x + b) / c where c has no x
+                if right_coef ~= 0 then
+                    error("cannot divide by expression containing variable")
+                end
+                return left_coef / right_const, left_const / right_const
+            end
+        elseif ast.type == "call" then
+            -- For function calls, evaluate the result (which should be constant)
+            local func = mathexpr.functions[ast.name]
+            if not func then error("unknown function: " .. ast.name) end
+            local arg_vals = {}
+            for _, arg in ipairs(ast.args) do
+                table.insert(arg_vals, mathexpr.eval_ast(arg, vars))
+            end
+            local u = table.unpack or unpack
+            return 0, func(u(arg_vals))
+        end
+        return 0, 0
+    end
+
+    -- Solve linear equation: left = right for var_name
+    local function solve_linear(left_ast, right_ast, var_name, vars)
+        local left_coef, left_const = extract_linear_coefficients(left_ast, var_name, vars)
+        local right_coef, right_const = extract_linear_coefficients(right_ast, var_name, vars)
+
+        -- left_coef * x + left_const = right_coef * x + right_const
+        -- (left_coef - right_coef) * x = right_const - left_const
+        local coef = left_coef - right_coef
+        local const = right_const - left_const
+
+        if math.abs(coef) < 1e-15 then
+            if math.abs(const) < 1e-15 then
+                return nil, "infinite solutions (identity)"
+            else
+                return nil, "no solution (contradiction)"
+            end
+        end
+
+        return const / coef
+    end
+
+    -- Numerical solver using Newton-Raphson method
+    local function solve_numerical(left_ast, right_ast, var_name, vars, options)
+        options = options or {}
+        local x0 = options.initial_guess or 1
+        local tolerance = options.tolerance or 1e-10
+        local max_iterations = options.max_iterations or 100
+        local h = 1e-8  -- For numerical derivative
+
+        -- Define f(x) = left(x) - right(x), we want f(x) = 0
+        local function f(x)
+            local v = {}
+            for k, val in pairs(vars) do v[k] = val end
+            v[var_name] = x
+            local left_val = mathexpr.eval_ast(left_ast, v)
+            local right_val = mathexpr.eval_ast(right_ast, v)
+            return left_val - right_val
+        end
+
+        -- Numerical derivative
+        local function df(x)
+            return (f(x + h) - f(x - h)) / (2 * h)
+        end
+
+        local x = x0
+        for i = 1, max_iterations do
+            local fx = f(x)
+            if math.abs(fx) < tolerance then
+                return x
+            end
+            local dfx = df(x)
+            if math.abs(dfx) < 1e-15 then
+                -- Try a different starting point
+                x = x + 1
+            else
+                x = x - fx / dfx
+            end
+        end
+
+        -- Return best estimate even if not converged
+        return x, "may not have converged"
+    end
+
+    -- Parse equation string into left and right ASTs
+    local function parse_equation(eq_str)
+        -- Find the = sign
+        local eq_pos = eq_str:find("=")
+        if not eq_pos then
+            return nil, nil, "not an equation (no = sign)"
+        end
+
+        local left_str = eq_str:sub(1, eq_pos - 1)
+        local right_str = eq_str:sub(eq_pos + 1)
+
+        if left_str:match("^%s*$") or right_str:match("^%s*$") then
+            return nil, nil, "empty side in equation"
+        end
+
+        local left_tokens = mathexpr.tokenize(left_str)
+        local right_tokens = mathexpr.tokenize(right_str)
+
+        local left_ast = mathexpr.parse(left_tokens)
+        local right_ast = mathexpr.parse(right_tokens)
+
+        return left_ast, right_ast
+    end
+
+    -- Solve equation for a specific variable
+    function mathexpr.solve_equation(equation, vars, options)
+        vars = vars or {}
+        options = options or {}
+
+        local left_ast, right_ast, err = parse_equation(equation)
+        if err then
+            error("equation parse error: " .. err)
+        end
+
+        -- Find unknowns
+        local left_unknowns = find_unknowns(left_ast, vars)
+        local right_unknowns = find_unknowns(right_ast, vars)
+
+        -- Combine unknowns
+        local unknowns = {}
+        local seen = {}
+        for _, u in ipairs(left_unknowns) do
+            if not seen[u] then
+                table.insert(unknowns, u)
+                seen[u] = true
+            end
+        end
+        for _, u in ipairs(right_unknowns) do
+            if not seen[u] then
+                table.insert(unknowns, u)
+                seen[u] = true
+            end
+        end
+
+        -- If solve_for is specified, use that
+        local solve_for = options.solve_for
+        if solve_for then
+            if not seen[solve_for] then
+                error("variable '" .. solve_for .. "' not found in equation")
+            end
+            unknowns = {solve_for}
+        end
+
+        if #unknowns == 0 then
+            -- No unknowns, just check if equation is satisfied
+            local left_val = mathexpr.eval_ast(left_ast, vars)
+            local right_val = mathexpr.eval_ast(right_ast, vars)
+            if math.abs(left_val - right_val) < 1e-10 then
+                return {satisfied = true, left = left_val, right = right_val}
+            else
+                return {satisfied = false, left = left_val, right = right_val}
+            end
+        end
+
+        if #unknowns > 1 then
+            error("equation has multiple unknowns: " .. table.concat(unknowns, ", ") .. ". Specify solve_for or provide values for all but one.")
+        end
+
+        local var_name = unknowns[1]
+
+        -- Try analytical solution for linear equations
+        local is_left_linear = is_linear_in(left_ast, var_name)
+        local is_right_linear = is_linear_in(right_ast, var_name)
+
+        if is_left_linear and is_right_linear then
+            local result, msg = solve_linear(left_ast, right_ast, var_name, vars)
+            if result then
+                return {[var_name] = result}
+            else
+                return {error = msg}
+            end
+        end
+
+        -- Fall back to numerical solver
+        local result, msg = solve_numerical(left_ast, right_ast, var_name, vars, options)
+        local solution = {[var_name] = result}
+        if msg then
+            solution.warning = msg
+        end
+        return solution
+    end
+
+    -- Extract coefficients for two variables from a linear expression
+    -- Returns coef_x, coef_y, constant such that expr = coef_x * var1 + coef_y * var2 + constant
+    local function extract_2var_coefficients(ast, var1, var2, vars)
+        if ast.type == "number" then
+            return 0, 0, ast.value
+        elseif ast.type == "constant" then
+            return 0, 0, mathexpr.constants[ast.name]
+        elseif ast.type == "variable" then
+            if ast.name == var1 then
+                return 1, 0, 0
+            elseif ast.name == var2 then
+                return 0, 1, 0
+            else
+                local val = vars[ast.name]
+                if val == nil then
+                    error("undefined variable: " .. ast.name)
+                end
+                return 0, 0, val
+            end
+        elseif ast.type == "binop" then
+            local lx, ly, lc = extract_2var_coefficients(ast.left, var1, var2, vars)
+            local rx, ry, rc = extract_2var_coefficients(ast.right, var1, var2, vars)
+
+            if ast.op == "+" then
+                return lx + rx, ly + ry, lc + rc
+            elseif ast.op == "-" then
+                return lx - rx, ly - ry, lc - rc
+            elseif ast.op == "*" then
+                -- (ax + by + c) * (dx + ey + f)
+                -- For linear, at most one of the sides can have non-zero coefficients
+                if (lx ~= 0 or ly ~= 0) and (rx ~= 0 or ry ~= 0) then
+                    error("non-linear term in multiplication (product of variables)")
+                end
+                if lx == 0 and ly == 0 then
+                    -- Left is constant, multiply right by left constant
+                    return lc * rx, lc * ry, lc * rc
+                else
+                    -- Right is constant, multiply left by right constant
+                    return rc * lx, rc * ly, lc * rc
+                end
+            elseif ast.op == "/" then
+                -- (ax + by + c) / d where d is constant
+                if rx ~= 0 or ry ~= 0 then
+                    error("cannot divide by expression containing variable")
+                end
+                return lx / rc, ly / rc, lc / rc
+            end
+        elseif ast.type == "call" then
+            -- For function calls, evaluate the result (which should be constant)
+            local func = mathexpr.functions[ast.name]
+            if not func then error("unknown function: " .. ast.name) end
+            local arg_vals = {}
+            for _, arg in ipairs(ast.args) do
+                table.insert(arg_vals, mathexpr.eval_ast(arg, vars))
+            end
+            local u = table.unpack or unpack
+            return 0, 0, func(u(arg_vals))
+        end
+        return 0, 0, 0
+    end
+
+    -- Solve 2x2 linear system using Cramer's rule
+    -- Equations in form: a1*x + b1*y = c1 and a2*x + b2*y = c2
+    local function solve_2x2_linear(eq1_left, eq1_right, eq2_left, eq2_right, var1, var2, vars)
+        -- Extract coefficients for both equations
+        local l1x, l1y, l1c = extract_2var_coefficients(eq1_left, var1, var2, vars)
+        local r1x, r1y, r1c = extract_2var_coefficients(eq1_right, var1, var2, vars)
+
+        local l2x, l2y, l2c = extract_2var_coefficients(eq2_left, var1, var2, vars)
+        local r2x, r2y, r2c = extract_2var_coefficients(eq2_right, var1, var2, vars)
+
+        -- Rearrange: left = right => left - right = 0
+        -- So: (l_x - r_x)*x + (l_y - r_y)*y + (l_c - r_c) = 0
+        -- Or: coef_x * x + coef_y * y = -constant
+        local coef1_x = l1x - r1x
+        local coef1_y = l1y - r1y
+        local const1 = r1c - l1c  -- moved to right side
+
+        local coef2_x = l2x - r2x
+        local coef2_y = l2y - r2y
+        local const2 = r2c - l2c  -- moved to right side
+
+        -- System: coef1_x * x + coef1_y * y = const1
+        --         coef2_x * x + coef2_y * y = const2
+        -- Using Cramer's rule
+        local det = coef1_x * coef2_y - coef1_y * coef2_x
+
+        if math.abs(det) < 1e-15 then
+            -- System is singular (no unique solution)
+            return nil, "system has no unique solution (singular matrix)"
+        end
+
+        local det_x = const1 * coef2_y - coef1_y * const2
+        local det_y = coef1_x * const2 - const1 * coef2_x
+
+        return det_x / det, det_y / det
+    end
+
+    -- Solve system of equations
+    function mathexpr.solve_system(equations, vars, options)
+        vars = vars or {}
+        options = options or {}
+
+        if type(equations) == "string" then
+            -- Single equation
+            return mathexpr.solve_equation(equations, vars, options)
+        end
+
+        if #equations == 1 then
+            return mathexpr.solve_equation(equations[1], vars, options)
+        end
+
+        -- Parse all equations and collect all unknowns
+        local parsed_eqs = {}
+        local all_unknowns = {}
+        local seen_unknowns = {}
+
+        for i, eq in ipairs(equations) do
+            local left_ast, right_ast, err = parse_equation(eq)
+            if err then
+                error("equation " .. i .. " parse error: " .. err)
+            end
+            parsed_eqs[i] = {left = left_ast, right = right_ast}
+
+            -- Find unknowns in this equation
+            local eq_unknowns = find_unknowns(left_ast, vars)
+            for _, u in ipairs(find_unknowns(right_ast, vars)) do
+                local found = false
+                for _, existing in ipairs(eq_unknowns) do
+                    if existing == u then found = true; break end
+                end
+                if not found then
+                    table.insert(eq_unknowns, u)
+                end
+            end
+
+            for _, u in ipairs(eq_unknowns) do
+                if not seen_unknowns[u] then
+                    table.insert(all_unknowns, u)
+                    seen_unknowns[u] = true
+                end
+            end
+        end
+
+        -- Special case: 2 equations, 2 unknowns - use direct linear solver
+        if #equations == 2 and #all_unknowns == 2 then
+            local var1, var2 = all_unknowns[1], all_unknowns[2]
+            local eq1, eq2 = parsed_eqs[1], parsed_eqs[2]
+
+            -- Check if both equations are linear in both variables
+            local is_eq1_linear = is_linear_in(eq1.left, var1) and is_linear_in(eq1.right, var1) and
+                                  is_linear_in(eq1.left, var2) and is_linear_in(eq1.right, var2)
+            local is_eq2_linear = is_linear_in(eq2.left, var1) and is_linear_in(eq2.right, var1) and
+                                  is_linear_in(eq2.left, var2) and is_linear_in(eq2.right, var2)
+
+            if is_eq1_linear and is_eq2_linear then
+                local x_val, y_val = solve_2x2_linear(eq1.left, eq1.right, eq2.left, eq2.right, var1, var2, vars)
+                if x_val then
+                    return {[var1] = x_val, [var2] = y_val}
+                else
+                    return {error = y_val}  -- y_val contains error message
+                end
+            end
+        end
+
+        -- Fall back to iterative substitution approach
+        local solutions = {}
+        local current_vars = {}
+        for k, v in pairs(vars) do current_vars[k] = v end
+
+        for i, eq in ipairs(equations) do
+            -- Try to solve this equation with current known values
+            local ok, result = pcall(function()
+                return mathexpr.solve_equation(equations[i], current_vars, options)
+            end)
+
+            if ok then
+                if result.error then
+                    return result
+                end
+                if result.satisfied ~= nil then
+                    -- Skip equations that are already satisfied
+                else
+                    for k, v in pairs(result) do
+                        if k ~= "warning" then
+                            solutions[k] = v
+                            current_vars[k] = v
+                        end
+                    end
+                end
+            else
+                -- Equation couldn't be solved yet, might need more variables
+                -- Continue and try later equations
+            end
+        end
+
+        -- If we have solutions, return them
+        if next(solutions) then
+            return solutions
+        end
+
+        -- If we couldn't solve any equations, report error
+        error("system could not be solved with available methods")
+    end
+
     -- Evaluate AST with step tracking
     local function eval_with_steps(ast, vars, steps, config)
         vars = vars or {}
@@ -650,9 +1148,87 @@ public struct MathExprModule {
         end
     end
 
-    -- Solve expression with step-by-step evaluation
-    function mathexpr.solve(expr, options)
-        options = options or {}
+    -- Reserved option keys (not to be confused with variable names)
+    local reserved_options = {
+        show_steps = true,
+        variables = true,
+        combineArithmetic = true,
+        showIntermediates = true,
+        significantDigits = true,
+        solve_for = true,
+        initial_guess = true,
+        tolerance = true,
+        max_iterations = true
+    }
+
+    -- Check if a table is a variables table (has no reserved option keys)
+    local function is_variables_table(t)
+        if type(t) ~= "table" then return false end
+        for k, _ in pairs(t) do
+            if reserved_options[k] then
+                return false
+            end
+        end
+        return true
+    end
+
+    -- Solve expression with step-by-step evaluation or solve equation for unknowns
+    -- API:
+    --   solve(expr) - evaluate expression or solve single equation
+    --   solve(expr, vars) - with variable bindings
+    --   solve(expr, vars, options) - with options like initial_guess, solve_for
+    --   solve({eq1, eq2, ...}) - solve system of equations
+    --   solve({eq1, eq2, ...}, vars) - system with known variables
+    --   solve({eq1, eq2, ...}, vars, options) - system with options
+    function mathexpr.solve(input, arg2, arg3)
+        -- Case 1: Array of equations -> solve system
+        if type(input) == "table" then
+            local vars = arg2 or {}
+            local options = arg3 or {}
+            return mathexpr.solve_system(input, vars, options)
+        end
+
+        local expr = input
+
+        -- Case 2: Equation (contains =)
+        if expr:find("=") then
+            local vars, options
+
+            if arg3 then
+                -- Three-argument form: solve(equation, variables, options)
+                vars = arg2 or {}
+                options = arg3
+            elseif arg2 then
+                -- Two-argument form: determine if arg2 is vars or options
+                if is_variables_table(arg2) then
+                    -- arg2 is variables (no reserved keys found)
+                    vars = arg2
+                    options = {}
+                elseif arg2.variables then
+                    -- arg2 is options with embedded variables
+                    vars = arg2.variables
+                    options = arg2
+                else
+                    -- arg2 is options, extract numeric values as vars but exclude reserved
+                    vars = {}
+                    for k, v in pairs(arg2) do
+                        if type(v) == "number" and not reserved_options[k] then
+                            vars[k] = v
+                        end
+                    end
+                    options = arg2
+                end
+            else
+                vars = {}
+                options = {}
+            end
+
+            return mathexpr.solve_equation(expr, vars, options)
+        end
+
+        -- Case 3: Expression evaluation (original behavior)
+        -- For backward compatibility, arg2 is options
+        local options = arg2 or {}
         local show_steps = options.show_steps
         local vars = options.variables or {}
         local config = {

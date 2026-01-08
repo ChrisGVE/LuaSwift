@@ -798,4 +798,314 @@ final class MathExprModuleTests: XCTestCase {
         XCTAssertEqual(table["mul_subexpr"]?.stringValue, "2 * 3")
         XCTAssertEqual(table["add_subexpr"]?.stringValue, "6 + 4")
     }
+
+    // MARK: - Equation Solving Tests
+
+    func testSolveLinearEquation() throws {
+        // solve("2*x + 3 = 7") should find x = 2
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("2*x + 3 = 7")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 2, accuracy: 1e-10)
+    }
+
+    func testSolveLinearEquationNegativeSolution() throws {
+        // solve("3*x + 9 = 0") should find x = -3
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("3*x + 9 = 0")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, -3, accuracy: 1e-10)
+    }
+
+    func testSolveEquationWithKnownVariables() throws {
+        // solve("a*x + b = c", {a = 2, b = 3, c = 7}) should find x = 2
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("a*x + b = c", {a = 2, b = 3, c = 7})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 2, accuracy: 1e-10)
+    }
+
+    func testSolveEquationVariablesAsSecondArg() throws {
+        // Clean API: solve("x + y = 10", {y = 3}) should find x = 7
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("x + y = 10", {y = 3})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 7, accuracy: 1e-10)
+    }
+
+    func testSolveEquationVariableOnRightSide() throws {
+        // solve("10 = x + 3") should find x = 7
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("10 = x + 3")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 7, accuracy: 1e-10)
+    }
+
+    func testSolveEquationVariableBothSides() throws {
+        // solve("2*x + 5 = x + 10") should find x = 5
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("2*x + 5 = x + 10")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 5, accuracy: 1e-10)
+    }
+
+    func testSolveQuadraticEquation() throws {
+        // solve("x^2 = 4") should find x = 2 (or -2, depending on initial guess)
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("x^2 = 4", nil, {initial_guess = 1})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 2, accuracy: 1e-6)
+    }
+
+    func testSolveQuadraticEquationNegativeRoot() throws {
+        // solve("x^2 = 4", nil, {initial_guess = -1}) should find x = -2
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("x^2 = 4", nil, {initial_guess = -1})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, -2, accuracy: 1e-6)
+    }
+
+    func testSolveTrigEquation() throws {
+        // solve("sin(x) = 0.5") should find x = pi/6 ~ 0.5236 (with appropriate initial guess)
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("sin(x) = 0.5", nil, {initial_guess = 0.5})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, Double.pi / 6, accuracy: 1e-6)
+    }
+
+    func testSolveEquationWithFunctions() throws {
+        // solve("sqrt(x) = 3") should find x = 9
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("sqrt(x) = 3", nil, {initial_guess = 5})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 9, accuracy: 1e-6)
+    }
+
+    func testSolveSystemTwoEquations() throws {
+        // solve({"x + y = 5", "x - y = 1"}) should find x = 3, y = 2
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve({"x + y = 5", "x - y = 1"})
+            return {x = solution.x, y = solution.y}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["x"]?.numberValue ?? 0, 3, accuracy: 1e-10)
+        XCTAssertEqual(table["y"]?.numberValue ?? 0, 2, accuracy: 1e-10)
+    }
+
+    func testSolveSystemWithKnownVariable() throws {
+        // solve({"x + y + z = 10", "x - y = 2"}, {z = 1}) should find x, y given z = 1
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve({"x + y + z = 10", "x - y = 2"}, {z = 1})
+            return {x = solution.x, y = solution.y}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        // x + y + 1 = 10 => x + y = 9
+        // x - y = 2
+        // Adding: 2x = 11 => x = 5.5, y = 3.5
+        XCTAssertEqual(table["x"]?.numberValue ?? 0, 5.5, accuracy: 1e-10)
+        XCTAssertEqual(table["y"]?.numberValue ?? 0, 3.5, accuracy: 1e-10)
+    }
+
+    func testSolveVerifyEquation() throws {
+        // When no unknowns, solve should verify the equation
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local result = mathexpr.solve("2 + 3 = 5")
+            return result.satisfied
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSolveVerifyEquationFalse() throws {
+        // When no unknowns and equation is false
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local result = mathexpr.solve("2 + 3 = 6")
+            return result.satisfied
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testSolveWithSolveForOption() throws {
+        // solve_for option to specify which variable to solve for
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("a*x + b = 0", {x = 2, b = 4}, {solve_for = "a"})
+            return solution.a
+        """)
+
+        // 2a + 4 = 0 => a = -2
+        XCTAssertEqual(result.numberValue ?? 0, -2, accuracy: 1e-10)
+    }
+
+    func testSolveWithDivision() throws {
+        // solve("x/2 = 5") should find x = 10
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("x/2 = 5")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 10, accuracy: 1e-10)
+    }
+
+    func testSolveWithMultiplication() throws {
+        // solve("3*x = 15") should find x = 5
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("3*x = 15")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 5, accuracy: 1e-10)
+    }
+
+    func testSolveWithConstants() throws {
+        // solve("x = 2*pi") should find x = 2*pi
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("x = 2*pi")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 2 * Double.pi, accuracy: 1e-10)
+    }
+
+    func testSolveEquationNoSolution() throws {
+        // solve("0*x = 5") has no solution (contradiction)
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("0*x = 5")
+            return solution.error or "no error"
+        """)
+
+        XCTAssertEqual(result.stringValue, "no solution (contradiction)")
+    }
+
+    func testSolveEquationInfiniteSolutions() throws {
+        // solve("0*x = 0") has infinite solutions (identity)
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("0*x = 0")
+            return solution.error or "no error"
+        """)
+
+        XCTAssertEqual(result.stringValue, "infinite solutions (identity)")
+    }
+
+    func testSolveMultipleUnknownsError() throws {
+        // solve("x + y = 5") with two unknowns should error
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local ok, err = pcall(function()
+                return mathexpr.solve("x + y = 5")
+            end)
+            if ok then
+                return "no error"
+            else
+                return err:match("multiple unknowns") ~= nil
+            end
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testSolveReservedOptionsNotTreatedAsVariables() throws {
+        // Ensure initial_guess is not treated as a variable named "initial_guess"
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("x^2 = 9", {initial_guess = 2})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 3, accuracy: 1e-6)
+    }
+
+    func testSolveComplexLinearExpression() throws {
+        // solve("2*(x + 3) - 4 = x + 5") => 2x + 6 - 4 = x + 5 => 2x + 2 = x + 5 => x = 3
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("2*(x + 3) - 4 = x + 5")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 3, accuracy: 1e-10)
+    }
+
+    func testSolveWithNegativeCoefficient() throws {
+        // solve("-x + 5 = 2") should find x = 3
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("-x + 5 = 2")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 3, accuracy: 1e-10)
+    }
+
+    func testSolveExponentialEquation() throws {
+        // solve("exp(x) = e") should find x = 1
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("exp(x) = e", nil, {initial_guess = 0.5})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 1, accuracy: 1e-6)
+    }
+
+    func testSolveLogarithmicEquation() throws {
+        // solve("log(x) = 0") should find x = 1
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local solution = mathexpr.solve("log(x) = 0", nil, {initial_guess = 0.5})
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 1, accuracy: 1e-6)
+    }
 }

@@ -21,13 +21,13 @@ import Foundation
 /// local mathexpr = require("luaswift.mathexpr")
 ///
 /// -- Tokenize an expression
-/// local tokens = mathexpr.tokenize("sin(x) + 2*pi")
+/// local tokens = eval.tokenize("sin(x) + 2*pi")
 ///
 /// -- Evaluate with variables
-/// local result = mathexpr.eval("x^2 + 2*x + 1", {x = 3})  -- 16
+/// local result = eval.eval("x^2 + 2*x + 1", {x = 3})  -- 16
 ///
 /// -- Create a function from expression
-/// local f = mathexpr.compile("sin(x)")
+/// local f = eval.compile("sin(x)")
 /// print(f(0))        -- 0
 /// print(f(math.pi))  -- ~0
 /// ```
@@ -274,30 +274,36 @@ public struct MathExprModule {
 
     private static let tokenizeCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard let expression = args.first?.stringValue else {
-            throw LuaError.callbackError("mathexpr.tokenize requires a string argument")
+            throw LuaError.callbackError("eval.tokenize requires a string argument")
         }
 
         do {
             let tokens = try tokenize(expression)
             return .array(tokens.map { tokenToLua($0) })
         } catch let error as MathExprError {
-            throw LuaError.callbackError("mathexpr.tokenize error: \(error.description)")
+            throw LuaError.callbackError("eval.tokenize error: \(error.description)")
         }
     }
 
     // MARK: - Lua Wrapper Code
 
     private static let mathExprLuaWrapper = """
-    -- Create luaswift.mathexpr namespace
+    -- Create math.eval module
     if not luaswift then luaswift = {} end
-    luaswift.mathexpr = {}
-    local mathexpr = luaswift.mathexpr
 
     -- Store reference to Swift tokenize function
     local _tokenize = _luaswift_mathexpr_tokenize
 
+    -- Create the eval module with callable metatable
+    local eval_mt = {
+        __call = function(self, expr, vars)
+            return self._evaluate(expr, vars)
+        end
+    }
+    local eval = setmetatable({}, eval_mt)
+
     -- LaTeX to standard notation preprocessor
-    function mathexpr.latexToStandard(latex)
+    function eval.latexToStandard(latex)
         local expr = latex
 
         -- Handle fractions: \\frac{a}{b} -> (a)/(b)
@@ -362,7 +368,7 @@ public struct MathExprModule {
     end
 
     -- Constants for evaluation
-    mathexpr.constants = {
+    eval.constants = {
         pi = math.pi,
         e = math.exp(1),
         inf = math.huge,
@@ -370,7 +376,7 @@ public struct MathExprModule {
     }
 
     -- Built-in functions for evaluation
-    mathexpr.functions = {
+    eval.functions = {
         -- Trigonometric
         sin = math.sin, cos = math.cos, tan = math.tan,
         asin = math.asin, acos = math.acos, atan = math.atan,
@@ -405,10 +411,10 @@ public struct MathExprModule {
     }
 
     -- Tokenize expression (calls Swift)
-    function mathexpr.tokenize(expr)
+    function eval.tokenize(expr)
         -- Preprocess LaTeX notation if detected
         if isLatex(expr) then
-            expr = mathexpr.latexToStandard(expr)
+            expr = eval.latexToStandard(expr)
         end
         return _tokenize(expr)
     end
@@ -425,7 +431,7 @@ public struct MathExprModule {
     }
 
     -- Parse tokens to AST using shunting-yard algorithm
-    function mathexpr.parse(tokens)
+    function eval.parse(tokens)
         local output = {}
         local operators = {}
         local arg_counts = {}  -- Track argument counts for functions
@@ -506,18 +512,18 @@ public struct MathExprModule {
     end
 
     -- Evaluate an AST node
-    function mathexpr.eval_ast(ast, vars)
+    function eval.eval_ast(ast, vars)
         vars = vars or {}
 
         if ast.type == "number" then
             return ast.value
         elseif ast.type == "constant" then
-            return mathexpr.constants[ast.name]
+            return eval.constants[ast.name]
         elseif ast.type == "variable" then
             return vars[ast.name] or error("undefined variable: " .. ast.name)
         elseif ast.type == "binop" then
-            local left = mathexpr.eval_ast(ast.left, vars)
-            local right = mathexpr.eval_ast(ast.right, vars)
+            local left = eval.eval_ast(ast.left, vars)
+            local right = eval.eval_ast(ast.right, vars)
             if ast.op == "+" then return left + right
             elseif ast.op == "-" then return left - right
             elseif ast.op == "*" then return left * right
@@ -525,11 +531,11 @@ public struct MathExprModule {
             elseif ast.op == "^" then return left ^ right
             end
         elseif ast.type == "call" then
-            local func = mathexpr.functions[ast.name]
+            local func = eval.functions[ast.name]
             if not func then error("unknown function: " .. ast.name) end
             local args = {}
             for _, arg in ipairs(ast.args) do
-                table.insert(args, mathexpr.eval_ast(arg, vars))
+                table.insert(args, eval.eval_ast(arg, vars))
             end
             -- Note: Can't use "table.unpack and table.unpack(args) or unpack(args)"
             -- because and/or truncates multiple return values to just one!
@@ -538,24 +544,422 @@ public struct MathExprModule {
         end
     end
 
-    -- Evaluate expression string with variables
-    function mathexpr.eval(expr, vars)
-        local tokens = mathexpr.tokenize(expr)
-        local ast = mathexpr.parse(tokens)
-        return mathexpr.eval_ast(ast, vars)
+    -- Resolve a single variable value on demand (lazy resolution to avoid infinite recursion)
+    -- resolved_cache stores already-resolved values to avoid re-computation
+    function eval._resolve_value(value, raw_scope, resolved_cache)
+        resolved_cache = resolved_cache or {}
+
+        if type(value) == "number" then
+            return value
+        elseif type(value) == "function" then
+            -- Compiled function, call with resolved scope
+            return value(resolved_cache)
+        elseif type(value) == "string" then
+            -- Expression string, evaluate using lazy resolution
+            local tokens = eval.tokenize(value)
+            local ast = eval.parse(tokens)
+            return eval._eval_ast_lazy(ast, raw_scope, resolved_cache)
+        elseif type(value) == "table" then
+            -- Check for nested tuple: {expr, {vars}}
+            if #value == 2 and type(value[2]) == "table" then
+                local expr_or_fn = value[1]
+                local nested_vars = value[2]
+
+                -- Build local scope by resolving nested vars
+                local local_scope = {}
+                for k, v in pairs(nested_vars) do
+                    local_scope[k] = eval._resolve_value(v, nested_vars, {})
+                end
+
+                -- Evaluate the expression/function with local scope
+                if type(expr_or_fn) == "function" then
+                    return expr_or_fn(local_scope)
+                else
+                    local tokens = eval.tokenize(expr_or_fn)
+                    local ast = eval.parse(tokens)
+                    return eval.eval_ast(ast, local_scope)
+                end
+            end
+            -- Otherwise it's an array for indexed access
+            return value
+        else
+            return value
+        end
     end
 
-    -- Compile expression to a function
-    function mathexpr.compile(expr)
-        local tokens = mathexpr.tokenize(expr)
-        local ast = mathexpr.parse(tokens)
-        return function(vars_or_x)
-            if type(vars_or_x) == "number" then
-                return mathexpr.eval_ast(ast, {x = vars_or_x})
-            else
-                return mathexpr.eval_ast(ast, vars_or_x or {})
+    -- Evaluate AST with lazy variable resolution (to handle expression-valued variables)
+    function eval._eval_ast_lazy(ast, raw_scope, resolved_cache)
+        resolved_cache = resolved_cache or {}
+
+        if ast.type == "number" then
+            return ast.value
+        elseif ast.type == "constant" then
+            return eval.constants[ast.name]
+        elseif ast.type == "variable" then
+            local name = ast.name
+            -- Check if already resolved
+            if resolved_cache[name] ~= nil then
+                return resolved_cache[name]
+            end
+            -- Get raw value and resolve it
+            local raw_value = raw_scope[name]
+            if raw_value == nil then
+                error("undefined variable: " .. name)
+            end
+            -- Resolve and cache
+            local resolved = eval._resolve_value(raw_value, raw_scope, resolved_cache)
+            resolved_cache[name] = resolved
+            return resolved
+        elseif ast.type == "binop" then
+            local left = eval._eval_ast_lazy(ast.left, raw_scope, resolved_cache)
+            local right = eval._eval_ast_lazy(ast.right, raw_scope, resolved_cache)
+            if ast.op == "+" then return left + right
+            elseif ast.op == "-" then return left - right
+            elseif ast.op == "*" then return left * right
+            elseif ast.op == "/" then return left / right
+            elseif ast.op == "^" then return left ^ right
+            end
+        elseif ast.type == "call" then
+            local func = eval.functions[ast.name]
+            if not func then error("unknown function: " .. ast.name) end
+            local args = {}
+            for _, arg in ipairs(ast.args) do
+                table.insert(args, eval._eval_ast_lazy(arg, raw_scope, resolved_cache))
+            end
+            local u = table.unpack or unpack
+            return func(u(args))
+        end
+    end
+
+    -- Evaluate expression string with variables (supports nested scoping)
+    function eval._evaluate(expr, vars)
+        vars = vars or {}
+
+        -- Use lazy evaluation to handle expression-valued variables
+        local tokens = eval.tokenize(expr)
+        local ast = eval.parse(tokens)
+        return eval._eval_ast_lazy(ast, vars, {})
+    end
+
+    -- Alias for backward compatibility
+    eval.eval = eval._evaluate
+
+    -- Function mapping for codegen: expression function name -> Lua code
+    local codegen_functions = {
+        -- Standard math functions (direct mapping)
+        sin = "math.sin", cos = "math.cos", tan = "math.tan",
+        asin = "math.asin", acos = "math.acos", atan = "math.atan",
+        atan2 = "math.atan2 or function(y,x) return math.atan(y,x) end",
+        exp = "math.exp", log = "math.log", log10 = "math.log10",
+        sqrt = "math.sqrt", abs = "math.abs",
+        floor = "math.floor", ceil = "math.ceil",
+        min = "math.min", max = "math.max",
+        rad = "math.rad", deg = "math.deg",
+        -- Aliases
+        ln = "math.log",
+        -- Functions needing custom implementation in generated code
+        sinh = "_sinh", cosh = "_cosh", tanh = "_tanh",
+        asinh = "_asinh", acosh = "_acosh", atanh = "_atanh",
+        log2 = "_log2", cbrt = "_cbrt", sign = "_sign",
+        round = "_round", trunc = "_trunc",
+        clamp = "_clamp", lerp = "_lerp", pow = "_pow"
+    }
+
+    -- Valid node types for AST validation
+    local valid_node_types = {
+        number = true, constant = true, variable = true,
+        binop = true, call = true, unary = true
+    }
+
+    local valid_operators = {
+        ["+"] = true, ["-"] = true, ["*"] = true,
+        ["/"] = true, ["^"] = true
+    }
+
+    local valid_constants = {
+        pi = true, e = true, inf = true, nan = true
+    }
+
+    -- Valid function names for AST validation
+    local valid_functions = {}
+    for fname, _ in pairs(eval.functions) do
+        valid_functions[fname] = true
+    end
+
+    -- Validate AST for security before codegen
+    function eval._validate_ast(ast)
+        if type(ast) ~= "table" then
+            error("invalid AST: expected table")
+        end
+
+        if not valid_node_types[ast.type] then
+            error("invalid AST: unknown node type: " .. tostring(ast.type))
+        end
+
+        if ast.type == "number" then
+            if type(ast.value) ~= "number" then
+                error("invalid AST: number node missing numeric value")
+            end
+        elseif ast.type == "constant" then
+            if not valid_constants[ast.name] then
+                error("invalid AST: unknown constant: " .. tostring(ast.name))
+            end
+        elseif ast.type == "variable" then
+            if type(ast.name) ~= "string" or not ast.name:match("^[%a_][%w_]*$") then
+                error("invalid AST: invalid variable name")
+            end
+        elseif ast.type == "binop" then
+            if not valid_operators[ast.op] then
+                error("invalid AST: invalid operator: " .. tostring(ast.op))
+            end
+            eval._validate_ast(ast.left)
+            eval._validate_ast(ast.right)
+        elseif ast.type == "unary" then
+            if ast.op ~= "-" then
+                error("invalid AST: invalid unary operator: " .. tostring(ast.op))
+            end
+            eval._validate_ast(ast.operand)
+        elseif ast.type == "call" then
+            if not valid_functions[ast.name] then
+                error("invalid AST: unknown function: " .. tostring(ast.name))
+            end
+            for _, arg in ipairs(ast.args or {}) do
+                eval._validate_ast(arg)
             end
         end
+    end
+
+    -- Convert AST node to Lua code string
+    function eval._ast_to_code(ast)
+        if ast.type == "number" then
+            -- Handle special float values
+            if ast.value ~= ast.value then return "(0/0)"  -- NaN
+            elseif ast.value == math.huge then return "math.huge"
+            elseif ast.value == -math.huge then return "(-math.huge)"
+            else return tostring(ast.value)
+            end
+        elseif ast.type == "constant" then
+            if ast.name == "pi" then return "math.pi"
+            elseif ast.name == "e" then return "math.exp(1)"
+            elseif ast.name == "inf" then return "math.huge"
+            elseif ast.name == "nan" then return "(0/0)"
+            end
+        elseif ast.type == "variable" then
+            return "(v." .. ast.name .. " or error('undefined variable: " .. ast.name .. "'))"
+        elseif ast.type == "binop" then
+            local left = eval._ast_to_code(ast.left)
+            local right = eval._ast_to_code(ast.right)
+            return "(" .. left .. " " .. ast.op .. " " .. right .. ")"
+        elseif ast.type == "unary" then
+            local operand = eval._ast_to_code(ast.operand)
+            return "(" .. ast.op .. operand .. ")"
+        elseif ast.type == "call" then
+            local args = {}
+            for _, arg in ipairs(ast.args) do
+                table.insert(args, eval._ast_to_code(arg))
+            end
+            local fn = codegen_functions[ast.name] or ("math." .. ast.name)
+            return fn .. "(" .. table.concat(args, ", ") .. ")"
+        end
+        error("unknown AST node type: " .. tostring(ast.type))
+    end
+
+    -- Generate Lua code from AST
+    function eval._generate_code(ast)
+        local expr_code = eval._ast_to_code(ast)
+
+        -- Generate function with helper definitions for non-standard functions
+        -- Using string concatenation to avoid multiline string indentation issues
+        local lines = {
+            "return (function()",
+            "    local _sinh = function(x) return (math.exp(x) - math.exp(-x)) / 2 end",
+            "    local _cosh = function(x) return (math.exp(x) + math.exp(-x)) / 2 end",
+            "    local _tanh = function(x) return (math.exp(2*x) - 1) / (math.exp(2*x) + 1) end",
+            "    local _asinh = function(x) return math.log(x + math.sqrt(x*x + 1)) end",
+            "    local _acosh = function(x) return math.log(x + math.sqrt(x*x - 1)) end",
+            "    local _atanh = function(x) return 0.5 * math.log((1 + x) / (1 - x)) end",
+            "    local _log2 = function(x) return math.log(x) / math.log(2) end",
+            "    local _cbrt = function(x) return x >= 0 and x^(1/3) or -((-x)^(1/3)) end",
+            "    local _sign = function(x) return x > 0 and 1 or (x < 0 and -1 or 0) end",
+            "    local _round = function(x) return math.floor(x + 0.5) end",
+            "    local _trunc = function(x) return x >= 0 and math.floor(x) or math.ceil(x) end",
+            "    local _clamp = function(x, lo, hi) return math.min(math.max(x, lo), hi) end",
+            "    local _lerp = function(a, b, t) return a + (b - a) * t end",
+            "    local _pow = function(x, y) return x^y end",
+            "",
+            "    return function(v)",
+            "        v = v or {}",
+            "        return " .. expr_code,
+            "    end",
+            "end)()"
+        }
+        return table.concat(lines, "\\n")
+    end
+
+    -- Compile expression to a native Lua function (codegen)
+    -- Input can be: string expression, tokens array, or AST
+    function eval.compile(input, options)
+        options = options or {}
+        local ast
+
+        if type(input) == "string" then
+            local tokens = eval.tokenize(input)
+            ast = eval.parse(tokens)
+        elseif type(input) == "table" then
+            if input[1] and type(input[1]) == "table" and input[1].type then
+                -- Array of tokens
+                ast = eval.parse(input)
+            elseif input.type then
+                -- Already an AST
+                ast = input
+            else
+                error("compile: invalid input")
+            end
+        else
+            error("compile: expected string, tokens, or AST")
+        end
+
+        -- Validate AST for security
+        eval._validate_ast(ast)
+
+        -- AST-walking function as fallback
+        local function ast_walker(vars_or_x)
+            if type(vars_or_x) == "number" then
+                return eval.eval_ast(ast, {x = vars_or_x})
+            else
+                return eval.eval_ast(ast, vars_or_x or {})
+            end
+        end
+
+        -- Check for non-codegen mode or if load is not available (sandbox)
+        if options.codegen == false or not load then
+            return ast_walker
+        end
+
+        -- Generate Lua code
+        local code = eval._generate_code(ast)
+
+        -- Try to load and return function, fall back to AST-walker on failure
+        local fn, err = load(code, "compiled_expr", "t", {math = math, error = error})
+        if not fn then
+            -- Fall back to AST-walking if code generation fails
+            return ast_walker
+        end
+        return fn()
+    end
+
+    -- Substitute variables in AST with expressions (symbolic, not numeric)
+    function eval.substitute(ast, vars)
+        vars = vars or {}
+
+        if ast.type == "variable" then
+            local replacement = vars[ast.name]
+            if replacement ~= nil then
+                if type(replacement) == "string" then
+                    -- Parse the replacement expression and return its AST
+                    local tokens = eval.tokenize(replacement)
+                    return eval.parse(tokens)
+                elseif type(replacement) == "number" then
+                    -- Convert number to number node
+                    return {type = "number", value = replacement}
+                elseif type(replacement) == "table" and replacement.type then
+                    -- Already an AST node, return a copy
+                    return eval.substitute(replacement, {})
+                end
+            end
+            -- No substitution, return copy of variable node
+            return {type = "variable", name = ast.name}
+
+        elseif ast.type == "number" then
+            return {type = "number", value = ast.value}
+
+        elseif ast.type == "constant" then
+            return {type = "constant", name = ast.name}
+
+        elseif ast.type == "binop" then
+            return {
+                type = "binop",
+                op = ast.op,
+                left = eval.substitute(ast.left, vars),
+                right = eval.substitute(ast.right, vars)
+            }
+
+        elseif ast.type == "unary" then
+            return {
+                type = "unary",
+                op = ast.op,
+                operand = eval.substitute(ast.operand, vars)
+            }
+
+        elseif ast.type == "call" then
+            local new_args = {}
+            for _, arg in ipairs(ast.args or {}) do
+                table.insert(new_args, eval.substitute(arg, vars))
+            end
+            return {type = "call", name = ast.name, args = new_args}
+        end
+
+        error("substitute: unknown AST node type: " .. tostring(ast.type))
+    end
+
+    -- Operator precedence for to_string parenthesization
+    local function op_precedence(op)
+        if op == "^" then return 4
+        elseif op == "*" or op == "/" then return 3
+        elseif op == "+" or op == "-" then return 2
+        else return 1
+        end
+    end
+
+    -- Convert AST back to expression string
+    function eval.to_string(ast)
+        if ast.type == "number" then
+            if ast.value ~= ast.value then return "nan"
+            elseif ast.value == math.huge then return "inf"
+            elseif ast.value == -math.huge then return "-inf"
+            elseif ast.value == math.floor(ast.value) then
+                return tostring(math.floor(ast.value))  -- Format integers without decimal
+            else return tostring(ast.value)
+            end
+
+        elseif ast.type == "constant" then
+            return ast.name  -- pi, e, inf, nan
+
+        elseif ast.type == "variable" then
+            return ast.name
+
+        elseif ast.type == "binop" then
+            local left = eval.to_string(ast.left)
+            local right = eval.to_string(ast.right)
+            local op = ast.op
+
+            -- Add parentheses based on precedence
+            local left_needs_parens = ast.left.type == "binop" and
+                op_precedence(ast.left.op) < op_precedence(op)
+            local right_needs_parens = ast.right.type == "binop" and
+                op_precedence(ast.right.op) <= op_precedence(op)
+
+            if left_needs_parens then left = "(" .. left .. ")" end
+            if right_needs_parens then right = "(" .. right .. ")" end
+
+            return left .. " " .. op .. " " .. right
+
+        elseif ast.type == "unary" then
+            local operand = eval.to_string(ast.operand)
+            if ast.operand.type == "binop" then
+                operand = "(" .. operand .. ")"
+            end
+            return ast.op .. operand
+
+        elseif ast.type == "call" then
+            local args = {}
+            for _, arg in ipairs(ast.args or {}) do
+                table.insert(args, eval.to_string(arg))
+            end
+            return ast.name .. "(" .. table.concat(args, ", ") .. ")"
+        end
+
+        error("to_string: unknown AST node type: " .. tostring(ast.type))
     end
 
     -- Helper to format a number for display
@@ -661,7 +1065,7 @@ public struct MathExprModule {
         if ast.type == "number" then
             return 0, ast.value
         elseif ast.type == "constant" then
-            return 0, mathexpr.constants[ast.name]
+            return 0, eval.constants[ast.name]
         elseif ast.type == "variable" then
             if ast.name == var_name then
                 return 1, 0
@@ -699,11 +1103,11 @@ public struct MathExprModule {
             end
         elseif ast.type == "call" then
             -- For function calls, evaluate the result (which should be constant)
-            local func = mathexpr.functions[ast.name]
+            local func = eval.functions[ast.name]
             if not func then error("unknown function: " .. ast.name) end
             local arg_vals = {}
             for _, arg in ipairs(ast.args) do
-                table.insert(arg_vals, mathexpr.eval_ast(arg, vars))
+                table.insert(arg_vals, eval.eval_ast(arg, vars))
             end
             local u = table.unpack or unpack
             return 0, func(u(arg_vals))
@@ -745,8 +1149,8 @@ public struct MathExprModule {
             local v = {}
             for k, val in pairs(vars) do v[k] = val end
             v[var_name] = x
-            local left_val = mathexpr.eval_ast(left_ast, v)
-            local right_val = mathexpr.eval_ast(right_ast, v)
+            local left_val = eval.eval_ast(left_ast, v)
+            local right_val = eval.eval_ast(right_ast, v)
             return left_val - right_val
         end
 
@@ -789,17 +1193,17 @@ public struct MathExprModule {
             return nil, nil, "empty side in equation"
         end
 
-        local left_tokens = mathexpr.tokenize(left_str)
-        local right_tokens = mathexpr.tokenize(right_str)
+        local left_tokens = eval.tokenize(left_str)
+        local right_tokens = eval.tokenize(right_str)
 
-        local left_ast = mathexpr.parse(left_tokens)
-        local right_ast = mathexpr.parse(right_tokens)
+        local left_ast = eval.parse(left_tokens)
+        local right_ast = eval.parse(right_tokens)
 
         return left_ast, right_ast
     end
 
     -- Solve equation for a specific variable
-    function mathexpr.solve_equation(equation, vars, options)
+    function eval.solve_equation(equation, vars, options)
         vars = vars or {}
         options = options or {}
 
@@ -839,8 +1243,8 @@ public struct MathExprModule {
 
         if #unknowns == 0 then
             -- No unknowns, just check if equation is satisfied
-            local left_val = mathexpr.eval_ast(left_ast, vars)
-            local right_val = mathexpr.eval_ast(right_ast, vars)
+            local left_val = eval.eval_ast(left_ast, vars)
+            local right_val = eval.eval_ast(right_ast, vars)
             if math.abs(left_val - right_val) < 1e-10 then
                 return {satisfied = true, left = left_val, right = right_val}
             else
@@ -882,7 +1286,7 @@ public struct MathExprModule {
         if ast.type == "number" then
             return 0, 0, ast.value
         elseif ast.type == "constant" then
-            return 0, 0, mathexpr.constants[ast.name]
+            return 0, 0, eval.constants[ast.name]
         elseif ast.type == "variable" then
             if ast.name == var1 then
                 return 1, 0, 0
@@ -925,11 +1329,11 @@ public struct MathExprModule {
             end
         elseif ast.type == "call" then
             -- For function calls, evaluate the result (which should be constant)
-            local func = mathexpr.functions[ast.name]
+            local func = eval.functions[ast.name]
             if not func then error("unknown function: " .. ast.name) end
             local arg_vals = {}
             for _, arg in ipairs(ast.args) do
-                table.insert(arg_vals, mathexpr.eval_ast(arg, vars))
+                table.insert(arg_vals, eval.eval_ast(arg, vars))
             end
             local u = table.unpack or unpack
             return 0, 0, func(u(arg_vals))
@@ -975,17 +1379,17 @@ public struct MathExprModule {
     end
 
     -- Solve system of equations
-    function mathexpr.solve_system(equations, vars, options)
+    function eval.solve_system(equations, vars, options)
         vars = vars or {}
         options = options or {}
 
         if type(equations) == "string" then
             -- Single equation
-            return mathexpr.solve_equation(equations, vars, options)
+            return eval.solve_equation(equations, vars, options)
         end
 
         if #equations == 1 then
-            return mathexpr.solve_equation(equations[1], vars, options)
+            return eval.solve_equation(equations[1], vars, options)
         end
 
         -- Parse all equations and collect all unknowns
@@ -1049,7 +1453,7 @@ public struct MathExprModule {
         for i, eq in ipairs(equations) do
             -- Try to solve this equation with current known values
             local ok, result = pcall(function()
-                return mathexpr.solve_equation(equations[i], current_vars, options)
+                return eval.solve_equation(equations[i], current_vars, options)
             end)
 
             if ok then
@@ -1089,7 +1493,7 @@ public struct MathExprModule {
         if ast.type == "number" then
             return ast.value
         elseif ast.type == "constant" then
-            return mathexpr.constants[ast.name]
+            return eval.constants[ast.name]
         elseif ast.type == "variable" then
             local val = vars[ast.name]
             if val == nil then
@@ -1121,7 +1525,7 @@ public struct MathExprModule {
 
             return result
         elseif ast.type == "call" then
-            local func = mathexpr.functions[ast.name]
+            local func = eval.functions[ast.name]
             if not func then error("unknown function: " .. ast.name) end
             local arg_vals = {}
             for _, arg in ipairs(ast.args) do
@@ -1180,12 +1584,12 @@ public struct MathExprModule {
     --   solve({eq1, eq2, ...}) - solve system of equations
     --   solve({eq1, eq2, ...}, vars) - system with known variables
     --   solve({eq1, eq2, ...}, vars, options) - system with options
-    function mathexpr.solve(input, arg2, arg3)
+    function eval.solve(input, arg2, arg3)
         -- Case 1: Array of equations -> solve system
         if type(input) == "table" then
             local vars = arg2 or {}
             local options = arg3 or {}
-            return mathexpr.solve_system(input, vars, options)
+            return eval.solve_system(input, vars, options)
         end
 
         local expr = input
@@ -1223,7 +1627,7 @@ public struct MathExprModule {
                 options = {}
             end
 
-            return mathexpr.solve_equation(expr, vars, options)
+            return eval.solve_equation(expr, vars, options)
         end
 
         -- Case 3: Expression evaluation (original behavior)
@@ -1237,11 +1641,11 @@ public struct MathExprModule {
             significantDigits = options.significantDigits
         }
 
-        local tokens = mathexpr.tokenize(expr)
-        local ast = mathexpr.parse(tokens)
+        local tokens = eval.tokenize(expr)
+        local ast = eval.parse(tokens)
 
         if not show_steps then
-            return mathexpr.eval_ast(ast, vars)
+            return eval.eval_ast(ast, vars)
         end
 
         local steps = {}
@@ -1269,11 +1673,26 @@ public struct MathExprModule {
         return steps
     end
 
-    -- Create top-level alias
-    mathexpr_module = mathexpr
+    -- Store in luaswift namespace
+    luaswift.eval = eval
 
-    -- Make available via require
-    package.loaded["luaswift.mathexpr"] = mathexpr
+    -- Populate math.eval namespace (create if MathSciModule hasn't run yet)
+    if math then
+        if type(math.eval) ~= "table" then
+            math.eval = {}
+        end
+        -- Set metatable for callable behavior
+        setmetatable(math.eval, eval_mt)
+        -- Copy all functions to math.eval
+        for k, v in pairs(eval) do
+            math.eval[k] = v
+        end
+    end
+
+    -- Legacy alias for migration convenience
+    luaswift.mathexpr = eval
+    package.loaded["luaswift.mathexpr"] = eval
+    mathexpr_module = eval
 
     -- Clean up
     _luaswift_mathexpr_tokenize = nil

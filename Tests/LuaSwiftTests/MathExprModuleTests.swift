@@ -1108,4 +1108,223 @@ final class MathExprModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue ?? 0, 1, accuracy: 1e-6)
     }
+
+    // MARK: - math.eval Callable API Tests
+
+    func testMathEvalCallable() throws {
+        // Test that math.eval is callable via __call
+        // First register MathSciModule to create the namespace
+        MathSciModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            -- math.eval should be callable
+            return math.eval("2 + 3")
+        """)
+
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testMathEvalCallableWithVariables() throws {
+        MathSciModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            return math.eval("x^2 + 1", {x = 3})
+        """)
+
+        XCTAssertEqual(result.numberValue, 10)
+    }
+
+    func testMathEvalDotSolve() throws {
+        MathSciModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local solution = math.eval.solve("2*x = 6")
+            return solution.x
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 3, accuracy: 1e-10)
+    }
+
+    // MARK: - Nested Scoping Tests
+
+    func testNestedScopingSimple() throws {
+        // "x + y" with x having its own y scope
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("x + y", {
+                x = {"exp(y)", {y = "ln(3)"}},
+                y = 6
+            })
+        """)
+
+        // x = exp(ln(3)) = 3, y = 6, so x + y = 9
+        XCTAssertEqual(result.numberValue ?? 0, 9, accuracy: 1e-10)
+    }
+
+    func testNestedScopingDeep() throws {
+        // Deep nesting: a = b^2 where b = c + 1 where c = 2
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("a", {
+                a = {"b^2", {
+                    b = {"c + 1", {c = 2}}
+                }}
+            })
+        """)
+
+        // c=2, b=3, a=9
+        XCTAssertEqual(result.numberValue ?? 0, 9, accuracy: 1e-10)
+    }
+
+    func testSameLevelIndependentVariables() throws {
+        // Variables at same level are independent - both use same y
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("x + y", {x = "exp(y)", y = "ln(3)"})
+        """)
+
+        // Both x and y use y=ln(3), so exp(ln(3)) + ln(3) = 3 + ln(3)
+        let expected = 3 + log(3.0)
+        XCTAssertEqual(result.numberValue ?? 0, expected, accuracy: 1e-10)
+    }
+
+    // MARK: - Symbolic Substitution Tests
+
+    func testSubstituteSimple() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local ast = mathexpr.parse(mathexpr.tokenize("x^2"))
+            local sub_ast = mathexpr.substitute(ast, {x = "ln(3)"})
+            return mathexpr.to_string(sub_ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "ln(3) ^ 2")
+    }
+
+    func testSubstitutePartial() throws {
+        // Variable y remains unsubstituted
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local ast = mathexpr.parse(mathexpr.tokenize("x + y"))
+            local sub_ast = mathexpr.substitute(ast, {x = "sin(z)"})
+            return mathexpr.to_string(sub_ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "sin(z) + y")
+    }
+
+    func testSubstituteWithNumber() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local ast = mathexpr.parse(mathexpr.tokenize("x + 1"))
+            local sub_ast = mathexpr.substitute(ast, {x = 5})
+            return mathexpr.to_string(sub_ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "5 + 1")
+    }
+
+    // MARK: - AST to_string Tests
+
+    func testToStringSimple() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local ast = mathexpr.parse(mathexpr.tokenize("x + y"))
+            return mathexpr.to_string(ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "x + y")
+    }
+
+    func testToStringWithFunction() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local ast = mathexpr.parse(mathexpr.tokenize("sin(x)"))
+            return mathexpr.to_string(ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "sin(x)")
+    }
+
+    func testToStringWithPrecedence() throws {
+        // Test that precedence is handled correctly
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local ast = mathexpr.parse(mathexpr.tokenize("(a + b) * c"))
+            return mathexpr.to_string(ast)
+        """)
+
+        // Parentheses should be added for lower precedence on left of *
+        XCTAssertEqual(result.stringValue, "(a + b) * c")
+    }
+
+    func testRoundTrip() throws {
+        // Test expr → AST → string → AST → eval
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local original = "sin(x)^2 + cos(x)^2"
+            local ast = mathexpr.parse(mathexpr.tokenize(original))
+            local reconstructed = mathexpr.to_string(ast)
+            return mathexpr.eval(reconstructed, {x = 1.5})
+        """)
+
+        // sin(x)^2 + cos(x)^2 = 1 (trig identity)
+        XCTAssertEqual(result.numberValue ?? 0, 1, accuracy: 1e-10)
+    }
+
+    // MARK: - AST Validation Tests
+
+    func testInvalidASTNodeType() throws {
+        // Malformed AST should be rejected
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local bad_ast = {type = "badtype"}
+            local ok, err = pcall(function() return mathexpr.compile(bad_ast) end)
+            return {ok = ok, has_error = err ~= nil}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+        XCTAssertEqual(table["ok"]?.boolValue, false)
+        XCTAssertEqual(table["has_error"]?.boolValue, true)
+    }
+
+    func testInvalidASTUnknownFunction() throws {
+        // Unknown function in AST should be rejected
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local bad_ast = {type = "call", name = "evil_function", args = {{type = "number", value = 1}}}
+            local ok, err = pcall(function() return mathexpr.compile(bad_ast) end)
+            return ok
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - Compile from AST Tests
+
+    func testCompileFromAST() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("x^2")
+            local ast = mathexpr.parse(tokens)
+            local f = mathexpr.compile(ast)
+            return f({x = 4})
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 16, accuracy: 1e-10)
+    }
+
+    func testCompileFromTokens() throws {
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("x + 1")
+            local f = mathexpr.compile(tokens)
+            return f({x = 9})
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 10, accuracy: 1e-10)
+    }
 }

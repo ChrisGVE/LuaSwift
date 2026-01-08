@@ -77,10 +77,10 @@ public struct ModuleRegistry {
         installComplexModule(in: engine)
         installTypesModule(in: engine)
         installSVGModule(in: engine)
-        installMathExprModule(in: engine)
         installSlideRuleModule(in: engine)
         installPlotModule(in: engine)
-        installMathSciModule(in: engine)
+        installMathSciModule(in: engine)  // Must be before MathExprModule to create math.eval namespace
+        installMathExprModule(in: engine)
         installOptimizeModule(in: engine)
         installIntegrateModule(in: engine)
         installDistributionsModule(in: engine)

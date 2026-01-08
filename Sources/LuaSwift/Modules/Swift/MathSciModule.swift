@@ -113,6 +113,10 @@ public struct MathSciModule {
                 -- (Will be populated by future implementation)
                 ensure_namespace(math, "spatial")
 
+                -- math.eval - Expression evaluation, compilation, and symbolic manipulation
+                -- (Will be populated by MathExprModule)
+                ensure_namespace(math, "eval")
+
                 -- Re-export luaswift.linalg → math.linalg
                 -- (extend_stdlib already does this, but ensure it's available)
                 if luaswift.linalg then

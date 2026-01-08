@@ -170,6 +170,16 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_stack", callback: stackCallback)
         engine.registerFunction(name: "_luaswift_array_split", callback: splitCallback)
 
+        // Register array manipulation (Phase 3.2)
+        engine.registerFunction(name: "_luaswift_array_tile", callback: tileCallback)
+        engine.registerFunction(name: "_luaswift_array_repeat", callback: repeatCallback)
+        engine.registerFunction(name: "_luaswift_array_flip", callback: flipCallback)
+        engine.registerFunction(name: "_luaswift_array_roll", callback: rollCallback)
+        engine.registerFunction(name: "_luaswift_array_pad", callback: padCallback)
+        engine.registerFunction(name: "_luaswift_array_insert", callback: insertCallback)
+        engine.registerFunction(name: "_luaswift_array_delete", callback: deleteCallback)
+        engine.registerFunction(name: "_luaswift_array_diff", callback: diffCallback)
+
         // Set up the luaswift.array namespace with Lua wrapper code
         do {
             try engine.run("""
@@ -280,6 +290,14 @@ public struct ArrayModule {
                 local _concatenate = _luaswift_array_concatenate
                 local _stack = _luaswift_array_stack
                 local _split = _luaswift_array_split
+                local _tile = _luaswift_array_tile
+                local _repeat = _luaswift_array_repeat
+                local _flip = _luaswift_array_flip
+                local _roll = _luaswift_array_roll
+                local _pad = _luaswift_array_pad
+                local _insert = _luaswift_array_insert
+                local _delete = _luaswift_array_delete
+                local _diff = _luaswift_array_diff
 
                 -- Define array metatable
                 local array_mt = {
@@ -944,6 +962,42 @@ public struct ArrayModule {
                         end
                         return wrapped
                     end,
+
+                    -- Array manipulation (Phase 3.2)
+                    tile = function(a, reps)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_tile(data, reps))
+                    end,
+                    -- Note: 'repeat' is a Lua keyword, so we use 'rep' as alias
+                    rep = function(a, repeats, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_repeat(data, repeats, axis))
+                    end,
+                    flip = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_flip(data, axis))
+                    end,
+                    roll = function(a, shift, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_roll(data, shift, axis))
+                    end,
+                    pad = function(a, pad_width, mode, constant_value)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_pad(data, pad_width, mode, constant_value))
+                    end,
+                    insert = function(a, indices, values, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local vals = type(values) == "table" and values._data or values
+                        return luaswift.array._wrap(_insert(data, indices, vals, axis))
+                    end,
+                    delete = function(a, indices, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_delete(data, indices, axis))
+                    end,
+                    diff = function(a, n, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_diff(data, n, axis))
+                    end,
                 }
 
                 -- Clean up temporary globals
@@ -1014,6 +1068,14 @@ public struct ArrayModule {
                 _luaswift_array_concatenate = nil
                 _luaswift_array_stack = nil
                 _luaswift_array_split = nil
+                _luaswift_array_tile = nil
+                _luaswift_array_repeat = nil
+                _luaswift_array_flip = nil
+                _luaswift_array_roll = nil
+                _luaswift_array_pad = nil
+                _luaswift_array_insert = nil
+                _luaswift_array_delete = nil
+                _luaswift_array_diff = nil
                 """)
         } catch {
             print("ArrayModule: Failed to initialize Lua wrapper: \(error)")
@@ -3970,5 +4032,804 @@ public struct ArrayModule {
         }
 
         return .array(resultArrays)
+    }
+
+    // MARK: - Phase 3.2 Array Manipulation
+
+    /// tile: Construct an array by repeating A the number of times given by reps
+    private static func tileCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.tile: requires array and reps arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Parse reps - can be a single integer or array of integers
+        var reps: [Int] = []
+        if let singleRep = args[1].intValue {
+            reps = [singleRep]
+        } else if let repArray = args[1].arrayValue {
+            reps = repArray.compactMap { $0.intValue }
+        } else if let repTable = args[1].tableValue {
+            var i = 1
+            while let rep = repTable[String(i)]?.intValue {
+                reps.append(rep)
+                i += 1
+            }
+        }
+
+        guard !reps.isEmpty else {
+            throw LuaError.callbackError("array.tile: reps must be non-empty")
+        }
+
+        // Extend reps to match array dimensions (prepend 1s if needed)
+        while reps.count < arrayData.ndim {
+            reps.insert(1, at: 0)
+        }
+
+        // If reps has more dimensions, prepend 1s to shape
+        var sourceShape = arrayData.shape
+        while sourceShape.count < reps.count {
+            sourceShape.insert(1, at: 0)
+        }
+
+        // Calculate result shape
+        var resultShape = [Int]()
+        for i in 0..<sourceShape.count {
+            resultShape.append(sourceShape[i] * reps[i])
+        }
+
+        let resultSize = resultShape.reduce(1, *)
+        var resultData = [Double](repeating: 0, count: resultSize)
+
+        // Calculate strides for result
+        var resultStrides = [Int](repeating: 1, count: resultShape.count)
+        for i in stride(from: resultShape.count - 2, through: 0, by: -1) {
+            resultStrides[i] = resultStrides[i + 1] * resultShape[i + 1]
+        }
+
+        // Calculate strides for source (with prepended dimensions)
+        var sourceStrides = [Int](repeating: 1, count: sourceShape.count)
+        for i in stride(from: sourceShape.count - 2, through: 0, by: -1) {
+            sourceStrides[i] = sourceStrides[i + 1] * sourceShape[i + 1]
+        }
+
+        // Fill result by tiling
+        for i in 0..<resultSize {
+            var remaining = i
+            var srcIdx = 0
+            for d in 0..<resultShape.count {
+                let dstCoord = remaining / resultStrides[d]
+                remaining = remaining % resultStrides[d]
+                // Wrap to source coordinate
+                let srcCoord = dstCoord % sourceShape[d]
+                srcIdx += srcCoord * sourceStrides[d]
+            }
+            // Adjust srcIdx for original array data (accounting for any prepended dimensions)
+            let adjustedIdx = srcIdx % arrayData.size
+            resultData[i] = arrayData.data[adjustedIdx]
+        }
+
+        return createArrayTable(ArrayData(shape: resultShape, data: resultData))
+    }
+
+    /// repeat: Repeat each element of an array
+    private static func repeatCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.rep: requires array and repeats arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        guard let repeats = args[1].intValue, repeats > 0 else {
+            throw LuaError.callbackError("array.rep: repeats must be a positive integer")
+        }
+
+        // If axis is specified
+        if args.count >= 3 && args[2] != .nil {
+            guard let axis = args[2].intValue else {
+                throw LuaError.callbackError("array.rep: axis must be an integer")
+            }
+            let axis0 = axis - 1
+            guard axis0 >= 0 && axis0 < arrayData.ndim else {
+                throw LuaError.callbackError("array.rep: axis out of bounds")
+            }
+
+            var resultShape = arrayData.shape
+            resultShape[axis0] *= repeats
+
+            let resultSize = resultShape.reduce(1, *)
+            var resultData = [Double](repeating: 0, count: resultSize)
+
+            // Calculate strides
+            var srcStrides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                srcStrides[i] = srcStrides[i + 1] * arrayData.shape[i + 1]
+            }
+
+            var dstStrides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                dstStrides[i] = dstStrides[i + 1] * resultShape[i + 1]
+            }
+
+            // For each element in source, repeat along axis
+            for srcIdx in 0..<arrayData.size {
+                var remaining = srcIdx
+                var coords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    coords[d] = remaining / srcStrides[d]
+                    remaining = remaining % srcStrides[d]
+                }
+
+                // Repeat this element along the axis
+                for rep in 0..<repeats {
+                    var dstCoords = coords
+                    dstCoords[axis0] = coords[axis0] * repeats + rep
+                    var dstIdx = 0
+                    for d in 0..<arrayData.ndim {
+                        dstIdx += dstCoords[d] * dstStrides[d]
+                    }
+                    resultData[dstIdx] = arrayData.data[srcIdx]
+                }
+            }
+
+            return createArrayTable(ArrayData(shape: resultShape, data: resultData))
+        } else {
+            // No axis: flatten and repeat each element
+            var resultData = [Double]()
+            for val in arrayData.data {
+                for _ in 0..<repeats {
+                    resultData.append(val)
+                }
+            }
+            return createArrayTable(ArrayData(shape: [resultData.count], data: resultData))
+        }
+    }
+
+    /// flip: Reverse the order of elements along the given axis
+    private static func flipCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard !args.isEmpty else {
+            throw LuaError.callbackError("array.flip: requires array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // If no axis specified, reverse all elements (flatten)
+        if args.count < 2 || args[1] == .nil {
+            let reversedData = Array(arrayData.data.reversed())
+            return createArrayTable(ArrayData(shape: arrayData.shape, data: reversedData))
+        }
+
+        guard let axis = args[1].intValue else {
+            throw LuaError.callbackError("array.flip: axis must be an integer")
+        }
+        let axis0 = axis - 1
+        guard axis0 >= 0 && axis0 < arrayData.ndim else {
+            throw LuaError.callbackError("array.flip: axis out of bounds")
+        }
+
+        var resultData = [Double](repeating: 0, count: arrayData.size)
+
+        // Calculate strides
+        var strides = [Int](repeating: 1, count: arrayData.ndim)
+        for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+            strides[i] = strides[i + 1] * arrayData.shape[i + 1]
+        }
+
+        for i in 0..<arrayData.size {
+            var remaining = i
+            var coords = [Int](repeating: 0, count: arrayData.ndim)
+            for d in 0..<arrayData.ndim {
+                coords[d] = remaining / strides[d]
+                remaining = remaining % strides[d]
+            }
+
+            // Flip the coordinate along the specified axis
+            coords[axis0] = arrayData.shape[axis0] - 1 - coords[axis0]
+
+            var srcIdx = 0
+            for d in 0..<arrayData.ndim {
+                srcIdx += coords[d] * strides[d]
+            }
+
+            resultData[i] = arrayData.data[srcIdx]
+        }
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: resultData))
+    }
+
+    /// roll: Roll array elements along a given axis
+    private static func rollCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.roll: requires array and shift arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        guard let shift = args[1].intValue else {
+            throw LuaError.callbackError("array.roll: shift must be an integer")
+        }
+
+        // If no axis specified, roll over flattened array
+        if args.count < 3 || args[2] == .nil {
+            var resultData = [Double](repeating: 0, count: arrayData.size)
+            let n = arrayData.size
+            let normalizedShift = ((shift % n) + n) % n  // Handle negative shifts
+            for i in 0..<n {
+                let newIdx = (i + normalizedShift) % n
+                resultData[newIdx] = arrayData.data[i]
+            }
+            return createArrayTable(ArrayData(shape: arrayData.shape, data: resultData))
+        }
+
+        guard let axis = args[2].intValue else {
+            throw LuaError.callbackError("array.roll: axis must be an integer")
+        }
+        let axis0 = axis - 1
+        guard axis0 >= 0 && axis0 < arrayData.ndim else {
+            throw LuaError.callbackError("array.roll: axis out of bounds")
+        }
+
+        var resultData = [Double](repeating: 0, count: arrayData.size)
+
+        // Calculate strides
+        var strides = [Int](repeating: 1, count: arrayData.ndim)
+        for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+            strides[i] = strides[i + 1] * arrayData.shape[i + 1]
+        }
+
+        let axisSize = arrayData.shape[axis0]
+        let normalizedShift = ((shift % axisSize) + axisSize) % axisSize
+
+        for i in 0..<arrayData.size {
+            var remaining = i
+            var coords = [Int](repeating: 0, count: arrayData.ndim)
+            for d in 0..<arrayData.ndim {
+                coords[d] = remaining / strides[d]
+                remaining = remaining % strides[d]
+            }
+
+            // Roll the coordinate along the specified axis
+            var newCoords = coords
+            newCoords[axis0] = (coords[axis0] + normalizedShift) % axisSize
+
+            var dstIdx = 0
+            for d in 0..<arrayData.ndim {
+                dstIdx += newCoords[d] * strides[d]
+            }
+
+            resultData[dstIdx] = arrayData.data[i]
+        }
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: resultData))
+    }
+
+    /// pad: Pad an array with constant values
+    private static func padCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.pad: requires array and pad_width arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Parse pad_width: can be single int, or array of pairs
+        var padBefore = [Int](repeating: 0, count: arrayData.ndim)
+        var padAfter = [Int](repeating: 0, count: arrayData.ndim)
+
+        if let singlePad = args[1].intValue {
+            // Same padding for all axes
+            for i in 0..<arrayData.ndim {
+                padBefore[i] = singlePad
+                padAfter[i] = singlePad
+            }
+        } else if let padArray = args[1].arrayValue {
+            // Can be [before, after] for all or [[b1,a1], [b2,a2], ...] for each axis
+            if padArray.count == 2 && padArray[0].intValue != nil {
+                // [before, after] for all axes
+                let before = padArray[0].intValue ?? 0
+                let after = padArray[1].intValue ?? 0
+                for i in 0..<arrayData.ndim {
+                    padBefore[i] = before
+                    padAfter[i] = after
+                }
+            } else {
+                // [[b1,a1], [b2,a2], ...] for each axis
+                for (i, padVal) in padArray.enumerated() {
+                    if i >= arrayData.ndim { break }
+                    if let pair = padVal.arrayValue, pair.count >= 2 {
+                        padBefore[i] = pair[0].intValue ?? 0
+                        padAfter[i] = pair[1].intValue ?? 0
+                    }
+                }
+            }
+        } else if let padTable = args[1].tableValue {
+            // Handle table format
+            var i = 1
+            var axisIdx = 0
+            while let pair = padTable[String(i)], axisIdx < arrayData.ndim {
+                if let pairArray = pair.arrayValue, pairArray.count >= 2 {
+                    padBefore[axisIdx] = pairArray[0].intValue ?? 0
+                    padAfter[axisIdx] = pairArray[1].intValue ?? 0
+                }
+                i += 1
+                axisIdx += 1
+            }
+        }
+
+        // Get mode (default: "constant")
+        let mode = args.count >= 3 ? (args[2].stringValue ?? "constant") : "constant"
+
+        // Get constant value (default: 0)
+        let constantValue = args.count >= 4 ? (args[3].numberValue ?? 0.0) : 0.0
+
+        // Calculate result shape
+        var resultShape = [Int]()
+        for i in 0..<arrayData.ndim {
+            resultShape.append(arrayData.shape[i] + padBefore[i] + padAfter[i])
+        }
+
+        let resultSize = resultShape.reduce(1, *)
+        var resultData = [Double](repeating: constantValue, count: resultSize)
+
+        // Calculate strides
+        var srcStrides = [Int](repeating: 1, count: arrayData.ndim)
+        for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+            srcStrides[i] = srcStrides[i + 1] * arrayData.shape[i + 1]
+        }
+
+        var dstStrides = [Int](repeating: 1, count: arrayData.ndim)
+        for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+            dstStrides[i] = dstStrides[i + 1] * resultShape[i + 1]
+        }
+
+        // Copy source data to appropriate position
+        if mode == "constant" {
+            for srcIdx in 0..<arrayData.size {
+                var remaining = srcIdx
+                var srcCoords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    srcCoords[d] = remaining / srcStrides[d]
+                    remaining = remaining % srcStrides[d]
+                }
+
+                // Offset by pad_before
+                var dstIdx = 0
+                for d in 0..<arrayData.ndim {
+                    dstIdx += (srcCoords[d] + padBefore[d]) * dstStrides[d]
+                }
+
+                resultData[dstIdx] = arrayData.data[srcIdx]
+            }
+        } else if mode == "edge" {
+            // Edge padding: extend edge values
+            for dstIdx in 0..<resultSize {
+                var remaining = dstIdx
+                var dstCoords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    dstCoords[d] = remaining / dstStrides[d]
+                    remaining = remaining % dstStrides[d]
+                }
+
+                // Clamp to source array bounds
+                var srcIdx = 0
+                for d in 0..<arrayData.ndim {
+                    let srcCoord = max(0, min(arrayData.shape[d] - 1, dstCoords[d] - padBefore[d]))
+                    srcIdx += srcCoord * srcStrides[d]
+                }
+
+                resultData[dstIdx] = arrayData.data[srcIdx]
+            }
+        } else if mode == "wrap" {
+            // Wrap padding: circular wrap
+            for dstIdx in 0..<resultSize {
+                var remaining = dstIdx
+                var dstCoords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    dstCoords[d] = remaining / dstStrides[d]
+                    remaining = remaining % dstStrides[d]
+                }
+
+                var srcIdx = 0
+                for d in 0..<arrayData.ndim {
+                    let shifted = dstCoords[d] - padBefore[d]
+                    let srcCoord = ((shifted % arrayData.shape[d]) + arrayData.shape[d]) % arrayData.shape[d]
+                    srcIdx += srcCoord * srcStrides[d]
+                }
+
+                resultData[dstIdx] = arrayData.data[srcIdx]
+            }
+        } else if mode == "reflect" {
+            // Reflect padding
+            for dstIdx in 0..<resultSize {
+                var remaining = dstIdx
+                var dstCoords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    dstCoords[d] = remaining / dstStrides[d]
+                    remaining = remaining % dstStrides[d]
+                }
+
+                var srcIdx = 0
+                for d in 0..<arrayData.ndim {
+                    var srcCoord = dstCoords[d] - padBefore[d]
+                    let size = arrayData.shape[d]
+                    if size > 1 {
+                        // Reflect
+                        let period = 2 * (size - 1)
+                        srcCoord = ((srcCoord % period) + period) % period
+                        if srcCoord >= size {
+                            srcCoord = period - srcCoord
+                        }
+                    } else {
+                        srcCoord = 0
+                    }
+                    srcIdx += srcCoord * srcStrides[d]
+                }
+
+                resultData[dstIdx] = arrayData.data[srcIdx]
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: resultShape, data: resultData))
+    }
+
+    /// insert: Insert values along the given axis before the given indices
+    private static func insertCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 3 else {
+            throw LuaError.callbackError("array.insert: requires array, indices, and values arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Parse indices
+        var indices: [Int] = []
+        if let singleIdx = args[1].intValue {
+            indices = [singleIdx - 1]  // Convert to 0-based
+        } else if let idxArray = args[1].arrayValue {
+            indices = idxArray.compactMap { ($0.intValue ?? 0) - 1 }
+        } else if let idxTable = args[1].tableValue {
+            var i = 1
+            while let idx = idxTable[String(i)]?.intValue {
+                indices.append(idx - 1)
+                i += 1
+            }
+        }
+
+        // Parse values
+        var values: [Double] = []
+        if let singleVal = args[2].numberValue {
+            values = [singleVal]
+        } else if let valArray = args[2].arrayValue {
+            values = valArray.compactMap { $0.numberValue }
+        } else if let valTable = args[2].tableValue {
+            // Could be array data
+            if let _ = valTable["shape"], let _ = valTable["data"] {
+                let valArrayData = try extractArrayData(args[2])
+                values = valArrayData.data
+            } else {
+                var i = 1
+                while let val = valTable[String(i)]?.numberValue {
+                    values.append(val)
+                    i += 1
+                }
+            }
+        }
+
+        guard !indices.isEmpty else {
+            throw LuaError.callbackError("array.insert: indices must be non-empty")
+        }
+
+        // If axis specified
+        if args.count >= 4 && args[3] != .nil {
+            guard let axis = args[3].intValue else {
+                throw LuaError.callbackError("array.insert: axis must be an integer")
+            }
+            let axis0 = axis - 1
+            guard axis0 >= 0 && axis0 < arrayData.ndim else {
+                throw LuaError.callbackError("array.insert: axis out of bounds")
+            }
+
+            // For multi-dimensional insert along axis
+            let numInserts = indices.count
+            var resultShape = arrayData.shape
+            resultShape[axis0] += numInserts
+
+            let resultSize = resultShape.reduce(1, *)
+            var resultData = [Double](repeating: 0, count: resultSize)
+
+            // Calculate strides
+            var srcStrides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                srcStrides[i] = srcStrides[i + 1] * arrayData.shape[i + 1]
+            }
+
+            var dstStrides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                dstStrides[i] = dstStrides[i + 1] * resultShape[i + 1]
+            }
+
+            // Build mapping from source axis coord to dest axis coord
+            let sortedIndices = indices.sorted()
+            var srcToDst = [Int]()
+            var dstCoord = 0
+            var insertIdx = 0
+            for srcCoord in 0..<arrayData.shape[axis0] {
+                while insertIdx < sortedIndices.count && sortedIndices[insertIdx] <= srcCoord {
+                    dstCoord += 1
+                    insertIdx += 1
+                }
+                srcToDst.append(dstCoord)
+                dstCoord += 1
+            }
+
+            // Copy source data with coordinate mapping
+            for srcIdx in 0..<arrayData.size {
+                var remaining = srcIdx
+                var srcCoords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    srcCoords[d] = remaining / srcStrides[d]
+                    remaining = remaining % srcStrides[d]
+                }
+
+                var dstCoords = srcCoords
+                dstCoords[axis0] = srcToDst[srcCoords[axis0]]
+
+                var dstFlatIdx = 0
+                for d in 0..<arrayData.ndim {
+                    dstFlatIdx += dstCoords[d] * dstStrides[d]
+                }
+
+                resultData[dstFlatIdx] = arrayData.data[srcIdx]
+            }
+
+            // Insert the values at the specified positions
+            var insertCount = [Int: Int]()
+            for idx in sortedIndices {
+                insertCount[idx, default: 0] += 1
+            }
+
+            var totalOffset = 0
+            for (idx, count) in insertCount.sorted(by: { $0.key < $1.key }) {
+                for c in 0..<count {
+                    let valIdx = totalOffset + c
+                    let val = valIdx < values.count ? values[valIdx] : values.last ?? 0.0
+                    let targetAxisCoord = idx + totalOffset + c
+
+                    // Fill all positions at this axis coordinate
+                    // Calculate number of elements in a slice orthogonal to axis
+                    var sliceShape = resultShape
+                    sliceShape.remove(at: axis0)
+                    let sliceSize = sliceShape.isEmpty ? 1 : sliceShape.reduce(1, *)
+
+                    for sliceIdx in 0..<sliceSize {
+                        var coords = [Int](repeating: 0, count: arrayData.ndim)
+                        var remaining = sliceIdx
+                        var sliceD = 0
+                        for d in 0..<arrayData.ndim {
+                            if d == axis0 {
+                                coords[d] = targetAxisCoord
+                            } else {
+                                if sliceD < sliceShape.count {
+                                    coords[d] = remaining % sliceShape[sliceD]
+                                    remaining /= sliceShape[sliceD]
+                                    sliceD += 1
+                                }
+                            }
+                        }
+
+                        var flatIdx = 0
+                        for d in 0..<arrayData.ndim {
+                            flatIdx += coords[d] * dstStrides[d]
+                        }
+
+                        resultData[flatIdx] = val
+                    }
+                }
+                totalOffset += count
+            }
+
+            return createArrayTable(ArrayData(shape: resultShape, data: resultData))
+        } else {
+            // No axis: flatten and insert
+            var resultData = arrayData.data
+            // Sort indices in ascending order and track offset
+            for (offset, idx) in indices.sorted().enumerated() {
+                let insertPos = min(max(0, idx + offset), resultData.count)
+                let val = offset < values.count ? values[offset] : values.last ?? 0.0
+                resultData.insert(val, at: insertPos)
+            }
+            return createArrayTable(ArrayData(shape: [resultData.count], data: resultData))
+        }
+    }
+
+    /// delete: Return a new array with sub-arrays along an axis deleted
+    private static func deleteCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.delete: requires array and indices arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Parse indices
+        var indices: [Int] = []
+        if let singleIdx = args[1].intValue {
+            indices = [singleIdx - 1]  // Convert to 0-based
+        } else if let idxArray = args[1].arrayValue {
+            indices = idxArray.compactMap { ($0.intValue ?? 0) - 1 }
+        } else if let idxTable = args[1].tableValue {
+            var i = 1
+            while let idx = idxTable[String(i)]?.intValue {
+                indices.append(idx - 1)
+                i += 1
+            }
+        }
+
+        guard !indices.isEmpty else {
+            throw LuaError.callbackError("array.delete: indices must be non-empty")
+        }
+
+        // If axis specified
+        if args.count >= 3 && args[2] != .nil {
+            guard let axis = args[2].intValue else {
+                throw LuaError.callbackError("array.delete: axis must be an integer")
+            }
+            let axis0 = axis - 1
+            guard axis0 >= 0 && axis0 < arrayData.ndim else {
+                throw LuaError.callbackError("array.delete: axis out of bounds")
+            }
+
+            let deleteSet = Set(indices.map { $0 >= 0 ? $0 : arrayData.shape[axis0] + $0 })
+            var resultShape = arrayData.shape
+            resultShape[axis0] -= deleteSet.count
+
+            guard resultShape[axis0] > 0 else {
+                throw LuaError.callbackError("array.delete: cannot delete all elements along axis")
+            }
+
+            let resultSize = resultShape.reduce(1, *)
+            var resultData = [Double](repeating: 0, count: resultSize)
+
+            // Calculate strides
+            var srcStrides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                srcStrides[i] = srcStrides[i + 1] * arrayData.shape[i + 1]
+            }
+
+            var dstStrides = [Int](repeating: 1, count: arrayData.ndim)
+            for i in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+                dstStrides[i] = dstStrides[i + 1] * resultShape[i + 1]
+            }
+
+            // Build mapping from source axis coord to dest axis coord
+            var srcToDst = [Int?]()
+            var dstCoord = 0
+            for srcCoord in 0..<arrayData.shape[axis0] {
+                if deleteSet.contains(srcCoord) {
+                    srcToDst.append(nil)
+                } else {
+                    srcToDst.append(dstCoord)
+                    dstCoord += 1
+                }
+            }
+
+            // Copy data, skipping deleted indices
+            for srcIdx in 0..<arrayData.size {
+                var remaining = srcIdx
+                var srcCoords = [Int](repeating: 0, count: arrayData.ndim)
+                for d in 0..<arrayData.ndim {
+                    srcCoords[d] = remaining / srcStrides[d]
+                    remaining = remaining % srcStrides[d]
+                }
+
+                guard let mappedCoord = srcToDst[srcCoords[axis0]] else { continue }
+
+                var dstCoords = srcCoords
+                dstCoords[axis0] = mappedCoord
+
+                var dstFlatIdx = 0
+                for d in 0..<arrayData.ndim {
+                    dstFlatIdx += dstCoords[d] * dstStrides[d]
+                }
+
+                resultData[dstFlatIdx] = arrayData.data[srcIdx]
+            }
+
+            return createArrayTable(ArrayData(shape: resultShape, data: resultData))
+        } else {
+            // No axis: flatten and delete
+            let deleteSet = Set(indices.map { $0 >= 0 ? $0 : arrayData.size + $0 })
+            var resultData = [Double]()
+            for (i, val) in arrayData.data.enumerated() {
+                if !deleteSet.contains(i) {
+                    resultData.append(val)
+                }
+            }
+            return createArrayTable(ArrayData(shape: [resultData.count], data: resultData))
+        }
+    }
+
+    /// diff: Calculate the n-th discrete difference along the given axis
+    private static func diffCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard !args.isEmpty else {
+            throw LuaError.callbackError("array.diff: requires array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Get n (default 1)
+        let n = args.count >= 2 ? (args[1].intValue ?? 1) : 1
+        guard n >= 1 else {
+            throw LuaError.callbackError("array.diff: n must be positive")
+        }
+
+        // Get axis (default: last axis, i.e., -1)
+        var axis0: Int
+        if args.count >= 3 && args[2] != .nil {
+            guard let axis = args[2].intValue else {
+                throw LuaError.callbackError("array.diff: axis must be an integer")
+            }
+            axis0 = axis - 1
+        } else {
+            axis0 = arrayData.ndim - 1  // Default to last axis
+        }
+
+        guard axis0 >= 0 && axis0 < arrayData.ndim else {
+            throw LuaError.callbackError("array.diff: axis out of bounds")
+        }
+
+        guard arrayData.shape[axis0] > n else {
+            throw LuaError.callbackError("array.diff: axis size must be greater than n")
+        }
+
+        // Apply n differences iteratively
+        var currentData = arrayData.data
+        var currentShape = arrayData.shape
+
+        for _ in 0..<n {
+            var newShape = currentShape
+            newShape[axis0] -= 1
+
+            let newSize = newShape.reduce(1, *)
+            var newData = [Double](repeating: 0, count: newSize)
+
+            // Calculate strides
+            var srcStrides = [Int](repeating: 1, count: currentShape.count)
+            for i in stride(from: currentShape.count - 2, through: 0, by: -1) {
+                srcStrides[i] = srcStrides[i + 1] * currentShape[i + 1]
+            }
+
+            var dstStrides = [Int](repeating: 1, count: newShape.count)
+            for i in stride(from: newShape.count - 2, through: 0, by: -1) {
+                dstStrides[i] = dstStrides[i + 1] * newShape[i + 1]
+            }
+
+            // Compute differences
+            for dstIdx in 0..<newSize {
+                var remaining = dstIdx
+                var dstCoords = [Int](repeating: 0, count: newShape.count)
+                for d in 0..<newShape.count {
+                    dstCoords[d] = remaining / dstStrides[d]
+                    remaining = remaining % dstStrides[d]
+                }
+
+                // Get value at [i+1] - value at [i] along axis
+                let srcCoordsLow = dstCoords
+                var srcCoordsHigh = dstCoords
+                srcCoordsHigh[axis0] += 1
+
+                var srcIdxLow = 0
+                var srcIdxHigh = 0
+                for d in 0..<currentShape.count {
+                    srcIdxLow += srcCoordsLow[d] * srcStrides[d]
+                    srcIdxHigh += srcCoordsHigh[d] * srcStrides[d]
+                }
+
+                newData[dstIdx] = currentData[srcIdxHigh] - currentData[srcIdxLow]
+            }
+
+            currentData = newData
+            currentShape = newShape
+        }
+
+        return createArrayTable(ArrayData(shape: currentShape, data: currentData))
     }
 }

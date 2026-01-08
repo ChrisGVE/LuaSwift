@@ -1838,6 +1838,208 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, 28, accuracy: 1e-10)
     }
 
+    // MARK: - Phase 3.2: Array Manipulation Tests
+
+    func testTile1D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.tile(a, 2)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [1, 2, 3, 1, 2, 3])
+    }
+
+    func testTile2D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.tile(a, {2, 2})
+            local shape = b:shape()
+            return {shape[1], shape[2], b:sum()}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(arr[0], 4)  // rows = 2*2
+        XCTAssertEqual(arr[1], 4)  // cols = 2*2
+        XCTAssertEqual(arr[2], 40)  // 4 copies of (1+2+3+4)=10 → 40
+    }
+
+    func testRepNoAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.rep(a, 3)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [1, 1, 1, 2, 2, 2, 3, 3, 3])
+    }
+
+    func testRepWithAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.rep(a, 2, 2)  -- repeat along axis 2 (columns)
+            local shape = b:shape()
+            return {shape[1], shape[2]}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(arr[0], 2)  // rows unchanged
+        XCTAssertEqual(arr[1], 4)  // cols doubled
+    }
+
+    func testFlipNoAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local b = luaswift.array.flip(a)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [5, 4, 3, 2, 1])
+    }
+
+    func testFlipWithAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.flip(a, 1)  -- flip along axis 1 (rows)
+            return {b:get(1, 1), b:get(1, 2), b:get(2, 1), b:get(2, 2)}
+            """)
+        // Original: [[1,2],[3,4]], flip rows → [[3,4],[1,2]]
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(arr, [3, 4, 1, 2])
+    }
+
+    func testRollNoAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local b = luaswift.array.roll(a, 2)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Roll by 2: [1,2,3,4,5] → [4,5,1,2,3]
+        XCTAssertEqual(list, [4, 5, 1, 2, 3])
+    }
+
+    func testRollNegative() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local b = luaswift.array.roll(a, -2)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Roll by -2: [1,2,3,4,5] → [3,4,5,1,2]
+        XCTAssertEqual(list, [3, 4, 5, 1, 2])
+    }
+
+    func testRollWithAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}})
+            local b = luaswift.array.roll(a, 1, 2)  -- roll cols by 1
+            return {b:get(1, 1), b:get(1, 2), b:get(1, 3)}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        // Roll cols by 1: [1,2,3] → [3,1,2]
+        XCTAssertEqual(arr, [3, 1, 2])
+    }
+
+    func testPadConstant() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.pad(a, 2, "constant", 0)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [0, 0, 1, 2, 3, 0, 0])
+    }
+
+    func testPadEdge() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            local b = luaswift.array.pad(a, 2, "edge")
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [1, 1, 1, 2, 3, 3, 3])
+    }
+
+    func testPad2D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2}, {3, 4}})
+            local b = luaswift.array.pad(a, 1, "constant", 0)
+            local shape = b:shape()
+            return {shape[1], shape[2]}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(arr[0], 4)  // 2 + 1 + 1
+        XCTAssertEqual(arr[1], 4)  // 2 + 1 + 1
+    }
+
+    func testInsertFlat() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4})
+            local b = luaswift.array.insert(a, 2, 99)  -- insert 99 at position 2
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [1, 99, 2, 3, 4])
+    }
+
+    func testDeleteFlat() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local b = luaswift.array.delete(a, 3)  -- delete element at position 3
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [1, 2, 4, 5])
+    }
+
+    func testDeleteWithAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 2, 3}, {4, 5, 6}})
+            local b = luaswift.array.delete(a, 2, 2)  -- delete column 2
+            local shape = b:shape()
+            return {shape[1], shape[2], b:get(1, 1), b:get(1, 2)}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(arr[0], 2)  // rows unchanged
+        XCTAssertEqual(arr[1], 2)  // cols - 1
+        XCTAssertEqual(arr[2], 1)  // first row, first remaining col
+        XCTAssertEqual(arr[3], 3)  // first row, second remaining col
+    }
+
+    func testDiff1D() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 4, 7, 11})
+            local b = luaswift.array.diff(a)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [1, 2, 3, 4])
+    }
+
+    func testDiffN2() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 4, 7, 11})
+            local b = luaswift.array.diff(a, 2)
+            return b:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // First diff: [1, 2, 3, 4], Second diff: [1, 1, 1]
+        XCTAssertEqual(list, [1, 1, 1])
+    }
+
+    func testDiff2DAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 3, 6}, {2, 5, 9}})
+            local b = luaswift.array.diff(a, 1, 2)  -- diff along axis 2 (columns)
+            local shape = b:shape()
+            return {shape[1], shape[2], b:get(1, 1), b:get(1, 2)}
+            """)
+        let arr = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(arr[0], 2)  // rows unchanged
+        XCTAssertEqual(arr[1], 2)  // cols - 1
+        XCTAssertEqual(arr[2], 2)  // 3-1
+        XCTAssertEqual(arr[3], 3)  // 6-3
+    }
+
 }
 
 // MARK: - Test DataServer for Array Integration

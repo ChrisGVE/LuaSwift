@@ -698,6 +698,235 @@ final class ArrayModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue, 1 + 3 * 10 + 5 * 100)  // 531
     }
+
+    // MARK: - Hyperbolic Functions
+
+    func testSinh() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0})
+            local b = luaswift.array.sinh(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testCosh() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0})
+            local b = luaswift.array.cosh(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testTanh() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0})
+            local b = luaswift.array.tanh(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testAsinh() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0})
+            local b = luaswift.array.asinh(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testAcosh() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1})
+            local b = luaswift.array.acosh(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testAtanh() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0})
+            local b = luaswift.array.atanh(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testSinhValues() throws {
+        // sinh(1) ≈ 1.175201193643801
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1})
+            local b = luaswift.array.sinh(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 1.1752011936438014, accuracy: 1e-10)
+    }
+
+    // MARK: - Inverse Trigonometric Functions
+
+    func testArcsin() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1})
+            local b = luaswift.array.arcsin(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testArcsinPiOver2() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1})
+            local b = luaswift.array.arcsin(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, Double.pi / 2, accuracy: 1e-10)
+    }
+
+    func testArccos() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1})
+            local b = luaswift.array.arccos(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testArctan() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1})
+            local b = luaswift.array.arctan(a)
+            return b:get(2)
+            """)
+        XCTAssertEqual(result.numberValue!, Double.pi / 4, accuracy: 1e-10)
+    }
+
+    func testArctan2() throws {
+        // arctan2(1, 1) = pi/4
+        let result = try engine.evaluate("""
+            local y = luaswift.array.array({1})
+            local x = luaswift.array.array({1})
+            local b = luaswift.array.arctan2(y, x)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, Double.pi / 4, accuracy: 1e-10)
+    }
+
+    func testArctan2Quadrants() throws {
+        // Test all 4 quadrants
+        let result = try engine.evaluate("""
+            local y = luaswift.array.array({1, 1, -1, -1})
+            local x = luaswift.array.array({1, -1, -1, 1})
+            local b = luaswift.array.arctan2(y, x)
+            -- Q1: pi/4, Q2: 3pi/4, Q3: -3pi/4, Q4: -pi/4
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, Double.pi / 4, accuracy: 1e-10)
+    }
+
+    func testAsinAlias() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0})
+            local b = luaswift.array.asin(a)
+            return b:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    // MARK: - Element-wise Operations
+
+    func testFloor() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1.7, 2.3, -1.7, -2.3})
+            local b = luaswift.array.floor(a)
+            return b:get(1) + b:get(3) * 10
+            """)
+        XCTAssertEqual(result.numberValue, 1 + (-2) * 10)  // 1 + (-20) = -19
+    }
+
+    func testCeil() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1.7, 2.3, -1.7, -2.3})
+            local b = luaswift.array.ceil(a)
+            return b:get(1) + b:get(3) * 10
+            """)
+        XCTAssertEqual(result.numberValue, 2 + (-1) * 10)  // 2 + (-10) = -8
+    }
+
+    func testRound() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1.4, 1.6, -1.4, -1.6})
+            local b = luaswift.array.round(a)
+            return b:get(1) + b:get(2) * 10
+            """)
+        XCTAssertEqual(result.numberValue!, 1 + 2 * 10, accuracy: 1.0)
+    }
+
+    func testSign() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({5, 0, -3})
+            local b = luaswift.array.sign(a)
+            return b:get(1) + b:get(2) * 10 + b:get(3) * 100
+            """)
+        XCTAssertEqual(result.numberValue, 1 + 0 * 10 + (-1) * 100)  // 1 + 0 + (-100) = -99
+    }
+
+    func testClip() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 5, 10, 15})
+            local b = luaswift.array.clip(a, 3, 12)
+            return b:get(1) + b:get(2) + b:get(3) + b:get(4)
+            """)
+        XCTAssertEqual(result.numberValue, 3 + 5 + 10 + 12)  // clipped: 3, 5, 10, 12
+    }
+
+    func testMod() throws {
+        // Python-style mod: result has sign of divisor
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({7})
+            local b = luaswift.array.array({3})
+            local c = luaswift.array.mod(a, b)
+            return c:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testFmod() throws {
+        // C-style fmod: result has sign of dividend
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({7})
+            local b = luaswift.array.array({3})
+            local c = luaswift.array.fmod(a, b)
+            return c:get(1)
+            """)
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testModNegative() throws {
+        // Test mod with negative values
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({-7})
+            local b = luaswift.array.array({3})
+            local c = luaswift.array.mod(a, b)
+            return c:get(1)
+            """)
+        // Python mod: -7 % 3 = 2 (result has sign of divisor)
+        XCTAssertEqual(result.numberValue!, 2.0, accuracy: 1e-10)
+    }
+
+    func testFmodNegative() throws {
+        // Test fmod with negative values
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({-7})
+            local b = luaswift.array.array({3})
+            local c = luaswift.array.fmod(a, b)
+            return c:get(1)
+            """)
+        // C fmod: -7 % 3 = -1 (result has sign of dividend)
+        XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-10)
+    }
 }
 
 // MARK: - Test DataServer for Array Integration

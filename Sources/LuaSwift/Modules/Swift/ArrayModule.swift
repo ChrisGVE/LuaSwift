@@ -71,6 +71,29 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_cos", callback: cosCallback)
         engine.registerFunction(name: "_luaswift_array_tan", callback: tanCallback)
 
+        // Register hyperbolic functions
+        engine.registerFunction(name: "_luaswift_array_sinh", callback: sinhCallback)
+        engine.registerFunction(name: "_luaswift_array_cosh", callback: coshCallback)
+        engine.registerFunction(name: "_luaswift_array_tanh", callback: tanhCallback)
+        engine.registerFunction(name: "_luaswift_array_asinh", callback: asinhCallback)
+        engine.registerFunction(name: "_luaswift_array_acosh", callback: acoshCallback)
+        engine.registerFunction(name: "_luaswift_array_atanh", callback: atanhCallback)
+
+        // Register inverse trig functions
+        engine.registerFunction(name: "_luaswift_array_arcsin", callback: arcsinCallback)
+        engine.registerFunction(name: "_luaswift_array_arccos", callback: arccosCallback)
+        engine.registerFunction(name: "_luaswift_array_arctan", callback: arctanCallback)
+        engine.registerFunction(name: "_luaswift_array_arctan2", callback: arctan2Callback)
+
+        // Register element-wise operations
+        engine.registerFunction(name: "_luaswift_array_floor", callback: floorCallback)
+        engine.registerFunction(name: "_luaswift_array_ceil", callback: ceilCallback)
+        engine.registerFunction(name: "_luaswift_array_round", callback: roundCallback)
+        engine.registerFunction(name: "_luaswift_array_clip", callback: clipCallback)
+        engine.registerFunction(name: "_luaswift_array_sign", callback: signCallback)
+        engine.registerFunction(name: "_luaswift_array_mod", callback: modCallback)
+        engine.registerFunction(name: "_luaswift_array_fmod", callback: fmodCallback)
+
         // Register reduction operations
         engine.registerFunction(name: "_luaswift_array_sum", callback: sumCallback)
         engine.registerFunction(name: "_luaswift_array_mean", callback: meanCallback)
@@ -137,6 +160,23 @@ public struct ArrayModule {
                 local _sin = _luaswift_array_sin
                 local _cos = _luaswift_array_cos
                 local _tan = _luaswift_array_tan
+                local _sinh = _luaswift_array_sinh
+                local _cosh = _luaswift_array_cosh
+                local _tanh = _luaswift_array_tanh
+                local _asinh = _luaswift_array_asinh
+                local _acosh = _luaswift_array_acosh
+                local _atanh = _luaswift_array_atanh
+                local _arcsin = _luaswift_array_arcsin
+                local _arccos = _luaswift_array_arccos
+                local _arctan = _luaswift_array_arctan
+                local _arctan2 = _luaswift_array_arctan2
+                local _floor = _luaswift_array_floor
+                local _ceil = _luaswift_array_ceil
+                local _round = _luaswift_array_round
+                local _clip = _luaswift_array_clip
+                local _sign = _luaswift_array_sign
+                local _mod = _luaswift_array_mod
+                local _fmod = _luaswift_array_fmod
                 local _sum = _luaswift_array_sum
                 local _mean = _luaswift_array_mean
                 local _std = _luaswift_array_std
@@ -374,6 +414,101 @@ public struct ArrayModule {
                         return luaswift.array._wrap(_tan(data))
                     end,
 
+                    -- Hyperbolic functions
+                    sinh = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_sinh(data))
+                    end,
+                    cosh = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_cosh(data))
+                    end,
+                    tanh = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_tanh(data))
+                    end,
+                    asinh = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_asinh(data))
+                    end,
+                    acosh = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_acosh(data))
+                    end,
+                    atanh = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_atanh(data))
+                    end,
+
+                    -- Inverse trigonometric functions
+                    arcsin = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_arcsin(data))
+                    end,
+                    arccos = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_arccos(data))
+                    end,
+                    arctan = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_arctan(data))
+                    end,
+                    arctan2 = function(y, x)
+                        local y_data = type(y) == "table" and y._data or y
+                        local x_data = type(x) == "table" and x._data or x
+                        return luaswift.array._wrap(_arctan2(y_data, x_data))
+                    end,
+                    -- Aliases for convenience
+                    asin = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_arcsin(data))
+                    end,
+                    acos = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_arccos(data))
+                    end,
+                    atan = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_arctan(data))
+                    end,
+                    atan2 = function(y, x)
+                        local y_data = type(y) == "table" and y._data or y
+                        local x_data = type(x) == "table" and x._data or x
+                        return luaswift.array._wrap(_arctan2(y_data, x_data))
+                    end,
+
+                    -- Element-wise operations
+                    floor = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_floor(data))
+                    end,
+                    ceil = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_ceil(data))
+                    end,
+                    round = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_round(data))
+                    end,
+                    clip = function(a, min_val, max_val)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_clip(data, min_val, max_val))
+                    end,
+                    sign = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_sign(data))
+                    end,
+                    mod = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.array._wrap(_mod(a_data, b_data))
+                    end,
+                    fmod = function(a, b)
+                        local a_data = type(a) == "table" and a._data or a
+                        local b_data = type(b) == "table" and b._data or b
+                        return luaswift.array._wrap(_fmod(a_data, b_data))
+                    end,
+
                     -- Reductions
                     sum = function(a, axis)
                         local data = type(a) == "table" and a._data or a
@@ -560,6 +695,23 @@ public struct ArrayModule {
                 _luaswift_array_sin = nil
                 _luaswift_array_cos = nil
                 _luaswift_array_tan = nil
+                _luaswift_array_sinh = nil
+                _luaswift_array_cosh = nil
+                _luaswift_array_tanh = nil
+                _luaswift_array_asinh = nil
+                _luaswift_array_acosh = nil
+                _luaswift_array_atanh = nil
+                _luaswift_array_arcsin = nil
+                _luaswift_array_arccos = nil
+                _luaswift_array_arctan = nil
+                _luaswift_array_arctan2 = nil
+                _luaswift_array_floor = nil
+                _luaswift_array_ceil = nil
+                _luaswift_array_round = nil
+                _luaswift_array_clip = nil
+                _luaswift_array_sign = nil
+                _luaswift_array_mod = nil
+                _luaswift_array_fmod = nil
                 _luaswift_array_sum = nil
                 _luaswift_array_mean = nil
                 _luaswift_array_std = nil
@@ -1414,6 +1566,281 @@ public struct ArrayModule {
         vvtan(&result, arrayData.data, &count)
 
         return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    // MARK: - Hyperbolic Functions
+
+    private static func sinhCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.sinh: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvsinh(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func coshCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.cosh: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvcosh(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func tanhCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.tanh: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvtanh(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func asinhCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.asinh: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvasinh(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func acoshCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.acosh: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvacosh(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func atanhCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.atanh: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvatanh(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    // MARK: - Inverse Trigonometric Functions
+
+    private static func arcsinCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.arcsin: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvasin(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func arccosCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.arccos: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvacos(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func arctanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.arctan: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvatan(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func arctan2Callback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.arctan2: requires two arguments (y, x)")
+        }
+
+        // Handle scalar operands
+        let isScalar1 = args[0].numberValue != nil
+        let isScalar2 = args[1].numberValue != nil
+
+        if isScalar1 && isScalar2 {
+            let y = args[0].numberValue!
+            let x = args[1].numberValue!
+            return createArrayTable(ArrayData(shape: [1], data: [atan2(y, x)]))
+        }
+
+        if isScalar1 {
+            let scalar = args[0].numberValue!
+            let arrayData = try extractArrayData(args[1])
+            var yData = [Double](repeating: scalar, count: arrayData.size)
+            var result = [Double](repeating: 0, count: arrayData.size)
+            var count = Int32(arrayData.size)
+            vvatan2(&result, &yData, arrayData.data, &count)
+            return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        }
+
+        if isScalar2 {
+            let arrayData = try extractArrayData(args[0])
+            let scalar = args[1].numberValue!
+            var xData = [Double](repeating: scalar, count: arrayData.size)
+            var result = [Double](repeating: 0, count: arrayData.size)
+            var count = Int32(arrayData.size)
+            vvatan2(&result, arrayData.data, &xData, &count)
+            return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        }
+
+        // Both are arrays - broadcast
+        let arr1 = try extractArrayData(args[0])  // y
+        let arr2 = try extractArrayData(args[1])  // x
+
+        let resultShape = try broadcastShapes(arr1.shape, arr2.shape)
+        let broadcast1 = broadcastTo(arr1, shape: resultShape)
+        let broadcast2 = broadcastTo(arr2, shape: resultShape)
+
+        var result = [Double](repeating: 0, count: resultShape.reduce(1, *))
+        var count = Int32(result.count)
+        vvatan2(&result, broadcast1.data, broadcast2.data, &count)
+
+        return createArrayTable(ArrayData(shape: resultShape, data: result))
+    }
+
+    // MARK: - Element-wise Operations
+
+    private static func floorCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.floor: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvfloor(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func ceilCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.ceil: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvceil(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func roundCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.round: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = arrayData.data
+        var count = Int32(arrayData.size)
+        vvnint(&result, arrayData.data, &count)
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func clipCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 3 else {
+            throw LuaError.callbackError("array.clip: requires array, min, max")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        guard let minVal = args[1].numberValue,
+              let maxVal = args[2].numberValue else {
+            throw LuaError.callbackError("array.clip: min and max must be numbers")
+        }
+
+        var result = arrayData.data
+        var low = minVal
+        var high = maxVal
+        vDSP_vclipD(arrayData.data, 1, &low, &high, &result, 1, vDSP_Length(arrayData.size))
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func signCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.sign: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = [Double](repeating: 0, count: arrayData.size)
+        for i in 0..<arrayData.size {
+            let val = arrayData.data[i]
+            if val > 0 {
+                result[i] = 1.0
+            } else if val < 0 {
+                result[i] = -1.0
+            } else {
+                result[i] = 0.0
+            }
+        }
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func modCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.mod: requires two arguments")
+        }
+
+        // Python-style mod: a - floor(a/b) * b
+        return try binaryOp(args, op: { a, b in
+            if b == 0 { return .nan }
+            return a - Foundation.floor(a / b) * b
+        }, name: "mod")
+    }
+
+    private static func fmodCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.fmod: requires two arguments")
+        }
+
+        // C-style fmod: same sign as dividend
+        return try binaryOp(args, op: { a, b in
+            if b == 0 { return .nan }
+            return Foundation.fmod(a, b)
+        }, name: "fmod")
     }
 
     // MARK: - Reduction Operations

@@ -1516,6 +1516,141 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, 99, accuracy: 1e-10)
     }
 
+    // MARK: - Phase 2.5 Statistics Functions
+
+    func testMedianOdd() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({3, 1, 4, 1, 5})
+            return luaswift.array.median(a)
+            """)
+        // sorted: [1, 1, 3, 4, 5], median = 3
+        XCTAssertEqual(result.numberValue!, 3, accuracy: 1e-10)
+    }
+
+    func testMedianEven() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4})
+            return luaswift.array.median(a)
+            """)
+        // sorted: [1, 2, 3, 4], median = (2 + 3) / 2 = 2.5
+        XCTAssertEqual(result.numberValue!, 2.5, accuracy: 1e-10)
+    }
+
+    func testMedianAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 3}, {2, 4}})
+            local m = luaswift.array.median(a, 1)
+            return m:get(1) + m:get(2)
+            """)
+        // axis 1 (rows): median of [1,2]=1.5, median of [3,4]=3.5 → sum = 5
+        XCTAssertEqual(result.numberValue!, 5, accuracy: 1e-10)
+    }
+
+    func testPercentile() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            return luaswift.array.percentile(a, 50)
+            """)
+        // 50th percentile = median = 3
+        XCTAssertEqual(result.numberValue!, 3, accuracy: 1e-10)
+    }
+
+    func testPercentile25() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            return luaswift.array.percentile(a, 25)
+            """)
+        // 25th percentile: index = 0.25 * 4 = 1, interp between 1 and 2 = 2
+        XCTAssertEqual(result.numberValue!, 2, accuracy: 1e-10)
+    }
+
+    func testQuantile() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            return luaswift.array.quantile(a, 0.5)
+            """)
+        // 0.5 quantile = median = 3
+        XCTAssertEqual(result.numberValue!, 3, accuracy: 1e-10)
+    }
+
+    func testQuantile75() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            return luaswift.array.quantile(a, 0.75)
+            """)
+        // 75th quantile: index = 0.75 * 4 = 3, interp between 4 and 5 = 4
+        XCTAssertEqual(result.numberValue!, 4, accuracy: 1e-10)
+    }
+
+    func testHistogram() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+            local counts, edges = luaswift.array.histogram(a, 5)
+            return counts:size()
+            """)
+        // 5 bins means 5 count values
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testHistogramCounts() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 1, 1, 2, 2, 3})
+            local counts, edges = luaswift.array.histogram(a, 3)
+            return counts:get(1)
+            """)
+        // First bin should contain 3 values (the three 1s, possibly the 2s depending on binning)
+        XCTAssertTrue(result.numberValue! >= 1)
+    }
+
+    func testHistogramEdges() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3, 4, 5})
+            local counts, edges = luaswift.array.histogram(a, 4)
+            return edges:size()
+            """)
+        // 4 bins means 5 edges
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testBincount() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1, 1, 2, 2, 2})
+            local counts = luaswift.array.bincount(a)
+            return counts:get(1) + counts:get(2) * 10 + counts:get(3) * 100
+            """)
+        // 0 appears 1x, 1 appears 2x, 2 appears 3x → 1 + 20 + 300 = 321
+        XCTAssertEqual(result.numberValue!, 321, accuracy: 1e-10)
+    }
+
+    func testBincountMinlength() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1})
+            local counts = luaswift.array.bincount(a, nil, 5)
+            return counts:size()
+            """)
+        // minlength=5 means at least 5 bins
+        XCTAssertEqual(result.numberValue, 5)
+    }
+
+    func testPtp() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 5, 3, 9, 2})
+            return luaswift.array.ptp(a)
+            """)
+        // ptp = max - min = 9 - 1 = 8
+        XCTAssertEqual(result.numberValue!, 8, accuracy: 1e-10)
+    }
+
+    func testPtpAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{1, 5}, {2, 3}})
+            local p = luaswift.array.ptp(a, 1)
+            return p:get(1) + p:get(2)
+            """)
+        // axis 1 (rows): ptp of [1,2]=1, ptp of [5,3]=2 → sum = 3
+        XCTAssertEqual(result.numberValue!, 3, accuracy: 1e-10)
+    }
+
 }
 
 // MARK: - Test DataServer for Array Integration

@@ -136,6 +136,14 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_nonzero", callback: nonzeroCallback)
         engine.registerFunction(name: "_luaswift_array_unique", callback: uniqueCallback)
 
+        // Register statistics functions
+        engine.registerFunction(name: "_luaswift_array_median", callback: medianCallback)
+        engine.registerFunction(name: "_luaswift_array_percentile", callback: percentileCallback)
+        engine.registerFunction(name: "_luaswift_array_quantile", callback: quantileCallback)
+        engine.registerFunction(name: "_luaswift_array_histogram", callback: histogramCallback)
+        engine.registerFunction(name: "_luaswift_array_bincount", callback: bincountCallback)
+        engine.registerFunction(name: "_luaswift_array_ptp", callback: ptpCallback)
+
         // Register serialization
         engine.registerFunction(name: "_luaswift_array_tolist", callback: toListCallback)
         engine.registerFunction(name: "_luaswift_array_copy", callback: copyCallback)
@@ -236,6 +244,12 @@ public struct ArrayModule {
                 local _argwhere = _luaswift_array_argwhere
                 local _nonzero = _luaswift_array_nonzero
                 local _unique = _luaswift_array_unique
+                local _median = _luaswift_array_median
+                local _percentile = _luaswift_array_percentile
+                local _quantile = _luaswift_array_quantile
+                local _histogram = _luaswift_array_histogram
+                local _bincount = _luaswift_array_bincount
+                local _ptp = _luaswift_array_ptp
                 local _tolist = _luaswift_array_tolist
                 local _copy = _luaswift_array_copy
                 local _dot = _luaswift_array_dot
@@ -744,6 +758,46 @@ public struct ArrayModule {
                             return table.unpack(wrapped)
                         end
                         return luaswift.array._wrap(results)
+                    end,
+
+                    -- Statistics
+                    median = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local result = _median(data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    percentile = function(a, q, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local result = _percentile(data, q, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    quantile = function(a, q, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local result = _quantile(data, q, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    histogram = function(a, bins, range)
+                        local data = type(a) == "table" and a._data or a
+                        local results = _histogram(data, bins, range)
+                        -- Results is a table with [1]=counts, [2]=edges
+                        if type(results) == "table" and results[1] then
+                            return luaswift.array._wrap(results[1]), luaswift.array._wrap(results[2])
+                        end
+                        return results
+                    end,
+                    bincount = function(a, weights, minlength)
+                        local data = type(a) == "table" and a._data or a
+                        local weights_data = weights and (type(weights) == "table" and weights._data or weights) or nil
+                        return luaswift.array._wrap(_bincount(data, weights_data, minlength))
+                    end,
+                    ptp = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        local result = _ptp(data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
                     end,
 
                     -- Linear algebra
@@ -3023,6 +3077,249 @@ public struct ArrayModule {
         }
 
         return .array(results)
+    }
+
+    // MARK: - Statistics Functions
+
+    private static func medianCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.median: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // If no axis specified, return global median
+        if args.count < 2 || args[1] == .nil {
+            let sorted = arrayData.data.sorted()
+            let n = sorted.count
+            if n % 2 == 1 {
+                return .number(sorted[n / 2])
+            } else {
+                return .number((sorted[n / 2 - 1] + sorted[n / 2]) / 2.0)
+            }
+        }
+
+        // Axis-wise reduction
+        guard let axis = args[1].intValue else {
+            throw LuaError.callbackError("array.median: axis must be an integer")
+        }
+
+        return try reduceAlongAxis(arrayData, axis: axis - 1) { values in
+            let sorted = values.sorted()
+            let n = sorted.count
+            if n % 2 == 1 {
+                return sorted[n / 2]
+            } else {
+                return (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+            }
+        }
+    }
+
+    private static func percentileCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.percentile: requires array and percentile arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        guard let q = args[1].numberValue else {
+            throw LuaError.callbackError("array.percentile: percentile must be a number")
+        }
+
+        if q < 0 || q > 100 {
+            throw LuaError.callbackError("array.percentile: percentile must be between 0 and 100")
+        }
+
+        // Convert percentile (0-100) to fraction (0-1)
+        let fraction = q / 100.0
+
+        // If no axis specified, return global percentile
+        if args.count < 3 || args[2] == .nil {
+            let sorted = arrayData.data.sorted()
+            return .number(computeQuantile(sorted, fraction: fraction))
+        }
+
+        // Axis-wise reduction
+        guard let axis = args[2].intValue else {
+            throw LuaError.callbackError("array.percentile: axis must be an integer")
+        }
+
+        return try reduceAlongAxis(arrayData, axis: axis - 1) { values in
+            computeQuantile(values.sorted(), fraction: fraction)
+        }
+    }
+
+    private static func quantileCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.quantile: requires array and quantile arguments")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        guard let q = args[1].numberValue else {
+            throw LuaError.callbackError("array.quantile: quantile must be a number")
+        }
+
+        if q < 0 || q > 1 {
+            throw LuaError.callbackError("array.quantile: quantile must be between 0 and 1")
+        }
+
+        // If no axis specified, return global quantile
+        if args.count < 3 || args[2] == .nil {
+            let sorted = arrayData.data.sorted()
+            return .number(computeQuantile(sorted, fraction: q))
+        }
+
+        // Axis-wise reduction
+        guard let axis = args[2].intValue else {
+            throw LuaError.callbackError("array.quantile: axis must be an integer")
+        }
+
+        return try reduceAlongAxis(arrayData, axis: axis - 1) { values in
+            computeQuantile(values.sorted(), fraction: q)
+        }
+    }
+
+    /// Helper function to compute quantile using linear interpolation
+    private static func computeQuantile(_ sorted: [Double], fraction: Double) -> Double {
+        let n = sorted.count
+        if n == 0 { return Double.nan }
+        if n == 1 { return sorted[0] }
+
+        // Use linear interpolation (NumPy default method)
+        let index = fraction * Double(n - 1)
+        let lower = Int(index)
+        let upper = min(lower + 1, n - 1)
+        let weight = index - Double(lower)
+
+        return sorted[lower] * (1 - weight) + sorted[upper] * weight
+    }
+
+    private static func histogramCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.histogram: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let data = arrayData.data
+
+        // Default to 10 bins
+        let numBins: Int
+        if args.count > 1, let binsArg = args[1].intValue {
+            numBins = binsArg
+        } else {
+            numBins = 10
+        }
+
+        // Determine range
+        var minVal: Double
+        var maxVal: Double
+        if args.count > 2, let range = args[2].arrayValue, range.count >= 2 {
+            minVal = range[0].numberValue ?? data.min()!
+            maxVal = range[1].numberValue ?? data.max()!
+        } else {
+            minVal = data.min() ?? 0
+            maxVal = data.max() ?? 0
+        }
+
+        // Handle edge case where min == max
+        if minVal == maxVal {
+            minVal -= 0.5
+            maxVal += 0.5
+        }
+
+        let binWidth = (maxVal - minVal) / Double(numBins)
+
+        // Calculate bin edges (numBins + 1 edges)
+        var edges: [Double] = []
+        for i in 0...numBins {
+            edges.append(minVal + Double(i) * binWidth)
+        }
+
+        // Count values in each bin
+        var counts = [Double](repeating: 0, count: numBins)
+        for val in data {
+            if val < minVal || val > maxVal { continue }
+            var binIdx = Int((val - minVal) / binWidth)
+            // Handle edge case where val == maxVal
+            if binIdx >= numBins { binIdx = numBins - 1 }
+            counts[binIdx] += 1
+        }
+
+        // Return counts and edges as separate arrays
+        let countsArray = createArrayTable(ArrayData(shape: [counts.count], data: counts))
+        let edgesArray = createArrayTable(ArrayData(shape: [edges.count], data: edges))
+
+        return .array([countsArray, edgesArray])
+    }
+
+    private static func bincountCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.bincount: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Get optional weights
+        var weights: [Double]? = nil
+        if args.count > 1 && args[1] != .nil {
+            let weightsData = try extractArrayData(args[1])
+            if weightsData.size != arrayData.size {
+                throw LuaError.callbackError("array.bincount: weights must have same size as input")
+            }
+            weights = weightsData.data
+        }
+
+        // Get optional minlength
+        let minlength = args.count > 2 ? (args[2].intValue ?? 0) : 0
+
+        // Find max value to determine output size
+        var maxVal = 0
+        for val in arrayData.data {
+            if val < 0 || val.truncatingRemainder(dividingBy: 1) != 0 {
+                throw LuaError.callbackError("array.bincount: input must contain non-negative integers")
+            }
+            maxVal = max(maxVal, Int(val))
+        }
+
+        let outputSize = max(maxVal + 1, minlength)
+        var counts = [Double](repeating: 0, count: outputSize)
+
+        // Count occurrences (with optional weights)
+        for (i, val) in arrayData.data.enumerated() {
+            let idx = Int(val)
+            if let w = weights {
+                counts[idx] += w[i]
+            } else {
+                counts[idx] += 1
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: [counts.count], data: counts))
+    }
+
+    private static func ptpCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.ptp: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // If no axis specified, return global ptp
+        if args.count < 2 || args[1] == .nil {
+            guard let minV = arrayData.data.min(), let maxV = arrayData.data.max() else {
+                return .number(0)
+            }
+            return .number(maxV - minV)
+        }
+
+        // Axis-wise reduction
+        guard let axis = args[1].intValue else {
+            throw LuaError.callbackError("array.ptp: axis must be an integer")
+        }
+
+        return try reduceAlongAxis(arrayData, axis: axis - 1) { values in
+            guard let minV = values.min(), let maxV = values.max() else { return 0 }
+            return maxV - minV
+        }
     }
 
     // MARK: - Utility Functions

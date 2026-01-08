@@ -417,9 +417,17 @@ public struct MathXModule {
             throw LuaError.callbackError("variance requires non-empty array")
         }
 
+        // Optional ddof (delta degrees of freedom) parameter
+        // ddof=0: population variance (default), ddof=1: sample variance
+        let ddof = args.count > 1 ? (args[1].intValue ?? 0) : 0
+        let divisor = numbers.count - ddof
+        guard divisor > 0 else {
+            throw LuaError.callbackError("variance: ddof must be less than array length")
+        }
+
         let mean = numbers.reduce(0.0, +) / Double(numbers.count)
         let squaredDiffs = numbers.map { pow($0 - mean, 2) }
-        let variance = squaredDiffs.reduce(0.0, +) / Double(numbers.count)
+        let variance = squaredDiffs.reduce(0.0, +) / Double(divisor)
 
         return .number(variance)
     }
@@ -434,9 +442,17 @@ public struct MathXModule {
             throw LuaError.callbackError("stddev requires non-empty array")
         }
 
+        // Optional ddof (delta degrees of freedom) parameter
+        // ddof=0: population stddev (default), ddof=1: sample stddev
+        let ddof = args.count > 1 ? (args[1].intValue ?? 0) : 0
+        let divisor = numbers.count - ddof
+        guard divisor > 0 else {
+            throw LuaError.callbackError("stddev: ddof must be less than array length")
+        }
+
         let mean = numbers.reduce(0.0, +) / Double(numbers.count)
         let squaredDiffs = numbers.map { pow($0 - mean, 2) }
-        let variance = squaredDiffs.reduce(0.0, +) / Double(numbers.count)
+        let variance = squaredDiffs.reduce(0.0, +) / Double(divisor)
 
         return .number(Darwin.sqrt(variance))
     }

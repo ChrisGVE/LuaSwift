@@ -81,6 +81,9 @@ public struct MathXModule {
         engine.registerFunction(name: "_luaswift_math_variance", callback: varianceCallback)
         engine.registerFunction(name: "_luaswift_math_stddev", callback: stddevCallback)
         engine.registerFunction(name: "_luaswift_math_percentile", callback: percentileCallback)
+        engine.registerFunction(name: "_luaswift_math_gmean", callback: gmeanCallback)
+        engine.registerFunction(name: "_luaswift_math_hmean", callback: hmeanCallback)
+        engine.registerFunction(name: "_luaswift_math_mode", callback: modeCallback)
 
         engine.registerFunction(name: "_luaswift_math_factorial", callback: factorialCallback)
         engine.registerFunction(name: "_luaswift_math_gamma", callback: gammaCallback)
@@ -118,6 +121,9 @@ public struct MathXModule {
                 local variance_fn = _luaswift_math_variance
                 local stddev_fn = _luaswift_math_stddev
                 local percentile_fn = _luaswift_math_percentile
+                local gmean_fn = _luaswift_math_gmean
+                local hmean_fn = _luaswift_math_hmean
+                local mode_fn = _luaswift_math_mode
                 local factorial_fn = _luaswift_math_factorial
                 local gamma_fn = _luaswift_math_gamma
                 local lgamma_fn = _luaswift_math_lgamma
@@ -154,6 +160,9 @@ public struct MathXModule {
                     variance = variance_fn,
                     stddev = stddev_fn,
                     percentile = percentile_fn,
+                    gmean = gmean_fn,
+                    hmean = hmean_fn,
+                    mode = mode_fn,
 
                     -- Special functions
                     factorial = factorial_fn,
@@ -195,6 +204,9 @@ public struct MathXModule {
                         math.variance = variance_fn
                         math.stddev = stddev_fn
                         math.percentile = percentile_fn
+                        math.gmean = gmean_fn
+                        math.hmean = hmean_fn
+                        math.mode = mode_fn
                         math.factorial = factorial_fn
                         math.gamma = gamma_fn
                         math.lgamma = lgamma_fn
@@ -233,6 +245,9 @@ public struct MathXModule {
                 _luaswift_math_variance = nil
                 _luaswift_math_stddev = nil
                 _luaswift_math_percentile = nil
+                _luaswift_math_gmean = nil
+                _luaswift_math_hmean = nil
+                _luaswift_math_mode = nil
                 _luaswift_math_factorial = nil
                 _luaswift_math_gamma = nil
                 _luaswift_math_lgamma = nil
@@ -493,6 +508,80 @@ public struct MathXModule {
         let weight = rank - Double(lowerIndex)
         let value = sorted[lowerIndex] * (1.0 - weight) + sorted[upperIndex] * weight
         return .number(value)
+    }
+
+    /// Geometric mean: nth root of product of n values
+    /// gmean([a, b, c]) = (a * b * c)^(1/n)
+    private static func gmeanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let array = args.first?.arrayValue else {
+            throw LuaError.callbackError("gmean requires an array argument")
+        }
+
+        let numbers = try extractNumbers(from: array, functionName: "gmean")
+        guard !numbers.isEmpty else {
+            throw LuaError.callbackError("gmean requires non-empty array")
+        }
+
+        // Check for non-positive values (geometric mean undefined)
+        for num in numbers {
+            if num <= 0 {
+                throw LuaError.callbackError("gmean requires all positive values")
+            }
+        }
+
+        // Use log-sum-exp for numerical stability: exp(mean(log(x)))
+        let logSum = numbers.reduce(0.0) { $0 + Darwin.log($1) }
+        let logMean = logSum / Double(numbers.count)
+        return .number(Darwin.exp(logMean))
+    }
+
+    /// Harmonic mean: n / sum(1/x_i)
+    /// hmean([a, b, c]) = 3 / (1/a + 1/b + 1/c)
+    private static func hmeanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let array = args.first?.arrayValue else {
+            throw LuaError.callbackError("hmean requires an array argument")
+        }
+
+        let numbers = try extractNumbers(from: array, functionName: "hmean")
+        guard !numbers.isEmpty else {
+            throw LuaError.callbackError("hmean requires non-empty array")
+        }
+
+        // Check for zero or negative values (harmonic mean undefined)
+        for num in numbers {
+            if num <= 0 {
+                throw LuaError.callbackError("hmean requires all positive values")
+            }
+        }
+
+        let reciprocalSum = numbers.reduce(0.0) { $0 + 1.0 / $1 }
+        return .number(Double(numbers.count) / reciprocalSum)
+    }
+
+    /// Mode: most frequently occurring value(s)
+    /// Returns the smallest mode if there are ties
+    private static func modeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let array = args.first?.arrayValue else {
+            throw LuaError.callbackError("mode requires an array argument")
+        }
+
+        let numbers = try extractNumbers(from: array, functionName: "mode")
+        guard !numbers.isEmpty else {
+            throw LuaError.callbackError("mode requires non-empty array")
+        }
+
+        // Count occurrences
+        var counts: [Double: Int] = [:]
+        for num in numbers {
+            counts[num, default: 0] += 1
+        }
+
+        // Find max count
+        let maxCount = counts.values.max() ?? 0
+
+        // Find all values with max count, return smallest (scipy behavior)
+        let modes = counts.filter { $0.value == maxCount }.keys.sorted()
+        return .number(modes.first ?? numbers[0])
     }
 
     // MARK: - Special Functions

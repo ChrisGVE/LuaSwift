@@ -663,6 +663,87 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 14)  // 1 + 3 + 2 + 8 (cumprod down columns)
     }
 
+    // MARK: - Sorting and Searching
+
+    func testSort() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({3, 1, 4, 1, 5, 9, 2, 6})
+            local s = luaswift.array.sort(a)
+            return s:get(1) + s:get(2) + s:get(3)
+            """)
+        XCTAssertEqual(result.numberValue, 4)  // 1 + 1 + 2 (first three sorted elements)
+    }
+
+    func testSortAxis() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({{3, 1}, {4, 2}})
+            local s = luaswift.array.sort(a, 1)
+            return s:get(1, 1) + s:get(2, 1) + s:get(1, 2) + s:get(2, 2)
+            """)
+        XCTAssertEqual(result.numberValue, 10)  // 3 + 4 + 1 + 2 (sorted down columns: 3,4 and 1,2)
+    }
+
+    func testArgsort() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({30, 10, 20})
+            local idx = luaswift.array.argsort(a)
+            return idx:get(1)
+            """)
+        XCTAssertEqual(result.numberValue, 2)  // 10 is at index 2 (1-based), smallest element
+    }
+
+    func testSearchsorted() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 3, 5, 7, 9})
+            return luaswift.array.searchsorted(a, 4)
+            """)
+        XCTAssertEqual(result.numberValue, 3)  // 4 would be inserted at index 3 (after 3, before 5)
+    }
+
+    func testSearchsortedRight() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 3, 5, 7, 9})
+            return luaswift.array.searchsorted(a, 5, "right")
+            """)
+        XCTAssertEqual(result.numberValue, 4)  // 5 would be inserted at index 4 (after 5)
+    }
+
+    func testArgwhere() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1, 0, 2, 0})
+            local idx = luaswift.array.argwhere(a)
+            return idx:get(1, 1) + idx:get(2, 1)
+            """)
+        XCTAssertEqual(result.numberValue, 6)  // indices 2 and 4 (1-based)
+    }
+
+    func testNonzero() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({0, 1, 0, 2, 0})
+            local idx = luaswift.array.nonzero(a)
+            return idx[1]:get(1) + idx[1]:get(2)
+            """)
+        XCTAssertEqual(result.numberValue, 6)  // indices 2 and 4 (1-based)
+    }
+
+    func testUnique() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({3, 1, 2, 1, 3, 2, 1})
+            local u = luaswift.array.unique(a)
+            return u:get(1) + u:get(2) + u:get(3)
+            """)
+        XCTAssertEqual(result.numberValue, 6)  // 1 + 2 + 3 (sorted unique values)
+    }
+
+    func testUniqueWithCounts() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 2, 3, 3, 3})
+            local u, counts = luaswift.array.unique(a, false, false, true)
+            return counts:get(1) + counts:get(2) + counts:get(3)
+            """)
+        XCTAssertEqual(result.numberValue, 6)  // 1 + 2 + 3 (counts for 1, 2, 3)
+    }
+
     // MARK: - Dot Product
 
     func testDotVectors() throws {

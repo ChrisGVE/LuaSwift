@@ -123,6 +123,14 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_cumsum", callback: cumsumCallback)
         engine.registerFunction(name: "_luaswift_array_cumprod", callback: cumprodCallback)
 
+        // Register sorting and searching
+        engine.registerFunction(name: "_luaswift_array_sort", callback: sortCallback)
+        engine.registerFunction(name: "_luaswift_array_argsort", callback: argsortCallback)
+        engine.registerFunction(name: "_luaswift_array_searchsorted", callback: searchsortedCallback)
+        engine.registerFunction(name: "_luaswift_array_argwhere", callback: argwhereCallback)
+        engine.registerFunction(name: "_luaswift_array_nonzero", callback: nonzeroCallback)
+        engine.registerFunction(name: "_luaswift_array_unique", callback: uniqueCallback)
+
         // Register serialization
         engine.registerFunction(name: "_luaswift_array_tolist", callback: toListCallback)
         engine.registerFunction(name: "_luaswift_array_copy", callback: copyCallback)
@@ -212,6 +220,12 @@ public struct ArrayModule {
                 local _any = _luaswift_array_any
                 local _cumsum = _luaswift_array_cumsum
                 local _cumprod = _luaswift_array_cumprod
+                local _sort = _luaswift_array_sort
+                local _argsort = _luaswift_array_argsort
+                local _searchsorted = _luaswift_array_searchsorted
+                local _argwhere = _luaswift_array_argwhere
+                local _nonzero = _luaswift_array_nonzero
+                local _unique = _luaswift_array_unique
                 local _tolist = _luaswift_array_tolist
                 local _copy = _luaswift_array_copy
                 local _dot = _luaswift_array_dot
@@ -657,6 +671,48 @@ public struct ArrayModule {
                     cumprod = function(a, axis)
                         local data = type(a) == "table" and a._data or a
                         return luaswift.array._wrap(_cumprod(data, axis))
+                    end,
+
+                    -- Sorting and searching
+                    sort = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_sort(data, axis))
+                    end,
+                    argsort = function(a, axis)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_argsort(data, axis))
+                    end,
+                    searchsorted = function(a, v, side)
+                        local a_data = type(a) == "table" and a._data or a
+                        local v_data = type(v) == "table" and v._data or v
+                        local result = _searchsorted(a_data, v_data, side)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    argwhere = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_argwhere(data))
+                    end,
+                    nonzero = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        local results = _nonzero(data)
+                        local wrapped = {}
+                        for i, r in ipairs(results) do
+                            wrapped[i] = luaswift.array._wrap(r)
+                        end
+                        return wrapped
+                    end,
+                    unique = function(a, return_index, return_inverse, return_counts)
+                        local data = type(a) == "table" and a._data or a
+                        local results = _unique(data, return_index, return_inverse, return_counts)
+                        if type(results) == "table" and results[1] then
+                            local wrapped = {}
+                            for i, r in ipairs(results) do
+                                wrapped[i] = luaswift.array._wrap(r)
+                            end
+                            return table.unpack(wrapped)
+                        end
+                        return luaswift.array._wrap(results)
                     end,
 
                     -- Linear algebra
@@ -2596,6 +2652,290 @@ public struct ArrayModule {
         }
 
         return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    // MARK: - Sorting and Searching
+
+    private static func sortCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.sort: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let axis = args.count > 1 ? args[1].intValue : nil
+
+        if axis == nil {
+            // Sort flattened array
+            let sorted = arrayData.data.sorted()
+            return createArrayTable(ArrayData(shape: [arrayData.size], data: sorted))
+        } else {
+            // Sort along axis
+            return try sortAlongAxis(arrayData, axis: axis!)
+        }
+    }
+
+    private static func sortAlongAxis(_ arrayData: ArrayData, axis: Int) throws -> LuaValue {
+        let axisIndex = axis - 1  // Convert to 0-based
+        guard axisIndex >= 0 && axisIndex < arrayData.ndim else {
+            throw LuaError.callbackError("array.sort: axis out of range")
+        }
+
+        let axisSize = arrayData.shape[axisIndex]
+        var result = arrayData.data  // Copy
+
+        // Compute strides
+        var strides = [Int](repeating: 1, count: arrayData.ndim)
+        for d in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+            strides[d] = strides[d + 1] * arrayData.shape[d + 1]
+        }
+
+        let innerSize = strides[axisIndex]
+        let outerCount = arrayData.size / (axisSize * innerSize)
+
+        for outerIdx in 0..<outerCount {
+            for innerIdx in 0..<innerSize {
+                // Collect slice values
+                var slice = [Double](repeating: 0, count: axisSize)
+                for axisPos in 0..<axisSize {
+                    let flatIdx = outerIdx * (axisSize * innerSize) + axisPos * innerSize + innerIdx
+                    slice[axisPos] = result[flatIdx]
+                }
+
+                // Sort and write back
+                slice.sort()
+                for axisPos in 0..<axisSize {
+                    let flatIdx = outerIdx * (axisSize * innerSize) + axisPos * innerSize + innerIdx
+                    result[flatIdx] = slice[axisPos]
+                }
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func argsortCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.argsort: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let axis = args.count > 1 ? args[1].intValue : nil
+
+        if axis == nil {
+            // Argsort flattened array - return 1-based indices
+            let indices = arrayData.data.enumerated()
+                .sorted { $0.element < $1.element }
+                .map { Double($0.offset + 1) }  // 1-based
+            return createArrayTable(ArrayData(shape: [arrayData.size], data: indices))
+        } else {
+            // Argsort along axis
+            return try argsortAlongAxis(arrayData, axis: axis!)
+        }
+    }
+
+    private static func argsortAlongAxis(_ arrayData: ArrayData, axis: Int) throws -> LuaValue {
+        let axisIndex = axis - 1
+        guard axisIndex >= 0 && axisIndex < arrayData.ndim else {
+            throw LuaError.callbackError("array.argsort: axis out of range")
+        }
+
+        let axisSize = arrayData.shape[axisIndex]
+        var result = [Double](repeating: 0, count: arrayData.size)
+
+        var strides = [Int](repeating: 1, count: arrayData.ndim)
+        for d in stride(from: arrayData.ndim - 2, through: 0, by: -1) {
+            strides[d] = strides[d + 1] * arrayData.shape[d + 1]
+        }
+
+        let innerSize = strides[axisIndex]
+        let outerCount = arrayData.size / (axisSize * innerSize)
+
+        for outerIdx in 0..<outerCount {
+            for innerIdx in 0..<innerSize {
+                // Collect slice with indices
+                var indexed = [(idx: Int, val: Double)](repeating: (0, 0), count: axisSize)
+                for axisPos in 0..<axisSize {
+                    let flatIdx = outerIdx * (axisSize * innerSize) + axisPos * innerSize + innerIdx
+                    indexed[axisPos] = (axisPos + 1, arrayData.data[flatIdx])  // 1-based index
+                }
+
+                // Sort by value
+                indexed.sort { $0.val < $1.val }
+
+                // Write sorted indices
+                for axisPos in 0..<axisSize {
+                    let flatIdx = outerIdx * (axisSize * innerSize) + axisPos * innerSize + innerIdx
+                    result[flatIdx] = Double(indexed[axisPos].idx)
+                }
+            }
+        }
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    private static func searchsortedCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.searchsorted: requires sorted array and values")
+        }
+
+        let sortedData = try extractArrayData(args[0])
+        guard sortedData.ndim == 1 else {
+            throw LuaError.callbackError("array.searchsorted: input must be 1D array")
+        }
+
+        let sortedArray = sortedData.data
+        let side = args.count > 2 ? args[2].stringValue ?? "left" : "left"
+        let leftSide = side != "right"
+
+        // Handle scalar or array input
+        if let scalar = args[1].numberValue {
+            let idx = binarySearch(sortedArray, value: scalar, left: leftSide)
+            return .number(Double(idx))
+        }
+
+        let values = try extractArrayData(args[1])
+        var result = [Double](repeating: 0, count: values.size)
+
+        for i in 0..<values.size {
+            result[i] = Double(binarySearch(sortedArray, value: values.data[i], left: leftSide))
+        }
+
+        return createArrayTable(ArrayData(shape: values.shape, data: result))
+    }
+
+    private static func binarySearch(_ arr: [Double], value: Double, left: Bool) -> Int {
+        var lo = 0
+        var hi = arr.count
+
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            let cmp = left ? (arr[mid] < value) : (arr[mid] <= value)
+            if cmp {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        return lo + 1  // 1-based index
+    }
+
+    private static func argwhereCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.argwhere: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // Find all non-zero indices
+        var indices: [[Int]] = []
+        for i in 0..<arrayData.size {
+            if arrayData.data[i] != 0 {
+                // Convert flat index to multi-dimensional index (1-based)
+                var idx = i
+                var multiIdx = [Int](repeating: 0, count: arrayData.ndim)
+                for d in stride(from: arrayData.ndim - 1, through: 0, by: -1) {
+                    multiIdx[d] = (idx % arrayData.shape[d]) + 1  // 1-based
+                    idx /= arrayData.shape[d]
+                }
+                indices.append(multiIdx)
+            }
+        }
+
+        if indices.isEmpty {
+            return createArrayTable(ArrayData(shape: [0, arrayData.ndim], data: []))
+        }
+
+        // Return as (N, ndim) array where N is number of non-zero elements
+        let data = indices.flatMap { $0.map { Double($0) } }
+        return createArrayTable(ArrayData(shape: [indices.count, arrayData.ndim], data: data))
+    }
+
+    private static func nonzeroCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.nonzero: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+
+        // For each dimension, collect indices where non-zero
+        var dimIndices = [[Double]](repeating: [], count: arrayData.ndim)
+
+        for i in 0..<arrayData.size {
+            if arrayData.data[i] != 0 {
+                var idx = i
+                for d in stride(from: arrayData.ndim - 1, through: 0, by: -1) {
+                    dimIndices[d].append(Double((idx % arrayData.shape[d]) + 1))  // 1-based
+                    idx /= arrayData.shape[d]
+                }
+            }
+        }
+
+        // Return tuple of arrays, one per dimension
+        var result: [LuaValue] = []
+        for d in 0..<arrayData.ndim {
+            let dimArray = createArrayTable(ArrayData(shape: [dimIndices[d].count], data: dimIndices[d]))
+            result.append(dimArray)
+        }
+
+        return .array(result)
+    }
+
+    private static func uniqueCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.unique: requires an array argument")
+        }
+
+        let arrayData = try extractArrayData(args[0])
+        let returnIndex = args.count > 1 ? args[1].boolValue ?? false : false
+        let returnInverse = args.count > 2 ? args[2].boolValue ?? false : false
+        let returnCounts = args.count > 3 ? args[3].boolValue ?? false : false
+
+        // Get unique values while tracking first indices
+        var seen: [Double: (index: Int, count: Int)] = [:]
+        var uniqueValues: [Double] = []
+
+        for (i, val) in arrayData.data.enumerated() {
+            if let existing = seen[val] {
+                seen[val] = (existing.index, existing.count + 1)
+            } else {
+                seen[val] = (i + 1, 1)  // 1-based index
+                uniqueValues.append(val)
+            }
+        }
+
+        // Sort unique values
+        uniqueValues.sort()
+
+        let uniqueArray = createArrayTable(ArrayData(shape: [uniqueValues.count], data: uniqueValues))
+
+        if !returnIndex && !returnInverse && !returnCounts {
+            return uniqueArray
+        }
+
+        var results: [LuaValue] = [uniqueArray]
+
+        if returnIndex {
+            // First occurrence indices (1-based)
+            let indices = uniqueValues.map { Double(seen[$0]!.index) }
+            results.append(createArrayTable(ArrayData(shape: [indices.count], data: indices)))
+        }
+
+        if returnInverse {
+            // For each original element, index into unique array (1-based)
+            var valueToUniqueIdx: [Double: Int] = [:]
+            for (i, v) in uniqueValues.enumerated() {
+                valueToUniqueIdx[v] = i + 1  // 1-based
+            }
+            let inverse = arrayData.data.map { Double(valueToUniqueIdx[$0]!) }
+            results.append(createArrayTable(ArrayData(shape: arrayData.shape, data: inverse)))
+        }
+
+        if returnCounts {
+            let counts = uniqueValues.map { Double(seen[$0]!.count) }
+            results.append(createArrayTable(ArrayData(shape: [counts.count], data: counts)))
+        }
+
+        return .array(results)
     }
 
     // MARK: - Utility Functions

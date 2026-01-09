@@ -129,6 +129,7 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_bspline_derivative", callback: bsplineDerivativeCallback)
         engine.registerFunction(name: "_luaswift_geo_circle_fit_algebraic", callback: circleFitAlgebraicCallback)
         engine.registerFunction(name: "_luaswift_geo_circle_fit_taubin", callback: circleFitTaubinCallback)
+        engine.registerFunction(name: "_luaswift_geo_ellipse_fit_direct", callback: ellipseFitDirectCallback)
 
         // Set up the luaswift.geometry namespace
         do {
@@ -1991,6 +1992,454 @@ public struct GeometryModule {
         return vec3ToLua(simd_double3(x, y, z))
     }
 
+    // MARK: - Ellipse Fitting Callbacks
+
+    /// Fit ellipse using Fitzgibbon's direct least squares method (constrained eigenvalue problem)
+    /// Guarantees result is always an ellipse (not hyperbola/parabola)
+    /// Returns: {cx, cy, a, b, theta, conic, residuals, rmse, method}
+    private static let ellipseFitDirectCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard let pointsArray = args.first?.arrayValue else {
+            throw LuaError.callbackError("ellipse_fit requires array of points")
+        }
+
+        // Extract points
+        var points: [(x: Double, y: Double)] = []
+        for pt in pointsArray {
+            if let table = pt.tableValue {
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
+                if let x = x, let y = y {
+                    points.append((x, y))
+                }
+            }
+        }
+
+        guard points.count >= 5 else {
+            throw LuaError.callbackError("ellipse_fit requires at least 5 points")
+        }
+
+        let n = points.count
+
+        // Center the data for numerical stability
+        var meanX = 0.0, meanY = 0.0
+        for p in points {
+            meanX += p.x
+            meanY += p.y
+        }
+        meanX /= Double(n)
+        meanY /= Double(n)
+
+        // Create centered points
+        let centered = points.map { ($0.x - meanX, $0.y - meanY) }
+
+        // Build design matrix D = [x², xy, y², x, y, 1]
+        // For Fitzgibbon's method, we use D = [x², xy, y², x, y, 1] and solve D'D a = λ C a
+        // where C is the constraint matrix ensuring 4ac - b² = 1 (i.e., it's an ellipse)
+
+        // Compute scatter matrix S = D' * D (6x6)
+        var S = [[Double]](repeating: [Double](repeating: 0.0, count: 6), count: 6)
+
+        for p in centered {
+            let x = p.0, y = p.1
+            let x2 = x * x
+            let y2 = y * y
+            let xy = x * y
+
+            let d = [x2, xy, y2, x, y, 1.0]
+
+            for i in 0..<6 {
+                for j in 0..<6 {
+                    S[i][j] += d[i] * d[j]
+                }
+            }
+        }
+
+        // Constraint matrix C for 4ac - b² = 1:
+        // C = [0 0 2 0 0 0; 0 -1 0 0 0 0; 2 0 0 0 0 0; 0 0 0 0 0 0; 0 0 0 0 0 0; 0 0 0 0 0 0]
+        // This ensures the conic Ax² + Bxy + Cy² + Dx + Ey + F = 0 is an ellipse (4AC - B² > 0)
+
+        // Partition S into blocks:
+        // S = [S1  S2]
+        //     [S2' S3]
+        // where S1 is 3x3 (for x², xy, y²), S2 is 3x3, S3 is 3x3
+
+        // S1 (top-left 3x3)
+        var S1 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
+        for i in 0..<3 {
+            for j in 0..<3 {
+                S1[i][j] = S[i][j]
+            }
+        }
+
+        // S2 (top-right 3x3)
+        var S2 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
+        for i in 0..<3 {
+            for j in 0..<3 {
+                S2[i][j] = S[i][j + 3]
+            }
+        }
+
+        // S3 (bottom-right 3x3)
+        var S3 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
+        for i in 0..<3 {
+            for j in 0..<3 {
+                S3[i][j] = S[i + 3][j + 3]
+            }
+        }
+
+        // Constraint matrix C1 (3x3) for the quadratic terms
+        // C1 = [0 0 2; 0 -1 0; 2 0 0]
+        let C1: [[Double]] = [[0, 0, 2], [0, -1, 0], [2, 0, 0]]
+
+        // Compute inverse of S3
+        guard let S3inv = invert3x3(S3) else {
+            return .nil  // Degenerate case
+        }
+
+        // Compute T = -S3^(-1) * S2'
+        var T = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
+        for i in 0..<3 {
+            for j in 0..<3 {
+                for k in 0..<3 {
+                    T[i][j] -= S3inv[i][k] * S2[j][k]  // S2' is S2 transposed
+                }
+            }
+        }
+
+        // Compute M = S1 + S2 * T = S1 - S2 * S3^(-1) * S2'
+        var M = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
+        for i in 0..<3 {
+            for j in 0..<3 {
+                M[i][j] = S1[i][j]
+                for k in 0..<3 {
+                    M[i][j] += S2[i][k] * T[k][j]
+                }
+            }
+        }
+
+        // Compute C1^(-1) * M
+        guard let C1inv = invert3x3(C1) else {
+            return .nil
+        }
+
+        var C1invM = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
+        for i in 0..<3 {
+            for j in 0..<3 {
+                for k in 0..<3 {
+                    C1invM[i][j] += C1inv[i][k] * M[k][j]
+                }
+            }
+        }
+
+        // Find eigenvalues/eigenvectors of C1^(-1) * M
+        // Use characteristic polynomial method for 3x3 matrix
+        guard let (eigenvalues, eigenvectors) = eigenDecomposition3x3(C1invM) else {
+            return .nil
+        }
+
+        // Find the eigenvector corresponding to the smallest positive eigenvalue
+        // This corresponds to the ellipse (4ac - b² > 0 constraint)
+        var bestIdx = -1
+        var bestEig = Double.infinity
+        let numEigen = min(eigenvalues.count, eigenvectors.count)
+        for i in 0..<numEigen {
+            guard eigenvectors[i].count >= 3 else { continue }
+            let a = eigenvectors[i][0]
+            let b = eigenvectors[i][1]
+            let c = eigenvectors[i][2]
+            let constraint = 4 * a * c - b * b  // Should be positive for ellipse
+
+            if constraint > 0 && eigenvalues[i] < bestEig && eigenvalues[i] > -1e-10 {
+                bestEig = eigenvalues[i]
+                bestIdx = i
+            }
+        }
+
+        guard bestIdx >= 0 else {
+            return .nil  // No valid ellipse found
+        }
+
+        // Get the conic coefficients for quadratic terms
+        let a1 = [eigenvectors[bestIdx][0], eigenvectors[bestIdx][1], eigenvectors[bestIdx][2]]
+
+        // Recover linear coefficients: a2 = T * a1
+        var a2 = [0.0, 0.0, 0.0]
+        for i in 0..<3 {
+            for j in 0..<3 {
+                a2[i] += T[i][j] * a1[j]
+            }
+        }
+
+        // Full conic coefficients [A, B, C, D, E, F] for Ax² + Bxy + Cy² + Dx + Ey + F = 0
+        // But our indexing was [x², xy, y², x, y, 1] = [A, B, C, D, E, F]
+        var A = a1[0]
+        var B = a1[1]
+        var C = a1[2]
+        var D = a2[0]
+        var E = a2[1]
+        var F = a2[2]
+
+        // Un-center: the conic needs to be transformed back to original coordinates
+        // Original: x_orig = x + meanX, y_orig = y + meanY
+        // So: (x_orig - meanX)² → x_orig² - 2*meanX*x_orig + meanX²
+        // Expanding Ax² + Bxy + Cy² + Dx + Ey + F in terms of x_orig, y_orig:
+        // A(x_orig - mx)² + B(x_orig - mx)(y_orig - my) + C(y_orig - my)² + D(x_orig - mx) + E(y_orig - my) + F = 0
+
+        let newD = D - 2 * A * meanX - B * meanY
+        let newE = E - 2 * C * meanY - B * meanX
+        let newF = F + A * meanX * meanX + C * meanY * meanY + B * meanX * meanY - D * meanX - E * meanY
+
+        D = newD
+        E = newE
+        F = newF
+
+        // Convert conic form to parametric ellipse: center (cx, cy), semi-axes (a, b), rotation angle theta
+        // For general conic Ax² + Bxy + Cy² + Dx + Ey + F = 0:
+        // Center: solve [2A B; B 2C] * [cx; cy] = [-D; -E]
+        let det = 4 * A * C - B * B
+        guard abs(det) > 1e-15 else {
+            return .nil  // Degenerate (not an ellipse)
+        }
+
+        let cx = (B * E - 2 * C * D) / det
+        let cy = (B * D - 2 * A * E) / det
+
+        // Evaluate F at center (should give -1 when properly scaled for ellipse equation)
+        let Fc = A * cx * cx + B * cx * cy + C * cy * cy + D * cx + E * cy + F
+
+        // Rotation angle: tan(2θ) = B / (A - C)
+        let theta: Double
+        if abs(A - C) < 1e-15 {
+            theta = B > 0 ? Double.pi / 4 : -Double.pi / 4
+        } else {
+            theta = 0.5 * atan2(B, A - C)
+        }
+
+        // Semi-axes: transform to rotated coordinates where ellipse is axis-aligned
+        // In rotated coords: A'x'² + C'y'² = -Fc
+        // A' = A cos²θ + B sinθ cosθ + C sin²θ
+        // C' = A sin²θ - B sinθ cosθ + C cos²θ
+        let cos2t = cos(theta) * cos(theta)
+        let sin2t = sin(theta) * sin(theta)
+        let sincos = sin(theta) * cos(theta)
+
+        let Ap = A * cos2t + B * sincos + C * sin2t
+        let Cp = A * sin2t - B * sincos + C * cos2t
+
+        guard Ap * Fc < 0 && Cp * Fc < 0 else {
+            return .nil  // Not a valid ellipse (would have imaginary axes)
+        }
+
+        let semiMajor = sqrt(-Fc / min(Ap, Cp))  // Larger axis
+        let semiMinor = sqrt(-Fc / max(Ap, Cp))  // Smaller axis
+
+        // Ensure semi_major >= semi_minor and adjust angle if needed
+        var finalTheta = theta
+        var finalA = semiMajor
+        var finalB = semiMinor
+        if Ap > Cp {
+            // The major axis is aligned with the rotated y-axis, so rotate by π/2
+            finalTheta += Double.pi / 2
+            finalA = semiMajor
+            finalB = semiMinor
+        }
+
+        // Normalize angle to [-π/2, π/2]
+        while finalTheta > Double.pi / 2 { finalTheta -= Double.pi }
+        while finalTheta < -Double.pi / 2 { finalTheta += Double.pi }
+
+        // Compute residuals (algebraic distance)
+        var residuals: [Double] = []
+        var sumResidualsSq = 0.0
+        for p in points {
+            let val = A * p.x * p.x + B * p.x * p.y + C * p.y * p.y + D * p.x + E * p.y + F
+            // Normalize by gradient magnitude for approximate geometric distance
+            let grad = sqrt(pow(2 * A * p.x + B * p.y + D, 2) + pow(2 * C * p.y + B * p.x + E, 2))
+            let residual = grad > 1e-10 ? val / grad : val
+            residuals.append(residual)
+            sumResidualsSq += residual * residual
+        }
+
+        let rmse = sqrt(sumResidualsSq / Double(n))
+
+        return .table([
+            "cx": .number(cx),
+            "cy": .number(cy),
+            "a": .number(finalA),
+            "b": .number(finalB),
+            "theta": .number(finalTheta),
+            "conic": .array([.number(A), .number(B), .number(C), .number(D), .number(E), .number(F)]),
+            "residuals": .array(residuals.map { .number($0) }),
+            "rmse": .number(rmse),
+            "method": .string("direct")
+        ])
+    }
+
+    /// Helper: Invert a 3x3 matrix
+    private static func invert3x3(_ m: [[Double]]) -> [[Double]]? {
+        let a = m[0][0], b = m[0][1], c = m[0][2]
+        let d = m[1][0], e = m[1][1], f = m[1][2]
+        let g = m[2][0], h = m[2][1], i = m[2][2]
+
+        let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+        guard abs(det) > 1e-15 else { return nil }
+
+        let invDet = 1.0 / det
+
+        return [
+            [(e * i - f * h) * invDet, (c * h - b * i) * invDet, (b * f - c * e) * invDet],
+            [(f * g - d * i) * invDet, (a * i - c * g) * invDet, (c * d - a * f) * invDet],
+            [(d * h - e * g) * invDet, (b * g - a * h) * invDet, (a * e - b * d) * invDet]
+        ]
+    }
+
+    /// Helper: Eigendecomposition of a 3x3 matrix using characteristic polynomial
+    /// Returns (eigenvalues, eigenvectors) where eigenvectors[i] is the eigenvector for eigenvalues[i]
+    private static func eigenDecomposition3x3(_ m: [[Double]]) -> (eigenvalues: [Double], eigenvectors: [[Double]])? {
+        let a = m[0][0], b = m[0][1], c = m[0][2]
+        let d = m[1][0], e = m[1][1], f = m[1][2]
+        let g = m[2][0], h = m[2][1], i = m[2][2]
+
+        // Characteristic polynomial: λ³ - trace·λ² + (sum of 2x2 minors)·λ - det = 0
+        let trace = a + e + i
+
+        let minor1 = e * i - f * h  // Minor for (0,0)
+        let minor2 = a * i - c * g  // Minor for (1,1)
+        let minor3 = a * e - b * d  // Minor for (2,2)
+        let sumMinors = minor1 + minor2 + minor3
+
+        let det = a * minor1 - b * (d * i - f * g) + c * (d * h - e * g)
+
+        // Solve cubic: λ³ - p·λ² + q·λ - r = 0
+        // where p = trace, q = sumMinors, r = det
+        guard let roots = solveCubic(1.0, -trace, sumMinors, -det) else {
+            return nil
+        }
+
+        var eigenvectors: [[Double]] = []
+
+        for lambda in roots {
+            // Find eigenvector for eigenvalue lambda by solving (A - λI)v = 0
+            // Using null space computation
+
+            let A_lambda = [
+                [m[0][0] - lambda, m[0][1], m[0][2]],
+                [m[1][0], m[1][1] - lambda, m[1][2]],
+                [m[2][0], m[2][1], m[2][2] - lambda]
+            ]
+
+            // Find eigenvector using cross products of rows (null space of rank-2 matrix)
+            let r1 = [A_lambda[0][0], A_lambda[0][1], A_lambda[0][2]]
+            let r2 = [A_lambda[1][0], A_lambda[1][1], A_lambda[1][2]]
+            let r3 = [A_lambda[2][0], A_lambda[2][1], A_lambda[2][2]]
+
+            // Try cross products
+            var v = cross3(r1, r2)
+            var norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+
+            if norm < 1e-10 {
+                v = cross3(r1, r3)
+                norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+            }
+
+            if norm < 1e-10 {
+                v = cross3(r2, r3)
+                norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+            }
+
+            if norm < 1e-10 {
+                // Fallback: use identity direction
+                v = [1, 0, 0]
+                norm = 1
+            }
+
+            eigenvectors.append([v[0] / norm, v[1] / norm, v[2] / norm])
+        }
+
+        return (roots, eigenvectors)
+    }
+
+    /// Helper: Cross product of two 3-vectors
+    private static func cross3(_ a: [Double], _ b: [Double]) -> [Double] {
+        return [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0]
+        ]
+    }
+
+    /// Helper: Solve cubic equation ax³ + bx² + cx + d = 0
+    /// Returns up to 3 real roots
+    private static func solveCubic(_ a: Double, _ b: Double, _ c: Double, _ d: Double) -> [Double]? {
+        guard abs(a) > 1e-15 else {
+            // Degenerate to quadratic
+            return solveQuadratic(b, c, d)
+        }
+
+        // Normalize
+        let p = b / a
+        let q = c / a
+        let r = d / a
+
+        // Depressed cubic: t³ + pt + q = 0 via substitution x = t - p/3
+        let p1 = q - p * p / 3
+        let q1 = 2 * p * p * p / 27 - p * q / 3 + r
+
+        // Discriminant
+        let discriminant = q1 * q1 / 4 + p1 * p1 * p1 / 27
+
+        var roots: [Double] = []
+
+        if discriminant > 1e-15 {
+            // One real root
+            let sqrtD = sqrt(discriminant)
+            let u = cbrt(-q1 / 2 + sqrtD)
+            let v = cbrt(-q1 / 2 - sqrtD)
+            roots.append(u + v - p / 3)
+        } else if discriminant < -1e-15 {
+            // Three real roots (casus irreducibilis)
+            let rho = sqrt(-p1 * p1 * p1 / 27)
+            let theta = acos(-q1 / 2 / rho)
+
+            let m = 2 * cbrt(rho)
+            roots.append(m * cos(theta / 3) - p / 3)
+            roots.append(m * cos((theta + 2 * Double.pi) / 3) - p / 3)
+            roots.append(m * cos((theta + 4 * Double.pi) / 3) - p / 3)
+        } else {
+            // Double or triple root
+            if abs(q1) < 1e-15 {
+                // Triple root
+                roots.append(-p / 3)
+            } else {
+                // Double root + simple root
+                let u = cbrt(-q1 / 2)
+                roots.append(2 * u - p / 3)
+                roots.append(-u - p / 3)
+            }
+        }
+
+        return roots.isEmpty ? nil : roots
+    }
+
+    /// Helper: Solve quadratic equation ax² + bx + c = 0
+    private static func solveQuadratic(_ a: Double, _ b: Double, _ c: Double) -> [Double]? {
+        guard abs(a) > 1e-15 else {
+            // Degenerate to linear
+            guard abs(b) > 1e-15 else { return nil }
+            return [-c / b]
+        }
+
+        let discriminant = b * b - 4 * a * c
+        if discriminant < -1e-15 {
+            return []  // No real roots
+        } else if discriminant < 1e-15 {
+            return [-b / (2 * a)]  // Double root
+        } else {
+            let sqrtD = sqrt(discriminant)
+            return [(-b + sqrtD) / (2 * a), (-b - sqrtD) / (2 * a)]
+        }
+    }
+
     // MARK: - Lua Wrapper Code
 
     private static let geometryLuaWrapper = """
@@ -2082,6 +2531,7 @@ public struct GeometryModule {
     local _bspline_derivative = _luaswift_geo_bspline_derivative
     local _circle_fit_algebraic = _luaswift_geo_circle_fit_algebraic
     local _circle_fit_taubin = _luaswift_geo_circle_fit_taubin
+    local _ellipse_fit_direct = _luaswift_geo_ellipse_fit_direct
 
     local _vec2_to_polar = _luaswift_geo_vec2_to_polar
     local _vec2_from_polar = _luaswift_geo_vec2_from_polar
@@ -2319,6 +2769,224 @@ public struct GeometryModule {
         }
         setmetatable(circle, circle_mt)
         return circle
+    end
+
+    -- Ellipse type with center, semi-axes, and rotation
+    local ellipse_mt = {
+        __eq = function(a, b)
+            return a.center.x == b.center.x and a.center.y == b.center.y
+                and a.semi_major == b.semi_major and a.semi_minor == b.semi_minor
+                and a.rotation == b.rotation
+        end,
+        __tostring = function(a)
+            return string.format("ellipse(center=vec2(%.4f, %.4f), a=%.4f, b=%.4f, θ=%.4f)",
+                a.center.x, a.center.y, a.semi_major, a.semi_minor, a.rotation)
+        end,
+        __index = {
+            -- Chainable transformations
+            translate = function(self, dx, dy)
+                return geo.ellipse(self.center.x + dx, self.center.y + dy,
+                    self.semi_major, self.semi_minor, self.rotation)
+            end,
+            scale = function(self, factor)
+                return geo.ellipse(self.center.x, self.center.y,
+                    self.semi_major * factor, self.semi_minor * factor, self.rotation)
+            end,
+            rotate = function(self, angle)
+                return geo.ellipse(self.center.x, self.center.y,
+                    self.semi_major, self.semi_minor, self.rotation + angle)
+            end,
+            -- Queries
+            contains = function(self, point)
+                -- Transform point to ellipse-local coordinates
+                local dx = point.x - self.center.x
+                local dy = point.y - self.center.y
+                local cos_r = math.cos(-self.rotation)
+                local sin_r = math.sin(-self.rotation)
+                local x_local = dx * cos_r - dy * sin_r
+                local y_local = dx * sin_r + dy * cos_r
+                -- Check if inside ellipse: (x/a)² + (y/b)² <= 1
+                return (x_local * x_local) / (self.semi_major * self.semi_major) +
+                       (y_local * y_local) / (self.semi_minor * self.semi_minor) <= 1
+            end,
+            area = function(self)
+                return math.pi * self.semi_major * self.semi_minor
+            end,
+            circumference = function(self)
+                -- Ramanujan's approximation
+                local a, b = self.semi_major, self.semi_minor
+                local h = ((a - b) / (a + b))^2
+                return math.pi * (a + b) * (1 + 3 * h / (10 + math.sqrt(4 - 3 * h)))
+            end,
+            eccentricity = function(self)
+                local a, b = self.semi_major, self.semi_minor
+                return math.sqrt(1 - (b * b) / (a * a))
+            end,
+            -- Point generation
+            point_at = function(self, t)
+                -- Returns point on ellipse at parameter t (0 to 2π)
+                local x_local = self.semi_major * math.cos(t)
+                local y_local = self.semi_minor * math.sin(t)
+                local cos_r = math.cos(self.rotation)
+                local sin_r = math.sin(self.rotation)
+                local x = self.center.x + x_local * cos_r - y_local * sin_r
+                local y = self.center.y + x_local * sin_r + y_local * cos_r
+                return geo.vec2(x, y)
+            end,
+            -- Focal points
+            foci = function(self)
+                local c = math.sqrt(self.semi_major^2 - self.semi_minor^2)
+                local cos_r = math.cos(self.rotation)
+                local sin_r = math.sin(self.rotation)
+                local f1 = geo.vec2(self.center.x + c * cos_r, self.center.y + c * sin_r)
+                local f2 = geo.vec2(self.center.x - c * cos_r, self.center.y - c * sin_r)
+                return f1, f2
+            end,
+            -- Bounding box
+            bounds = function(self)
+                -- For rotated ellipse, compute axis-aligned bounding box
+                local cos_r = math.cos(self.rotation)
+                local sin_r = math.sin(self.rotation)
+                local a, b = self.semi_major, self.semi_minor
+                local halfW = math.sqrt(a*a * cos_r*cos_r + b*b * sin_r*sin_r)
+                local halfH = math.sqrt(a*a * sin_r*sin_r + b*b * cos_r*cos_r)
+                return {
+                    min = geo.vec2(self.center.x - halfW, self.center.y - halfH),
+                    max = geo.vec2(self.center.x + halfW, self.center.y + halfH)
+                }
+            end,
+            -- Clone
+            clone = function(self)
+                return geo.ellipse(self.center.x, self.center.y,
+                    self.semi_major, self.semi_minor, self.rotation)
+            end,
+            -- Convert to conic form [A, B, C, D, E, F] for Ax² + Bxy + Cy² + Dx + Ey + F = 0
+            to_conic = function(self)
+                local a, b = self.semi_major, self.semi_minor
+                local cx, cy = self.center.x, self.center.y
+                local cos_r = math.cos(self.rotation)
+                local sin_r = math.sin(self.rotation)
+                local cos2 = cos_r * cos_r
+                local sin2 = sin_r * sin_r
+                local sincos = sin_r * cos_r
+                local a2, b2 = a * a, b * b
+
+                local A = cos2 / a2 + sin2 / b2
+                local B = 2 * sincos * (1/a2 - 1/b2)
+                local C = sin2 / a2 + cos2 / b2
+                local D = -2 * A * cx - B * cy
+                local E = -2 * C * cy - B * cx
+                local F = A * cx * cx + B * cx * cy + C * cy * cy - 1
+
+                return {A, B, C, D, E, F}
+            end
+        }
+    }
+
+    -- Ellipse constructor: geo.ellipse(center, a, b, [theta]) or geo.ellipse(cx, cy, a, b, [theta])
+    function geo.ellipse(a, b, c, d, e)
+        local center, semi_major, semi_minor, rotation
+        if type(a) == "table" and a.x ~= nil and a.y ~= nil then
+            -- geo.ellipse(center_vec2, semi_major, semi_minor, [rotation])
+            center = geo.vec2(a.x, a.y)
+            semi_major = b
+            semi_minor = c
+            rotation = d or 0
+        elseif type(a) == "number" and type(b) == "number" and type(c) == "number" and type(d) == "number" then
+            -- geo.ellipse(cx, cy, semi_major, semi_minor, [rotation])
+            center = geo.vec2(a, b)
+            semi_major = c
+            semi_minor = d
+            rotation = e or 0
+        else
+            return nil
+        end
+
+        -- Ensure semi_major >= semi_minor
+        if semi_minor > semi_major then
+            semi_major, semi_minor = semi_minor, semi_major
+            rotation = rotation + math.pi / 2
+        end
+
+        local ellipse = {
+            center = center,
+            semi_major = semi_major,
+            semi_minor = semi_minor,
+            rotation = rotation,
+            __luaswift_type = "ellipse"
+        }
+        setmetatable(ellipse, ellipse_mt)
+        return ellipse
+    end
+
+    -- Fit ellipse to points using least squares
+    -- method: 'direct' (default, Fitzgibbon's method)
+    -- Returns ellipse object with additional fit diagnostics
+    function geo.ellipse_fit(points, method)
+        method = method or 'direct'
+
+        -- Convert points to array format if needed
+        local pts = {}
+        for i, pt in ipairs(points) do
+            pts[i] = {x = pt.x or pt[1], y = pt.y or pt[2]}
+        end
+
+        -- Call fitting method
+        local result
+        if method == 'direct' then
+            result = _ellipse_fit_direct(pts)
+        else
+            result = _ellipse_fit_direct(pts)  -- Default to direct
+        end
+
+        if not result then
+            return nil  -- Fitting failed
+        end
+
+        -- Create ellipse object with fit diagnostics
+        local ellipse = geo.ellipse(result.cx, result.cy, result.a, result.b, result.theta)
+        ellipse._fit_residuals = result.residuals
+        ellipse._fit_rmse = result.rmse
+        ellipse._fit_method = result.method
+        ellipse._fit_conic = result.conic
+        ellipse._fit_points = pts
+
+        -- Add fit diagnostic methods to this specific ellipse
+        local mt = getmetatable(ellipse)
+        local old_index = mt.__index
+
+        local new_mt = {}
+        for k, v in pairs(mt) do
+            new_mt[k] = v
+        end
+        new_mt.__index = function(t, k)
+            if k == "residuals" then
+                return function() return t._fit_residuals end
+            elseif k == "rmse" then
+                return function() return t._fit_rmse end
+            elseif k == "fit_method" then
+                return function() return t._fit_method end
+            elseif k == "fit_points" then
+                return function() return t._fit_points end
+            elseif k == "fit_conic" then
+                return function() return t._fit_conic end
+            elseif k == "cx" then
+                return t.center.x
+            elseif k == "cy" then
+                return t.center.y
+            elseif k == "a" then
+                return t.semi_major
+            elseif k == "b" then
+                return t.semi_minor
+            elseif k == "theta" then
+                return t.rotation
+            else
+                return old_index[k]
+            end
+        end
+        setmetatable(ellipse, new_mt)
+
+        return ellipse
     end
 
     -- Quaternion type

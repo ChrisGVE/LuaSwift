@@ -2382,4 +2382,322 @@ struct GeometryModuleTests {
         // center (0,0) is inside circle of radius 3
         #expect(arr[2].boolValue == true)
     }
+
+    // MARK: - Ellipse Tests
+
+    @Test("ellipse constructor with center vec2")
+    func ellipseConstructorVec2() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(geo.vec2(1, 2), 5, 3, math.pi/4)
+            return {e.center.x, e.center.y, e.semi_major, e.semi_minor, e.rotation}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)
+        #expect(arr[1].numberValue == 2)
+        #expect(arr[2].numberValue == 5)
+        #expect(arr[3].numberValue == 3)
+        #expect(abs(arr[4].numberValue! - Double.pi/4) < 0.0001)
+    }
+
+    @Test("ellipse constructor with coordinates")
+    func ellipseConstructorCoords() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(1, 2, 5, 3)  -- no rotation
+            return {e.center.x, e.center.y, e.semi_major, e.semi_minor, e.rotation}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)
+        #expect(arr[1].numberValue == 2)
+        #expect(arr[2].numberValue == 5)
+        #expect(arr[3].numberValue == 3)
+        #expect(arr[4].numberValue == 0)
+    }
+
+    @Test("ellipse area and circumference")
+    func ellipseAreaCircumference() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(0, 0, 5, 3)  -- a=5, b=3
+            return {e:area(), e:circumference()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // area = π * 5 * 3 ≈ 47.12
+        #expect(abs(arr[0].numberValue! - 47.1238) < 0.01)
+        // circumference using Ramanujan's approximation ≈ 25.9
+        #expect(abs(arr[1].numberValue! - 25.9) < 0.5)
+    }
+
+    @Test("ellipse contains point")
+    func ellipseContains() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(0, 0, 5, 3)  -- axis-aligned ellipse
+            local inside = e:contains(geo.vec2(2, 1))
+            local outside = e:contains(geo.vec2(6, 0))
+            return {inside, outside}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)   // (2,1) inside
+        #expect(arr[1].boolValue == false)  // (6,0) outside
+    }
+
+    @Test("ellipse eccentricity")
+    func ellipseEccentricity() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(0, 0, 5, 3)
+            return e:eccentricity()
+        """)
+
+        // e = sqrt(1 - b²/a²) = sqrt(1 - 9/25) = sqrt(16/25) = 0.8
+        #expect(abs(result.numberValue! - 0.8) < 0.0001)
+    }
+
+    @Test("ellipse point_at generates points on ellipse")
+    func ellipsePointAt() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(0, 0, 5, 3)  -- axis-aligned
+            local p0 = e:point_at(0)         -- should be (5, 0)
+            local p1 = e:point_at(math.pi/2) -- should be (0, 3)
+            return {p0.x, p0.y, p1.x, p1.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001)  // x at t=0
+        #expect(abs(arr[1].numberValue!) < 0.0001)         // y at t=0
+        #expect(abs(arr[2].numberValue!) < 0.0001)         // x at t=π/2
+        #expect(abs(arr[3].numberValue! - 3.0) < 0.0001)  // y at t=π/2
+    }
+
+    @Test("ellipse foci")
+    func ellipseFoci() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(0, 0, 5, 3)  -- c = sqrt(25-9) = 4
+            local f1, f2 = e:foci()
+            return {f1.x, f1.y, f2.x, f2.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // Foci at (±4, 0) for axis-aligned ellipse
+        #expect(abs(arr[0].numberValue! - 4.0) < 0.0001)
+        #expect(abs(arr[1].numberValue!) < 0.0001)
+        #expect(abs(arr[2].numberValue! + 4.0) < 0.0001)
+        #expect(abs(arr[3].numberValue!) < 0.0001)
+    }
+
+    @Test("ellipse tostring")
+    func ellipseTostring() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(1, 2, 5, 3)
+            return tostring(e)
+        """)
+
+        let str = try #require(result.stringValue)
+        #expect(str.contains("ellipse"))
+        #expect(str.contains("5.0000"))  // semi_major
+        #expect(str.contains("3.0000"))  // semi_minor
+    }
+
+    @Test("ellipse_fit exact points recovers original ellipse")
+    func ellipseFitExactPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Generate points on ellipse: center (2, 3), a=5, b=3, rotation=0
+            local cx, cy, a, b = 2, 3, 5, 3
+            local points = {}
+            for i = 0, 15 do
+                local t = i * math.pi * 2 / 16
+                local x = cx + a * math.cos(t)
+                local y = cy + b * math.sin(t)
+                points[#points + 1] = geo.vec2(x, y)
+            end
+            local fitted = geo.ellipse_fit(points)
+            if fitted == nil then return "nil" end
+            return {fitted.cx, fitted.cy, fitted.a, fitted.b, fitted:rmse()}
+        """)
+
+        if result.stringValue == "nil" {
+            // Fitting failed - this is a potential issue but let's check the algorithm
+            Issue.record("ellipse_fit returned nil for exact points")
+            return
+        }
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 2.0) < 0.1)   // cx
+        #expect(abs(arr[1].numberValue! - 3.0) < 0.1)   // cy
+        #expect(abs(arr[2].numberValue! - 5.0) < 0.1)   // a
+        #expect(abs(arr[3].numberValue! - 3.0) < 0.1)   // b
+        #expect(arr[4].numberValue! < 0.1)              // RMSE should be small
+    }
+
+    @Test("ellipse_fit with rotated ellipse")
+    func ellipseFitRotated() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Generate points on rotated ellipse
+            local cx, cy, a, b, theta = 0, 0, 4, 2, math.pi/6  -- 30 degree rotation
+            local points = {}
+            for i = 0, 19 do
+                local t = i * math.pi * 2 / 20
+                local x_local = a * math.cos(t)
+                local y_local = b * math.sin(t)
+                local x = cx + x_local * math.cos(theta) - y_local * math.sin(theta)
+                local y = cy + x_local * math.sin(theta) + y_local * math.cos(theta)
+                points[#points + 1] = geo.vec2(x, y)
+            end
+            local fitted = geo.ellipse_fit(points)
+            if fitted == nil then return "nil" end
+            return {fitted.a, fitted.b, fitted:fit_method()}
+        """)
+
+        if result.stringValue == "nil" {
+            Issue.record("ellipse_fit returned nil for rotated ellipse points")
+            return
+        }
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 4.0) < 0.2)   // a ≈ 4
+        #expect(abs(arr[1].numberValue! - 2.0) < 0.2)   // b ≈ 2
+        #expect(arr[2].stringValue == "direct")
+    }
+
+    @Test("ellipse_fit with circle returns equal semi-axes")
+    func ellipseFitCircle() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Generate points on a circle (special case of ellipse)
+            local cx, cy, r = 5, -2, 3
+            local points = {}
+            for i = 0, 11 do
+                local t = i * math.pi * 2 / 12
+                points[#points + 1] = geo.vec2(cx + r * math.cos(t), cy + r * math.sin(t))
+            end
+            local fitted = geo.ellipse_fit(points)
+            if fitted == nil then return "nil" end
+            return {fitted.a, fitted.b, math.abs(fitted.a - fitted.b)}
+        """)
+
+        if result.stringValue == "nil" {
+            Issue.record("ellipse_fit returned nil for circle points")
+            return
+        }
+
+        let arr = try #require(result.arrayValue)
+        // For a circle, a and b should be approximately equal
+        let aDiff = arr[2].numberValue!
+        #expect(aDiff < 0.1)  // a ≈ b
+        #expect(abs(arr[0].numberValue! - 3.0) < 0.1)  // a ≈ 3
+        #expect(abs(arr[1].numberValue! - 3.0) < 0.1)  // b ≈ 3
+    }
+
+    @Test("ellipse_fit with collinear points returns nil")
+    func ellipseFitCollinear() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- 5 collinear points
+            local points = {}
+            for i = 1, 5 do
+                points[i] = geo.vec2(i, i)
+            end
+            local fitted = geo.ellipse_fit(points)
+            return fitted == nil
+        """)
+
+        #expect(result.boolValue == true)
+    }
+
+    @Test("ellipse to_conic conversion")
+    func ellipseToConic() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(0, 0, 5, 3)  -- axis-aligned at origin
+            local conic = e:to_conic()
+            -- For axis-aligned ellipse at origin: x²/a² + y²/b² = 1
+            -- → (1/25)x² + (1/9)y² - 1 = 0
+            -- A = 1/25 = 0.04, B = 0, C = 1/9 ≈ 0.111, D = 0, E = 0, F = -1
+            return {conic[1], conic[2], conic[3], conic[4], conic[5], conic[6]}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.04) < 0.001)  // A = 1/25
+        #expect(abs(arr[1].numberValue!) < 0.001)         // B = 0
+        #expect(abs(arr[2].numberValue! - 1.0/9) < 0.001) // C = 1/9
+        #expect(abs(arr[3].numberValue!) < 0.001)         // D = 0
+        #expect(abs(arr[4].numberValue!) < 0.001)         // E = 0
+        #expect(abs(arr[5].numberValue! + 1.0) < 0.001)   // F = -1
+    }
+
+    @Test("ellipse chainable transformations")
+    func ellipseChainable() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local e = geo.ellipse(0, 0, 4, 2)
+            local translated = e:translate(5, 3)
+            local scaled = e:scale(2)
+            local rotated = e:rotate(math.pi/4)
+            return {
+                translated.center.x, translated.center.y,
+                scaled.semi_major, scaled.semi_minor,
+                rotated.rotation
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 5)  // translated center x
+        #expect(arr[1].numberValue == 3)  // translated center y
+        #expect(arr[2].numberValue == 8)  // scaled semi_major
+        #expect(arr[3].numberValue == 4)  // scaled semi_minor
+        #expect(abs(arr[4].numberValue! - Double.pi/4) < 0.0001)  // rotated angle
+    }
 }

@@ -402,4 +402,33 @@ public struct ModuleRegistry {
     public static func installSeriesModule(in engine: LuaEngine) {
         SeriesModule.register(in: engine)
     }
+
+    /// Install only the IO module.
+    ///
+    /// This module provides sandboxed file system operations. Unlike other modules,
+    /// IOModule is NOT included in `installModules()` because it requires explicit
+    /// configuration of allowed directories before use.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let engine = try LuaEngine()
+    ///
+    /// // Configure allowed directories FIRST
+    /// IOModule.setAllowedDirectories(["/path/to/allowed/dir"], for: engine)
+    ///
+    /// // Then install the module
+    /// ModuleRegistry.installIOModule(in: engine)
+    ///
+    /// // Now Lua can use sandboxed file operations
+    /// try engine.run("""
+    ///     local iox = require("luaswift.iox")
+    ///     local content = iox.read_file("/path/to/allowed/dir/file.txt")
+    /// """)
+    /// ```
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installIOModule(in engine: LuaEngine) {
+        IOModule.register(in: engine)
+    }
 }

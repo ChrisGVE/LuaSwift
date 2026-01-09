@@ -50,6 +50,7 @@ public struct RegressModule {
     public static func register(in engine: LuaEngine) {
         // Register Swift callbacks for core computations
         registerOLSCallbacks(in: engine)
+        registerGLSCallbacks(in: engine)
 
         // Set up the luaswift.regress namespace with Lua wrapper code
         do {
@@ -61,6 +62,7 @@ public struct RegressModule {
 
                 -- Store references to Swift callbacks
                 local _ols_fit = _luaswift_regress_ols_fit
+                local _gls_fit = _luaswift_regress_gls_fit
 
                 ----------------------------------------------------------------
                 -- Results object metatable
@@ -357,6 +359,102 @@ public struct RegressModule {
                 end
 
                 ----------------------------------------------------------------
+                -- GLS Model metatable
+                -- Generalized Least Squares with correlated errors
+                ----------------------------------------------------------------
+                local GLS_mt = {}
+                GLS_mt.__index = GLS_mt
+
+                function GLS_mt:fit(opts)
+                    opts = opts or {}
+
+                    -- Call Swift backend to fit the GLS model
+                    local result = _gls_fit(self._endog, self._exog, self._sigma)
+
+                    if not result then
+                        error("GLS fit failed")
+                    end
+
+                    -- Create Results object (same structure as OLS)
+                    local results = setmetatable({}, Results_mt)
+
+                    -- Per-parameter metrics
+                    results.params = result.params
+                    results.bse = result.bse
+                    results.tvalues = result.tvalues
+                    results.pvalues = result.pvalues
+                    results._conf_int = result.conf_int
+
+                    -- Robust standard errors (HC0-HC3)
+                    results.bse_hc0 = result.bse_hc0
+                    results.bse_hc1 = result.bse_hc1
+                    results.bse_hc2 = result.bse_hc2
+                    results.bse_hc3 = result.bse_hc3
+
+                    -- Per-observation metrics
+                    results.resid = result.resid
+                    results.fittedvalues = result.fittedvalues
+                    results.hat_diag = result.hat_diag
+                    results.resid_studentized = result.resid_studentized
+                    results.cooks_distance = result.cooks_distance
+                    results.dffits = result.dffits
+
+                    -- Model-level metrics
+                    results.rsquared = result.rsquared
+                    results.rsquared_adj = result.rsquared_adj
+                    results.fvalue = result.fvalue
+                    results.f_pvalue = result.f_pvalue
+                    results.llf = result.llf
+                    results.aic = result.aic
+                    results.bic = result.bic
+                    results.ssr = result.ssr
+                    results.ess = result.ess
+                    results.mse_resid = result.mse_resid
+                    results.centered_tss = result.centered_tss
+                    results.nobs = result.nobs
+                    results.df_model = result.df_model
+                    results.df_resid = result.df_resid
+
+                    -- Multicollinearity diagnostics
+                    results.condition_number = result.condition_number
+                    results.eigenvalues = result.eigenvalues
+
+                    -- Store metadata
+                    results._model_type = "GLS"
+                    results._yname = self._yname
+                    results._xnames = self._xnames
+                    results._model = self
+
+                    return results
+                end
+
+                ----------------------------------------------------------------
+                -- GLS constructor (Generalized Least Squares)
+                -- GLS(endog, exog, sigma, opts)
+                -- sigma: covariance matrix of errors
+                --   - nil or scalar: equivalent to OLS
+                --   - 1D array: diagonal variances (equivalent to WLS)
+                --   - 2D array: full covariance matrix
+                ----------------------------------------------------------------
+                function regress.GLS(endog, exog, sigma, opts)
+                    opts = opts or {}
+
+                    if type(endog) ~= "table" then
+                        error("endog must be a table (array of values)")
+                    end
+
+                    local model = setmetatable({}, GLS_mt)
+                    model._endog = endog
+                    model._exog = exog
+                    model._sigma = sigma
+                    model._model_type = "GLS"
+                    model._yname = opts.yname or "y"
+                    model._xnames = opts.xnames
+
+                    return model
+                end
+
+                ----------------------------------------------------------------
                 -- Helper: add_constant
                 -- Adds a column of ones to the design matrix
                 ----------------------------------------------------------------
@@ -393,6 +491,7 @@ public struct RegressModule {
 
                 -- Clean up temporary globals
                 _luaswift_regress_ols_fit = nil
+                _luaswift_regress_gls_fit = nil
                 """)
         } catch {
             // Silently fail if setup fails
@@ -998,5 +1097,480 @@ public struct RegressModule {
 
         let sign = x < 0 ? -1.0 : 1.0
         return sign * sqrt(sqrt(term1 * term1 - term2) - term1)
+    }
+
+    // MARK: - GLS Callbacks
+
+    private static func registerGLSCallbacks(in engine: LuaEngine) {
+        // GLS fit callback - Generalized Least Squares using Accelerate
+        // GLS transforms the model using the error covariance matrix:
+        // β_GLS = (X'Σ⁻¹X)⁻¹ X'Σ⁻¹y
+        // Implemented via Cholesky decomposition: Σ = LL', y* = L⁻¹y, X* = L⁻¹X
+        engine.registerFunction(name: "_luaswift_regress_gls_fit") { args in
+            guard let endogArray = args.first?.arrayValue else {
+                return .nil
+            }
+
+            // Extract endog (y) values
+            let endog = endogArray.compactMap { $0.numberValue }
+            let n = endog.count
+
+            guard n > 0 else {
+                return .nil
+            }
+
+            // Extract exog (X) matrix
+            var exog: [[Double]] = []
+            var k = 0
+
+            if args.count > 1, let exogTable = args[1].arrayValue {
+                if exogTable.first?.arrayValue != nil {
+                    for row in exogTable {
+                        if let rowArray = row.arrayValue {
+                            let rowValues = rowArray.compactMap { $0.numberValue }
+                            exog.append(rowValues)
+                        }
+                    }
+                    k = exog.first?.count ?? 0
+                } else {
+                    let values = exogTable.compactMap { $0.numberValue }
+                    for val in values {
+                        exog.append([val])
+                    }
+                    k = 1
+                }
+            }
+
+            if exog.isEmpty {
+                exog = Array(repeating: [1.0], count: n)
+                k = 1
+            }
+
+            guard exog.count == n else {
+                return .nil
+            }
+
+            // Parse sigma (covariance matrix of errors)
+            // sigma can be: nil, scalar, 1D array (diagonal), or 2D array (full)
+            var sigmaMatrix = [Double](repeating: 0.0, count: n * n)
+
+            // Default: identity matrix (equivalent to OLS)
+            for i in 0..<n {
+                sigmaMatrix[i * n + i] = 1.0
+            }
+
+            if args.count > 2 {
+                if let sigmaScalar = args[2].numberValue {
+                    // Scalar: constant variance (still OLS-like)
+                    for i in 0..<n {
+                        sigmaMatrix[i * n + i] = sigmaScalar
+                    }
+                } else if let sigmaArray = args[2].arrayValue {
+                    // Check if 1D or 2D
+                    if sigmaArray.first?.arrayValue != nil {
+                        // 2D array: full covariance matrix
+                        for i in 0..<min(n, sigmaArray.count) {
+                            if let row = sigmaArray[i].arrayValue {
+                                for j in 0..<min(n, row.count) {
+                                    if let val = row[j].numberValue {
+                                        sigmaMatrix[i * n + j] = val
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // 1D array: diagonal covariance (variances only)
+                        let variances = sigmaArray.compactMap { $0.numberValue }
+                        for i in 0..<min(n, variances.count) {
+                            sigmaMatrix[i * n + i] = variances[i]
+                        }
+                    }
+                }
+            }
+
+            // Compute Cholesky decomposition of sigma: Σ = LL'
+            // We need L⁻¹, so we'll use dpotrf to get L, then cblas_dtrsm to solve
+            var nChol = __CLPK_integer(n)
+            var ldaChol = __CLPK_integer(n)
+            var infoChol: __CLPK_integer = 0
+
+            // Cholesky factorization (lower triangular)
+            dpotrf_(UnsafeMutablePointer(mutating: ("L" as NSString).utf8String),
+                    &nChol, &sigmaMatrix, &ldaChol, &infoChol)
+
+            guard infoChol == 0 else {
+                // Cholesky failed - sigma is not positive definite
+                return .nil
+            }
+
+            // Transform y: y* = L⁻¹y (solve L * y* = y)
+            var yTransformed = endog
+            let alpha = 1.0
+            cblas_dtrsm(CblasColMajor, CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit,
+                        __CLPK_integer(n), 1, alpha, sigmaMatrix, __CLPK_integer(n),
+                        &yTransformed, __CLPK_integer(n))
+
+            // Transform X: X* = L⁻¹X (solve L * X* = X for each column)
+            // Flatten X to column-major for LAPACK
+            var XFlat = [Double](repeating: 0.0, count: n * k)
+            for j in 0..<k {
+                for i in 0..<n {
+                    XFlat[j * n + i] = exog[i][j]
+                }
+            }
+
+            cblas_dtrsm(CblasColMajor, CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit,
+                        __CLPK_integer(n), __CLPK_integer(k), alpha, sigmaMatrix, __CLPK_integer(n),
+                        &XFlat, __CLPK_integer(n))
+
+            // Convert transformed X back to 2D array
+            var XTransformed: [[Double]] = []
+            for i in 0..<n {
+                var row = [Double](repeating: 0.0, count: k)
+                for j in 0..<k {
+                    row[j] = XFlat[j * n + i]
+                }
+                XTransformed.append(row)
+            }
+
+            // Now perform OLS on transformed data
+            // Solve X* * β = y* using LAPACK dgels
+            var m = __CLPK_integer(n)
+            var nCols = __CLPK_integer(k)
+            var nrhsOLS = __CLPK_integer(1)
+            var lda = __CLPK_integer(n)
+            var ldb = __CLPK_integer(max(n, k))
+            var info: __CLPK_integer = 0
+
+            var yCopy = yTransformed
+            if k > n {
+                yCopy.append(contentsOf: [Double](repeating: 0.0, count: k - n))
+            }
+
+            // Query optimal workspace
+            var workQuery = [Double](repeating: 0.0, count: 1)
+            var lwork: __CLPK_integer = -1
+            dgels_(UnsafeMutablePointer(mutating: ("N" as NSString).utf8String),
+                   &m, &nCols, &nrhsOLS, &XFlat, &lda, &yCopy, &ldb, &workQuery, &lwork, &info)
+
+            lwork = __CLPK_integer(workQuery[0])
+            var work = [Double](repeating: 0.0, count: Int(lwork))
+
+            dgels_(UnsafeMutablePointer(mutating: ("N" as NSString).utf8String),
+                   &m, &nCols, &nrhsOLS, &XFlat, &lda, &yCopy, &ldb, &work, &lwork, &info)
+
+            guard info == 0 else {
+                return .nil
+            }
+
+            // Extract parameters
+            let params = Array(yCopy.prefix(k))
+
+            // Compute fitted values and residuals using ORIGINAL data
+            var fittedValues = [Double](repeating: 0.0, count: n)
+            var residuals = [Double](repeating: 0.0, count: n)
+
+            for i in 0..<n {
+                var fitted = 0.0
+                for j in 0..<k {
+                    fitted += exog[i][j] * params[j]
+                }
+                fittedValues[i] = fitted
+                residuals[i] = endog[i] - fitted
+            }
+
+            // Compute statistics using original data
+            let yMean = endog.reduce(0, +) / Double(n)
+
+            var ssr = 0.0
+            var ess = 0.0
+            var tss = 0.0
+
+            for i in 0..<n {
+                ssr += residuals[i] * residuals[i]
+                ess += (fittedValues[i] - yMean) * (fittedValues[i] - yMean)
+                tss += (endog[i] - yMean) * (endog[i] - yMean)
+            }
+
+            let dfModel = k - 1
+            let dfResid = n - k
+
+            let rsquared = tss > 0 ? 1.0 - ssr / tss : 0.0
+            let rsquaredAdj = dfResid > 0 ? 1.0 - (1.0 - rsquared) * Double(n - 1) / Double(dfResid) : 0.0
+
+            let mse = dfResid > 0 ? ssr / Double(dfResid) : 0.0
+
+            // Standard errors: For GLS, we need (X'Σ⁻¹X)⁻¹
+            // Since we transformed X* = L⁻¹X, we have X*'X* = X'(L⁻¹)'L⁻¹X = X'Σ⁻¹X
+            // So we compute (X*'X*)⁻¹ using the transformed X
+            var XtX = [Double](repeating: 0.0, count: k * k)
+            for i in 0..<k {
+                for j in 0..<k {
+                    var sum = 0.0
+                    for obs in 0..<n {
+                        sum += XTransformed[obs][i] * XTransformed[obs][j]
+                    }
+                    XtX[j * k + i] = sum
+                }
+            }
+
+            var kInv = __CLPK_integer(k)
+            var ldaXtX = __CLPK_integer(k)
+            var infoInv: __CLPK_integer = 0
+
+            dpotrf_(UnsafeMutablePointer(mutating: ("U" as NSString).utf8String),
+                    &kInv, &XtX, &ldaXtX, &infoInv)
+
+            var XtXInv = XtX
+            if infoInv == 0 {
+                dpotri_(UnsafeMutablePointer(mutating: ("U" as NSString).utf8String),
+                        &kInv, &XtXInv, &ldaXtX, &infoInv)
+
+                for i in 0..<k {
+                    for j in i+1..<k {
+                        XtXInv[i * k + j] = XtXInv[j * k + i]
+                    }
+                }
+            }
+
+            // Standard errors: sqrt(diag((X*'X*)⁻¹) * MSE)
+            var bse = [Double](repeating: 0.0, count: k)
+            if infoInv == 0 {
+                for i in 0..<k {
+                    bse[i] = sqrt(XtXInv[i * k + i] * mse)
+                }
+            }
+
+            // t-values and p-values
+            var tvalues = [Double](repeating: 0.0, count: k)
+            var pvalues = [Double](repeating: 1.0, count: k)
+
+            for i in 0..<k {
+                if bse[i] > 0 {
+                    tvalues[i] = params[i] / bse[i]
+                    pvalues[i] = 2.0 * (1.0 - tCDF(abs(tvalues[i]), Double(dfResid)))
+                }
+            }
+
+            // F-statistic
+            var fvalue = 0.0
+            var f_pvalue = 1.0
+            if dfModel > 0 && dfResid > 0 && ssr > 0 {
+                fvalue = (ess / Double(dfModel)) / (ssr / Double(dfResid))
+                f_pvalue = 1.0 - fCDF(fvalue, Double(dfModel), Double(dfResid))
+            }
+
+            // Log-likelihood (assuming normal errors)
+            let llf = -Double(n) / 2.0 * (log(2.0 * Double.pi) + log(ssr / Double(n)) + 1.0)
+
+            // Information criteria
+            let aic = -2.0 * llf + 2.0 * Double(k)
+            let bic = -2.0 * llf + log(Double(n)) * Double(k)
+
+            // Confidence intervals
+            let tCrit = tPPF(0.975, Double(dfResid))
+            var confInt: [[Double]] = []
+            for i in 0..<k {
+                confInt.append([params[i] - tCrit * bse[i], params[i] + tCrit * bse[i]])
+            }
+
+            // Hat matrix diagonal using transformed X
+            var hatDiag = [Double](repeating: 0.0, count: n)
+            if infoInv == 0 {
+                for i in 0..<n {
+                    var h_ii = 0.0
+                    for j in 0..<k {
+                        var sum = 0.0
+                        for l in 0..<k {
+                            sum += XtXInv[l * k + j] * XTransformed[i][l]
+                        }
+                        h_ii += XTransformed[i][j] * sum
+                    }
+                    hatDiag[i] = h_ii
+                }
+            }
+
+            // Studentized residuals
+            var residStudentized = [Double](repeating: 0.0, count: n)
+            let rmse = sqrt(mse)
+            for i in 0..<n {
+                let denom = rmse * sqrt(max(1e-15, 1.0 - hatDiag[i]))
+                residStudentized[i] = denom > 1e-15 ? residuals[i] / denom : 0.0
+            }
+
+            // Cook's distance
+            var cooksDistance = [Double](repeating: 0.0, count: n)
+            if k > 0 && mse > 0 {
+                for i in 0..<n {
+                    let h_ii = hatDiag[i]
+                    if h_ii < 1.0 - 1e-10 {
+                        let e2 = residuals[i] * residuals[i]
+                        cooksDistance[i] = (e2 / (Double(k) * mse)) * (h_ii / ((1.0 - h_ii) * (1.0 - h_ii)))
+                    }
+                }
+            }
+
+            // DFFITS
+            var dffits = [Double](repeating: 0.0, count: n)
+            for i in 0..<n {
+                let h_ii = hatDiag[i]
+                if h_ii < 1.0 - 1e-10 {
+                    dffits[i] = residStudentized[i] * sqrt(h_ii / (1.0 - h_ii))
+                }
+            }
+
+            // Condition number using transformed X'X
+            var conditionNumber = Double.infinity
+            var eigenvalues = [Double](repeating: 0.0, count: k)
+
+            if k > 0 {
+                var XtXCopy = [Double](repeating: 0.0, count: k * k)
+                for i in 0..<k {
+                    for j in 0..<k {
+                        var sum = 0.0
+                        for obs in 0..<n {
+                            sum += XTransformed[obs][i] * XTransformed[obs][j]
+                        }
+                        XtXCopy[j * k + i] = sum
+                    }
+                }
+
+                var kEig = __CLPK_integer(k)
+                var ldaEig = __CLPK_integer(k)
+                var eigenW = [Double](repeating: 0.0, count: k)
+                var workEig = [Double](repeating: 0.0, count: 1)
+                var lworkEig: __CLPK_integer = -1
+                var infoEig: __CLPK_integer = 0
+
+                dsyev_(UnsafeMutablePointer(mutating: ("V" as NSString).utf8String),
+                       UnsafeMutablePointer(mutating: ("U" as NSString).utf8String),
+                       &kEig, &XtXCopy, &ldaEig, &eigenW, &workEig, &lworkEig, &infoEig)
+
+                lworkEig = __CLPK_integer(workEig[0])
+                workEig = [Double](repeating: 0.0, count: Int(lworkEig))
+
+                dsyev_(UnsafeMutablePointer(mutating: ("V" as NSString).utf8String),
+                       UnsafeMutablePointer(mutating: ("U" as NSString).utf8String),
+                       &kEig, &XtXCopy, &ldaEig, &eigenW, &workEig, &lworkEig, &infoEig)
+
+                if infoEig == 0 {
+                    eigenvalues = eigenW.sorted(by: >)
+                    let maxEig = eigenvalues.first ?? 1.0
+                    let minEig = eigenvalues.last ?? 1.0
+                    if minEig > 1e-15 {
+                        conditionNumber = sqrt(maxEig / minEig)
+                    }
+                }
+            }
+
+            // HC standard errors (using original X)
+            var bseHC0 = [Double](repeating: 0.0, count: k)
+            var bseHC1 = [Double](repeating: 0.0, count: k)
+            var bseHC2 = [Double](repeating: 0.0, count: k)
+            var bseHC3 = [Double](repeating: 0.0, count: k)
+
+            if infoInv == 0 && n > k {
+                func computeHCStdErrors(omega: [Double]) -> [Double] {
+                    var XtOmegaX = [Double](repeating: 0.0, count: k * k)
+                    for i in 0..<k {
+                        for j in 0..<k {
+                            var sum = 0.0
+                            for obs in 0..<n {
+                                sum += XTransformed[obs][i] * omega[obs] * XTransformed[obs][j]
+                            }
+                            XtOmegaX[j * k + i] = sum
+                        }
+                    }
+
+                    var temp = [Double](repeating: 0.0, count: k * k)
+                    for i in 0..<k {
+                        for j in 0..<k {
+                            var sum = 0.0
+                            for l in 0..<k {
+                                sum += XtOmegaX[l * k + i] * XtXInv[j * k + l]
+                            }
+                            temp[j * k + i] = sum
+                        }
+                    }
+
+                    var cov = [Double](repeating: 0.0, count: k * k)
+                    for i in 0..<k {
+                        for j in 0..<k {
+                            var sum = 0.0
+                            for l in 0..<k {
+                                sum += XtXInv[l * k + i] * temp[j * k + l]
+                            }
+                            cov[j * k + i] = sum
+                        }
+                    }
+
+                    var se = [Double](repeating: 0.0, count: k)
+                    for i in 0..<k {
+                        se[i] = sqrt(max(0.0, cov[i * k + i]))
+                    }
+                    return se
+                }
+
+                let omegaHC0 = residuals.map { $0 * $0 }
+                bseHC0 = computeHCStdErrors(omega: omegaHC0)
+
+                let hc1Factor = Double(n) / Double(n - k)
+                bseHC1 = bseHC0.map { $0 * sqrt(hc1Factor) }
+
+                var omegaHC2 = [Double](repeating: 0.0, count: n)
+                for i in 0..<n {
+                    let denom = max(1e-15, 1.0 - hatDiag[i])
+                    omegaHC2[i] = residuals[i] * residuals[i] / denom
+                }
+                bseHC2 = computeHCStdErrors(omega: omegaHC2)
+
+                var omegaHC3 = [Double](repeating: 0.0, count: n)
+                for i in 0..<n {
+                    let denom = max(1e-15, 1.0 - hatDiag[i])
+                    omegaHC3[i] = residuals[i] * residuals[i] / (denom * denom)
+                }
+                bseHC3 = computeHCStdErrors(omega: omegaHC3)
+            }
+
+            return .table([
+                "params": .array(params.map { .number($0) }),
+                "bse": .array(bse.map { .number($0) }),
+                "tvalues": .array(tvalues.map { .number($0) }),
+                "pvalues": .array(pvalues.map { .number($0) }),
+                "conf_int": .array(confInt.map { row in
+                    .array(row.map { .number($0) })
+                }),
+
+                "bse_hc0": .array(bseHC0.map { .number($0) }),
+                "bse_hc1": .array(bseHC1.map { .number($0) }),
+                "bse_hc2": .array(bseHC2.map { .number($0) }),
+                "bse_hc3": .array(bseHC3.map { .number($0) }),
+
+                "resid": .array(residuals.map { .number($0) }),
+                "fittedvalues": .array(fittedValues.map { .number($0) }),
+                "hat_diag": .array(hatDiag.map { .number($0) }),
+                "resid_studentized": .array(residStudentized.map { .number($0) }),
+                "cooks_distance": .array(cooksDistance.map { .number($0) }),
+                "dffits": .array(dffits.map { .number($0) }),
+
+                "rsquared": .number(rsquared),
+                "rsquared_adj": .number(rsquaredAdj),
+                "fvalue": .number(fvalue),
+                "f_pvalue": .number(f_pvalue),
+                "llf": .number(llf),
+                "aic": .number(aic),
+                "bic": .number(bic),
+                "ssr": .number(ssr),
+                "ess": .number(ess),
+                "mse_resid": .number(mse),
+                "centered_tss": .number(tss),
+                "nobs": .number(Double(n)),
+                "df_model": .number(Double(dfModel)),
+                "df_resid": .number(Double(dfResid)),
+
+                "condition_number": .number(conditionNumber),
+                "eigenvalues": .array(eigenvalues.map { .number($0) })
+            ])
+        }
     }
 }

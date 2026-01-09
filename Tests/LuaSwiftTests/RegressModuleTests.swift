@@ -1048,4 +1048,248 @@ final class RegressModuleTests: XCTestCase {
         XCTAssertEqual(values[1].numberValue, 1.0)
         XCTAssertTrue(values[2].boolValue!)
     }
+
+    // MARK: - GLS Tests
+
+    func testGLSFunctionExists() throws {
+        let result = try engine.evaluate("return type(math.regress.GLS)")
+        XCTAssertEqual(result.stringValue, "function")
+    }
+
+    func testGLSWithIdentitySigmaEqualsOLS() throws {
+        // GLS with identity covariance matrix should equal OLS
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+
+            -- OLS
+            local ols_model = math.regress.OLS(y, X)
+            local ols_results = ols_model:fit()
+
+            -- GLS with no sigma (defaults to identity)
+            local gls_model = math.regress.GLS(y, X)
+            local gls_results = gls_model:fit()
+
+            -- Parameters should be identical
+            return {
+                math.abs(ols_results.params[1] - gls_results.params[1]) < 1e-10,
+                math.abs(ols_results.params[2] - gls_results.params[2]) < 1e-10
+            }
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(valid[0])
+        XCTAssertTrue(valid[1])
+    }
+
+    func testGLSWithScalarSigma() throws {
+        // GLS with scalar sigma (constant variance)
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+
+            -- GLS with scalar sigma = 2 (same as OLS, just scaled variance)
+            local gls_model = math.regress.GLS(y, X, 2.0)
+            local gls_results = gls_model:fit()
+
+            -- Should still get same params as OLS
+            return {gls_results.params[1], gls_results.params[2]}
+        """)
+        let params = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(params[0], 2.0, accuracy: 1e-10)  // intercept
+        XCTAssertEqual(params[1], 3.0, accuracy: 1e-10)  // slope
+    }
+
+    func testGLSWithDiagonalSigmaEqualsWLS() throws {
+        // GLS with diagonal sigma (variances) should equal WLS
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local variances = {1, 2, 1, 2, 1}  -- heteroscedastic variances
+            local weights = {}
+            for i, v in ipairs(variances) do
+                weights[i] = 1 / v  -- WLS weights are inverse variances
+            end
+
+            -- WLS
+            local wls_model = math.regress.WLS(y, X, weights)
+            local wls_results = wls_model:fit()
+
+            -- GLS with diagonal covariance
+            local gls_model = math.regress.GLS(y, X, variances)
+            local gls_results = gls_model:fit()
+
+            -- Parameters should be very close (numerical precision)
+            return {
+                math.abs(wls_results.params[1] - gls_results.params[1]) < 1e-8,
+                math.abs(wls_results.params[2] - gls_results.params[2]) < 1e-8
+            }
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(valid[0])
+        XCTAssertTrue(valid[1])
+    }
+
+    func testGLSWithFullCovarianceMatrix() throws {
+        // GLS with full covariance matrix (AR(1) structure)
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+
+            -- Create AR(1) covariance structure with rho = 0.5
+            local rho = 0.5
+            local sigma = {}
+            for i = 1, 5 do
+                sigma[i] = {}
+                for j = 1, 5 do
+                    sigma[i][j] = rho ^ math.abs(i - j)
+                end
+            end
+
+            local gls_model = math.regress.GLS(y, X, sigma)
+            local gls_results = gls_model:fit()
+
+            -- Check results exist and are reasonable
+            return {
+                gls_results.params[1] ~= nil,
+                gls_results.params[2] ~= nil,
+                gls_results.rsquared > 0.9
+            }
+        """)
+        let values = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(values[0])
+        XCTAssertTrue(values[1])
+        XCTAssertTrue(values[2])
+    }
+
+    func testGLSResultsHaveAllFields() throws {
+        // GLS results should have all standard fields
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local gls_model = math.regress.GLS(y, X)
+            local results = gls_model:fit()
+
+            return {
+                type(results.params) == "table",
+                type(results.bse) == "table",
+                type(results.tvalues) == "table",
+                type(results.pvalues) == "table",
+                type(results.resid) == "table",
+                type(results.fittedvalues) == "table",
+                type(results.rsquared) == "number",
+                type(results.rsquared_adj) == "number",
+                type(results.aic) == "number",
+                type(results.bic) == "number",
+                results._model_type == "GLS"
+            }
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        for (i, v) in valid.enumerated() {
+            XCTAssertTrue(v, "Field \(i) check failed")
+        }
+    }
+
+    func testGLSModelType() throws {
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local gls_model = math.regress.GLS(y, X)
+            local results = gls_model:fit()
+            return results._model_type
+        """)
+        XCTAssertEqual(result.stringValue, "GLS")
+    }
+
+    func testGLSPredictMethod() throws {
+        // Predict with GLS model
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local gls_model = math.regress.GLS(y, X)
+            local results = gls_model:fit()
+            -- Predict for x = 6 (should be close to 2 + 3*6 = 20)
+            local new_X = math.regress.add_constant({6})
+            local pred = results:predict(new_X)
+            return pred[1]
+        """)
+        XCTAssertEqual(result.numberValue!, 20.0, accuracy: 1e-10)
+    }
+
+    func testGLSSummaryMethod() throws {
+        let result = try engine.evaluate("""
+            local y = {5, 8, 11, 14, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local gls_model = math.regress.GLS(y, X)
+            local results = gls_model:fit()
+            local summary = results:summary()
+            return {
+                type(summary) == "string",
+                string.find(summary, "GLS") ~= nil
+            }
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(valid[0])
+        XCTAssertTrue(valid[1])
+    }
+
+    func testGLSInfluenceDiagnostics() throws {
+        // GLS should also have influence diagnostics
+        let result = try engine.evaluate("""
+            local y = {3.1, 4.9, 7.2, 8.8, 11.1}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local gls_model = math.regress.GLS(y, X)
+            local results = gls_model:fit()
+
+            return {
+                type(results.hat_diag) == "table",
+                type(results.cooks_distance) == "table",
+                type(results.dffits) == "table",
+                #results.hat_diag == 5
+            }
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(valid[0])
+        XCTAssertTrue(valid[1])
+        XCTAssertTrue(valid[2])
+        XCTAssertTrue(valid[3])
+    }
+
+    func testGLSRobustStandardErrors() throws {
+        // GLS should also have HC standard errors
+        let result = try engine.evaluate("""
+            local y = {3.1, 4.9, 7.2, 8.8, 11.1}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local gls_model = math.regress.GLS(y, X)
+            local results = gls_model:fit()
+
+            return {
+                type(results.bse_hc0) == "table",
+                type(results.bse_hc1) == "table",
+                type(results.bse_hc2) == "table",
+                type(results.bse_hc3) == "table"
+            }
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(valid[0])
+        XCTAssertTrue(valid[1])
+        XCTAssertTrue(valid[2])
+        XCTAssertTrue(valid[3])
+    }
+
+    func testGLSConfidenceIntervals() throws {
+        let result = try engine.evaluate("""
+            local y = {3.1, 4.9, 7.2, 8.8, 11.1}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local gls_model = math.regress.GLS(y, X)
+            local results = gls_model:fit()
+            local ci = results:conf_int(0.05)
+            -- Check that lower < param < upper
+            local valid1 = ci[1][1] < results.params[1] and results.params[1] < ci[1][2]
+            local valid2 = ci[2][1] < results.params[2] and results.params[2] < ci[2][2]
+            return {valid1, valid2}
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(valid[0])
+        XCTAssertTrue(valid[1])
+    }
 }

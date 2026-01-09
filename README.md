@@ -24,6 +24,10 @@ A lightweight Swift wrapper for Lua 5.4, designed for embedding Lua scripting in
 - Linear algebra (BLAS/LAPACK)
 - NumPy-like N-dimensional arrays
 
+**Optional Security Modules** (require explicit opt-in):
+- Sandboxed file I/O (configurable directory allowlist)
+- HTTP client (URLSession-based)
+
 **Pure Lua Modules**:
 - Table and string extensions
 - UTF-8 string operations
@@ -406,6 +410,10 @@ LuaSwift includes both Swift-backed modules (high performance via Accelerate fra
 | [SVG](#svg-generation-svg) | `svg` | Lua | SVG graphics generation |
 | [Math Expressions](#math-expressions-math_expr) | `math_expr` | Lua | Expression parsing/evaluation |
 | [Types](#type-utilities-types) | `types` | Swift | Type detection and conversion |
+| [IO](#io-module-sandboxed-file-system) | `luaswift.iox` | Swift | Sandboxed file I/O ⚠️ |
+| [HTTP](#http-module-network-client) | `luaswift.http` | Swift | HTTP client ⚠️ |
+
+> ⚠️ **Security modules** require explicit installation. See their documentation sections for setup instructions.
 
 ### Top-Level Globals
 
@@ -854,6 +862,209 @@ local tbl = b:tolist()  -- nested Lua arrays
 - Dimensions aligned from right
 - Size-1 dimensions broadcast to match
 - Missing dimensions treated as size 1
+
+---
+
+### IO Module (Sandboxed File System)
+
+**Require:** `luaswift.iox`
+
+> ⚠️ **Security Module**: IOModule is NOT installed by default. It requires explicit configuration of allowed directories before use.
+
+Sandboxed file system operations restricted to explicitly allowed directories.
+
+**Swift Setup (Required):**
+
+```swift
+import LuaSwift
+
+let engine = try LuaEngine()
+
+// REQUIRED: Configure allowed directories BEFORE installing
+let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+IOModule.setAllowedDirectories([documentsURL.path], for: engine)
+
+// Then install the module
+ModuleRegistry.installIOModule(in: engine)
+
+// Now Lua can access files within the Documents directory
+```
+
+**Lua API:**
+
+```lua
+local iox = require("luaswift.iox")
+
+-- File operations
+local content = iox.read_file("/path/to/file.txt")
+iox.write_file("/path/to/file.txt", "content")
+iox.append_file("/path/to/log.txt", "new line\n")
+
+-- Path checks
+if iox.exists("/path/to/file") then ... end
+if iox.is_file(path) then ... end
+if iox.is_dir(path) then ... end
+
+-- Directory operations
+local files = iox.list_dir("/path/to/dir")  -- Returns array of names
+iox.mkdir("/path/to/newdir")
+iox.mkdir("/path/to/deep/nested/dir", {parents = true})
+iox.remove("/path/to/file.txt")
+iox.rename("/path/old.txt", "/path/new.txt")
+
+-- File info
+local info = iox.stat("/path/to/file.txt")
+print(info.size)      -- File size in bytes
+print(info.is_file)   -- true
+print(info.is_dir)    -- false
+print(info.modified)  -- Unix timestamp
+print(info.created)   -- Unix timestamp
+
+-- Path utilities (no security restrictions)
+local full = iox.path.join("dir", "subdir", "file.txt")
+local name = iox.path.basename("/path/to/file.txt")  -- "file.txt"
+local dir = iox.path.dirname("/path/to/file.txt")    -- "/path/to"
+local ext = iox.path.extension("/path/to/file.txt")  -- "txt" or nil
+local abs = iox.path.absolute("relative/path")
+local norm = iox.path.normalize("/path/../to/./file") -- "/to/file"
+```
+
+**Security Features:**
+
+- All file operations validate paths against the allowed directories list
+- Path traversal attacks (`../../../etc/passwd`) are detected and blocked
+- Paths are normalized before validation to prevent bypass attempts
+- `exists()`, `is_file()`, `is_dir()` return `false` for disallowed paths (no error)
+- Other operations throw errors for disallowed paths
+
+**Query Allowed Directories:**
+
+```swift
+// Check what directories are configured
+let dirs = IOModule.getAllowedDirectories(for: engine)
+print(dirs)  // ["/Users/.../Documents"]
+```
+
+---
+
+### HTTP Module (Network Client)
+
+**Require:** `luaswift.http`
+
+> ⚠️ **Security Module**: HTTPModule is NOT installed by default. Apps must explicitly opt-in to enable network access from Lua scripts.
+
+HTTP client using URLSession for making network requests.
+
+**Swift Setup (Required):**
+
+```swift
+import LuaSwift
+
+let engine = try LuaEngine()
+
+// Explicitly install HTTP module to enable network access
+ModuleRegistry.installHTTPModule(in: engine)
+
+// Optionally also install JSON for parsing responses
+ModuleRegistry.installJSONModule(in: engine)
+```
+
+**Lua API:**
+
+```lua
+local http = require("luaswift.http")
+local json = require("luaswift.json")
+
+-- Simple GET request
+local resp = http.get("https://api.example.com/data")
+print(resp.status)  -- 200
+print(resp.ok)      -- true (status 200-299)
+print(resp.body)    -- Response body as string
+
+-- GET with custom headers
+local resp = http.get("https://api.example.com/data", {
+    headers = {
+        ["Authorization"] = "Bearer token123",
+        ["Accept"] = "application/json"
+    }
+})
+
+-- POST with JSON body (auto-sets Content-Type)
+local resp = http.post("https://api.example.com/users", {
+    json = {name = "John", email = "john@example.com"}
+})
+
+-- POST with raw body
+local resp = http.post("https://api.example.com/data", {
+    headers = {["Content-Type"] = "text/plain"},
+    body = "Raw content here"
+})
+
+-- Other HTTP methods
+http.put(url, options)
+http.patch(url, options)
+http.delete(url, options)
+http.head(url, options)    -- Returns headers only, empty body
+http.options(url, options)
+
+-- Generic request function
+http.request("GET", url, options)
+
+-- Request options
+{
+    headers = {},        -- Table of request headers
+    body = "string",     -- Raw body content
+    json = {},           -- Table auto-encoded as JSON
+    timeout = 30,        -- Timeout in seconds (default: 30)
+    follow_redirects = true  -- Follow HTTP redirects (default: true)
+}
+
+-- Response object
+resp.status   -- HTTP status code (number)
+resp.ok       -- true if status is 200-299 (boolean)
+resp.headers  -- Response headers (table)
+resp.body     -- Response body (string)
+resp.url      -- Final URL after redirects (string)
+```
+
+**Example: Fetching and Parsing JSON:**
+
+```lua
+local http = require("luaswift.http")
+local json = require("luaswift.json")
+
+local resp = http.get("https://api.github.com/users/octocat")
+if resp.ok then
+    local user = json.decode(resp.body)
+    print("Name:", user.name)
+    print("Location:", user.location)
+else
+    print("Error:", resp.status)
+end
+```
+
+**Error Handling:**
+
+```lua
+-- Invalid URLs throw errors
+local ok, err = pcall(function()
+    http.get("ht tp://invalid url")
+end)
+print(err)  -- "Invalid URL: ht tp://invalid url"
+
+-- Timeouts throw errors
+local ok, err = pcall(function()
+    http.get("https://httpbin.org/delay/10", {timeout = 1})
+end)
+print(err)  -- "Request timed out" or similar
+```
+
+**Security Considerations:**
+
+- HTTPModule is not included in `ModuleRegistry.installModules()` by default
+- Host application must explicitly call `ModuleRegistry.installHTTPModule(in:)`
+- This allows apps to control whether Lua scripts can make network requests
+- Consider your app's security requirements before enabling
 
 ---
 

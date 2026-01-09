@@ -60,9 +60,25 @@ public struct TypesModule {
     end
 
     -- Check if value is any LuaSwift type
+    -- Note: This is an introspection utility that doesn't break transparency.
+    -- LuaSwift types are designed to behave like native Lua values via metatables.
     function types.is_luaswift(value)
         if type(value) ~= "table" then return false end
         return rawget(value, "__luaswift_type") ~= nil
+    end
+
+    -- Check if value is callable (function or table with __call metamethod)
+    function types.is_callable(value)
+        if type(value) == "function" then return true end
+        if type(value) ~= "table" then return false end
+        local mt = getmetatable(value)
+        return mt ~= nil and mt.__call ~= nil
+    end
+
+    -- Check if value is iterable (table or has __pairs/__ipairs metamethods)
+    function types.is_iterable(value)
+        if type(value) ~= "table" then return false end
+        return true  -- All tables are iterable in Lua
     end
 
     -- Type category checks

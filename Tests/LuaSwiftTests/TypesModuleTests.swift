@@ -252,6 +252,75 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
+    // MARK: - is_callable() Tests
+
+    func testIsCallableFunction() throws {
+        let result = try engine.evaluate("""
+            local types = luaswift.types
+            return types.is_callable(function() end)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsCallableNumber() throws {
+        let result = try engine.evaluate("""
+            local types = luaswift.types
+            return types.is_callable(42)
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsCallableTableWithCall() throws {
+        let result = try engine.evaluate("""
+            local types = luaswift.types
+            local t = setmetatable({}, { __call = function() return 1 end })
+            return types.is_callable(t)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsCallablePlainTable() throws {
+        let result = try engine.evaluate("""
+            local types = luaswift.types
+            return types.is_callable({a = 1})
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    // MARK: - is_iterable() Tests
+
+    func testIsIterableTable() throws {
+        let result = try engine.evaluate("""
+            local types = luaswift.types
+            return types.is_iterable({1, 2, 3})
+        """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testIsIterableNumber() throws {
+        let result = try engine.evaluate("""
+            local types = luaswift.types
+            return types.is_iterable(42)
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testIsIterableLuaSwiftType() throws {
+        let result = try engine.evaluate("""
+            local types = luaswift.types
+            local c = luaswift.complex.new(1, 2)
+            return types.is_iterable(c)
+        """)
+
+        XCTAssertEqual(result.boolValue, true)  // LuaSwift types are tables
+    }
+
     // MARK: - is_numeric() Tests
 
     func testIsNumericNumber() throws {

@@ -293,6 +293,9 @@ public struct HTTPModule {
                 jsonDict[key] = try convertLuaToJSON(val)
             }
             return jsonDict
+        case .complex(let re, let im):
+            // JSON doesn't have native complex support, encode as object with type marker
+            return ["__type": "complex", "re": re, "im": im] as [String: Any]
         }
     }
 }

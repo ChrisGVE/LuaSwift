@@ -351,6 +351,12 @@ public struct DebugModule {
             return "[table]"
         case .array(_):
             return "[array]"
+        case .complex(let re, let im):
+            if im >= 0 {
+                return "\(re)+\(im)i"
+            } else {
+                return "\(re)\(im)i"
+            }
         }
     }
 
@@ -397,6 +403,12 @@ public struct DebugModule {
             }
             lines.append("\(indent)}")
             return lines.joined(separator: "\n")
+        case .complex(let re, let im):
+            if im >= 0 {
+                return "\(re)+\(im)i"
+            } else {
+                return "\(re)\(im)i"
+            }
         }
     }
 }

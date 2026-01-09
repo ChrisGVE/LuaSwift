@@ -693,6 +693,9 @@ public final class LuaEngine {
             lua_pushstring(thread, str)
         case .number(let num):
             lua_pushnumber(thread, num)
+        case .complex(let re, let im):
+            // Push complex as table with marker - metatable will be set if complex module is loaded
+            pushComplexOnThread(thread, re: re, im: im)
         case .bool(let b):
             lua_pushboolean(thread, b ? 1 : 0)
         case .nil:
@@ -711,6 +714,37 @@ public final class LuaEngine {
                 lua_rawseti(thread, -2, lua_Integer(i + 1))
             }
         }
+    }
+
+    private func pushComplexOnThread(_ thread: OpaquePointer, re: Double, im: Double) {
+        // Try to use complex.new if available for proper metatable support
+        lua_getglobal(thread, "complex")
+        if lua_istable(thread, -1) {
+            lua_getfield(thread, -1, "new")
+            if lua_isfunction(thread, -1) {
+                lua_pushnumber(thread, re)
+                lua_pushnumber(thread, im)
+                if lua_pcall(thread, 2, 1, 0) == LUA_OK {
+                    // Remove the 'complex' table, keep the result
+                    lua_remove(thread, -2)
+                    return
+                }
+                // pcall failed, pop error and fall through
+                lua_pop(thread, 1)
+            } else {
+                lua_pop(thread, 1)  // pop non-function
+            }
+        }
+        lua_pop(thread, 1)  // pop complex table or nil
+
+        // Fallback: create table without metatable
+        lua_newtable(thread)
+        lua_pushnumber(thread, re)
+        lua_setfield(thread, -2, "re")
+        lua_pushnumber(thread, im)
+        lua_setfield(thread, -2, "im")
+        lua_pushstring(thread, "complex")
+        lua_setfield(thread, -2, "__luaswift_type")
     }
 
     private func valueFromThread(_ thread: OpaquePointer, at index: Int32) -> LuaValue {
@@ -763,6 +797,13 @@ public final class LuaEngine {
             }
 
             lua_pop(thread, 1)
+        }
+
+        // Check for complex number (has __luaswift_type = "complex")
+        if let typeMarker = dict["__luaswift_type"]?.stringValue, typeMarker == "complex",
+           let re = dict["re"]?.numberValue,
+           let im = dict["im"]?.numberValue {
+            return .complex(re: re, im: im)
         }
 
         // Check if integer keys form a contiguous array starting at 1
@@ -1180,6 +1221,9 @@ private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String,
     case .number(let num):
         lua_pushnumber(L, num)
 
+    case .complex(let re, let im):
+        pushComplexValue(L, re: re, im: im)
+
     case .bool(let b):
         lua_pushboolean(L, b ? 1 : 0)
 
@@ -1283,6 +1327,13 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
         lua_pop(L, 1)  // Pop value, keep key for next iteration
     }
 
+    // Check for complex number (has __luaswift_type = "complex")
+    if let typeMarker = dict["__luaswift_type"]?.stringValue, typeMarker == "complex",
+       let re = dict["re"]?.numberValue,
+       let im = dict["im"]?.numberValue {
+        return .complex(re: re, im: im)
+    }
+
     // Check if integer keys form a contiguous array starting at 1
     if !hasStringKeys && !intKeyedValues.isEmpty {
         let sortedKeys = intKeyedValues.keys.sorted()
@@ -1314,6 +1365,8 @@ private func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
         lua_pushstring(L, str)
     case .number(let num):
         lua_pushnumber(L, num)
+    case .complex(let re, let im):
+        pushComplexValue(L, re: re, im: im)
     case .bool(let b):
         lua_pushboolean(L, b ? 1 : 0)
     case .nil:
@@ -1332,6 +1385,38 @@ private func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
             lua_rawseti(L, -2, lua_Integer(i + 1))
         }
     }
+}
+
+/// Push a complex number onto the Lua stack
+private func pushComplexValue(_ L: OpaquePointer, re: Double, im: Double) {
+    // Try to use complex.new if available for proper metatable support
+    lua_getglobal(L, "complex")
+    if lua_istable(L, -1) {
+        lua_getfield(L, -1, "new")
+        if lua_isfunction(L, -1) {
+            lua_pushnumber(L, re)
+            lua_pushnumber(L, im)
+            if lua_pcall(L, 2, 1, 0) == LUA_OK {
+                // Remove the 'complex' table, keep the result
+                lua_remove(L, -2)
+                return
+            }
+            // pcall failed, pop error and fall through
+            lua_pop(L, 1)
+        } else {
+            lua_pop(L, 1)  // pop non-function
+        }
+    }
+    lua_pop(L, 1)  // pop complex table or nil
+
+    // Fallback: create table without metatable
+    lua_newtable(L)
+    lua_pushnumber(L, re)
+    lua_setfield(L, -2, "re")
+    lua_pushnumber(L, im)
+    lua_setfield(L, -2, "im")
+    lua_pushstring(L, "complex")
+    lua_setfield(L, -2, "__luaswift_type")
 }
 
 /// Callback trampoline for Swift function calls from Lua

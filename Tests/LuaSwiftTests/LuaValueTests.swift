@@ -59,6 +59,46 @@ final class LuaValueTests: XCTestCase {
         XCTAssertEqual(value.arrayValue?[0].numberValue, 1)
     }
 
+    func testComplexValue() {
+        let value: LuaValue = .complex(re: 3, im: 4)
+        XCTAssertNotNil(value.complexValue)
+        XCTAssertEqual(value.complexValue?.re, 3)
+        XCTAssertEqual(value.complexValue?.im, 4)
+        XCTAssertTrue(value.isComplex)
+        XCTAssertTrue(value.isScalar)
+        XCTAssertTrue(value.isTruthy)
+        XCTAssertNil(value.numberValue)
+        XCTAssertNil(value.tableValue)
+    }
+
+    func testNumberIsScalar() {
+        let value: LuaValue = .number(42)
+        XCTAssertTrue(value.isScalar)
+        XCTAssertFalse(value.isComplex)
+    }
+
+    func testComplexAsString() {
+        let positive: LuaValue = .complex(re: 3, im: 4)
+        let negative: LuaValue = .complex(re: 3, im: -4)
+        XCTAssertEqual(positive.asString, "3.0+4.0i")
+        XCTAssertEqual(negative.asString, "3.0-4.0i")
+    }
+
+    func testComplexDescription() {
+        let positive: LuaValue = .complex(re: 3, im: 4)
+        let negative: LuaValue = .complex(re: 3, im: -4)
+        XCTAssertEqual(positive.description, "3.0+4.0i")
+        XCTAssertEqual(negative.description, "3.0-4.0i")
+    }
+
+    func testComplexEquality() {
+        let z1: LuaValue = .complex(re: 3, im: 4)
+        let z2: LuaValue = .complex(re: 3, im: 4)
+        let z3: LuaValue = .complex(re: 3, im: 5)
+        XCTAssertEqual(z1, z2)
+        XCTAssertNotEqual(z1, z3)
+    }
+
     // MARK: - asString Tests
 
     func testAsStringConversion() {

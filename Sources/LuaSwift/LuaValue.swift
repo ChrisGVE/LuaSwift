@@ -105,6 +105,18 @@ public enum LuaValue: Equatable, Sendable {
     /// ``intValue`` if they have no fractional part.
     case number(Double)
 
+    /// A complex number value.
+    ///
+    /// Complex numbers have a real and imaginary component, both stored
+    /// as double-precision floating-point. In Lua, complex numbers are
+    /// represented as tables with `re` and `im` fields plus a metatable
+    /// for arithmetic operations.
+    ///
+    /// ```swift
+    /// let z = LuaValue.complex(re: 3.0, im: 4.0)  // 3+4i
+    /// ```
+    case complex(re: Double, im: Double)
+
     /// A boolean value.
     ///
     /// Note that in Lua, only `nil` and `false` are considered falsy.
@@ -150,6 +162,37 @@ public enum LuaValue: Equatable, Sendable {
         return nil
     }
 
+    /// Returns the complex value if this is a complex number, nil otherwise.
+    ///
+    /// ```swift
+    /// let z = LuaValue.complex(re: 3.0, im: 4.0)
+    /// if let (re, im) = z.complexValue {
+    ///     print("Real: \(re), Imaginary: \(im)")
+    /// }
+    /// ```
+    public var complexValue: (re: Double, im: Double)? {
+        if case .complex(let re, let im) = self { return (re, im) }
+        return nil
+    }
+
+    /// Returns true if this value is a complex number.
+    public var isComplex: Bool {
+        if case .complex = self { return true }
+        return false
+    }
+
+    /// Returns true if this value is a scalar (real number or complex number).
+    ///
+    /// Scalars are the building blocks for vectors and arrays.
+    public var isScalar: Bool {
+        switch self {
+        case .number, .complex:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Returns the boolean value if this is a bool, nil otherwise.
     public var boolValue: Bool? {
         if case .bool(let value) = self { return value }
@@ -184,6 +227,12 @@ public enum LuaValue: Equatable, Sendable {
                 return String(Int(value))
             }
             return String(value)
+        case .complex(let re, let im):
+            if im >= 0 {
+                return "\(re)+\(im)i"
+            } else {
+                return "\(re)\(im)i"
+            }
         case .bool(let value):
             return value ? "true" : "false"
         case .table:
@@ -256,6 +305,12 @@ extension LuaValue: CustomStringConvertible {
             return "\"\(value)\""
         case .number(let value):
             return String(value)
+        case .complex(let re, let im):
+            if im >= 0 {
+                return "\(re)+\(im)i"
+            } else {
+                return "\(re)\(im)i"
+            }
         case .bool(let value):
             return value ? "true" : "false"
         case .table(let dict):

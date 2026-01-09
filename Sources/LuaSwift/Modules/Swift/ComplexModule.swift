@@ -79,8 +79,13 @@ public struct ComplexModule {
 
     // MARK: - Helper Functions
 
-    /// Extract complex number from Lua table
+    /// Extract complex number from Lua value (either native .complex or table representation)
     private static func extractComplex(_ value: LuaValue) -> (re: Double, im: Double)? {
+        // Handle native complex type
+        if let (re, im) = value.complexValue {
+            return (re, im)
+        }
+        // Fallback for table representation
         guard let table = value.tableValue,
               let re = table["re"]?.numberValue,
               let im = table["im"]?.numberValue else { return nil }

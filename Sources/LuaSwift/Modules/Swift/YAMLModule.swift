@@ -174,6 +174,10 @@ public struct YAMLModule {
                 yamlDict[key] = convertLuaToYAML(val)
             }
             return yamlDict
+
+        case .complex(let re, let im):
+            // YAML doesn't have native complex support, encode as dict with type marker
+            return ["__type": "complex", "re": re, "im": im] as [String: Any]
         }
     }
 

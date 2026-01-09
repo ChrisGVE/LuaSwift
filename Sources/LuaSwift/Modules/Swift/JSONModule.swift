@@ -219,6 +219,10 @@ public struct JSONModule {
         case .number(let n):
             return n
 
+        case .complex(let re, let im):
+            // Serialize complex as object with type marker
+            return ["__type": "complex", "re": re, "im": im] as [String: Any]
+
         case .string(let s):
             return s
 

@@ -160,6 +160,14 @@ public struct TOMLModule {
                 nestedTable[key] = try convertLuaValueToTOMLValue(val)
             }
             return nestedTable
+
+        case .complex(let re, let im):
+            // TOML doesn't have native complex support, encode as table
+            let complexTable = TOMLTable()
+            complexTable["__type"] = "complex"
+            complexTable["re"] = re
+            complexTable["im"] = im
+            return complexTable
         }
     }
 

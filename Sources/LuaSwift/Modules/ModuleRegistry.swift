@@ -52,6 +52,7 @@ public struct ModuleRegistry {
     /// - `luaswift.special`: Special functions (erf, erfc, beta, betainc, bessel)
     /// - `luaswift.regress`: Regression models (OLS, WLS, GLS, GLM, ARIMA)
     /// - `luaswift.series`: Series evaluation (Taylor, summation, products, convergence)
+    /// - `luaswift.numtheory`: Number theory functions (euler_phi, mobius, prime_pi, etc.)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -90,6 +91,7 @@ public struct ModuleRegistry {
         installSpecialModule(in: engine)
         installRegressModule(in: engine)
         installSeriesModule(in: engine)  // Must be after MathExprModule (uses eval)
+        installNumberTheoryModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -389,6 +391,24 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installSeriesModule(in engine: LuaEngine) {
         SeriesModule.register(in: engine)
+    }
+
+    /// Install only the Number Theory module.
+    ///
+    /// This module provides number-theoretic arithmetic functions:
+    /// - Euler's totient function (euler_phi)
+    /// - Divisor/sigma function (divisor_sigma)
+    /// - Möbius function (mobius)
+    /// - Liouville function (liouville)
+    /// - Carmichael function (carmichael)
+    /// - Chebyshev functions (chebyshev_theta, chebyshev_psi)
+    /// - Von Mangoldt function (mangoldt)
+    /// - Prime counting function (prime_pi)
+    /// - Primality testing and factorization (is_prime, factor, primes_up_to)
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installNumberTheoryModule(in engine: LuaEngine) {
+        NumberTheoryModule.register(in: engine)
     }
 
     /// Install only the HTTP module.

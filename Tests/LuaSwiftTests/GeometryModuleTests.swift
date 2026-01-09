@@ -1383,4 +1383,200 @@ struct GeometryModuleTests {
         #expect(abs(arr[1].numberValue! - expected_theta) < 0.0001)
         #expect(abs(arr[2].numberValue! - expected_phi) < 0.0001)
     }
+
+    // MARK: - Polynomial Tests
+
+    @Test("Polynomial constructor and evaluate")
+    func polynomialConstructorEvaluate() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // p(x) = 2 + 3x + x^2 = 2 + 3(2) + 4 = 12 at x=2
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local p = geo.polynomial({2, 3, 1})  -- 2 + 3x + x^2
+            return {p:evaluate(0), p:evaluate(1), p:evaluate(2)}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 2)   // p(0) = 2
+        #expect(arr[1].numberValue == 6)   // p(1) = 2 + 3 + 1 = 6
+        #expect(arr[2].numberValue == 12)  // p(2) = 2 + 6 + 4 = 12
+    }
+
+    @Test("Polynomial degree and coefficients")
+    func polynomialDegreeCoefficients() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local p = geo.polynomial({1, 0, 0, 5})  -- 1 + 5x^3 (degree 3)
+            local coeffs = p:coefficients()
+            return {p:degree(), coeffs[1], coeffs[2], coeffs[3], coeffs[4]}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 3)   // degree 3
+        #expect(arr[1].numberValue == 1)   // a_0 = 1
+        #expect(arr[2].numberValue == 0)   // a_1 = 0
+        #expect(arr[3].numberValue == 0)   // a_2 = 0
+        #expect(arr[4].numberValue == 5)   // a_3 = 5
+    }
+
+    @Test("Polynomial derivative")
+    func polynomialDerivative() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // p(x) = 1 + 2x + 3x^2 → p'(x) = 2 + 6x
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local p = geo.polynomial({1, 2, 3})
+            local dp = p:derivative()
+            return {dp:evaluate(0), dp:evaluate(1), dp:degree()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 2)   // dp(0) = 2
+        #expect(arr[1].numberValue == 8)   // dp(1) = 2 + 6 = 8
+        #expect(arr[2].numberValue == 1)   // degree 1
+    }
+
+    @Test("Polynomial tostring")
+    func polynomialToString() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local p = geo.polynomial({3, 0, 1})  -- 3 + x^2
+            return tostring(p)
+        """)
+
+        let str = try #require(result.stringValue)
+        #expect(str.contains("poly"))
+        #expect(str.contains("3"))
+        #expect(str.contains("x^2"))
+    }
+
+    @Test("geo.polyeval direct evaluation")
+    func polyevalDirect() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // Evaluate 1 + 2x + 3x^2 at x = 2: 1 + 4 + 12 = 17
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            return geo.polyeval({1, 2, 3}, 2)
+        """)
+
+        #expect(result.numberValue == 17)
+    }
+
+    @Test("polyfit linear fit exact")
+    func polyfitLinearExact() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+        LinAlgModule.register(in: engine)
+
+        // Fit a line to 3 collinear points: y = 2x + 1
+        // Points: (0, 1), (1, 3), (2, 5)
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 1}, {1, 3}, {2, 5}}
+            local p = geo.polyfit(points, 1)
+            local coeffs = p:coefficients()
+            return {coeffs[1], coeffs[2], p.r_squared}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 1.0) < 0.0001)   // intercept ≈ 1
+        #expect(abs(arr[1].numberValue! - 2.0) < 0.0001)   // slope ≈ 2
+        #expect(abs(arr[2].numberValue! - 1.0) < 0.0001)   // R² ≈ 1 (exact fit)
+    }
+
+    @Test("polyfit quadratic fit exact")
+    func polyfitQuadraticExact() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+        LinAlgModule.register(in: engine)
+
+        // Fit quadratic to 3 points on y = x^2: (0, 0), (1, 1), (2, 4)
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {1, 1}, {2, 4}}
+            local p = geo.polyfit(points, 2)
+            local coeffs = p:coefficients()
+            return {coeffs[1], coeffs[2], coeffs[3], p.r_squared}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.0001)         // a_0 ≈ 0
+        #expect(abs(arr[1].numberValue!) < 0.0001)         // a_1 ≈ 0
+        #expect(abs(arr[2].numberValue! - 1.0) < 0.0001)   // a_2 ≈ 1
+        #expect(abs(arr[3].numberValue! - 1.0) < 0.0001)   // R² ≈ 1
+    }
+
+    @Test("polyfit with separate xs ys arrays")
+    func polyfitSeparateArrays() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+        LinAlgModule.register(in: engine)
+
+        // Fit y = 3x + 2 using separate arrays
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local xs = {0, 1, 2, 3}
+            local ys = {2, 5, 8, 11}  -- y = 3x + 2
+            local p = geo.polyfit(xs, ys, 1)
+            return {p:evaluate(5), p.r_squared}  -- should be 17
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 17.0) < 0.0001)  // 3*5 + 2 = 17
+        #expect(abs(arr[1].numberValue! - 1.0) < 0.0001)   // R² ≈ 1
+    }
+
+    @Test("polyfit evaluates fitted polynomial at original points")
+    func polyfitEvaluateOriginalPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+        LinAlgModule.register(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{1, 2}, {2, 5}, {3, 10}}  -- y = x^2 + x
+            local p = geo.polyfit(points, 2)
+            return {
+                math.abs(p:evaluate(1) - 2),
+                math.abs(p:evaluate(2) - 5),
+                math.abs(p:evaluate(3) - 10)
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue! < 0.0001)
+        #expect(arr[1].numberValue! < 0.0001)
+        #expect(arr[2].numberValue! < 0.0001)
+    }
+
+    @Test("polynomial roots for quadratic")
+    func polynomialRootsQuadratic() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // p(x) = x^2 - 3x + 2 = (x-1)(x-2), roots at x=1 and x=2
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local p = geo.polynomial({2, -3, 1})  -- 2 - 3x + x^2
+            local roots = p:roots()
+            return {#roots, roots[1], roots[2]}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 2)                   // 2 roots
+        #expect(abs(arr[1].numberValue! - 1.0) < 0.0001)   // root at 1
+        #expect(abs(arr[2].numberValue! - 2.0) < 0.0001)   // root at 2
+    }
 }

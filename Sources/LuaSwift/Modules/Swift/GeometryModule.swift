@@ -1838,6 +1838,235 @@ public struct GeometryModule {
         return nil
     end
 
+    -- Polynomial type for curve fitting results
+    local poly_mt = {
+        __tostring = function(self)
+            local terms = {}
+            for i, c in ipairs(self._coeffs) do
+                local deg = i - 1
+                if c ~= 0 then
+                    local term
+                    if deg == 0 then
+                        term = string.format("%.4g", c)
+                    elseif deg == 1 then
+                        if c == 1 then term = "x"
+                        elseif c == -1 then term = "-x"
+                        else term = string.format("%.4g*x", c) end
+                    else
+                        if c == 1 then term = string.format("x^%d", deg)
+                        elseif c == -1 then term = string.format("-x^%d", deg)
+                        else term = string.format("%.4g*x^%d", c, deg) end
+                    end
+                    table.insert(terms, term)
+                end
+            end
+            if #terms == 0 then return "poly(0)" end
+            return "poly(" .. table.concat(terms, " + "):gsub(" %+ %-", " - ") .. ")"
+        end,
+        __eq = function(a, b)
+            if #a._coeffs ~= #b._coeffs then return false end
+            for i = 1, #a._coeffs do
+                if math.abs(a._coeffs[i] - b._coeffs[i]) > 1e-10 then return false end
+            end
+            return true
+        end,
+        __index = {
+            -- Evaluate polynomial at x: a_0 + a_1*x + a_2*x^2 + ...
+            evaluate = function(self, x)
+                local result = 0
+                local x_pow = 1
+                for _, c in ipairs(self._coeffs) do
+                    result = result + c * x_pow
+                    x_pow = x_pow * x
+                end
+                return result
+            end,
+
+            -- Get polynomial degree
+            degree = function(self)
+                return #self._coeffs - 1
+            end,
+
+            -- Get coefficients array [a_0, a_1, ..., a_n]
+            coefficients = function(self)
+                local result = {}
+                for i, c in ipairs(self._coeffs) do
+                    result[i] = c
+                end
+                return result
+            end,
+
+            -- Return derivative polynomial
+            derivative = function(self)
+                if #self._coeffs <= 1 then
+                    return geo.polynomial({0})
+                end
+                local new_coeffs = {}
+                for i = 2, #self._coeffs do
+                    new_coeffs[i-1] = self._coeffs[i] * (i - 1)
+                end
+                return geo.polynomial(new_coeffs)
+            end,
+
+            -- Find real roots using Newton's method (simple implementation)
+            -- Returns array of roots found
+            roots = function(self, options)
+                options = options or {}
+                local tol = options.tol or 1e-10
+                local max_iter = options.max_iter or 100
+                local roots = {}
+                local seen = {}
+
+                -- Try finding roots starting from various initial points
+                local deriv = self:derivative()
+                for _, x0 in ipairs({0, 1, -1, 2, -2, 5, -5, 10, -10}) do
+                    local x = x0
+                    for _ = 1, max_iter do
+                        local fx = self:evaluate(x)
+                        if math.abs(fx) < tol then
+                            -- Check if this root is new
+                            local is_new = true
+                            for _, r in ipairs(roots) do
+                                if math.abs(x - r) < tol * 100 then
+                                    is_new = false
+                                    break
+                                end
+                            end
+                            if is_new then
+                                table.insert(roots, x)
+                            end
+                            break
+                        end
+                        local dfx = deriv:evaluate(x)
+                        if math.abs(dfx) < 1e-15 then break end
+                        x = x - fx / dfx
+                    end
+                end
+                table.sort(roots)
+                return roots
+            end,
+
+            -- Clone this polynomial
+            clone = function(self)
+                return geo.polynomial(self:coefficients())
+            end
+        }
+    }
+
+    -- Polynomial constructor from coefficients [a_0, a_1, ..., a_n]
+    function geo.polynomial(coeffs)
+        local p = {
+            _coeffs = {},
+            __luaswift_type = "polynomial"
+        }
+        for i, c in ipairs(coeffs) do
+            p._coeffs[i] = c
+        end
+        -- Remove trailing zeros (but keep at least one coefficient)
+        while #p._coeffs > 1 and p._coeffs[#p._coeffs] == 0 do
+            table.remove(p._coeffs)
+        end
+        setmetatable(p, poly_mt)
+        return p
+    end
+
+    -- Evaluate polynomial directly from coefficients
+    function geo.polyeval(coeffs, x)
+        local result = 0
+        local x_pow = 1
+        for _, c in ipairs(coeffs) do
+            result = result + c * x_pow
+            x_pow = x_pow * x
+        end
+        return result
+    end
+
+    -- Fit polynomial to points using least squares
+    -- points: array of {x, y} or {{x, y}, ...} or (xs, ys)
+    -- degree: polynomial degree
+    -- Returns polynomial object with additional diagnostics
+    function geo.polyfit(points_or_xs, degree_or_ys, maybe_degree)
+        local xs, ys, degree
+
+        -- Parse arguments
+        if type(degree_or_ys) == "number" then
+            -- geo.polyfit(points, degree)
+            local points = points_or_xs
+            degree = degree_or_ys
+            xs, ys = {}, {}
+            for i, pt in ipairs(points) do
+                xs[i] = pt.x or pt[1]
+                ys[i] = pt.y or pt[2]
+            end
+        else
+            -- geo.polyfit(xs, ys, degree)
+            xs = points_or_xs
+            ys = degree_or_ys
+            degree = maybe_degree
+        end
+
+        if #xs < degree + 1 then
+            error("polyfit: need at least " .. (degree + 1) .. " points for degree " .. degree .. " polynomial")
+        end
+
+        -- Check if linalg module is available
+        local linalg = luaswift and luaswift.linalg
+        if not linalg then
+            error("polyfit: requires luaswift.linalg module to be loaded")
+        end
+
+        -- Build Vandermonde matrix A[i,j] = x_i^j (as 2D array for linalg.matrix)
+        local n = #xs
+        local A_rows = {}
+        for i = 1, n do
+            local x = xs[i]
+            local row = {}
+            local x_pow = 1
+            for j = 1, degree + 1 do
+                row[j] = x_pow
+                x_pow = x_pow * x
+            end
+            A_rows[i] = row
+        end
+
+        -- Create linalg matrix and vector objects
+        local A = linalg.matrix(A_rows)
+        local b = linalg.vector(ys)
+
+        -- Solve using least squares
+        local result = linalg.least_squares(A, b)
+
+        -- Extract coefficients (result is a vector)
+        local coeffs = {}
+        for i = 1, degree + 1 do
+            coeffs[i] = result:get(i, 1)
+        end
+
+        -- Create polynomial object
+        local poly = geo.polynomial(coeffs)
+
+        -- Calculate R-squared and residuals
+        local y_mean = 0
+        for _, y in ipairs(ys) do y_mean = y_mean + y end
+        y_mean = y_mean / n
+
+        local ss_tot = 0
+        local ss_res = 0
+        for i = 1, n do
+            local y_pred = poly:evaluate(xs[i])
+            local residual = ys[i] - y_pred
+            ss_res = ss_res + residual * residual
+            ss_tot = ss_tot + (ys[i] - y_mean) * (ys[i] - y_mean)
+        end
+
+        poly.r_squared = 1 - ss_res / ss_tot
+        poly.residual_sum = ss_res
+        poly.xs = xs
+        poly.ys = ys
+
+        return poly
+    end
+
     -- Make available via require
     package.loaded["luaswift.geometry"] = geo
     """

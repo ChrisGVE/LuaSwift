@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **SciPy-inspired Scientific Computing Modules** (all Swift-backed with Accelerate):
+  - `luaswift.distributions` - Probability distributions (norm, t, chi2, f, gamma, beta, uniform) with pdf, cdf, ppf, sf, isf, rvs methods
+  - `luaswift.integrate` - Numerical integration (quad, dblquad, tplquad, nquad, odeint, simps, trapz, cumtrapz)
+  - `luaswift.optimize` - Optimization (minimize, minimize_scalar, root, root_scalar, curve_fit, least_squares)
+  - `luaswift.interpolate` - Interpolation (interp1d, CubicSpline, PCHIP, Akima, make_interp_spline)
+  - `luaswift.cluster` - Clustering algorithms (kmeans, hierarchical, DBSCAN, silhouette_score)
+  - `luaswift.spatial` - Spatial algorithms (KDTree, Voronoi, Delaunay, ConvexHull, distance functions)
+  - `luaswift.special` - Special functions (erf, erfc, gamma, lgamma, digamma, beta, betainc, bessel j0/j1/jn/y0/y1/yn, ellipk, ellipe, zeta, lambertw)
+  - `luaswift.regress` - Regression models (OLS, WLS, GLS, GLM with multiple families, ARIMA)
+
+- **Visualization Modules**:
+  - `luaswift.plot` - Matplotlib/seaborn-compatible plotting with retained vector graphics (figure, subplot, plot, scatter, bar, hist, heatmap, pie, boxplot, violin, contour, imshow)
+  - `luaswift.svg` - Swift-backed SVG document generation (complete rewrite from Lua)
+
+- **Math/Expression Modules**:
+  - `luaswift.mathexpr` - Mathematical expression parsing with LaTeX support, step-by-step evaluation, equation solving
+  - `luaswift.mathsci` - Unified scientific computing namespace (math.stats, math.linalg, math.special, etc.)
+  - `luaswift.sliderule` - Slide rule simulation for analog computation
+
+- **Debug Module** (`luaswift.debug`, DEBUG builds only):
+  - Structured logging with levels (debug, info, warn, error)
+  - Console utilities (print, inspect, trace, assert)
+  - Performance timing (time, timeEnd)
+
+- **MathX Extensions**:
+  - Additional constants: tau, phi (golden ratio), euler_gamma
+  - Probability functions: ncr, npr, factorial
+
+- **LinAlg Extensions**:
+  - Singular Value Decomposition (SVD)
+  - QR decomposition
+  - Eigenvalue decomposition
+  - Least squares solver (lstsq)
+  - Moore-Penrose pseudo-inverse (pinv)
+  - Matrix condition number (cond)
+
+- **Geometry Extensions**:
+  - Additional 2D/3D utilities
+  - Quaternion improvements
+
+### Changed
+- All modules now use Swift-backed implementations for performance (previously some were pure Lua)
+- Test suite expanded to 2171+ XCTest tests + 202 Swift Testing tests
+- MathExpr module rewritten in Swift with LaTeX preprocessing
+
 ## [1.3.0] - 2026-01-04
 
 ### Added

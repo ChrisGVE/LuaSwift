@@ -123,6 +123,10 @@ public struct GeometryModule {
 
         // Curve fitting operations
         engine.registerFunction(name: "_luaswift_geo_cubic_spline_coeffs", callback: cubicSplineCoeffsCallback)
+        engine.registerFunction(name: "_luaswift_geo_bspline_evaluate", callback: bsplineEvaluateCallback)
+        engine.registerFunction(name: "_luaswift_geo_bspline_basis", callback: bsplineBasisCallback)
+        engine.registerFunction(name: "_luaswift_geo_bspline_uniform_knots", callback: bsplineUniformKnotsCallback)
+        engine.registerFunction(name: "_luaswift_geo_bspline_derivative", callback: bsplineDerivativeCallback)
 
         // Set up the luaswift.geometry namespace
         do {
@@ -1282,6 +1286,385 @@ public struct GeometryModule {
         ])
     }
 
+    /// Evaluate B-spline curve using de Boor's algorithm
+    /// Input: control_points (array of vec2 or vec3), degree, knot_vector, t
+    /// Output: evaluated point {x, y} or {x, y, z}
+    private static let bsplineEvaluateCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 4,
+              let controlPointsArray = args[0].arrayValue,
+              let degree = args[1].numberValue.map({ Int($0) }),
+              let knotsArray = args[2].arrayValue,
+              let t = args[3].numberValue else {
+            throw LuaError.callbackError("bspline_evaluate requires (control_points, degree, knots, t)")
+        }
+
+        // Extract control points (2D or 3D)
+        var controlPoints: [[Double]] = []
+        var is3D = false
+        for pt in controlPointsArray {
+            if let table = pt.tableValue {
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue ?? 0
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue ?? 0
+                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
+                if let z = z {
+                    controlPoints.append([x, y, z])
+                    is3D = true
+                } else {
+                    controlPoints.append([x, y])
+                }
+            }
+        }
+
+        // Extract knot vector
+        var knots: [Double] = []
+        for k in knotsArray {
+            if let v = k.numberValue {
+                knots.append(v)
+            }
+        }
+
+        let n = controlPoints.count
+        let p = degree
+
+        // Validate
+        guard n >= p + 1 else {
+            throw LuaError.callbackError("Need at least degree+1 control points")
+        }
+        guard knots.count == n + p + 1 else {
+            throw LuaError.callbackError("Knot vector size must be n + p + 1")
+        }
+
+        // Find knot span (which interval t falls in)
+        // k is the index such that knots[k] <= t < knots[k+1]
+        var k = p
+        for i in p..<(n) {
+            if t >= knots[i] && t < knots[i + 1] {
+                k = i
+                break
+            }
+        }
+        // Handle t at the end
+        if t >= knots[n] {
+            k = n - 1
+        }
+
+        // De Boor's algorithm
+        let dim = is3D ? 3 : 2
+
+        // Handle degree 0 (piecewise constant)
+        if p == 0 {
+            let result = k >= 0 && k < n ? controlPoints[k] : controlPoints[0]
+            if is3D {
+                return .table(["x": .number(result[0]), "y": .number(result[1]), "z": .number(result[2])])
+            } else {
+                return .table(["x": .number(result[0]), "y": .number(result[1])])
+            }
+        }
+
+        // Initialize with the relevant control points
+        var d: [[Double]] = []
+        for j in 0...p {
+            if k - p + j >= 0 && k - p + j < n {
+                d.append(controlPoints[k - p + j])
+            } else {
+                d.append([Double](repeating: 0, count: dim))
+            }
+        }
+
+        // Triangular computation
+        for r in 1...p {
+            for j in stride(from: p, through: r, by: -1) {
+                let i = k - p + j
+                guard i >= 0, i + p - r + 1 < knots.count, i < knots.count else { continue }
+                let denom = knots[i + p - r + 1] - knots[i]
+                let alpha: Double
+                if abs(denom) < 1e-15 {
+                    alpha = 0
+                } else {
+                    alpha = (t - knots[i]) / denom
+                }
+                for c in 0..<dim {
+                    d[j][c] = (1 - alpha) * d[j - 1][c] + alpha * d[j][c]
+                }
+            }
+        }
+
+        // Result is in d[p]
+        if is3D {
+            return .table([
+                "x": .number(d[p][0]),
+                "y": .number(d[p][1]),
+                "z": .number(d[p][2])
+            ])
+        } else {
+            return .table([
+                "x": .number(d[p][0]),
+                "y": .number(d[p][1])
+            ])
+        }
+    }
+
+    /// Compute B-spline basis function N_{i,p}(t) using Cox-de Boor recursion
+    /// Input: knot_vector, i (index), p (degree), t
+    /// Output: basis function value
+    private static let bsplineBasisCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 4,
+              let knotsArray = args[0].arrayValue,
+              let i = args[1].numberValue.map({ Int($0) - 1 }),  // Convert to 0-indexed
+              let p = args[2].numberValue.map({ Int($0) }),
+              let t = args[3].numberValue else {
+            throw LuaError.callbackError("bspline_basis requires (knots, i, p, t)")
+        }
+
+        // Extract knot vector
+        var knots: [Double] = []
+        for k in knotsArray {
+            if let v = k.numberValue {
+                knots.append(v)
+            }
+        }
+
+        guard knots.count >= 2 else {
+            return .number(0.0)
+        }
+
+        // Handle t at the last knot (special case for clamped splines)
+        // At t = knots[last], only the last basis function should be 1
+        let tmax = knots[knots.count - 1]
+        if abs(t - tmax) < 1e-15 {
+            // At the endpoint, find the last non-zero span
+            // For clamped splines, the last n control point's basis is 1 at t=1
+            let numBasis = knots.count - p - 1  // number of basis functions
+            if i == numBasis - 1 {
+                return .number(1.0)
+            } else {
+                return .number(0.0)
+            }
+        }
+
+        // Cox-de Boor recursion
+        func basis(_ i: Int, _ p: Int, _ t: Double) -> Double {
+            if p == 0 {
+                // Base case
+                if i >= 0 && i + 1 < knots.count {
+                    if t >= knots[i] && t < knots[i + 1] {
+                        return 1.0
+                    }
+                }
+                return 0.0
+            }
+
+            var result = 0.0
+
+            // First term
+            if i >= 0 && i + p < knots.count {
+                let denom1 = knots[i + p] - knots[i]
+                if abs(denom1) > 1e-15 {
+                    result += ((t - knots[i]) / denom1) * basis(i, p - 1, t)
+                }
+            }
+
+            // Second term
+            if i + 1 >= 0 && i + p + 1 < knots.count {
+                let denom2 = knots[i + p + 1] - knots[i + 1]
+                if abs(denom2) > 1e-15 {
+                    result += ((knots[i + p + 1] - t) / denom2) * basis(i + 1, p - 1, t)
+                }
+            }
+
+            return result
+        }
+
+        return .number(basis(i, p, t))
+    }
+
+    /// Generate uniform knot vector for B-spline
+    /// Input: n (number of control points), p (degree)
+    /// Output: knot vector array
+    private static let bsplineUniformKnotsCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 2,
+              let n = args[0].numberValue.map({ Int($0) }),
+              let p = args[1].numberValue.map({ Int($0) }) else {
+            throw LuaError.callbackError("bspline_uniform_knots requires (n, p)")
+        }
+
+        // Clamped uniform knot vector:
+        // First p+1 knots are 0, last p+1 knots are 1
+        // Interior knots are uniformly spaced
+        var knots: [Double] = []
+        let m = n + p + 1  // Total number of knots
+
+        for i in 0..<m {
+            if i <= p {
+                knots.append(0.0)
+            } else if i >= m - p - 1 {
+                knots.append(1.0)
+            } else {
+                // Interior knot
+                let interior = i - p
+                let numInterior = m - 2 * (p + 1)
+                knots.append(Double(interior) / Double(numInterior + 1))
+            }
+        }
+
+        return .array(knots.map { .number($0) })
+    }
+
+    /// Evaluate B-spline derivative using differentiation formula
+    /// Input: control_points, degree, knots, t, order (default 1)
+    /// Output: derivative vector
+    private static let bsplineDerivativeCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 4,
+              let controlPointsArray = args[0].arrayValue,
+              let degree = args[1].numberValue.map({ Int($0) }),
+              let knotsArray = args[2].arrayValue,
+              let t = args[3].numberValue else {
+            throw LuaError.callbackError("bspline_derivative requires (control_points, degree, knots, t)")
+        }
+
+        let order = args.count > 4 ? Int(args[4].numberValue ?? 1) : 1
+
+        // Extract control points
+        var controlPoints: [[Double]] = []
+        var is3D = false
+        for pt in controlPointsArray {
+            if let table = pt.tableValue {
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue ?? 0
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue ?? 0
+                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
+                if let z = z {
+                    controlPoints.append([x, y, z])
+                    is3D = true
+                } else {
+                    controlPoints.append([x, y])
+                }
+            }
+        }
+
+        // Extract knot vector
+        var knots: [Double] = []
+        for k in knotsArray {
+            if let v = k.numberValue {
+                knots.append(v)
+            }
+        }
+
+        let n = controlPoints.count
+        var p = degree
+        let dim = is3D ? 3 : 2
+
+        // Compute derivative control points iteratively
+        var Q = controlPoints
+        var currentKnots = knots
+
+        for _ in 0..<order {
+            guard p >= 1 else { break }
+
+            var newQ: [[Double]] = []
+            for i in 0..<(Q.count - 1) {
+                let denom = currentKnots[i + p + 1] - currentKnots[i + 1]
+                if abs(denom) < 1e-15 {
+                    newQ.append([Double](repeating: 0, count: dim))
+                } else {
+                    var diff = [Double](repeating: 0, count: dim)
+                    for c in 0..<dim {
+                        diff[c] = Double(p) * (Q[i + 1][c] - Q[i][c]) / denom
+                    }
+                    newQ.append(diff)
+                }
+            }
+            Q = newQ
+            // Remove first and last knot for lower degree
+            if currentKnots.count > 2 {
+                currentKnots = Array(currentKnots[1..<(currentKnots.count - 1)])
+            }
+            p -= 1
+        }
+
+        // Now evaluate the derivative B-spline at t
+        guard !Q.isEmpty else {
+            if is3D {
+                return .table(["x": .number(0), "y": .number(0), "z": .number(0)])
+            } else {
+                return .table(["x": .number(0), "y": .number(0)])
+            }
+        }
+
+        // Use de Boor for the derivative spline
+        let nQ = Q.count
+        guard nQ >= p + 1, currentKnots.count == nQ + p + 1 else {
+            // Degenerate case
+            if is3D {
+                return .table(["x": .number(Q[0][0]), "y": .number(Q[0][1]), "z": .number(Q[0][2])])
+            } else {
+                return .table(["x": .number(Q[0][0]), "y": .number(Q[0][1])])
+            }
+        }
+
+        // Find knot span
+        var k = p
+        for i in p..<nQ {
+            if t >= currentKnots[i] && t < currentKnots[i + 1] {
+                k = i
+                break
+            }
+        }
+        if t >= currentKnots[nQ] {
+            k = nQ - 1
+        }
+
+        // De Boor's algorithm
+        // Handle p == 0 case (constant spline, no de Boor iteration needed)
+        if p == 0 {
+            // Just return the value at knot span k
+            let result = k >= 0 && k < nQ ? Q[k] : Q[0]
+            if is3D {
+                return .table(["x": .number(result[0]), "y": .number(result[1]), "z": .number(result[2])])
+            } else {
+                return .table(["x": .number(result[0]), "y": .number(result[1])])
+            }
+        }
+
+        var d: [[Double]] = []
+        for j in 0...p {
+            if k - p + j >= 0 && k - p + j < nQ {
+                d.append(Q[k - p + j])
+            } else {
+                d.append([Double](repeating: 0, count: dim))
+            }
+        }
+
+        for r in 1...p {
+            for j in stride(from: p, through: r, by: -1) {
+                let i = k - p + j
+                guard i >= 0, i + p - r + 1 < currentKnots.count, i < currentKnots.count else { continue }
+                let denom = currentKnots[i + p - r + 1] - currentKnots[i]
+                let alpha: Double
+                if abs(denom) < 1e-15 {
+                    alpha = 0
+                } else {
+                    alpha = (t - currentKnots[i]) / denom
+                }
+                for c in 0..<dim {
+                    d[j][c] = (1 - alpha) * d[j - 1][c] + alpha * d[j][c]
+                }
+            }
+        }
+
+        if is3D {
+            return .table([
+                "x": .number(d[p][0]),
+                "y": .number(d[p][1]),
+                "z": .number(d[p][2])
+            ])
+        } else {
+            return .table([
+                "x": .number(d[p][0]),
+                "y": .number(d[p][1])
+            ])
+        }
+    }
+
     // MARK: - Coordinate Conversion Callbacks
 
     /// Convert vec2 (x, y) to polar (r, theta)
@@ -1431,6 +1814,10 @@ public struct GeometryModule {
     local _sphere_from_4_points = _luaswift_geo_sphere_from_4_points
 
     local _cubic_spline_coeffs = _luaswift_geo_cubic_spline_coeffs
+    local _bspline_evaluate = _luaswift_geo_bspline_evaluate
+    local _bspline_basis = _luaswift_geo_bspline_basis
+    local _bspline_uniform_knots = _luaswift_geo_bspline_uniform_knots
+    local _bspline_derivative = _luaswift_geo_bspline_derivative
 
     local _vec2_to_polar = _luaswift_geo_vec2_to_polar
     local _vec2_from_polar = _luaswift_geo_vec2_from_polar
@@ -2417,6 +2804,177 @@ public struct GeometryModule {
 
         setmetatable(spline, spline_mt)
         return spline
+    end
+
+    -- B-Spline type for smooth parametric curves
+    local bspline_mt = {
+        __tostring = function(self)
+            return string.format("bspline(degree=%d, %d control points, domain [%.4g, %.4g])",
+                self._degree, #self._control_points,
+                self._knots[self._degree + 1], self._knots[#self._knots - self._degree])
+        end,
+        __index = {
+            -- Evaluate B-spline at parameter t (in [0, 1] for clamped splines)
+            evaluate = function(self, t)
+                local pt = _bspline_evaluate(self._control_points, self._degree, self._knots, t)
+                if self._is3d then
+                    return geo.vec3(pt.x, pt.y, pt.z)
+                else
+                    return geo.vec2(pt.x, pt.y)
+                end
+            end,
+
+            -- First derivative at t
+            derivative = function(self, t, order)
+                order = order or 1
+                local pt = _bspline_derivative(self._control_points, self._degree, self._knots, t, order)
+                if self._is3d then
+                    return geo.vec3(pt.x, pt.y, pt.z)
+                else
+                    return geo.vec2(pt.x, pt.y)
+                end
+            end,
+
+            -- Sample n uniformly spaced points along the curve
+            sample = function(self, n)
+                n = n or 100
+                local t_min = self._knots[self._degree + 1]
+                local t_max = self._knots[#self._knots - self._degree]
+                local points = {}
+                for i = 1, n do
+                    local t = t_min + (t_max - t_min) * (i - 1) / (n - 1)
+                    points[i] = self:evaluate(t)
+                end
+                return points
+            end,
+
+            -- Get parameter domain [t_min, t_max]
+            domain = function(self)
+                local t_min = self._knots[self._degree + 1]
+                local t_max = self._knots[#self._knots - self._degree]
+                return t_min, t_max
+            end,
+
+            -- Get control points
+            control_points = function(self)
+                local result = {}
+                for i, cp in ipairs(self._control_points) do
+                    if self._is3d then
+                        result[i] = geo.vec3(cp.x, cp.y, cp.z)
+                    else
+                        result[i] = geo.vec2(cp.x, cp.y)
+                    end
+                end
+                return result
+            end,
+
+            -- Get knot vector
+            knots = function(self)
+                local result = {}
+                for i, k in ipairs(self._knots) do
+                    result[i] = k
+                end
+                return result
+            end,
+
+            -- Get degree
+            degree = function(self)
+                return self._degree
+            end,
+
+            -- Evaluate basis function N_{i,p}(t)
+            basis = function(self, i, t)
+                return _bspline_basis(self._knots, i, self._degree, t)
+            end,
+
+            -- Check if 3D spline
+            is_3d = function(self)
+                return self._is3d
+            end
+        }
+    }
+
+    -- B-spline constructor
+    -- control_points: array of vec2 or vec3
+    -- degree: polynomial degree (1-5, default 3 for cubic)
+    -- knot_vector: optional custom knots (clamped uniform if not provided)
+    function geo.bspline(control_points, degree, knot_vector)
+        degree = degree or 3
+
+        -- Validate degree
+        if degree < 1 or degree > 5 then
+            error("B-spline degree must be between 1 and 5")
+        end
+
+        local n = #control_points
+        if n < degree + 1 then
+            error("Need at least " .. (degree + 1) .. " control points for degree " .. degree)
+        end
+
+        -- Detect if 3D
+        local is3d = false
+        local first = control_points[1]
+        if first.z ~= nil then
+            is3d = true
+        end
+
+        -- Normalize control points to table format
+        local cps = {}
+        for i, pt in ipairs(control_points) do
+            if is3d then
+                cps[i] = {x = pt.x or pt[1], y = pt.y or pt[2], z = pt.z or pt[3]}
+            else
+                cps[i] = {x = pt.x or pt[1], y = pt.y or pt[2]}
+            end
+        end
+
+        -- Generate knot vector if not provided
+        local knots
+        if knot_vector then
+            knots = {}
+            for i, k in ipairs(knot_vector) do
+                knots[i] = k
+            end
+        else
+            -- Generate clamped uniform knot vector
+            local result = _bspline_uniform_knots(n, degree)
+            knots = {}
+            for i, k in ipairs(result) do
+                knots[i] = k
+            end
+        end
+
+        -- Validate knot vector size
+        local expected_knots = n + degree + 1
+        if #knots ~= expected_knots then
+            error("Knot vector must have " .. expected_knots .. " elements (n + degree + 1)")
+        end
+
+        local spline = {
+            _control_points = cps,
+            _degree = degree,
+            _knots = knots,
+            _is3d = is3d,
+            __luaswift_type = "bspline"
+        }
+
+        setmetatable(spline, bspline_mt)
+        return spline
+    end
+
+    -- Utility: evaluate basis function directly
+    function geo.bspline_basis(knots, i, p, t)
+        return _bspline_basis(knots, i, p, t)
+    end
+
+    -- Utility: generate uniform knot vector
+    function geo.bspline_uniform_knots(n, degree)
+        local result = _bspline_uniform_knots(n, degree)
+        local knots = {}
+        for i, k in ipairs(result) do
+            knots[i] = k
+        end
+        return knots
     end
 
     -- Make available via require

@@ -1852,4 +1852,268 @@ struct GeometryModuleTests {
         #expect(arr[0].numberValue != nil)
         #expect(arr[1].numberValue != nil)
     }
+
+    // MARK: - B-Spline Tests
+
+    @Test("bspline degree 1 is piecewise linear")
+    func bsplineDegree1Linear() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // Degree 1 B-spline with 3 control points should be piecewise linear
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {geo.vec2(0, 0), geo.vec2(1, 2), geo.vec2(2, 0)}
+            local b = geo.bspline(pts, 1)
+
+            -- At t=0: should be at first control point
+            -- At t=0.5: should be at second control point
+            -- At t=1: should be at last control point
+            local p0 = b:evaluate(0)
+            local p_mid = b:evaluate(0.5)
+            local p1 = b:evaluate(1)
+
+            return {p0.x, p0.y, p_mid.x, p_mid.y, p1.x, p1.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0) < 1e-10)  // p0.x = 0
+        #expect(abs(arr[1].numberValue! - 0) < 1e-10)  // p0.y = 0
+        #expect(abs(arr[2].numberValue! - 1) < 1e-10)  // p_mid.x = 1
+        #expect(abs(arr[3].numberValue! - 2) < 1e-10)  // p_mid.y = 2
+        #expect(abs(arr[4].numberValue! - 2) < 1e-10)  // p1.x = 2
+        #expect(abs(arr[5].numberValue! - 0) < 1e-10)  // p1.y = 0
+    }
+
+    @Test("bspline basis functions sum to 1 (partition of unity)")
+    func bsplineBasisPartitionOfUnity() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local n = 5  -- number of control points
+            local p = 3  -- degree
+            local knots = geo.bspline_uniform_knots(n, p)
+
+            -- Test at several t values
+            local errors = {}
+            for _, t in ipairs({0, 0.25, 0.5, 0.75, 1.0}) do
+                local sum = 0
+                for i = 1, n do
+                    sum = sum + geo.bspline_basis(knots, i, p, t)
+                end
+                table.insert(errors, math.abs(sum - 1.0))
+            end
+            return errors
+        """)
+
+        let arr = try #require(result.arrayValue)
+        for (i, err) in arr.enumerated() {
+            #expect(err.numberValue! < 1e-10, "Basis sum at point \(i) should be 1")
+        }
+    }
+
+    @Test("bspline cubic with 4 control points")
+    func bsplineCubic4Points() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // Cubic B-spline with 4 control points is a single Bezier curve
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 2),
+                geo.vec2(2, 2),
+                geo.vec2(3, 0)
+            }
+            local b = geo.bspline(pts, 3)  -- cubic
+
+            -- Endpoints should match first and last control points (clamped)
+            local p0 = b:evaluate(0)
+            local p1 = b:evaluate(1)
+
+            return {p0.x, p0.y, p1.x, p1.y, b:degree()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0) < 1e-10)  // Start at (0, 0)
+        #expect(abs(arr[1].numberValue! - 0) < 1e-10)
+        #expect(abs(arr[2].numberValue! - 3) < 1e-10)  // End at (3, 0)
+        #expect(abs(arr[3].numberValue! - 0) < 1e-10)
+        #expect(arr[4].numberValue == 3)               // degree = 3
+    }
+
+    @Test("bspline sample generates points")
+    func bsplineSample() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 1),
+                geo.vec2(2, 0),
+                geo.vec2(3, 1)
+            }
+            local b = geo.bspline(pts, 2)  -- quadratic
+            local samples = b:sample(5)
+
+            return {
+                #samples,
+                samples[1].x, samples[1].y,  -- first point
+                samples[5].x, samples[5].y   -- last point
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 5)  // 5 samples
+        // First sample should be at t=0 (start)
+        #expect(arr[1].numberValue != nil)
+        #expect(arr[2].numberValue != nil)
+        // Last sample should be at t=1 (end)
+        #expect(arr[3].numberValue != nil)
+        #expect(arr[4].numberValue != nil)
+    }
+
+    @Test("bspline 3D curve")
+    func bspline3D() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {
+                geo.vec3(0, 0, 0),
+                geo.vec3(1, 1, 1),
+                geo.vec3(2, 0, 2),
+                geo.vec3(3, 1, 0)
+            }
+            local b = geo.bspline(pts, 2)
+
+            local p0 = b:evaluate(0)
+            local p1 = b:evaluate(1)
+
+            return {
+                b:is_3d(),
+                p0.x, p0.y, p0.z,
+                p1.x, p1.y, p1.z
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)  // is 3D
+        #expect(abs(arr[1].numberValue! - 0) < 1e-10)  // Start at (0,0,0)
+        #expect(abs(arr[2].numberValue! - 0) < 1e-10)
+        #expect(abs(arr[3].numberValue! - 0) < 1e-10)
+        #expect(abs(arr[4].numberValue! - 3) < 1e-10)  // End at (3,1,0)
+        #expect(abs(arr[5].numberValue! - 1) < 1e-10)
+        #expect(abs(arr[6].numberValue! - 0) < 1e-10)
+    }
+
+    @Test("bspline derivative")
+    func bsplineDerivative() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // For linear B-spline, derivative should be constant within each segment
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {geo.vec2(0, 0), geo.vec2(2, 4), geo.vec2(4, 0)}
+            local b = geo.bspline(pts, 1)  -- linear
+
+            -- Derivative at t=0.25 (first segment)
+            local d1 = b:derivative(0.25)
+
+            return {d1.x, d1.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // For first segment from (0,0) to (2,4), slope should be (4, 8) scaled
+        #expect(arr[0].numberValue != nil)
+        #expect(arr[1].numberValue != nil)
+    }
+
+    @Test("bspline domain method")
+    func bsplineDomain() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 1),
+                geo.vec2(2, 0),
+                geo.vec2(3, 1)
+            }
+            local b = geo.bspline(pts, 2)  -- quadratic
+            local t_min, t_max = b:domain()
+            return {t_min, t_max}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 0)  // clamped starts at 0
+        #expect(arr[1].numberValue == 1)  // clamped ends at 1
+    }
+
+    @Test("bspline control_points accessor")
+    func bsplineControlPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {geo.vec2(1, 2), geo.vec2(3, 4), geo.vec2(5, 6)}
+            local b = geo.bspline(pts, 1)
+            local cps = b:control_points()
+            return {#cps, cps[1].x, cps[1].y, cps[3].x, cps[3].y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 3)
+        #expect(arr[1].numberValue == 1)
+        #expect(arr[2].numberValue == 2)
+        #expect(arr[3].numberValue == 5)
+        #expect(arr[4].numberValue == 6)
+    }
+
+    @Test("bspline tostring representation")
+    func bsplineTostring() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local pts = {geo.vec2(0, 0), geo.vec2(1, 1), geo.vec2(2, 0), geo.vec2(3, 1)}
+            local b = geo.bspline(pts, 3)
+            return tostring(b)
+        """)
+
+        let str = try #require(result.stringValue)
+        #expect(str.contains("bspline"))
+        #expect(str.contains("degree=3"))
+        #expect(str.contains("4 control points"))
+    }
+
+    @Test("bspline_uniform_knots generates correct size")
+    func bsplineUniformKnots() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local knots = geo.bspline_uniform_knots(5, 3)  -- 5 control points, degree 3
+            -- Should have n + p + 1 = 5 + 3 + 1 = 9 knots
+            return {#knots, knots[1], knots[4], knots[9]}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 9)   // 9 knots
+        #expect(arr[1].numberValue == 0)   // First knot is 0 (clamped)
+        #expect(arr[2].numberValue == 0)   // Knot 4 is still 0 (p+1 zeros)
+        #expect(arr[3].numberValue == 1)   // Last knot is 1 (clamped)
+    }
 }

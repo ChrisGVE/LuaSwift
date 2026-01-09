@@ -631,9 +631,64 @@ public struct MathExprModule {
         end
     end
 
+    -- Parse LaTeX summation/product notation: \\sum_{var=start}^{end} body
+    -- Returns: type ("sum" or "product"), var, start, end, body (or nil if not a summation)
+    local function parseSummationNotation(expr)
+        -- Pattern: \\sum_{var=start}^{end} or \\prod_{var=start}^{end}
+        -- The body is everything after the ^{end} part
+
+        -- Try to match summation: \\sum_{var=start}^{end} body
+        local sumPattern = "^%s*\\\\sum%s*_%s*{%s*([%a_][%w_]*)%s*=%s*([^}]+)}%s*%^%s*{([^}]+)}%s*(.+)$"
+        local prodPattern = "^%s*\\\\prod%s*_%s*{%s*([%a_][%w_]*)%s*=%s*([^}]+)}%s*%^%s*{([^}]+)}%s*(.+)$"
+
+        local var, startVal, endVal, body = expr:match(sumPattern)
+        if var then
+            return "sum", var, startVal, endVal, body
+        end
+
+        var, startVal, endVal, body = expr:match(prodPattern)
+        if var then
+            return "product", var, startVal, endVal, body
+        end
+
+        return nil
+    end
+
     -- Evaluate expression string with variables (supports nested scoping)
     function eval._evaluate(expr, vars)
         vars = vars or {}
+
+        -- Check for LaTeX summation/product notation first
+        local opType, sumVar, startExpr, endExpr, bodyExpr = parseSummationNotation(expr)
+        if opType then
+            -- Get the series module
+            local series = luaswift.series or math.series
+            if not series then
+                error("LaTeX summation requires series module to be loaded")
+            end
+
+            -- Evaluate bounds (they might be expressions)
+            local startVal = eval._evaluate(startExpr, vars)
+            local endVal = eval._evaluate(endExpr, vars)
+
+            -- Preprocess the body expression (convert LaTeX to standard)
+            local processedBody = eval.latexToStandard(bodyExpr)
+
+            -- Call the appropriate series function
+            if opType == "sum" then
+                return series.sum(processedBody, {
+                    var = sumVar,
+                    from = startVal,
+                    to = endVal
+                })
+            else
+                return series.product(processedBody, {
+                    var = sumVar,
+                    from = startVal,
+                    to = endVal
+                })
+            end
+        end
 
         -- Use lazy evaluation to handle expression-valued variables
         local tokens = eval.tokenize(expr)

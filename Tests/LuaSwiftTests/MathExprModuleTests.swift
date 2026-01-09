@@ -1327,4 +1327,72 @@ final class MathExprModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue ?? 0, 10, accuracy: 1e-10)
     }
+
+    // MARK: - LaTeX Summation Notation Tests
+
+    func testLaTeXSummationGeometricSeries() throws {
+        // Register series module for LaTeX summation support
+        SeriesModule.register(in: engine)
+
+        // Sum of geometric series: sum_{n=0}^{10} 1/2^n ≈ 2 - 1/2^10 ≈ 1.999
+        let result = try engine.evaluate(#"""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("\\sum_{n=0}^{10} \\frac{1}{2^n}")
+        """#)
+
+        // Geometric series sum = (1 - (1/2)^11) / (1 - 1/2) = 2 - 1/1024 ≈ 1.999
+        XCTAssertEqual(result.numberValue ?? 0, 2.0 - 1.0/1024.0, accuracy: 1e-10)
+    }
+
+    func testLaTeXProductFactorial() throws {
+        // Register series module for LaTeX product support
+        SeriesModule.register(in: engine)
+
+        // Product: prod_{i=1}^{5} i = 5! = 120
+        let result = try engine.evaluate(#"""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("\\prod_{i=1}^{5} i")
+        """#)
+
+        XCTAssertEqual(result.numberValue ?? 0, 120, accuracy: 1e-10)
+    }
+
+    func testLaTeXSummationWithExpression() throws {
+        // Register series module for LaTeX summation support
+        SeriesModule.register(in: engine)
+
+        // Sum of squares: sum_{k=1}^{4} k^2 = 1 + 4 + 9 + 16 = 30
+        let result = try engine.evaluate(#"""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("\\sum_{k=1}^{4} k^2")
+        """#)
+
+        XCTAssertEqual(result.numberValue ?? 0, 30, accuracy: 1e-10)
+    }
+
+    func testLaTeXProductWithFraction() throws {
+        // Register series module for LaTeX product support
+        SeriesModule.register(in: engine)
+
+        // Product: prod_{n=2}^{4} (n+1)/n = 3/2 * 4/3 * 5/4 = 5/2 = 2.5
+        let result = try engine.evaluate(#"""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("\\prod_{n=2}^{4} \\frac{n+1}{n}")
+        """#)
+
+        XCTAssertEqual(result.numberValue ?? 0, 2.5, accuracy: 1e-10)
+    }
+
+    func testLaTeXSummationSimple() throws {
+        // Register series module for LaTeX summation support
+        SeriesModule.register(in: engine)
+
+        // Sum: sum_{i=1}^{5} i = 1 + 2 + 3 + 4 + 5 = 15
+        let result = try engine.evaluate(#"""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval("\\sum_{i=1}^{5} i")
+        """#)
+
+        XCTAssertEqual(result.numberValue ?? 0, 15, accuracy: 1e-10)
+    }
 }

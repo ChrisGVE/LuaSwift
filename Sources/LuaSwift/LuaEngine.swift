@@ -229,8 +229,89 @@ public final class LuaEngine {
     /// Lock for thread safety
     private let lock = NSLock()
 
+    /// Separate lock for memory tracking to avoid deadlock with main lock.
+    /// The main lock is held during Lua execution, and callbacks during execution
+    /// may need to track memory allocations.
+    private let memoryLock = NSLock()
+
     /// Last write error (used to communicate errors from __newindex callback)
     fileprivate var lastWriteError: LuaError?
+
+    /// Current allocated bytes tracked by Swift modules
+    private var _allocatedBytes: Int = 0
+
+    /// Thread-local key for storing the current engine during callback execution
+    private static let currentEngineKey = "LuaSwift.CurrentEngine"
+
+    // MARK: - Memory Tracking
+
+    /// Current allocated bytes tracked by Swift modules.
+    ///
+    /// This tracks memory allocated by Swift-backed modules like Array and LinAlg.
+    /// It does not include Lua's internal memory usage.
+    public var allocatedBytes: Int {
+        memoryLock.lock()
+        defer { memoryLock.unlock() }
+        return _allocatedBytes
+    }
+
+    /// Track a memory allocation for Swift modules.
+    ///
+    /// Call this before allocating large data structures in Swift modules.
+    /// If the allocation would exceed the configured memory limit, this throws
+    /// a `memoryError`.
+    ///
+    /// - Parameter bytes: Number of bytes to allocate
+    /// - Throws: `LuaError.memoryError` if the allocation would exceed the limit
+    public func trackAllocation(bytes: Int) throws {
+        memoryLock.lock()
+        defer { memoryLock.unlock() }
+
+        if configuration.memoryLimit > 0 {
+            if _allocatedBytes + bytes > configuration.memoryLimit {
+                throw LuaError.memoryError("Memory limit exceeded: tried to allocate \(bytes) bytes, limit is \(configuration.memoryLimit), already allocated \(_allocatedBytes)")
+            }
+        }
+        _allocatedBytes += bytes
+    }
+
+    /// Track a memory deallocation for Swift modules.
+    ///
+    /// Call this when freeing memory in Swift modules.
+    ///
+    /// - Parameter bytes: Number of bytes freed
+    public func trackDeallocation(bytes: Int) {
+        memoryLock.lock()
+        defer { memoryLock.unlock() }
+        _allocatedBytes = max(0, _allocatedBytes - bytes)
+    }
+
+    /// Reset the memory tracker to zero.
+    ///
+    /// Useful for testing or when reusing an engine.
+    public func resetMemoryTracker() {
+        memoryLock.lock()
+        defer { memoryLock.unlock() }
+        _allocatedBytes = 0
+    }
+
+    /// Get the current engine from thread-local storage.
+    ///
+    /// This is available during callback execution from Swift modules.
+    /// Returns nil if called outside of a callback context.
+    public static var currentEngine: LuaEngine? {
+        Thread.current.threadDictionary[currentEngineKey] as? LuaEngine
+    }
+
+    /// Set the current engine in thread-local storage.
+    private func setAsCurrentEngine() {
+        Thread.current.threadDictionary[Self.currentEngineKey] = self
+    }
+
+    /// Clear the current engine from thread-local storage.
+    private func clearCurrentEngine() {
+        Thread.current.threadDictionary.removeObject(forKey: Self.currentEngineKey)
+    }
 
     // MARK: - Initialization
 
@@ -806,6 +887,11 @@ public final class LuaEngine {
         guard let callback = callbacks[name] else {
             throw LuaError.callbackError("Callback '\(name)' not found")
         }
+
+        // Set this engine as current for the duration of the callback
+        // This allows modules to access the engine for memory tracking
+        setAsCurrentEngine()
+        defer { clearCurrentEngine() }
 
         return try callback(arguments)
     }

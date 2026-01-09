@@ -443,6 +443,33 @@ public struct LinAlgModule {
     /// Matrix: rows >= 1, cols >= 1
     /// Data is stored in row-major order
 
+    // MARK: - Memory Tracking
+
+    /// Track memory allocation for matrix/vector data.
+    ///
+    /// Call this before creating large matrices/vectors to respect memory limits.
+    /// - Parameter count: Number of Double elements to allocate
+    /// - Throws: `LuaError.memoryError` if the allocation would exceed limits
+    private static func trackMatrixAllocation(count: Int) throws {
+        let bytes = count * MemoryLayout<Double>.size
+        if let engine = LuaEngine.currentEngine {
+            try engine.trackAllocation(bytes: bytes)
+        }
+    }
+
+    /// Track memory deallocation for matrix/vector data.
+    ///
+    /// Call this when matrix/vector data is being released.
+    /// - Parameter count: Number of Double elements being freed
+    private static func trackMatrixDeallocation(count: Int) {
+        let bytes = count * MemoryLayout<Double>.size
+        if let engine = LuaEngine.currentEngine {
+            engine.trackDeallocation(bytes: bytes)
+        }
+    }
+
+    // MARK: - Data Structures
+
     private static func createMatrixTable(rows: Int, cols: Int, data: [Double]) -> LuaValue {
         return .table([
             "type": .string(cols == 1 ? "vector" : "matrix"),
@@ -548,7 +575,9 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.zeros: dimensions must be positive")
         }
 
-        let data = [Double](repeating: 0.0, count: rows * cols)
+        let size = rows * cols
+        try trackMatrixAllocation(count: size)
+        let data = [Double](repeating: 0.0, count: size)
         return createMatrixTable(rows: rows, cols: cols, data: data)
     }
 
@@ -563,7 +592,9 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.ones: dimensions must be positive")
         }
 
-        let data = [Double](repeating: 1.0, count: rows * cols)
+        let size = rows * cols
+        try trackMatrixAllocation(count: size)
+        let data = [Double](repeating: 1.0, count: size)
         return createMatrixTable(rows: rows, cols: cols, data: data)
     }
 
@@ -576,7 +607,9 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.eye: size must be positive")
         }
 
-        var data = [Double](repeating: 0.0, count: n * n)
+        let size = n * n
+        try trackMatrixAllocation(count: size)
+        var data = [Double](repeating: 0.0, count: size)
         for i in 0..<n {
             data[i * n + i] = 1.0
         }
@@ -600,7 +633,9 @@ public struct LinAlgModule {
         }
 
         let n = diagVals.count
-        var data = [Double](repeating: 0.0, count: n * n)
+        let size = n * n
+        try trackMatrixAllocation(count: size)
+        var data = [Double](repeating: 0.0, count: size)
         for i in 0..<n {
             data[i * n + i] = diagVals[i]
         }
@@ -621,7 +656,12 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.range: step cannot be zero")
         }
 
+        // Estimate size for memory tracking
+        let estimatedSize = max(0, Int(ceil(abs(stop - start) / abs(step))))
+        try trackMatrixAllocation(count: estimatedSize)
+
         var data: [Double] = []
+        data.reserveCapacity(estimatedSize)
         var current = start
 
         if step > 0 {
@@ -651,6 +691,7 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.linspace: count must be at least 2")
         }
 
+        try trackMatrixAllocation(count: n)
         var data: [Double] = []
         data.reserveCapacity(n)
 

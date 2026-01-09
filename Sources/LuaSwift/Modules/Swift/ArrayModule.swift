@@ -1131,6 +1131,31 @@ public struct ArrayModule {
         }
     }
 
+    // MARK: - Memory Tracking
+
+    /// Track memory allocation for array data.
+    ///
+    /// Call this before creating large arrays to respect memory limits.
+    /// - Parameter count: Number of Double elements to allocate
+    /// - Throws: `LuaError.memoryError` if the allocation would exceed limits
+    private static func trackArrayAllocation(count: Int) throws {
+        let bytes = count * MemoryLayout<Double>.size
+        if let engine = LuaEngine.currentEngine {
+            try engine.trackAllocation(bytes: bytes)
+        }
+    }
+
+    /// Track memory deallocation for array data.
+    ///
+    /// Call this when array data is being released.
+    /// - Parameter count: Number of Double elements being freed
+    private static func trackArrayDeallocation(count: Int) {
+        let bytes = count * MemoryLayout<Double>.size
+        if let engine = LuaEngine.currentEngine {
+            engine.trackDeallocation(bytes: bytes)
+        }
+    }
+
     // MARK: - Array Data Structure
 
     /// Internal array representation
@@ -1364,6 +1389,7 @@ public struct ArrayModule {
         }
 
         let size = shape.reduce(1, *)
+        try trackArrayAllocation(count: size)
         return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: 0, count: size)))
     }
 
@@ -1390,6 +1416,7 @@ public struct ArrayModule {
         }
 
         let size = shape.reduce(1, *)
+        try trackArrayAllocation(count: size)
         return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: 1, count: size)))
     }
 
@@ -1420,6 +1447,7 @@ public struct ArrayModule {
         }
 
         let size = shape.reduce(1, *)
+        try trackArrayAllocation(count: size)
         return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: value, count: size)))
     }
 
@@ -1436,7 +1464,12 @@ public struct ArrayModule {
             throw LuaError.callbackError("array.arange: step cannot be zero")
         }
 
+        // Estimate size for memory tracking
+        let estimatedSize = max(0, Int(ceil(abs(stop - start) / abs(step))))
+        try trackArrayAllocation(count: estimatedSize)
+
         var data: [Double] = []
+        data.reserveCapacity(estimatedSize)
         if step > 0 {
             var val = start
             while val < stop {
@@ -1467,6 +1500,7 @@ public struct ArrayModule {
             throw LuaError.callbackError("array.linspace: num must be >= 2")
         }
 
+        try trackArrayAllocation(count: num)
         var data = [Double](repeating: 0, count: num)
         let step = (stop - start) / Double(num - 1)
         for i in 0..<num {
@@ -1499,6 +1533,7 @@ public struct ArrayModule {
         }
 
         let size = shape.reduce(1, *)
+        try trackArrayAllocation(count: size)
         var data = [Double](repeating: 0, count: size)
         for i in 0..<size {
             data[i] = Double.random(in: 0..<1)
@@ -1530,6 +1565,7 @@ public struct ArrayModule {
         }
 
         let size = shape.reduce(1, *)
+        try trackArrayAllocation(count: size)
         var data = [Double](repeating: 0, count: size)
 
         // Box-Muller transform for normal distribution
@@ -3648,7 +3684,9 @@ public struct ArrayModule {
         let m = args.count > 1 ? (args[1].intValue ?? n) : n
         let k = args.count > 2 ? (args[2].intValue ?? 0) : 0
 
-        var data = [Double](repeating: 0, count: n * m)
+        let size = n * m
+        try trackArrayAllocation(count: size)
+        var data = [Double](repeating: 0, count: size)
 
         let diagLen = min(n, m)
         for i in 0..<diagLen {
@@ -3667,7 +3705,9 @@ public struct ArrayModule {
             throw LuaError.callbackError("array.identity: requires n (size)")
         }
 
-        var data = [Double](repeating: 0, count: n * n)
+        let size = n * n
+        try trackArrayAllocation(count: size)
+        var data = [Double](repeating: 0, count: size)
         for i in 0..<n {
             data[i * n + i] = 1.0
         }
@@ -3698,6 +3738,7 @@ public struct ArrayModule {
         }
 
         let size = shape.reduce(1, *)
+        try trackArrayAllocation(count: size)
         // In our implementation, empty is the same as zeros (no uninitialized memory)
         let data = [Double](repeating: 0, count: size)
 
@@ -3710,6 +3751,7 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(args[0])
+        try trackArrayAllocation(count: arrayData.size)
         let data = [Double](repeating: 0, count: arrayData.size)
 
         return createArrayTable(ArrayData(shape: arrayData.shape, data: data))
@@ -3721,6 +3763,7 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(args[0])
+        try trackArrayAllocation(count: arrayData.size)
         let data = [Double](repeating: 1, count: arrayData.size)
 
         return createArrayTable(ArrayData(shape: arrayData.shape, data: data))
@@ -3736,6 +3779,7 @@ public struct ArrayModule {
             throw LuaError.callbackError("array.full_like: fill_value must be a number")
         }
 
+        try trackArrayAllocation(count: arrayData.size)
         let data = [Double](repeating: fillValue, count: arrayData.size)
 
         return createArrayTable(ArrayData(shape: arrayData.shape, data: data))

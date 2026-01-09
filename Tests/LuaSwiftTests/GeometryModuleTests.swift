@@ -719,6 +719,107 @@ struct GeometryModuleTests {
         #expect(abs(arr[3].numberValue!) < 0.0001)
     }
 
+    @Test("Plane-plane intersection")
+    func planePlaneIntersection() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- XY plane (z=0)
+            local plane1 = {normal = geo.vec3(0, 0, 1), d = 0}
+            -- XZ plane (y=0)
+            local plane2 = {normal = geo.vec3(0, 1, 0), d = 0}
+            local line = geo.plane_plane_intersection(plane1, plane2)
+            -- Intersection should be the x-axis
+            return {line.direction.x, line.direction.y, line.direction.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // Direction should be along x-axis (±1, 0, 0)
+        #expect(abs(abs(arr[0].numberValue!) - 1.0) < 0.0001)
+        #expect(abs(arr[1].numberValue!) < 0.0001)
+        #expect(abs(arr[2].numberValue!) < 0.0001)
+    }
+
+    @Test("Polymorphic intersection line-line")
+    func intersectionLineLine() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local line1 = {{x = 0, y = 0}, {x = 2, y = 2}}
+            local line2 = {{x = 0, y = 2}, {x = 2, y = 0}}
+            local point = geo.intersection(line1, line2)
+            return {point.x, point.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)
+        #expect(arr[1].numberValue == 1)
+    }
+
+    @Test("Polymorphic intersection line-plane")
+    func intersectionLinePlane() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Line from (0,0,0) in direction (1,1,1)
+            local line = {origin = geo.vec3(0, 0, 0), direction = geo.vec3(1, 1, 1)}
+            -- Plane z=1
+            local plane = {normal = geo.vec3(0, 0, 1), d = -1}
+            local point = geo.intersection(line, plane)
+            return {point.x, point.y, point.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 1.0) < 0.0001)
+        #expect(abs(arr[1].numberValue! - 1.0) < 0.0001)
+        #expect(abs(arr[2].numberValue! - 1.0) < 0.0001)
+    }
+
+    @Test("Polymorphic intersection plane-plane")
+    func intersectionPlanePlane() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- XY plane (z=0)
+            local plane1 = {normal = geo.vec3(0, 0, 1), d = 0}
+            -- XZ plane (y=0)
+            local plane2 = {normal = geo.vec3(0, 1, 0), d = 0}
+            local line = geo.intersection(plane1, plane2)
+            -- Intersection should be the x-axis
+            return {line.direction.x, line.direction.y, line.direction.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(abs(arr[0].numberValue!) - 1.0) < 0.0001)
+        #expect(abs(arr[1].numberValue!) < 0.0001)
+        #expect(abs(arr[2].numberValue!) < 0.0001)
+    }
+
+    @Test("Parallel planes no intersection")
+    func parallelPlanesNoIntersection() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Two parallel XY planes at z=0 and z=1
+            local plane1 = {normal = geo.vec3(0, 0, 1), d = 0}
+            local plane2 = {normal = geo.vec3(0, 0, 1), d = -1}
+            local line = geo.intersection(plane1, plane2)
+            return line == nil
+        """)
+
+        #expect(result.boolValue == true)
+    }
+
     // MARK: - Type Marker Tests
 
     @Test("Vec2 has __luaswift_type marker")

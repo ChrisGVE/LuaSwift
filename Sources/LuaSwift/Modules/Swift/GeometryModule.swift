@@ -117,6 +117,8 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_plane_from_3_points", callback: planeFrom3PointsCallback)
         engine.registerFunction(name: "_luaswift_geo_point_plane_distance", callback: pointPlaneDistanceCallback)
         engine.registerFunction(name: "_luaswift_geo_line_plane_intersection", callback: linePlaneIntersectionCallback)
+        engine.registerFunction(name: "_luaswift_geo_plane_plane_intersection", callback: planePlaneIntersectionCallback)
+        engine.registerFunction(name: "_luaswift_geo_intersection", callback: intersectionCallback)
         engine.registerFunction(name: "_luaswift_geo_sphere_from_4_points", callback: sphereFrom4PointsCallback)
 
         // Set up the luaswift.geometry namespace
@@ -958,6 +960,60 @@ public struct GeometryModule {
         return vec3ToLua(origin + direction * t)
     }
 
+    /// Plane-plane intersection returns a line (origin + direction)
+    private static let planePlaneIntersectionCallback: ([LuaValue]) -> LuaValue = { args in
+        guard args.count >= 2,
+              let plane1 = args[0].tableValue,
+              let n1 = extractVec3(plane1["normal"] ?? .nil),
+              let d1 = plane1["d"]?.numberValue,
+              let plane2 = args[1].tableValue,
+              let n2 = extractVec3(plane2["normal"] ?? .nil),
+              let d2 = plane2["d"]?.numberValue else { return .nil }
+
+        // Line direction is cross product of normals
+        let direction = simd_cross(n1, n2)
+        let dirLen = simd_length(direction)
+        if dirLen < 1e-10 { return .nil } // Parallel planes
+
+        // Find a point on the intersection line using the formula:
+        // point = ((d2*n1 - d1*n2) × direction) / |direction|^2
+        let cross = simd_cross(n2 * (-d1) - n1 * (-d2), direction)
+        let origin = cross / (dirLen * dirLen)
+
+        return .table([
+            "origin": vec3ToLua(origin),
+            "direction": vec3ToLua(simd_normalize(direction))
+        ])
+    }
+
+    /// Polymorphic intersection: line-line, line-plane, or plane-plane
+    private static let intersectionCallback: ([LuaValue]) -> LuaValue = { args in
+        guard args.count >= 2 else { return .nil }
+
+        // Check if first arg is a plane (has "normal" and "d")
+        let isPlane1 = args[0].tableValue?["normal"] != nil && args[0].tableValue?["d"] != nil
+        let isPlane2 = args[1].tableValue?["normal"] != nil && args[1].tableValue?["d"] != nil
+
+        // Check if first arg is a line (has "origin" and "direction" or is an array of 2 points)
+        let isLine1 = (args[0].tableValue?["origin"] != nil && args[0].tableValue?["direction"] != nil)
+                   || (args[0].arrayValue?.count == 2)
+        let isLine2 = (args[1].tableValue?["origin"] != nil && args[1].tableValue?["direction"] != nil)
+                   || (args[1].arrayValue?.count == 2)
+
+        if isPlane1 && isPlane2 {
+            // Plane-plane intersection
+            return planePlaneIntersectionCallback(args)
+        } else if isLine1 && isPlane2 {
+            // Line-plane intersection
+            return linePlaneIntersectionCallback(args)
+        } else if isLine1 && isLine2 {
+            // Line-line intersection (2D)
+            return lineIntersectionCallback(args)
+        }
+
+        return .nil
+    }
+
     private static let sphereFrom4PointsCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 4,
               let p1 = extractVec3(args[0]),
@@ -1213,6 +1269,8 @@ public struct GeometryModule {
     local _plane_from_3_points = _luaswift_geo_plane_from_3_points
     local _point_plane_distance = _luaswift_geo_point_plane_distance
     local _line_plane_intersection = _luaswift_geo_line_plane_intersection
+    local _plane_plane_intersection = _luaswift_geo_plane_plane_intersection
+    local _intersection = _luaswift_geo_intersection
     local _sphere_from_4_points = _luaswift_geo_sphere_from_4_points
 
     local _vec2_to_polar = _luaswift_geo_vec2_to_polar
@@ -1592,6 +1650,43 @@ public struct GeometryModule {
             return geo.vec3(r.x, r.y, r.z)
         end
         return nil
+    end
+
+    geo.plane_plane_intersection = function(plane1, plane2)
+        local r = _plane_plane_intersection(plane1, plane2)
+        if r then
+            return {
+                origin = geo.vec3(r.origin.x, r.origin.y, r.origin.z),
+                direction = geo.vec3(r.direction.x, r.direction.y, r.direction.z)
+            }
+        end
+        return nil
+    end
+
+    -- Polymorphic intersection: auto-detects line-line, line-plane, or plane-plane
+    geo.intersection = function(a, b)
+        local r = _intersection(a, b)
+        if r == nil then return nil end
+
+        -- Check if result is a vec2 (line-line intersection)
+        if r.x ~= nil and r.y ~= nil and r.z == nil then
+            return geo.vec2(r.x, r.y)
+        end
+
+        -- Check if result is a vec3 (line-plane intersection)
+        if r.x ~= nil and r.y ~= nil and r.z ~= nil then
+            return geo.vec3(r.x, r.y, r.z)
+        end
+
+        -- Check if result is a line (plane-plane intersection)
+        if r.origin ~= nil and r.direction ~= nil then
+            return {
+                origin = geo.vec3(r.origin.x, r.origin.y, r.origin.z),
+                direction = geo.vec3(r.direction.x, r.direction.y, r.direction.z)
+            }
+        end
+
+        return r
     end
 
     geo.sphere_from_4_points = function(p1, p2, p3, p4)

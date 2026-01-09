@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `luaswift.spatial` - Spatial algorithms (KDTree, Voronoi, Delaunay, ConvexHull, distance functions)
   - `luaswift.special` - Special functions (erf, erfc, gamma, lgamma, digamma, beta, betainc, bessel j0/j1/jn/y0/y1/yn, ellipk, ellipe, zeta, lambertw)
   - `luaswift.regress` - Regression models (OLS, WLS, GLS, GLM with multiple families, ARIMA)
+  - `luaswift.series` - Series evaluation (Taylor polynomials, series summation/product, convergence detection, lazy iterators)
 
 - **Visualization Modules**:
   - `luaswift.plot` - Matplotlib/seaborn-compatible plotting with retained vector graphics (figure, subplot, plot, scatter, bar, hist, heatmap, pie, boxplot, violin, contour, imshow)

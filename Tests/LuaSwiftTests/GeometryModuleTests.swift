@@ -698,6 +698,172 @@ struct GeometryModuleTests {
         #expect(abs(arr[2].numberValue! - 1.0) < 0.0001)
     }
 
+    @Test("Circle constructor with vec2")
+    func circleConstructorVec2() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local center = geo.vec2(3, 4)
+            local c = geo.circle(center, 5)
+            return {c.center.x, c.center.y, c.radius, c.__luaswift_type}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 3)
+        #expect(arr[1].numberValue == 4)
+        #expect(arr[2].numberValue == 5)
+        #expect(arr[3].stringValue == "circle")
+    }
+
+    @Test("Circle constructor with xyz")
+    func circleConstructorXYZ() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local c = geo.circle(1, 2, 3)
+            return {c.center.x, c.center.y, c.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)
+        #expect(arr[1].numberValue == 2)
+        #expect(arr[2].numberValue == 3)
+    }
+
+    @Test("Circle chainable translate")
+    func circleTranslate() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local c = geo.circle(0, 0, 5):translate(3, 4)
+            return {c.center.x, c.center.y, c.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 3)
+        #expect(arr[1].numberValue == 4)
+        #expect(arr[2].numberValue == 5)
+    }
+
+    @Test("Circle chainable scale")
+    func circleScale() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local c = geo.circle(5, 5, 10):scale(2)
+            return {c.center.x, c.center.y, c.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 5)
+        #expect(arr[1].numberValue == 5)
+        #expect(arr[2].numberValue == 20)
+    }
+
+    @Test("Circle contains point")
+    func circleContains() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local c = geo.circle(0, 0, 5)
+            local p_inside = geo.vec2(3, 0)
+            local p_on = geo.vec2(5, 0)
+            local p_outside = geo.vec2(6, 0)
+            return {c:contains(p_inside), c:contains(p_on), c:contains(p_outside)}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)
+        #expect(arr[1].boolValue == true)
+        #expect(arr[2].boolValue == false)
+    }
+
+    @Test("Circle area and circumference")
+    func circleAreaCircumference() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local c = geo.circle(0, 0, 2)
+            return {c:area(), c:circumference(), c:diameter()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 4 * Double.pi) < 0.0001)
+        #expect(abs(arr[1].numberValue! - 4 * Double.pi) < 0.0001)
+        #expect(arr[2].numberValue == 4)
+    }
+
+    @Test("Circle point_at")
+    func circlePointAt() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local c = geo.circle(0, 0, 1)
+            local p0 = c:point_at(0)
+            local p90 = c:point_at(math.pi / 2)
+            return {p0.x, p0.y, p90.x, p90.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 1.0) < 0.0001)
+        #expect(abs(arr[1].numberValue!) < 0.0001)
+        #expect(abs(arr[2].numberValue!) < 0.0001)
+        #expect(abs(arr[3].numberValue! - 1.0) < 0.0001)
+    }
+
+    @Test("Circle bounds")
+    func circleBounds() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local c = geo.circle(5, 5, 2)
+            local b = c:bounds()
+            return {b.min.x, b.min.y, b.max.x, b.max.y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 3)
+        #expect(arr[1].numberValue == 3)
+        #expect(arr[2].numberValue == 7)
+        #expect(arr[3].numberValue == 7)
+    }
+
+    @Test("Circle from 3 points returns circle object")
+    func circleFrom3PointsReturnsCircleObject() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local p1 = {x = 0, y = 1}
+            local p2 = {x = 1, y = 0}
+            local p3 = {x = -1, y = 0}
+            local c = geo.circle_from_3_points(p1, p2, p3)
+            -- Verify it has circle methods
+            return {c:area() > 0, c.__luaswift_type}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)
+        #expect(arr[1].stringValue == "circle")
+    }
+
     @Test("Plane from 3 points")
     func planeFrom3Points() throws {
         let engine = try LuaEngine()

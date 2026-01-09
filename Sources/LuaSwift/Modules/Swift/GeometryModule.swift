@@ -1428,6 +1428,89 @@ public struct GeometryModule {
         return v
     end
 
+    -- Circle type with chainable transformations
+    local circle_mt = {
+        __eq = function(a, b)
+            return a.center.x == b.center.x and a.center.y == b.center.y and a.radius == b.radius
+        end,
+        __tostring = function(a)
+            return string.format("circle(center=vec2(%.4f, %.4f), radius=%.4f)", a.center.x, a.center.y, a.radius)
+        end,
+        __index = {
+            -- Chainable transformations
+            translate = function(self, dx, dy)
+                return geo.circle(self.center.x + dx, self.center.y + dy, self.radius)
+            end,
+            scale = function(self, factor)
+                return geo.circle(self.center.x, self.center.y, self.radius * factor)
+            end,
+            scale_from = function(self, factor, origin)
+                -- Scale from a specific origin point
+                local ox = origin and origin.x or 0
+                local oy = origin and origin.y or 0
+                local newX = ox + (self.center.x - ox) * factor
+                local newY = oy + (self.center.y - oy) * factor
+                return geo.circle(newX, newY, self.radius * factor)
+            end,
+            -- Queries
+            contains = function(self, point)
+                local dx = point.x - self.center.x
+                local dy = point.y - self.center.y
+                return (dx * dx + dy * dy) <= (self.radius * self.radius)
+            end,
+            area = function(self)
+                return math.pi * self.radius * self.radius
+            end,
+            circumference = function(self)
+                return 2 * math.pi * self.radius
+            end,
+            diameter = function(self)
+                return 2 * self.radius
+            end,
+            -- Point generation
+            point_at = function(self, angle)
+                -- Returns point on circle at given angle (radians from positive x-axis)
+                local x = self.center.x + self.radius * math.cos(angle)
+                local y = self.center.y + self.radius * math.sin(angle)
+                return geo.vec2(x, y)
+            end,
+            -- Bounding box
+            bounds = function(self)
+                return {
+                    min = geo.vec2(self.center.x - self.radius, self.center.y - self.radius),
+                    max = geo.vec2(self.center.x + self.radius, self.center.y + self.radius)
+                }
+            end,
+            -- Clone
+            clone = function(self)
+                return geo.circle(self.center.x, self.center.y, self.radius)
+            end
+        }
+    }
+
+    -- Circle constructor: geo.circle(center, radius) or geo.circle(x, y, radius)
+    function geo.circle(a, b, c)
+        local center, radius
+        if type(a) == "table" and a.x ~= nil and a.y ~= nil then
+            -- geo.circle(center_vec2, radius)
+            center = geo.vec2(a.x, a.y)
+            radius = b
+        elseif type(a) == "number" and type(b) == "number" and type(c) == "number" then
+            -- geo.circle(x, y, radius)
+            center = geo.vec2(a, b)
+            radius = c
+        else
+            return nil
+        end
+        local circle = {
+            center = center,
+            radius = radius,
+            __luaswift_type = "circle"
+        }
+        setmetatable(circle, circle_mt)
+        return circle
+    end
+
     -- Quaternion type
     local quat_mt = {
         __mul = function(a, b)
@@ -1621,10 +1704,7 @@ public struct GeometryModule {
     geo.circle_from_3_points = function(p1, p2, p3)
         local r = _circle_from_3_points(p1, p2, p3)
         if r then
-            return {
-                center = geo.vec2(r.center.x, r.center.y),
-                radius = r.radius
-            }
+            return geo.circle(r.center.x, r.center.y, r.radius)
         end
         return nil
     end

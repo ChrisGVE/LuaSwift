@@ -52,6 +52,7 @@ public struct ModuleRegistry {
     /// - `luaswift.spatial`: Spatial algorithms (KDTree, distance functions, Voronoi, Delaunay)
     /// - `luaswift.special`: Special functions (erf, erfc, beta, betainc, bessel)
     /// - `luaswift.regress`: Regression models (OLS, WLS, GLS, GLM, ARIMA)
+    /// - `luaswift.series`: Series evaluation (Taylor, summation, products, convergence)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -90,6 +91,7 @@ public struct ModuleRegistry {
         installSpatialModule(in: engine)
         installSpecialModule(in: engine)
         installRegressModule(in: engine)
+        installSeriesModule(in: engine)  // Must be after MathExprModule (uses eval)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -389,5 +391,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installRegressModule(in engine: LuaEngine) {
         RegressModule.register(in: engine)
+    }
+
+    /// Install only the Series module.
+    ///
+    /// This module provides series evaluation (Taylor polynomials, summation, products).
+    /// Should be called after MathExprModule to use eval for expression evaluation.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installSeriesModule(in engine: LuaEngine) {
+        SeriesModule.register(in: engine)
     }
 }

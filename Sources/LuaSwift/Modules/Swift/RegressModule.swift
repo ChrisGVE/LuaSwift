@@ -51,6 +51,7 @@ public struct RegressModule {
         // Register Swift callbacks for core computations
         registerOLSCallbacks(in: engine)
         registerGLSCallbacks(in: engine)
+        registerGLMCallbacks(in: engine)
 
         // Set up the luaswift.regress namespace with Lua wrapper code
         do {
@@ -63,6 +64,7 @@ public struct RegressModule {
                 -- Store references to Swift callbacks
                 local _ols_fit = _luaswift_regress_ols_fit
                 local _gls_fit = _luaswift_regress_gls_fit
+                local _glm_fit = _luaswift_regress_glm_fit
 
                 ----------------------------------------------------------------
                 -- Results object metatable
@@ -455,6 +457,182 @@ public struct RegressModule {
                 end
 
                 ----------------------------------------------------------------
+                -- GLM (Generalized Linear Model)
+                -- Supports binomial (logistic), poisson, gamma, gaussian families
+                ----------------------------------------------------------------
+                local GLM_Results_mt = {}
+                GLM_Results_mt.__index = GLM_Results_mt
+
+                function GLM_Results_mt:summary(opts)
+                    opts = opts or {}
+
+                    local lines = {}
+                    table.insert(lines, string.rep("=", 78))
+                    table.insert(lines, string.format("%-40s %s", "Dep. Variable:", self._yname or "y"))
+                    table.insert(lines, string.format("%-40s %s", "Model:", "GLM"))
+                    table.insert(lines, string.format("%-40s %s", "Family:", self._family or "gaussian"))
+                    table.insert(lines, string.format("%-40s %s", "Link:", self._link or "identity"))
+                    table.insert(lines, string.format("%-40s %d", "No. Observations:", self.nobs))
+                    table.insert(lines, string.format("%-40s %d", "Df Residuals:", self.df_resid))
+                    table.insert(lines, string.format("%-40s %d", "Df Model:", self.df_model))
+                    table.insert(lines, string.rep("-", 78))
+                    table.insert(lines, string.format("%-40s %.6f", "Deviance:", self.deviance or 0))
+                    table.insert(lines, string.format("%-40s %.6f", "Null Deviance:", self.null_deviance or 0))
+                    table.insert(lines, string.format("%-40s %.6f", "Pearson Chi2:", self.pearson_chi2 or 0))
+                    table.insert(lines, string.format("%-40s %.4f", "Log-Likelihood:", self.llf or 0))
+                    table.insert(lines, string.format("%-40s %.4f", "AIC:", self.aic or 0))
+                    table.insert(lines, string.format("%-40s %.4f", "BIC:", self.bic or 0))
+                    if self.converged ~= nil then
+                        table.insert(lines, string.format("%-40s %s (iterations: %d)",
+                            "Converged:", self.converged and "Yes" or "No", self.iterations or 0))
+                    end
+                    table.insert(lines, string.rep("=", 78))
+
+                    -- Parameter table header
+                    table.insert(lines, string.format("%-12s %12s %12s %12s %12s %12s %12s",
+                        "", "coef", "std err", "z", "P>|z|", "[0.025", "0.975]"))
+                    table.insert(lines, string.rep("-", 78))
+
+                    -- Parameter rows
+                    local xnames = self._xnames or {}
+                    for i = 1, #self.params do
+                        local name = xnames[i] or string.format("x%d", i)
+                        local coef = self.params[i]
+                        local se = self.bse and self.bse[i] or 0
+                        local zval = self.tvalues and self.tvalues[i] or 0
+                        local pval = self.pvalues and self.pvalues[i] or 1
+                        local ci_low = coef - 1.96 * se
+                        local ci_high = coef + 1.96 * se
+
+                        table.insert(lines, string.format("%-12s %12.4f %12.4f %12.4f %12.4f %12.4f %12.4f",
+                            name:sub(1, 12), coef, se, zval, pval, ci_low, ci_high))
+                    end
+
+                    table.insert(lines, string.rep("=", 78))
+
+                    return table.concat(lines, "\\n")
+                end
+
+                function GLM_Results_mt:predict(new_X)
+                    -- If no new X, return fitted values
+                    if not new_X then
+                        return self.fittedvalues or self.mu
+                    end
+
+                    -- Compute linear predictor eta = X * beta
+                    local predictions = {}
+                    for i = 1, #new_X do
+                        local eta = 0
+                        local row = new_X[i]
+                        if type(row) == "number" then
+                            -- Single predictor case
+                            eta = self.params[1] * row
+                        else
+                            for j = 1, #row do
+                                eta = eta + (self.params[j] or 0) * (row[j] or 0)
+                            end
+                        end
+                        -- Apply inverse link function
+                        local link = self._link or "identity"
+                        if link == "identity" then
+                            predictions[i] = eta
+                        elseif link == "logit" or link == "log" then
+                            predictions[i] = 1.0 / (1.0 + math.exp(-eta))
+                        elseif link == "log_link" then
+                            predictions[i] = math.exp(eta)
+                        elseif link == "inverse" then
+                            predictions[i] = 1.0 / eta
+                        else
+                            predictions[i] = eta
+                        end
+                    end
+                    return predictions
+                end
+
+                function GLM_Results_mt:conf_int(alpha)
+                    alpha = alpha or 0.05
+                    -- For GLM, use normal distribution for CI (large sample)
+                    local z = 1.96  -- 95% CI for normal
+                    if alpha == 0.01 then z = 2.576
+                    elseif alpha == 0.10 then z = 1.645 end
+
+                    local intervals = {}
+                    for i = 1, #self.params do
+                        local se = self.bse and self.bse[i] or 0
+                        intervals[i] = {
+                            self.params[i] - z * se,
+                            self.params[i] + z * se
+                        }
+                    end
+                    return intervals
+                end
+
+                local GLM_mt = {}
+                GLM_mt.__index = GLM_mt
+
+                function GLM_mt:fit(opts)
+                    opts = opts or {}
+                    local maxiter = opts.maxiter or 100
+                    local tol = opts.tol or 1e-8
+
+                    local result = _glm_fit(self._endog, self._exog, self._family, self._link, maxiter, tol)
+                    if not result then
+                        error("GLM fit failed")
+                    end
+
+                    -- Create GLM results object
+                    local results = setmetatable({}, GLM_Results_mt)
+                    results.params = result.params
+                    results.bse = result.bse
+                    results.tvalues = result.zvalues  -- z-values for GLM
+                    results.pvalues = result.pvalues
+                    results.resid = result.resid_response
+                    results.fittedvalues = result.mu
+                    results.mu = result.mu
+                    results.eta = result.eta
+
+                    results.deviance = result.deviance
+                    results.null_deviance = result.null_deviance
+                    results.pearson_chi2 = result.pearson_chi2
+                    results.llf = result.llf
+                    results.aic = result.aic
+                    results.bic = result.bic
+
+                    results.nobs = result.nobs
+                    results.df_model = result.df_model
+                    results.df_resid = result.df_resid
+
+                    results.converged = result.converged
+                    results.iterations = result.iterations
+
+                    results._model_type = "GLM"
+                    results._family = self._family
+                    results._link = self._link
+                    results._yname = self._yname
+                    results._xnames = self._xnames
+                    results._exog = self._exog
+
+                    return results
+                end
+
+                function regress.GLM(endog, exog, opts)
+                    opts = opts or {}
+                    if type(endog) ~= "table" then
+                        error("endog must be a table (array of values)")
+                    end
+
+                    local model = setmetatable({}, GLM_mt)
+                    model._endog = endog
+                    model._exog = exog
+                    model._family = opts.family or "gaussian"
+                    model._link = opts.link  -- nil means use canonical link
+                    model._yname = opts.yname or "y"
+                    model._xnames = opts.xnames
+
+                    return model
+                end
+
+                ----------------------------------------------------------------
                 -- Helper: add_constant
                 -- Adds a column of ones to the design matrix
                 ----------------------------------------------------------------
@@ -492,6 +670,7 @@ public struct RegressModule {
                 -- Clean up temporary globals
                 _luaswift_regress_ols_fit = nil
                 _luaswift_regress_gls_fit = nil
+                _luaswift_regress_glm_fit = nil
                 """)
         } catch {
             // Silently fail if setup fails
@@ -1572,5 +1751,559 @@ public struct RegressModule {
                 "eigenvalues": .array(eigenvalues.map { .number($0) })
             ])
         }
+    }
+
+    // MARK: - GLM Callbacks
+
+    private static func registerGLMCallbacks(in engine: LuaEngine) {
+        // GLM fit callback - Generalized Linear Models using IRLS
+        // Supports: gaussian, binomial, poisson, gamma families
+        engine.registerFunction(name: "_luaswift_regress_glm_fit") { args in
+            guard let endogArray = args.first?.arrayValue else {
+                return .nil
+            }
+
+            // Extract endog (y) values
+            let endog = endogArray.compactMap { $0.numberValue }
+            let n = endog.count
+
+            guard n > 0 else {
+                return .nil
+            }
+
+            // Extract exog (X) matrix
+            var exog: [[Double]] = []
+            var k = 0
+
+            if args.count > 1, let exogTable = args[1].arrayValue {
+                if exogTable.first?.arrayValue != nil {
+                    for row in exogTable {
+                        if let rowArray = row.arrayValue {
+                            let rowValues = rowArray.compactMap { $0.numberValue }
+                            exog.append(rowValues)
+                        }
+                    }
+                    k = exog.first?.count ?? 0
+                } else {
+                    let values = exogTable.compactMap { $0.numberValue }
+                    for val in values {
+                        exog.append([val])
+                    }
+                    k = 1
+                }
+            }
+
+            if exog.isEmpty {
+                exog = Array(repeating: [1.0], count: n)
+                k = 1
+            }
+
+            guard exog.count == n else {
+                return .nil
+            }
+
+            // Extract family
+            var family = "gaussian"
+            if args.count > 2, let familyStr = args[2].stringValue {
+                family = familyStr.lowercased()
+            }
+
+            // Extract link (or use canonical)
+            var link: String
+            if args.count > 3, let linkStr = args[3].stringValue {
+                link = linkStr.lowercased()
+            } else {
+                // Canonical links
+                switch family {
+                case "gaussian": link = "identity"
+                case "binomial": link = "logit"
+                case "poisson": link = "log"
+                case "gamma": link = "inverse"
+                default: link = "identity"
+                }
+            }
+
+            // Extract maxiter and tolerance
+            var maxiter = 100
+            if args.count > 4, let maxiterVal = args[4].numberValue {
+                maxiter = Int(maxiterVal)
+            }
+
+            var tol = 1e-8
+            if args.count > 5, let tolVal = args[5].numberValue {
+                tol = tolVal
+            }
+
+            // IRLS Algorithm for GLM
+            // Initialize mu (mean response)
+            var mu = [Double](repeating: 0.0, count: n)
+            var eta = [Double](repeating: 0.0, count: n)
+
+            // Initialize mu based on family
+            for i in 0..<n {
+                switch family {
+                case "binomial":
+                    // Bound between 0.001 and 0.999
+                    mu[i] = (endog[i] + 0.5) / 2.0
+                    mu[i] = max(0.001, min(0.999, mu[i]))
+                case "poisson":
+                    mu[i] = max(endog[i], 0.1)
+                case "gamma":
+                    mu[i] = max(endog[i], 0.1)
+                default:  // gaussian
+                    mu[i] = endog[i]
+                }
+            }
+
+            // Convert mu to eta using link function
+            for i in 0..<n {
+                eta[i] = applyLink(mu[i], link: link)
+            }
+
+            // Initialize beta
+            var beta = [Double](repeating: 0.0, count: k)
+
+            var converged = false
+            var iterations = 0
+
+            // IRLS main loop
+            for iter in 0..<maxiter {
+                iterations = iter + 1
+
+                // Compute working weights and working response
+                var weights = [Double](repeating: 0.0, count: n)
+                var z = [Double](repeating: 0.0, count: n)  // working response
+
+                for i in 0..<n {
+                    // Derivative of inverse link (dmu/deta)
+                    let dmuDeta = inverseLinkDerivative(eta[i], link: link)
+
+                    // Variance function V(mu)
+                    let variance = varianceFunction(mu[i], family: family)
+
+                    // Weight = (dmu/deta)^2 / V(mu)
+                    if variance > 1e-10 && dmuDeta.isFinite {
+                        weights[i] = (dmuDeta * dmuDeta) / variance
+                    } else {
+                        weights[i] = 1e-10
+                    }
+
+                    // Working response: z = eta + (y - mu) / (dmu/deta)
+                    if abs(dmuDeta) > 1e-10 {
+                        z[i] = eta[i] + (endog[i] - mu[i]) / dmuDeta
+                    } else {
+                        z[i] = eta[i]
+                    }
+                }
+
+                // Solve weighted least squares: (X'WX)^-1 X'Wz
+                let betaNew = solveWLS(exog: exog, y: z, weights: weights, n: n, k: k)
+
+                guard let newBeta = betaNew else {
+                    return .nil  // WLS failed
+                }
+
+                // Check convergence
+                var maxChange = 0.0
+                for j in 0..<k {
+                    let change = abs(newBeta[j] - beta[j])
+                    if change > maxChange {
+                        maxChange = change
+                    }
+                }
+
+                beta = newBeta
+
+                // Update eta and mu
+                for i in 0..<n {
+                    var etaNew = 0.0
+                    for j in 0..<k {
+                        etaNew += exog[i][j] * beta[j]
+                    }
+                    eta[i] = etaNew
+                    mu[i] = applyInverseLink(eta[i], link: link, family: family)
+                }
+
+                if maxChange < tol {
+                    converged = true
+                    break
+                }
+            }
+
+            // Compute residuals
+            var residResponse = [Double](repeating: 0.0, count: n)
+            for i in 0..<n {
+                residResponse[i] = endog[i] - mu[i]
+            }
+
+            // Compute deviance
+            var deviance = 0.0
+            var nullDeviance = 0.0
+            let yMean = endog.reduce(0, +) / Double(n)
+
+            for i in 0..<n {
+                deviance += unitDeviance(y: endog[i], mu: mu[i], family: family)
+                nullDeviance += unitDeviance(y: endog[i], mu: yMean, family: family)
+            }
+
+            // Compute Pearson chi-squared
+            var pearsonChi2 = 0.0
+            for i in 0..<n {
+                let variance = varianceFunction(mu[i], family: family)
+                if variance > 1e-10 {
+                    pearsonChi2 += (endog[i] - mu[i]) * (endog[i] - mu[i]) / variance
+                }
+            }
+
+            // Compute standard errors using Fisher information
+            let bse = computeGLMStandardErrors(exog: exog, mu: mu, family: family, link: link, n: n, k: k)
+
+            // Compute z-values and p-values
+            var zvalues = [Double](repeating: 0.0, count: k)
+            var pvalues = [Double](repeating: 1.0, count: k)
+
+            for j in 0..<k {
+                if bse[j] > 1e-10 {
+                    zvalues[j] = beta[j] / bse[j]
+                    // Two-tailed p-value from standard normal
+                    pvalues[j] = 2.0 * (1.0 - standardNormalCDF(abs(zvalues[j])))
+                }
+            }
+
+            // Compute log-likelihood
+            let llf = logLikelihood(y: endog, mu: mu, family: family, n: n)
+
+            // Degrees of freedom
+            let dfModel = k - 1
+            let dfResid = n - k
+
+            // Information criteria
+            let aic = -2.0 * llf + 2.0 * Double(k)
+            let bic = -2.0 * llf + Double(k) * log(Double(n))
+
+            return .table([
+                "params": .array(beta.map { .number($0) }),
+                "bse": .array(bse.map { .number($0) }),
+                "zvalues": .array(zvalues.map { .number($0) }),
+                "pvalues": .array(pvalues.map { .number($0) }),
+
+                "mu": .array(mu.map { .number($0) }),
+                "eta": .array(eta.map { .number($0) }),
+                "resid_response": .array(residResponse.map { .number($0) }),
+
+                "deviance": .number(deviance),
+                "null_deviance": .number(nullDeviance),
+                "pearson_chi2": .number(pearsonChi2),
+                "llf": .number(llf),
+                "aic": .number(aic),
+                "bic": .number(bic),
+
+                "nobs": .number(Double(n)),
+                "df_model": .number(Double(dfModel)),
+                "df_resid": .number(Double(dfResid)),
+
+                "converged": .bool(converged),
+                "iterations": .number(Double(iterations))
+            ])
+        }
+    }
+
+    // MARK: - GLM Helper Functions
+
+    /// Apply link function: eta = g(mu)
+    private static func applyLink(_ mu: Double, link: String) -> Double {
+        switch link {
+        case "identity":
+            return mu
+        case "logit":
+            let p = max(1e-10, min(1.0 - 1e-10, mu))
+            return log(p / (1.0 - p))
+        case "log":
+            return log(max(1e-10, mu))
+        case "inverse":
+            return 1.0 / max(1e-10, mu)
+        case "probit":
+            let p = max(1e-10, min(1.0 - 1e-10, mu))
+            return erfinv(2.0 * p - 1.0) * sqrt(2.0)
+        default:
+            return mu
+        }
+    }
+
+    /// Apply inverse link function: mu = g^-1(eta)
+    private static func applyInverseLink(_ eta: Double, link: String, family: String) -> Double {
+        var mu: Double
+        switch link {
+        case "identity":
+            mu = eta
+        case "logit":
+            let expEta = exp(min(700, max(-700, eta)))  // Prevent overflow
+            mu = expEta / (1.0 + expEta)
+        case "log":
+            mu = exp(min(700, eta))
+        case "inverse":
+            mu = 1.0 / eta
+        case "probit":
+            mu = 0.5 * (1.0 + erf(eta / sqrt(2.0)))
+        default:
+            mu = eta
+        }
+
+        // Apply family-specific bounds
+        switch family {
+        case "binomial":
+            mu = max(1e-10, min(1.0 - 1e-10, mu))
+        case "poisson", "gamma":
+            mu = max(1e-10, mu)
+        default:
+            break
+        }
+
+        return mu
+    }
+
+    /// Derivative of inverse link: dmu/deta
+    private static func inverseLinkDerivative(_ eta: Double, link: String) -> Double {
+        switch link {
+        case "identity":
+            return 1.0
+        case "logit":
+            let expEta = exp(min(700, max(-700, eta)))
+            let p = expEta / (1.0 + expEta)
+            return p * (1.0 - p)
+        case "log":
+            return exp(min(700, eta))
+        case "inverse":
+            return -1.0 / (eta * eta)
+        case "probit":
+            return exp(-eta * eta / 2.0) / sqrt(2.0 * .pi)
+        default:
+            return 1.0
+        }
+    }
+
+    /// Variance function V(mu) for different families
+    private static func varianceFunction(_ mu: Double, family: String) -> Double {
+        switch family {
+        case "gaussian":
+            return 1.0
+        case "binomial":
+            let p = max(1e-10, min(1.0 - 1e-10, mu))
+            return p * (1.0 - p)
+        case "poisson":
+            return max(1e-10, mu)
+        case "gamma":
+            return mu * mu
+        default:
+            return 1.0
+        }
+    }
+
+    /// Unit deviance for different families
+    private static func unitDeviance(y: Double, mu: Double, family: String) -> Double {
+        let muBound = max(1e-10, mu)
+
+        switch family {
+        case "gaussian":
+            return (y - mu) * (y - mu)
+        case "binomial":
+            let yBound = max(1e-10, min(1.0 - 1e-10, y))
+            let muBoundBinom = max(1e-10, min(1.0 - 1e-10, mu))
+            var dev = 0.0
+            if y > 0 {
+                dev += 2.0 * y * log(yBound / muBoundBinom)
+            }
+            if y < 1 {
+                dev += 2.0 * (1.0 - y) * log((1.0 - yBound) / (1.0 - muBoundBinom))
+            }
+            return dev
+        case "poisson":
+            var dev = 0.0
+            if y > 0 {
+                dev = 2.0 * (y * log(y / muBound) - (y - muBound))
+            } else {
+                dev = 2.0 * muBound
+            }
+            return dev
+        case "gamma":
+            return 2.0 * ((y - muBound) / muBound - log(max(1e-10, y) / muBound))
+        default:
+            return (y - mu) * (y - mu)
+        }
+    }
+
+    /// Log-likelihood for different families
+    private static func logLikelihood(y: [Double], mu: [Double], family: String, n: Int) -> Double {
+        var llf = 0.0
+
+        switch family {
+        case "gaussian":
+            // Assume unit variance
+            var ssr = 0.0
+            for i in 0..<n {
+                ssr += (y[i] - mu[i]) * (y[i] - mu[i])
+            }
+            llf = -Double(n) / 2.0 * log(2.0 * .pi) - Double(n) / 2.0 * log(ssr / Double(n)) - Double(n) / 2.0
+        case "binomial":
+            for i in 0..<n {
+                let p = max(1e-10, min(1.0 - 1e-10, mu[i]))
+                if y[i] > 0 {
+                    llf += y[i] * log(p)
+                }
+                if y[i] < 1 {
+                    llf += (1.0 - y[i]) * log(1.0 - p)
+                }
+            }
+        case "poisson":
+            for i in 0..<n {
+                let muBound = max(1e-10, mu[i])
+                llf += y[i] * log(muBound) - muBound - lgamma(y[i] + 1.0)
+            }
+        case "gamma":
+            // Assume shape = 1 (exponential)
+            for i in 0..<n {
+                let muBound = max(1e-10, mu[i])
+                llf += -y[i] / muBound - log(muBound)
+            }
+        default:
+            var ssr = 0.0
+            for i in 0..<n {
+                ssr += (y[i] - mu[i]) * (y[i] - mu[i])
+            }
+            llf = -Double(n) / 2.0 * log(2.0 * .pi * ssr / Double(n)) - Double(n) / 2.0
+        }
+
+        return llf
+    }
+
+    /// Solve weighted least squares using LAPACK
+    private static func solveWLS(exog: [[Double]], y: [Double], weights: [Double], n: Int, k: Int) -> [Double]? {
+        // Transform: X* = sqrt(W) * X, y* = sqrt(W) * y
+        var yTransformed = [Double](repeating: 0.0, count: n)
+        var XTransformed = [[Double]](repeating: [Double](repeating: 0.0, count: k), count: n)
+
+        for i in 0..<n {
+            let sqrtW = sqrt(max(1e-10, weights[i]))
+            yTransformed[i] = y[i] * sqrtW
+            for j in 0..<k {
+                XTransformed[i][j] = exog[i][j] * sqrtW
+            }
+        }
+
+        // Flatten X to column-major order
+        var XFlat = [Double](repeating: 0.0, count: n * k)
+        for j in 0..<k {
+            for i in 0..<n {
+                XFlat[j * n + i] = XTransformed[i][j]
+            }
+        }
+
+        var yCopy = yTransformed
+        if k > n {
+            yCopy.append(contentsOf: [Double](repeating: 0.0, count: k - n))
+        }
+
+        var m = __CLPK_integer(n)
+        var nCols = __CLPK_integer(k)
+        var nrhs = __CLPK_integer(1)
+        var lda = __CLPK_integer(n)
+        var ldb = __CLPK_integer(max(n, k))
+        var info: __CLPK_integer = 0
+
+        // Query workspace
+        var workQuery = [Double](repeating: 0.0, count: 1)
+        var lwork: __CLPK_integer = -1
+        dgels_(UnsafeMutablePointer(mutating: ("N" as NSString).utf8String),
+               &m, &nCols, &nrhs, &XFlat, &lda, &yCopy, &ldb, &workQuery, &lwork, &info)
+
+        lwork = __CLPK_integer(workQuery[0])
+        var work = [Double](repeating: 0.0, count: Int(lwork))
+
+        // Solve
+        dgels_(UnsafeMutablePointer(mutating: ("N" as NSString).utf8String),
+               &m, &nCols, &nrhs, &XFlat, &lda, &yCopy, &ldb, &work, &lwork, &info)
+
+        if info != 0 {
+            return nil
+        }
+
+        return Array(yCopy.prefix(k))
+    }
+
+    /// Compute GLM standard errors from Fisher information matrix
+    private static func computeGLMStandardErrors(exog: [[Double]], mu: [Double], family: String, link: String, n: Int, k: Int) -> [Double] {
+        // Fisher information: I = X' W X where W = diag((dmu/deta)^2 / V(mu))
+        // Standard errors = sqrt(diag((X' W X)^-1))
+
+        // Compute weights
+        var weights = [Double](repeating: 0.0, count: n)
+        for i in 0..<n {
+            let eta = applyLink(mu[i], link: link)
+            let dmuDeta = inverseLinkDerivative(eta, link: link)
+            let variance = varianceFunction(mu[i], family: family)
+            if variance > 1e-10 {
+                weights[i] = (dmuDeta * dmuDeta) / variance
+            } else {
+                weights[i] = 1e-10
+            }
+        }
+
+        // Compute X' W X
+        var XtWX = [Double](repeating: 0.0, count: k * k)
+        for j1 in 0..<k {
+            for j2 in 0..<k {
+                var sum = 0.0
+                for i in 0..<n {
+                    sum += exog[i][j1] * weights[i] * exog[i][j2]
+                }
+                XtWX[j1 * k + j2] = sum
+            }
+        }
+
+        // Invert X' W X using LAPACK
+        var invXtWX = XtWX
+        var ipiv = [__CLPK_integer](repeating: 0, count: k)
+        var info: __CLPK_integer = 0
+
+        // LU factorization
+        var m1 = __CLPK_integer(k)
+        var n1 = __CLPK_integer(k)
+        var lda1 = __CLPK_integer(k)
+        dgetrf_(&m1, &n1, &invXtWX, &lda1, &ipiv, &info)
+        if info != 0 {
+            return [Double](repeating: 0.0, count: k)
+        }
+
+        // Query workspace for inversion
+        var workQuery = [Double](repeating: 0.0, count: 1)
+        var lwork: __CLPK_integer = -1
+        var n2 = __CLPK_integer(k)
+        var lda2 = __CLPK_integer(k)
+        dgetri_(&n2, &invXtWX, &lda2, &ipiv, &workQuery, &lwork, &info)
+
+        lwork = __CLPK_integer(workQuery[0])
+        var work = [Double](repeating: 0.0, count: Int(lwork))
+
+        // Invert
+        var n3 = __CLPK_integer(k)
+        var lda3 = __CLPK_integer(k)
+        dgetri_(&n3, &invXtWX, &lda3, &ipiv, &work, &lwork, &info)
+        if info != 0 {
+            return [Double](repeating: 0.0, count: k)
+        }
+
+        // Extract diagonal elements (standard errors)
+        var bse = [Double](repeating: 0.0, count: k)
+        for j in 0..<k {
+            let variance = invXtWX[j * k + j]
+            bse[j] = variance > 0 ? sqrt(variance) : 0.0
+        }
+
+        return bse
+    }
+
+    /// Standard normal CDF
+    private static func standardNormalCDF(_ x: Double) -> Double {
+        return 0.5 * (1.0 + erf(x / sqrt(2.0)))
     }
 }

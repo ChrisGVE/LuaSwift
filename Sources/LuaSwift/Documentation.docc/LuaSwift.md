@@ -92,4 +92,3 @@ try engine.run("""
 
 - <doc:TypesModule>
 - <doc:MathExprModule>
-- <doc:SlideRuleModule>

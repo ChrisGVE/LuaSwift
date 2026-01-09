@@ -43,7 +43,6 @@ public struct ModuleRegistry {
     /// - `luaswift.types`: Type detection and conversion utilities
     /// - `luaswift.svg`: SVG document generation
     /// - `luaswift.mathexpr`: Mathematical expression parsing and evaluation
-    /// - `luaswift.sliderule`: Slide rule simulation for analog computation
     /// - `luaswift.plot`: Matplotlib-compatible plotting with retained vector graphics
     /// - `luaswift.mathsci`: Unified scientific computing namespace
     /// - `luaswift.distributions`: Probability distributions (norm, t, chi2, f, gamma, beta)
@@ -57,7 +56,7 @@ public struct ModuleRegistry {
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
     /// `complex`, `linalg`, `geo`, `array`, `json`, `yaml`, `toml`, `regex`, `types`,
-    /// `svg_module`, `mathexpr_module`, `sliderule_module`, `plt`, `debug_module`.
+    /// `svg_module`, `mathexpr_module`, `plt`, `debug_module`.
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     /// After calling extend_stdlib(), math subnamespaces are available:
@@ -79,7 +78,6 @@ public struct ModuleRegistry {
         installComplexModule(in: engine)
         installTypesModule(in: engine)
         installSVGModule(in: engine)
-        installSlideRuleModule(in: engine)
         installPlotModule(in: engine)
         installMathSciModule(in: engine)  // Must be before MathExprModule to create math.eval namespace
         installMathExprModule(in: engine)
@@ -123,9 +121,6 @@ public struct ModuleRegistry {
 
                 -- Also create luaswift.geo as alias
                 luaswift.geo = luaswift.geometry
-
-                -- Create sliderule alias
-                sliderule = luaswift.sliderule
 
                 -- extend_stdlib() imports all extensions into the standard library
                 function luaswift.extend_stdlib()
@@ -275,13 +270,6 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installMathExprModule(in engine: LuaEngine) {
         MathExprModule.register(in: engine)
-    }
-
-    /// Install only the SlideRule module.
-    ///
-    /// - Parameter engine: The Lua engine to install the module in
-    public static func installSlideRuleModule(in engine: LuaEngine) {
-        SlideRuleModule.register(in: engine)
     }
 
     #if DEBUG

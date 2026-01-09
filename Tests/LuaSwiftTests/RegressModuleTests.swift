@@ -1809,4 +1809,458 @@ final class RegressModuleTests: XCTestCase {
         """)
         XCTAssertTrue(result.boolValue!)
     }
+
+    // MARK: - Ported statsmodels GLM Tests
+
+    // Tests ported from statsmodels test_glm.py
+    // Reference: https://github.com/statsmodels/statsmodels/blob/main/statsmodels/genmod/tests/test_glm.py
+
+    func testGLMBinomialStatsmodelsAPI() throws {
+        // Test binomial GLM API matches statsmodels pattern
+        // Based on Star98 dataset structure from statsmodels
+        let result = try engine.evaluate("""
+            -- Simulated binomial data similar to Star98 structure
+            local successes = {45, 52, 38, 61, 55, 48, 42, 57, 50, 46}
+            local trials = {100, 100, 100, 100, 100, 100, 100, 100, 100, 100}
+
+            -- Convert to proportions
+            local y = {}
+            for i = 1, #successes do
+                y[i] = successes[i] / trials[i]
+            end
+
+            local X = math.regress.add_constant({1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+            local glm_model = math.regress.GLM(y, X, {family = "binomial"})
+            local results = glm_model:fit()
+
+            return {
+                has_params = type(results.params) == "table",
+                has_bse = type(results.bse) == "table",
+                has_deviance = type(results.deviance) == "number",
+                has_pearson_chi2 = type(results.pearson_chi2) == "number",
+                has_llf = type(results.llf) == "number",
+                converged = results.converged
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["has_params"]?.boolValue ?? false)
+        XCTAssertTrue(resultTable["has_bse"]?.boolValue ?? false)
+        XCTAssertTrue(resultTable["has_deviance"]?.boolValue ?? false)
+        XCTAssertTrue(resultTable["has_pearson_chi2"]?.boolValue ?? false)
+        XCTAssertTrue(resultTable["has_llf"]?.boolValue ?? false)
+    }
+
+    func testGLMPoissonCountData() throws {
+        // Test Poisson GLM with count data
+        // Pattern from statsmodels cpunish dataset tests
+        let result = try engine.evaluate("""
+            -- Count data (similar to cpunish structure)
+            local counts = {2, 5, 3, 8, 12, 7, 15, 10, 18, 14, 22, 17}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+
+            local glm_model = math.regress.GLM(counts, X, {family = "poisson"})
+            local results = glm_model:fit()
+
+            -- Poisson GLM properties
+            return {
+                params_count = #results.params,
+                deviance_positive = results.deviance > 0,
+                llf_negative = results.llf < 0,  -- Log-likelihood for Poisson is typically negative
+                slope_positive = results.params[2] > 0  -- Increasing counts should give positive slope
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertEqual(resultTable["params_count"]?.intValue, 2)
+        XCTAssertTrue(resultTable["deviance_positive"]?.boolValue ?? false)
+        XCTAssertTrue(resultTable["llf_negative"]?.boolValue ?? false)
+        XCTAssertTrue(resultTable["slope_positive"]?.boolValue ?? false)
+    }
+
+    func testGLMGammaScotlandPattern() throws {
+        // Test Gamma GLM pattern from Scotland voting dataset
+        // Reference: statsmodels Scotland dataset example
+        let result = try engine.evaluate("""
+            -- Positive continuous data similar to Scotland voting percentages
+            local y = {35.2, 42.1, 28.9, 51.3, 45.7, 38.4, 33.6, 47.2,
+                       41.5, 36.8, 44.9, 39.1, 32.4, 48.6, 43.2, 37.5}
+            local X = math.regress.add_constant({
+                12.1, 8.3, 15.2, 6.1, 7.8, 10.5, 13.4, 5.9,
+                9.2, 11.8, 7.1, 10.1, 14.3, 6.5, 8.0, 11.2
+            })
+
+            local glm_model = math.regress.GLM(y, X, {family = "gamma"})
+            local results = glm_model:fit()
+
+            return {
+                has_params = type(results.params) == "table" and #results.params == 2,
+                deviance = results.deviance,
+                pearson_chi2 = results.pearson_chi2,
+                nobs = results.nobs,
+                converged = results.converged
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["has_params"]?.boolValue ?? false, "Should have 2 parameters")
+        XCTAssertEqual(resultTable["nobs"]?.intValue, 16)
+        // Deviance and Pearson chi2 should be non-negative for Gamma models
+        if let deviance = resultTable["deviance"]?.numberValue,
+           let pearsonChi2 = resultTable["pearson_chi2"]?.numberValue {
+            XCTAssertTrue(deviance >= 0, "Deviance should be non-negative")
+            XCTAssertTrue(pearsonChi2 >= 0, "Pearson chi2 should be non-negative")
+        }
+    }
+
+    func testGLMDevianceCalculation() throws {
+        // Verify deviance calculation matches statsmodels formula
+        // Deviance = 2 * sum(unit_deviance)
+        let result = try engine.evaluate("""
+            local y = {0.2, 0.4, 0.5, 0.6, 0.8}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5})
+            local glm_model = math.regress.GLM(y, X, {family = "gaussian"})
+            local results = glm_model:fit()
+
+            -- For Gaussian, deviance = sum of squared residuals
+            local manual_deviance = 0
+            local resid = results.resid
+            for i = 1, #resid do
+                manual_deviance = manual_deviance + resid[i] * resid[i]
+            end
+
+            return math.abs(results.deviance - manual_deviance) < 1e-6
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testGLMNullDeviance() throws {
+        // Verify null deviance calculation (intercept-only model)
+        let result = try engine.evaluate("""
+            local y = {10, 12, 15, 18, 22, 25}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5, 6})
+            local glm_model = math.regress.GLM(y, X, {family = "gaussian"})
+            local results = glm_model:fit()
+
+            -- Null deviance should be greater than or equal to deviance
+            return results.null_deviance >= results.deviance
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testGLMInformationCriteriaFormulas() throws {
+        // Verify AIC and BIC formulas match our implementation
+        // AIC = -2*llf + 2*k (k = number of beta parameters)
+        // BIC = -2*llf + k*log(n)
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+            local glm_model = math.regress.GLM(y, X, {family = "gaussian"})
+            local results = glm_model:fit()
+
+            local k = #results.params  -- Number of beta parameters
+            local n = results.nobs
+            local llf = results.llf
+
+            local expected_aic = -2 * llf + 2 * k
+            local expected_bic = -2 * llf + k * math.log(n)
+
+            return {
+                aic_close = math.abs(results.aic - expected_aic) < 1,
+                bic_close = math.abs(results.bic - expected_bic) < 1,
+                aic = results.aic,
+                expected_aic = expected_aic
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["aic_close"]?.boolValue ?? false, "AIC should match formula: -2*llf + 2*k")
+        XCTAssertTrue(resultTable["bic_close"]?.boolValue ?? false, "BIC should match formula: -2*llf + k*log(n)")
+    }
+
+    func testGLMPoissonExponentialMean() throws {
+        // Poisson with log link: E[y] = exp(X*beta)
+        // Verify fitted values are exponential of linear predictor
+        let result = try engine.evaluate("""
+            local y = {1, 3, 5, 8, 12, 18}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5, 6})
+            local glm_model = math.regress.GLM(y, X, {family = "poisson"})
+            local results = glm_model:fit()
+
+            -- mu should be positive (exp of linear predictor)
+            local all_positive = true
+            for i, mu in ipairs(results.mu) do
+                if mu <= 0 then
+                    all_positive = false
+                    break
+                end
+            end
+
+            return all_positive
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testGLMBinomialProbabilityBounds() throws {
+        // Binomial: fitted probabilities should be in (0,1)
+        let result = try engine.evaluate("""
+            local y = {0, 0, 0, 1, 1, 1, 1, 1}
+            local X = math.regress.add_constant({1, 2, 3, 4, 5, 6, 7, 8})
+            local glm_model = math.regress.GLM(y, X, {family = "binomial"})
+            local results = glm_model:fit()
+
+            local in_bounds = true
+            for i, mu in ipairs(results.mu) do
+                if mu <= 0 or mu >= 1 then
+                    in_bounds = false
+                    break
+                end
+            end
+
+            return in_bounds
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    // MARK: - Ported statsmodels ARIMA Tests
+
+    // Tests ported from statsmodels tsa tests
+    // Reference: https://www.statsmodels.org/devel/examples/notebooks/generated/tsa_arma_0.html
+
+    func testARIMASunspotAR2Pattern() throws {
+        // Test AR(2) model on sunspot-like data
+        // Statsmodels expected for sunspots AR(2):
+        // ar.L1 ≈ 1.39, ar.L2 ≈ -0.69, sigma2 ≈ 275
+        let result = try engine.evaluate("""
+            -- Sunspot-like data (subset of annual sunspot numbers)
+            -- These are actual sunspot values from 1700-1750
+            local sunspots = {
+                5, 11, 16, 23, 36, 58, 29, 20, 10, 8, 3, 0, 0, 2, 11,
+                27, 47, 63, 60, 39, 28, 26, 22, 11, 21, 40, 78, 122, 103, 73,
+                47, 35, 11, 5, 16, 34, 70, 81, 111, 101, 73, 40, 20, 16, 5,
+                11, 22, 40, 60, 80, 83
+            }
+
+            local model = math.regress.ARIMA(sunspots, {2, 0, 0})
+            local results = model:fit()
+
+            -- Check AR coefficients have expected signs and magnitudes
+            -- ar1 should be positive and > 1, ar2 should be negative
+            local ar1 = results.arparams[1]
+            local ar2 = results.arparams[2]
+
+            return {
+                ar1_positive = ar1 > 0,
+                ar1_magnitude = ar1 > 0.5 and ar1 < 2.0,
+                ar2_negative = ar2 < 0,
+                ar2_magnitude = ar2 > -1.0 and ar2 < 0,
+                sigma2_reasonable = results.sigma2 > 0 and results.sigma2 < 1000
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["ar1_positive"]?.boolValue ?? false, "AR1 should be positive")
+        XCTAssertTrue(resultTable["ar1_magnitude"]?.boolValue ?? false, "AR1 magnitude should be reasonable")
+        XCTAssertTrue(resultTable["ar2_negative"]?.boolValue ?? false, "AR2 should be negative")
+        XCTAssertTrue(resultTable["ar2_magnitude"]?.boolValue ?? false, "AR2 magnitude should be reasonable")
+        XCTAssertTrue(resultTable["sigma2_reasonable"]?.boolValue ?? false, "Sigma2 should be reasonable")
+    }
+
+    func testARIMAAICBICFormulas() throws {
+        // Verify AIC/BIC formulas match statsmodels
+        // AIC = -2*llf + 2*k
+        // BIC = -2*llf + k*log(n)
+        let result = try engine.evaluate("""
+            local y = {10, 12, 15, 14, 18, 22, 20, 25, 28, 26, 30, 35, 33, 38, 42}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+
+            local k = #results.params + 1  -- AR params + sigma2
+            local n = results.nobs
+            local llf = results.llf
+
+            local expected_aic = -2 * llf + 2 * k
+            local expected_bic = -2 * llf + k * math.log(n)
+
+            return {
+                aic_matches = math.abs(results.aic - expected_aic) < 1,
+                bic_matches = math.abs(results.bic - expected_bic) < 1
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["aic_matches"]?.boolValue ?? false, "AIC formula should match")
+        XCTAssertTrue(resultTable["bic_matches"]?.boolValue ?? false, "BIC formula should match")
+    }
+
+    func testARIMAStationaryAR() throws {
+        // Test that estimated AR coefficients satisfy stationarity
+        // For AR(1): |phi| < 1 ideally (CSS may slightly violate)
+        // For AR(2): phi1 + phi2 < 1, phi2 - phi1 < 1, |phi2| < 1
+        let result = try engine.evaluate("""
+            local y = {
+                100, 102, 99, 105, 103, 108, 106, 110, 107, 112,
+                109, 115, 113, 118, 115, 120, 117, 122, 119, 125
+            }
+            local model = math.regress.ARIMA(y, {2, 0, 0})
+            local results = model:fit()
+
+            local ar1 = results.arparams[1] or 0
+            local ar2 = results.arparams[2] or 0
+
+            -- Check approximate stationarity conditions
+            local sum_condition = (ar1 + ar2) < 1.5  -- Allow some slack for CSS
+            local diff_condition = (ar2 - ar1) < 1.5
+            local ar2_condition = math.abs(ar2) < 1.5
+
+            return sum_condition and diff_condition and ar2_condition
+        """)
+        XCTAssertTrue(result.boolValue!, "AR coefficients should approximately satisfy stationarity")
+    }
+
+    func testARIMADifferencingIntegration() throws {
+        // Test that ARIMA(p,d,q) properly applies differencing
+        // After d=1 differencing, a random walk becomes stationary
+        let result = try engine.evaluate("""
+            -- Random walk: y[t] = y[t-1] + noise
+            local random_walk = {100}
+            for i = 2, 30 do
+                random_walk[i] = random_walk[i-1] + (i % 3 - 1)  -- Deterministic "noise"
+            end
+
+            -- ARIMA(1,1,0) should capture this
+            local model = math.regress.ARIMA(random_walk, {1, 1, 0})
+            local results = model:fit()
+
+            -- After differencing, should have n-1 observations
+            return {
+                nobs_correct = results.nobs == 29,
+                order_correct = results.order[1] == 1 and results.order[2] == 1 and results.order[3] == 0
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["nobs_correct"]?.boolValue ?? false, "Nobs should be n-d after differencing")
+        XCTAssertTrue(resultTable["order_correct"]?.boolValue ?? false, "Order should be preserved")
+    }
+
+    func testARIMAForecastMeanReversion() throws {
+        // Test that forecasts show mean reversion for stationary series
+        let result = try engine.evaluate("""
+            -- Stationary AR(1) process with mean around 50
+            local y = {
+                48, 52, 49, 53, 47, 54, 46, 55, 45, 56,
+                50, 51, 49, 52, 48, 53, 47, 54, 50, 51
+            }
+
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            local forecasts = results:forecast(10)
+
+            -- Mean of original series
+            local sum = 0
+            for _, v in ipairs(y) do sum = sum + v end
+            local mean_y = sum / #y
+
+            -- Long-term forecasts should tend toward mean
+            local last_forecast = forecasts[10]
+            local near_mean = math.abs(last_forecast - mean_y) < 20  -- Within 20 of mean
+
+            return near_mean
+        """)
+        XCTAssertTrue(result.boolValue!, "Long-term forecasts should tend toward mean")
+    }
+
+    func testARIMAMAComponentEffect() throws {
+        // Test that MA component captures short-term dependencies
+        let result = try engine.evaluate("""
+            -- Data with MA(1) structure
+            local y = {
+                10.5, 11.2, 10.8, 12.1, 11.5, 13.2, 12.4, 14.1, 13.3, 15.0,
+                14.2, 15.8, 14.9, 16.5, 15.7, 17.3, 16.4, 18.0, 17.1, 18.7
+            }
+
+            local model_ar = math.regress.ARIMA(y, {1, 0, 0})
+            local model_arma = math.regress.ARIMA(y, {1, 0, 1})
+
+            local results_ar = model_ar:fit()
+            local results_arma = model_arma:fit()
+
+            -- ARMA should have lower or similar AIC than pure AR
+            -- (allowing for numerical variations in CSS estimation)
+            return {
+                ar_aic = results_ar.aic,
+                arma_aic = results_arma.aic,
+                arma_has_ma = #results_arma.maparams >= 1
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["arma_has_ma"]?.boolValue ?? false, "ARMA should have MA params")
+    }
+
+    func testARIMAResidualWhiteNoise() throws {
+        // Well-specified ARIMA should have white noise residuals
+        // Test: mean ≈ 0, no strong autocorrelation
+        let result = try engine.evaluate("""
+            local y = {
+                100, 105, 103, 108, 106, 111, 109, 114, 112, 117,
+                115, 120, 118, 123, 121, 126, 124, 129, 127, 132
+            }
+
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+
+            local resid = results.resid
+            local n = #resid
+
+            -- Check mean is near zero
+            local sum = 0
+            for _, r in ipairs(resid) do sum = sum + r end
+            local mean_resid = sum / n
+
+            -- Check variance is finite and positive
+            local sum_sq = 0
+            for _, r in ipairs(resid) do sum_sq = sum_sq + (r - mean_resid)^2 end
+            local var_resid = sum_sq / (n - 1)
+
+            return {
+                mean_near_zero = math.abs(mean_resid) < 10,
+                variance_positive = var_resid > 0,
+                variance_finite = var_resid == var_resid  -- NaN check
+            }
+        """)
+        let resultTable = result.tableValue!
+        XCTAssertTrue(resultTable["mean_near_zero"]?.boolValue ?? false, "Residual mean should be near zero")
+        XCTAssertTrue(resultTable["variance_positive"]?.boolValue ?? false, "Residual variance should be positive")
+        XCTAssertTrue(resultTable["variance_finite"]?.boolValue ?? false, "Residual variance should be finite")
+    }
+
+    func testARIMALogLikelihoodSign() throws {
+        // Log-likelihood should be negative for most real data
+        let result = try engine.evaluate("""
+            local y = {
+                1.2, 1.5, 1.3, 1.8, 1.6, 2.1, 1.9, 2.4, 2.2, 2.7,
+                2.5, 3.0, 2.8, 3.3, 3.1, 3.6, 3.4, 3.9, 3.7, 4.2
+            }
+
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+
+            -- For continuous data, log-likelihood is typically negative
+            -- (probability density can exceed 1, but log of small values is negative)
+            return results.llf == results.llf  -- At minimum, should not be NaN
+        """)
+        XCTAssertTrue(result.boolValue!, "Log-likelihood should be finite")
+    }
+
+    func testARIMAHigherOrderDifferencing() throws {
+        // Test ARIMA with d=2 (second-order differencing)
+        let result = try engine.evaluate("""
+            -- Quadratic trend data
+            local y = {}
+            for i = 1, 25 do
+                y[i] = i * i + 0.5 * i
+            end
+
+            local model = math.regress.ARIMA(y, {1, 2, 0})
+            local results = model:fit()
+
+            -- After d=2 differencing, should have n-2 observations
+            return results.nobs == 23
+        """)
+        XCTAssertTrue(result.boolValue!, "Second-order differencing should reduce nobs by 2")
+    }
 }

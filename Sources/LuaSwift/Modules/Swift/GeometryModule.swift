@@ -4332,6 +4332,39 @@ public struct GeometryModule {
         return circle
     end
 
+    -- Unified fitting function
+    -- geo.fit(points, shape, [options]) - fits various shapes to point data
+    -- shape: 'line', 'polynomial', 'circle', 'ellipse', 'sphere', 'spline', 'bspline'
+    -- options: shape-specific options (degree for polynomial/bspline, method for circle/ellipse/sphere)
+    function geo.fit(points, shape, options)
+        options = options or {}
+
+        if shape == 'line' or shape == 'linear' then
+            -- Linear fit is degree-1 polynomial
+            return geo.polyfit(points, 1)
+        elseif shape == 'polynomial' or shape == 'poly' then
+            local degree = options.degree or 2
+            return geo.polyfit(points, degree)
+        elseif shape == 'circle' then
+            local method = options.method or 'algebraic'
+            return geo.circle_fit(points, method)
+        elseif shape == 'ellipse' then
+            local method = options.method or 'direct'
+            return geo.ellipse_fit(points, method)
+        elseif shape == 'sphere' then
+            local method = options.method or 'algebraic'
+            return geo.sphere_fit(points, method)
+        elseif shape == 'spline' or shape == 'cubic_spline' then
+            return geo.cubic_spline(points)
+        elseif shape == 'bspline' then
+            local degree = options.degree or 3
+            local knots = options.knots  -- may be nil for uniform
+            return geo.bspline(points, degree, knots)
+        else
+            error("Unknown shape for geo.fit: " .. tostring(shape) .. ". Use 'line', 'polynomial', 'circle', 'ellipse', 'sphere', 'spline', or 'bspline'.")
+        end
+    end
+
     -- Make available via require
     package.loaded["luaswift.geometry"] = geo
     """

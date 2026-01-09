@@ -3047,4 +3047,232 @@ struct GeometryModuleTests {
         #expect(arr[3].numberValue == 4)
         #expect(arr[4].numberValue == 1)  // original unchanged (translate returns new)
     }
+
+    // MARK: - Unified geo.fit() Tests
+
+    @Test("geo.fit with 'line' fits linear polynomial")
+    func geoFitLine() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+        ModuleRegistry.installLinAlgModule(in: engine)  // Required for polyfit
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec2(0, 1),
+                geo.vec2(1, 3),
+                geo.vec2(2, 5),
+                geo.vec2(3, 7)
+            }
+            local fit = geo.fit(points, 'line')
+            -- y = 2x + 1
+            return {fit:evaluate(0), fit:evaluate(1), fit:evaluate(2), fit:degree()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 1.0) < 0.0001)  // y(0) = 1
+        #expect(abs(arr[1].numberValue! - 3.0) < 0.0001)  // y(1) = 3
+        #expect(abs(arr[2].numberValue! - 5.0) < 0.0001)  // y(2) = 5
+        #expect(arr[3].numberValue == 1)  // degree 1 polynomial
+    }
+
+    @Test("geo.fit with 'polynomial' and degree option")
+    func geoFitPolynomial() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+        ModuleRegistry.installLinAlgModule(in: engine)  // Required for polyfit
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- y = x^2
+            local points = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 1),
+                geo.vec2(2, 4),
+                geo.vec2(-1, 1),
+                geo.vec2(-2, 4)
+            }
+            local fit = geo.fit(points, 'polynomial', {degree = 2})
+            return {fit:evaluate(3), fit:degree()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 9.0) < 0.0001)  // 3^2 = 9
+        #expect(arr[1].numberValue == 2)  // degree 2
+    }
+
+    @Test("geo.fit with 'circle'")
+    func geoFitCircle() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec2(1, 0),
+                geo.vec2(0, 1),
+                geo.vec2(-1, 0),
+                geo.vec2(0, -1)
+            }
+            local circle = geo.fit(points, 'circle')
+            return {circle.center.x, circle.center.y, circle.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.0001)       // center x = 0
+        #expect(abs(arr[1].numberValue!) < 0.0001)       // center y = 0
+        #expect(abs(arr[2].numberValue! - 1.0) < 0.0001) // radius = 1
+    }
+
+    @Test("geo.fit with 'ellipse'")
+    func geoFitEllipse() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Points on axis-aligned ellipse with a=2, b=1
+            local points = {
+                geo.vec2(2, 0),
+                geo.vec2(-2, 0),
+                geo.vec2(0, 1),
+                geo.vec2(0, -1),
+                geo.vec2(1.414, 0.707)  -- approximately
+            }
+            local ellipse = geo.fit(points, 'ellipse')
+            return {ellipse.center.x, ellipse.center.y, ellipse.semi_major, ellipse.semi_minor}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.1)  // center x ≈ 0
+        #expect(abs(arr[1].numberValue!) < 0.1)  // center y ≈ 0
+        // semi_major and semi_minor should be approximately 2 and 1
+        let a = arr[2].numberValue!
+        let b = arr[3].numberValue!
+        #expect((abs(a - 2.0) < 0.2 && abs(b - 1.0) < 0.2) || (abs(a - 1.0) < 0.2 && abs(b - 2.0) < 0.2))
+    }
+
+    @Test("geo.fit with 'sphere'")
+    func geoFitSphere() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec3(1, 0, 0),
+                geo.vec3(-1, 0, 0),
+                geo.vec3(0, 1, 0),
+                geo.vec3(0, -1, 0),
+                geo.vec3(0, 0, 1),
+                geo.vec3(0, 0, -1)
+            }
+            local sphere = geo.fit(points, 'sphere')
+            return {sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.0001)       // center x = 0
+        #expect(abs(arr[1].numberValue!) < 0.0001)       // center y = 0
+        #expect(abs(arr[2].numberValue!) < 0.0001)       // center z = 0
+        #expect(abs(arr[3].numberValue! - 1.0) < 0.0001) // radius = 1
+    }
+
+    @Test("geo.fit with 'spline' creates cubic spline")
+    func geoFitSpline() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 1),
+                geo.vec2(2, 0),
+                geo.vec2(3, 1)
+            }
+            local spline = geo.fit(points, 'spline')
+            -- Evaluate at knot points using evaluate method
+            return {spline:evaluate(0), spline:evaluate(1), spline:evaluate(2), spline:evaluate(3)}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.0) < 0.0001)  // passes through (0,0)
+        #expect(abs(arr[1].numberValue! - 1.0) < 0.0001)  // passes through (1,1)
+        #expect(abs(arr[2].numberValue! - 0.0) < 0.0001)  // passes through (2,0)
+        #expect(abs(arr[3].numberValue! - 1.0) < 0.0001)  // passes through (3,1)
+    }
+
+    @Test("geo.fit with 'bspline' creates B-spline")
+    func geoFitBspline() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Control points for a B-spline
+            local control_points = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 2),
+                geo.vec2(2, 2),
+                geo.vec2(3, 0)
+            }
+            local bspline = geo.fit(control_points, 'bspline', {degree = 2})
+            -- Check that we can evaluate it using evaluate method
+            local p = bspline:evaluate(0.5)
+            return {type(p) == "table", p.x ~= nil, p.y ~= nil, bspline:degree()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)  // returns table
+        #expect(arr[1].boolValue == true)  // has x
+        #expect(arr[2].boolValue == true)  // has y
+        #expect(arr[3].numberValue == 2)   // degree 2
+    }
+
+    @Test("geo.fit with unknown shape throws error")
+    func geoFitUnknownShape() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        do {
+            _ = try engine.evaluate("""
+                local geo = luaswift.geometry
+                local points = {geo.vec2(0, 0)}
+                geo.fit(points, 'unknown_shape')
+            """)
+            Issue.record("Expected error for unknown shape")
+        } catch {
+            let errorMessage = String(describing: error)
+            #expect(errorMessage.contains("Unknown shape"))
+        }
+    }
+
+    @Test("geo.fit aliases work correctly")
+    func geoFitAliases() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+        ModuleRegistry.installLinAlgModule(in: engine)  // Required for polyfit
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 1),
+                geo.vec2(2, 4)
+            }
+            -- Test 'linear' alias for 'line'
+            local linear_fit = geo.fit(points, 'linear')
+            -- Test 'poly' alias for 'polynomial'
+            local poly_fit = geo.fit(points, 'poly', {degree = 2})
+            -- Test 'cubic_spline' alias for 'spline'
+            local spline_fit = geo.fit(points, 'cubic_spline')
+            return {linear_fit:degree(), poly_fit:degree(), type(spline_fit)}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)          // linear = degree 1
+        #expect(arr[1].numberValue == 2)          // poly with degree=2
+        #expect(arr[2].stringValue == "table")    // spline is a table/object
+    }
 }

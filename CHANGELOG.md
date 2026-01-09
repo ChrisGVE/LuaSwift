@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Moore-Penrose pseudo-inverse (pinv)
   - Matrix condition number (cond)
 
+- **Memory Limit Enforcement**:
+  - LuaEngine tracks memory allocations from Swift modules
+  - `trackAllocation(bytes:)` throws when limit exceeded
+  - ArrayModule and LinAlgModule respect configured limits
+  - Configurable via `LuaEngineConfiguration.memoryLimit`
+
 - **Geometry Extensions**:
   - Additional 2D/3D utilities
   - Quaternion improvements

@@ -109,7 +109,7 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_distance", callback: distanceCallback)
         engine.registerFunction(name: "_luaswift_geo_angle_between", callback: angleBetweenCallback)
         engine.registerFunction(name: "_luaswift_geo_convex_hull", callback: convexHullCallback)
-        engine.registerFunction(name: "_luaswift_geo_point_in_polygon", callback: pointInPolygonCallback)
+        engine.registerFunction(name: "_luaswift_geo_in_polygon", callback: inPolygonCallback)
         engine.registerFunction(name: "_luaswift_geo_line_intersection", callback: lineIntersectionCallback)
         engine.registerFunction(name: "_luaswift_geo_area_triangle", callback: areaTriangleCallback)
         engine.registerFunction(name: "_luaswift_geo_centroid", callback: centroidCallback)
@@ -798,7 +798,7 @@ public struct GeometryModule {
         return .array(hull.map { vec2ToLua(simd_double2($0.x, $0.y)) })
     }
 
-    private static let pointInPolygonCallback: ([LuaValue]) -> LuaValue = { args in
+    private static let inPolygonCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let point = extractVec2(args[0]),
               let polyArr = args[1].arrayValue else { return .nil }
@@ -1205,7 +1205,7 @@ public struct GeometryModule {
     local _distance = _luaswift_geo_distance
     local _angle_between = _luaswift_geo_angle_between
     local _convex_hull = _luaswift_geo_convex_hull
-    local _point_in_polygon = _luaswift_geo_point_in_polygon
+    local _in_polygon = _luaswift_geo_in_polygon
     local _line_intersection = _luaswift_geo_line_intersection
     local _area_triangle = _luaswift_geo_area_triangle
     local _centroid = _luaswift_geo_centroid
@@ -1285,7 +1285,8 @@ public struct GeometryModule {
             clone = function(self) return geo.vec2(self.x, self.y) end,
             -- Sugar methods for common operations
             distance = function(self, other) return _distance(self, other) end,
-            angle_to = function(self, other) return _angle_between(self, other) end
+            angle_to = function(self, other) return _angle_between(self, other) end,
+            in_polygon = function(self, polygon) return _in_polygon(self, polygon) end
         }
     }
 
@@ -1529,9 +1530,11 @@ public struct GeometryModule {
         return nil
     end
 
-    geo.point_in_polygon = function(point, polygon)
-        return _point_in_polygon(point, polygon)
+    geo.in_polygon = function(point, polygon)
+        return _in_polygon(point, polygon)
     end
+    -- Backward compatibility alias
+    geo.point_in_polygon = geo.in_polygon
 
     geo.line_intersection = function(line1, line2)
         local r = _line_intersection(line1, line2)

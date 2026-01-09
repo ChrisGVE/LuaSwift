@@ -577,6 +577,52 @@ struct GeometryModuleTests {
         #expect(arr[1].boolValue == false)
     }
 
+    @Test("In polygon modern API")
+    func inPolygonModern() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local polygon = {
+                geo.vec2(0, 0),
+                geo.vec2(4, 0),
+                geo.vec2(4, 4),
+                geo.vec2(0, 4)
+            }
+            local inside = geo.in_polygon(geo.vec2(2, 2), polygon)
+            local outside = geo.in_polygon(geo.vec2(5, 5), polygon)
+            return {inside, outside}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)
+        #expect(arr[1].boolValue == false)
+    }
+
+    @Test("In polygon sugar syntax")
+    func inPolygonSugar() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local polygon = {
+                geo.vec2(0, 0),
+                geo.vec2(4, 0),
+                geo.vec2(4, 4),
+                geo.vec2(0, 4)
+            }
+            local p1 = geo.vec2(2, 2)
+            local p2 = geo.vec2(5, 5)
+            return {p1:in_polygon(polygon), p2:in_polygon(polygon)}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)
+        #expect(arr[1].boolValue == false)
+    }
+
     @Test("Line intersection")
     func lineIntersection() throws {
         let engine = try LuaEngine()

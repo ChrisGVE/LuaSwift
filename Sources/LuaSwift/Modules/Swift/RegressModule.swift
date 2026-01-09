@@ -52,6 +52,7 @@ public struct RegressModule {
         registerOLSCallbacks(in: engine)
         registerGLSCallbacks(in: engine)
         registerGLMCallbacks(in: engine)
+        registerARIMACallbacks(in: engine)
 
         // Set up the luaswift.regress namespace with Lua wrapper code
         do {
@@ -65,6 +66,7 @@ public struct RegressModule {
                 local _ols_fit = _luaswift_regress_ols_fit
                 local _gls_fit = _luaswift_regress_gls_fit
                 local _glm_fit = _luaswift_regress_glm_fit
+                local _arima_fit = _luaswift_regress_arima_fit
 
                 ----------------------------------------------------------------
                 -- Results object metatable
@@ -633,6 +635,190 @@ public struct RegressModule {
                 end
 
                 ----------------------------------------------------------------
+                -- ARIMA (AutoRegressive Integrated Moving Average)
+                -- Time series model: ARIMA(p, d, q)
+                ----------------------------------------------------------------
+                local ARIMA_Results_mt = {}
+                ARIMA_Results_mt.__index = ARIMA_Results_mt
+
+                function ARIMA_Results_mt:summary(opts)
+                    opts = opts or {}
+
+                    local lines = {}
+                    table.insert(lines, string.rep("=", 78))
+                    table.insert(lines, string.format("%-40s %s", "Dep. Variable:", self._yname or "y"))
+                    table.insert(lines, string.format("%-40s ARIMA(%d,%d,%d)",
+                        "Model:", self._order[1], self._order[2], self._order[3]))
+                    table.insert(lines, string.format("%-40s %d", "No. Observations:", self.nobs))
+                    table.insert(lines, string.rep("-", 78))
+                    table.insert(lines, string.format("%-40s %.4f", "Log-Likelihood:", self.llf or 0))
+                    table.insert(lines, string.format("%-40s %.4f", "AIC:", self.aic or 0))
+                    table.insert(lines, string.format("%-40s %.4f", "BIC:", self.bic or 0))
+                    table.insert(lines, string.format("%-40s %.6f", "Sigma^2:", self.sigma2 or 0))
+                    if self.converged ~= nil then
+                        table.insert(lines, string.format("%-40s %s (iterations: %d)",
+                            "Converged:", self.converged and "Yes" or "No", self.iterations or 0))
+                    end
+                    table.insert(lines, string.rep("=", 78))
+
+                    -- AR coefficients
+                    if self.arparams and #self.arparams > 0 then
+                        table.insert(lines, "AR Coefficients:")
+                        for i, coef in ipairs(self.arparams) do
+                            local se = self.ar_bse and self.ar_bse[i] or 0
+                            table.insert(lines, string.format("  ar.L%d: %12.4f (se: %.4f)", i, coef, se))
+                        end
+                    end
+
+                    -- MA coefficients
+                    if self.maparams and #self.maparams > 0 then
+                        table.insert(lines, "MA Coefficients:")
+                        for i, coef in ipairs(self.maparams) do
+                            local se = self.ma_bse and self.ma_bse[i] or 0
+                            table.insert(lines, string.format("  ma.L%d: %12.4f (se: %.4f)", i, coef, se))
+                        end
+                    end
+
+                    table.insert(lines, string.rep("=", 78))
+
+                    return table.concat(lines, "\\n")
+                end
+
+                function ARIMA_Results_mt:forecast(steps)
+                    steps = steps or 1
+                    if steps < 1 then return {} end
+
+                    local p, d, q = self._order[1], self._order[2], self._order[3]
+                    local ar = self.arparams or {}
+                    local ma = self.maparams or {}
+                    local resid = self.resid or {}
+                    local y = self._y_diff or {}  -- differenced series
+
+                    local forecasts = {}
+                    local n = #y
+
+                    for h = 1, steps do
+                        local pred = 0
+
+                        -- AR component
+                        for i = 1, p do
+                            local idx = n + h - i
+                            if idx > n then
+                                -- Use previous forecast
+                                pred = pred + ar[i] * (forecasts[idx - n] or 0)
+                            elseif idx > 0 then
+                                pred = pred + ar[i] * y[idx]
+                            end
+                        end
+
+                        -- MA component (use 0 for future errors)
+                        for j = 1, q do
+                            local idx = n + h - j
+                            if idx <= n and idx > 0 then
+                                pred = pred + ma[j] * (resid[idx] or 0)
+                            end
+                        end
+
+                        forecasts[h] = pred
+                    end
+
+                    -- If differenced, need to integrate back
+                    if d > 0 and self._original_y then
+                        local orig = self._original_y
+                        local last_val = orig[#orig]
+                        for h = 1, steps do
+                            forecasts[h] = last_val + forecasts[h]
+                            last_val = forecasts[h]
+                        end
+                    end
+
+                    return forecasts
+                end
+
+                function ARIMA_Results_mt:predict(start_idx, end_idx)
+                    start_idx = start_idx or 1
+                    end_idx = end_idx or self.nobs
+
+                    return self.fittedvalues or {}
+                end
+
+                local ARIMA_mt = {}
+                ARIMA_mt.__index = ARIMA_mt
+
+                function ARIMA_mt:fit(opts)
+                    opts = opts or {}
+                    local maxiter = opts.maxiter or 100
+                    local tol = opts.tol or 1e-8
+
+                    local result = _arima_fit(self._endog, self._order[1], self._order[2], self._order[3], maxiter, tol)
+                    if not result then
+                        return nil  -- Return nil for invalid inputs (too short series, etc.)
+                    end
+
+                    -- Create ARIMA results object
+                    local results = setmetatable({}, ARIMA_Results_mt)
+                    results.arparams = result.arparams or {}
+                    results.maparams = result.maparams or {}
+                    results.ar_bse = result.ar_bse or {}
+                    results.ma_bse = result.ma_bse or {}
+                    results.resid = result.resid
+                    results.fittedvalues = result.fittedvalues
+
+                    -- Combined params array (AR params followed by MA params)
+                    results.params = {}
+                    for _, v in ipairs(results.arparams) do
+                        table.insert(results.params, v)
+                    end
+                    for _, v in ipairs(results.maparams) do
+                        table.insert(results.params, v)
+                    end
+
+                    -- Combined bse array
+                    results.bse = {}
+                    for _, v in ipairs(results.ar_bse) do
+                        table.insert(results.bse, v)
+                    end
+                    for _, v in ipairs(results.ma_bse) do
+                        table.insert(results.bse, v)
+                    end
+
+                    results.sigma2 = result.sigma2
+                    results.llf = result.llf
+                    results.aic = result.aic
+                    results.bic = result.bic
+
+                    results.nobs = result.nobs
+                    results.converged = result.converged
+                    results.iterations = result.iterations
+
+                    results._model_type = "ARIMA"
+                    results.order = self._order  -- Public order field
+                    results._order = self._order
+                    results._yname = self._yname
+                    results._y_diff = result.y_diff
+                    results._original_y = self._endog
+
+                    return results
+                end
+
+                function regress.ARIMA(endog, order, opts)
+                    opts = opts or {}
+                    if type(endog) ~= "table" then
+                        error("endog must be a table (array of values)")
+                    end
+                    if type(order) ~= "table" or #order ~= 3 then
+                        error("order must be a table {p, d, q}")
+                    end
+
+                    local model = setmetatable({}, ARIMA_mt)
+                    model._endog = endog
+                    model._order = order  -- {p, d, q}
+                    model._yname = opts.yname or "y"
+
+                    return model
+                end
+
+                ----------------------------------------------------------------
                 -- Helper: add_constant
                 -- Adds a column of ones to the design matrix
                 ----------------------------------------------------------------
@@ -671,6 +857,7 @@ public struct RegressModule {
                 _luaswift_regress_ols_fit = nil
                 _luaswift_regress_gls_fit = nil
                 _luaswift_regress_glm_fit = nil
+                _luaswift_regress_arima_fit = nil
                 """)
         } catch {
             // Silently fail if setup fails
@@ -2305,5 +2492,324 @@ public struct RegressModule {
     /// Standard normal CDF
     private static func standardNormalCDF(_ x: Double) -> Double {
         return 0.5 * (1.0 + erf(x / sqrt(2.0)))
+    }
+
+    // MARK: - ARIMA Callbacks
+
+    private static func registerARIMACallbacks(in engine: LuaEngine) {
+        // ARIMA fit callback - ARIMA(p,d,q) using CSS (Conditional Sum of Squares)
+        engine.registerFunction(name: "_luaswift_regress_arima_fit") { args in
+            guard let endogArray = args.first?.arrayValue else {
+                return .nil
+            }
+
+            // Extract endog (y) values
+            let endog = endogArray.compactMap { $0.numberValue }
+            let originalN = endog.count
+
+            guard originalN > 2 else {
+                return .nil
+            }
+
+            // Extract order (p, d, q)
+            var p = 0
+            var d = 0
+            var q = 0
+
+            if args.count > 1, let pVal = args[1].numberValue {
+                p = Int(pVal)
+            }
+            if args.count > 2, let dVal = args[2].numberValue {
+                d = Int(dVal)
+            }
+            if args.count > 3, let qVal = args[3].numberValue {
+                q = Int(qVal)
+            }
+
+            // Extract maxiter and tolerance
+            var maxiter = 100
+            if args.count > 4, let maxiterVal = args[4].numberValue {
+                maxiter = Int(maxiterVal)
+            }
+
+            var tol = 1e-8
+            if args.count > 5, let tolVal = args[5].numberValue {
+                tol = tolVal
+            }
+
+            // Apply differencing
+            var yDiff = endog
+            for _ in 0..<d {
+                if yDiff.count < 2 { break }
+                var diffed = [Double](repeating: 0.0, count: yDiff.count - 1)
+                for i in 0..<(yDiff.count - 1) {
+                    diffed[i] = yDiff[i + 1] - yDiff[i]
+                }
+                yDiff = diffed
+            }
+
+            let n = yDiff.count
+            guard n > max(p, q) else {
+                return .nil
+            }
+
+            // Initialize parameters
+            var arParams = [Double](repeating: 0.0, count: p)
+            var maParams = [Double](repeating: 0.0, count: q)
+
+            // Initialize AR params with small values
+            for i in 0..<p {
+                arParams[i] = 0.1 / Double(i + 1)
+            }
+
+            // CSS estimation using iterative refinement
+            var converged = false
+            var iterations = 0
+
+            for iter in 0..<maxiter {
+                iterations = iter + 1
+
+                // Compute residuals with current parameters
+                var resid = computeARMAResiduals(y: yDiff, ar: arParams, ma: maParams, n: n)
+
+                // Update AR parameters using least squares
+                if p > 0 {
+                    let newAR = estimateARParams(y: yDiff, resid: resid, p: p, n: n)
+                    if let newParams = newAR {
+                        var maxChange = 0.0
+                        for i in 0..<p {
+                            let change = abs(newParams[i] - arParams[i])
+                            if change > maxChange { maxChange = change }
+                        }
+                        arParams = newParams
+
+                        // Recompute residuals with updated AR
+                        resid = computeARMAResiduals(y: yDiff, ar: arParams, ma: maParams, n: n)
+
+                        if maxChange < tol && q == 0 {
+                            converged = true
+                            break
+                        }
+                    }
+                }
+
+                // Update MA parameters using innovations algorithm approximation
+                if q > 0 {
+                    let newMA = estimateMAParams(resid: resid, q: q, n: n)
+                    if let newParams = newMA {
+                        var maxChange = 0.0
+                        for j in 0..<q {
+                            let change = abs(newParams[j] - maParams[j])
+                            if change > maxChange { maxChange = change }
+                        }
+                        maParams = newParams
+
+                        if maxChange < tol {
+                            converged = true
+                            break
+                        }
+                    }
+                }
+
+                // Check overall convergence
+                if p == 0 && q == 0 {
+                    converged = true
+                    break
+                }
+            }
+
+            // Final residuals
+            let resid = computeARMAResiduals(y: yDiff, ar: arParams, ma: maParams, n: n)
+
+            // Compute fitted values
+            var fitted = [Double](repeating: 0.0, count: n)
+            for i in 0..<n {
+                fitted[i] = yDiff[i] - resid[i]
+            }
+
+            // Compute sigma^2 (variance of residuals)
+            let startIdx = max(p, q)
+            var ssr = 0.0
+            var validCount = 0
+            for i in startIdx..<n {
+                ssr += resid[i] * resid[i]
+                validCount += 1
+            }
+            let sigma2 = validCount > 0 ? ssr / Double(validCount) : 0.0
+
+            // Compute log-likelihood (Gaussian)
+            let nEff = Double(validCount)
+            var llf = -nEff / 2.0 * log(2.0 * .pi)
+            if sigma2 > 0 {
+                llf -= nEff / 2.0 * log(sigma2)
+            }
+            llf -= ssr / (2.0 * max(sigma2, 1e-10))
+
+            // Number of parameters
+            let numParams = p + q + 1  // AR + MA + sigma2
+
+            // AIC and BIC
+            let aic = -2.0 * llf + 2.0 * Double(numParams)
+            let bic = -2.0 * llf + Double(numParams) * log(nEff)
+
+            // Approximate standard errors (using residual variance)
+            var arBse = [Double](repeating: 0.0, count: p)
+            var maBse = [Double](repeating: 0.0, count: q)
+
+            // Simple approximation: SE ≈ sqrt(sigma2 / n)
+            let baseSE = sqrt(max(sigma2, 1e-10) / max(Double(n), 1.0))
+            for i in 0..<p {
+                arBse[i] = baseSE
+            }
+            for j in 0..<q {
+                maBse[j] = baseSE
+            }
+
+            return .table([
+                "arparams": .array(arParams.map { .number($0) }),
+                "maparams": .array(maParams.map { .number($0) }),
+                "ar_bse": .array(arBse.map { .number($0) }),
+                "ma_bse": .array(maBse.map { .number($0) }),
+
+                "resid": .array(resid.map { .number($0) }),
+                "fittedvalues": .array(fitted.map { .number($0) }),
+                "y_diff": .array(yDiff.map { .number($0) }),
+
+                "sigma2": .number(sigma2),
+                "llf": .number(llf),
+                "aic": .number(aic),
+                "bic": .number(bic),
+
+                "nobs": .number(Double(n)),
+                "converged": .bool(converged),
+                "iterations": .number(Double(iterations))
+            ])
+        }
+    }
+
+    /// Compute ARMA residuals given parameters
+    private static func computeARMAResiduals(y: [Double], ar: [Double], ma: [Double], n: Int) -> [Double] {
+        let p = ar.count
+        let q = ma.count
+        var resid = [Double](repeating: 0.0, count: n)
+
+        for t in 0..<n {
+            var pred = 0.0
+
+            // AR component: sum of phi_i * y_{t-i}
+            for i in 0..<p {
+                let idx = t - i - 1
+                if idx >= 0 {
+                    pred += ar[i] * y[idx]
+                }
+            }
+
+            // MA component: sum of theta_j * e_{t-j}
+            for j in 0..<q {
+                let idx = t - j - 1
+                if idx >= 0 {
+                    pred += ma[j] * resid[idx]
+                }
+            }
+
+            resid[t] = y[t] - pred
+        }
+
+        return resid
+    }
+
+    /// Estimate AR parameters using OLS on lagged values
+    private static func estimateARParams(y: [Double], resid: [Double], p: Int, n: Int) -> [Double]? {
+        guard p > 0 && n > p else { return nil }
+
+        // Build design matrix with lagged y values
+        let nEff = n - p
+        guard nEff > 0 else { return nil }
+
+        var X = [[Double]](repeating: [Double](repeating: 0.0, count: p), count: nEff)
+        var yTarget = [Double](repeating: 0.0, count: nEff)
+
+        for t in 0..<nEff {
+            let actualT = t + p
+            yTarget[t] = y[actualT]
+            for i in 0..<p {
+                X[t][i] = y[actualT - i - 1]
+            }
+        }
+
+        // Solve using OLS
+        return solveOLS(X: X, y: yTarget, n: nEff, k: p)
+    }
+
+    /// Estimate MA parameters using autocorrelation matching
+    private static func estimateMAParams(resid: [Double], q: Int, n: Int) -> [Double]? {
+        guard q > 0 && n > q else { return nil }
+
+        var maParams = [Double](repeating: 0.0, count: q)
+
+        // Compute autocorrelations of residuals
+        var gamma = [Double](repeating: 0.0, count: q + 1)
+        for lag in 0...q {
+            var sum = 0.0
+            var count = 0
+            for t in lag..<n {
+                sum += resid[t] * resid[t - lag]
+                count += 1
+            }
+            gamma[lag] = count > 0 ? sum / Double(count) : 0.0
+        }
+
+        // Simple estimation: theta_j ≈ -gamma[j] / gamma[0]
+        if abs(gamma[0]) > 1e-10 {
+            for j in 0..<q {
+                maParams[j] = -gamma[j + 1] / gamma[0]
+                // Bound to ensure invertibility
+                maParams[j] = max(-0.99, min(0.99, maParams[j]))
+            }
+        }
+
+        return maParams
+    }
+
+    /// Simple OLS solver for ARIMA
+    private static func solveOLS(X: [[Double]], y: [Double], n: Int, k: Int) -> [Double]? {
+        guard n > k else { return nil }
+
+        // Flatten X to column-major
+        var XFlat = [Double](repeating: 0.0, count: n * k)
+        for j in 0..<k {
+            for i in 0..<n {
+                XFlat[j * n + i] = X[i][j]
+            }
+        }
+
+        var yCopy = y
+        if k > n {
+            yCopy.append(contentsOf: [Double](repeating: 0.0, count: k - n))
+        }
+
+        var m = __CLPK_integer(n)
+        var nCols = __CLPK_integer(k)
+        var nrhs = __CLPK_integer(1)
+        var lda = __CLPK_integer(n)
+        var ldb = __CLPK_integer(max(n, k))
+        var info: __CLPK_integer = 0
+
+        var workQuery = [Double](repeating: 0.0, count: 1)
+        var lwork: __CLPK_integer = -1
+        dgels_(UnsafeMutablePointer(mutating: ("N" as NSString).utf8String),
+               &m, &nCols, &nrhs, &XFlat, &lda, &yCopy, &ldb, &workQuery, &lwork, &info)
+
+        lwork = __CLPK_integer(workQuery[0])
+        var work = [Double](repeating: 0.0, count: Int(lwork))
+
+        dgels_(UnsafeMutablePointer(mutating: ("N" as NSString).utf8String),
+               &m, &nCols, &nrhs, &XFlat, &lda, &yCopy, &ldb, &work, &lwork, &info)
+
+        if info != 0 {
+            return nil
+        }
+
+        return Array(yCopy.prefix(k))
     }
 }

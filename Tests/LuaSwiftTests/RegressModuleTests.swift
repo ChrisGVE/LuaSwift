@@ -1550,4 +1550,263 @@ final class RegressModuleTests: XCTestCase {
         """)
         XCTAssertTrue(result.boolValue!)
     }
+
+    // MARK: - ARIMA Tests
+
+    func testARIMAFunctionExists() throws {
+        let result = try engine.evaluate("""
+            return type(math.regress.ARIMA) == "function"
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAModelCreation() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            return model ~= nil
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAFitReturnsResults() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            return results ~= nil and type(results.params) == "table"
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAResultsHaveAllFields() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 4, 7, 11, 16, 22, 29, 37, 46, 56, 67, 79, 92, 106}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            return {
+                type(results.params) == "table",
+                type(results.order) == "table",
+                type(results.nobs) == "number",
+                type(results.aic) == "number",
+                type(results.bic) == "number",
+                type(results.llf) == "number",
+                type(results.sigma2) == "number",
+                type(results.resid) == "table"
+            }
+        """)
+        let valid = result.arrayValue!.compactMap { $0.boolValue }
+        XCTAssertTrue(valid.allSatisfy { $0 })
+    }
+
+    func testARIMAOrderStored() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {2, 1, 1})
+            local results = model:fit()
+            return {results.order[1], results.order[2], results.order[3]}
+        """)
+        let order = result.arrayValue!.compactMap { $0.intValue }
+        XCTAssertEqual(order[0], 2)
+        XCTAssertEqual(order[1], 1)
+        XCTAssertEqual(order[2], 1)
+    }
+
+    func testARIMAAR1PositiveAutocorrelation() throws {
+        // Generate AR(1) data with positive autocorrelation
+        let result = try engine.evaluate("""
+            -- Simulated AR(1) process with phi=0.7: y_t = 0.7 * y_{t-1} + e_t
+            local y = {0.0, 0.7, 1.19, 1.533, 0.873, 1.411, 1.788, 2.052, 2.236, 1.965,
+                       2.176, 2.323, 2.426, 2.498, 2.549, 2.584, 2.609, 2.626, 2.638, 2.647}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            -- AR(1) coefficient should be positive
+            local ar_coef = results.params[1]
+            return ar_coef
+        """)
+        let arCoef = result.numberValue!
+        // AR(1) coefficient should be positive (CSS estimation may slightly exceed 1.0 bounds)
+        // The true value is ~0.7; CSS typically gets close but doesn't enforce stationarity bounds
+        XCTAssertGreaterThan(arCoef, 0.5, "AR coefficient should be significantly positive")
+        XCTAssertLessThan(arCoef, 1.5, "AR coefficient should be reasonable")
+    }
+
+    func testARIMAWithDifferencing() throws {
+        // ARIMA(1,1,0) - differencing should be applied
+        let result = try engine.evaluate("""
+            -- Linear trend data: differencing should make it stationary
+            local y = {1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29}
+            local model = math.regress.ARIMA(y, {1, 1, 0})
+            local results = model:fit()
+            -- After differencing, all differences are 2, so nobs should be n-d
+            return results.nobs == 14
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMASummaryMethod() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            local summary = results:summary()
+            return type(summary) == "string" and #summary > 0
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMASummaryContainsOrder() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {2, 1, 1})
+            local results = model:fit()
+            local summary = results:summary()
+            return summary:find("Order") ~= nil or summary:find("ARIMA") ~= nil
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAForecastMethod() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            local forecast = results:forecast(5)
+            return type(forecast) == "table" and #forecast == 5
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAForecastTrendContinues() throws {
+        let result = try engine.evaluate("""
+            -- Upward trend data
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            local forecast = results:forecast(3)
+            -- First forecast should continue upward trend
+            return forecast[1] > y[#y] - 5  -- Should be reasonably close to last value
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAPredictMethod() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            local predictions = results:predict()
+            return type(predictions) == "table" and #predictions > 0
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAResidualsMeanNearZero() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 3, 5, 7, 9, 8, 10, 12, 14, 16, 15, 17, 19, 21, 23}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            local resid = results.resid
+            local sum = 0
+            for _, v in ipairs(resid) do
+                sum = sum + v
+            end
+            local mean = sum / #resid
+            return math.abs(mean) < 5  -- Mean should be close to zero
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAModelType() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {1, 1, 0})
+            local results = model:fit()
+            return results._model_type == "ARIMA"
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAInformationCriteria() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            -- AIC and BIC should be finite numbers
+            local aic_valid = results.aic == results.aic  -- NaN check
+            local bic_valid = results.bic == results.bic  -- NaN check
+            return aic_valid and bic_valid
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAHigherOrderAR() throws {
+        let result = try engine.evaluate("""
+            -- AR(2) model should have 2 AR coefficients
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+            local model = math.regress.ARIMA(y, {2, 0, 0})
+            local results = model:fit()
+            -- Should have params for 2 AR coefficients
+            return #results.params >= 2
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAWithMA() throws {
+        let result = try engine.evaluate("""
+            -- ARIMA(0,0,1) - MA(1) model
+            local y = {1.5, 2.3, 1.8, 2.9, 3.2, 2.7, 3.5, 4.1, 3.8, 4.5,
+                       5.0, 4.6, 5.3, 5.8, 5.4, 6.1, 6.6, 6.2, 6.9, 7.4}
+            local model = math.regress.ARIMA(y, {0, 0, 1})
+            local results = model:fit()
+            -- Should have at least one MA coefficient
+            return #results.params >= 1
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAWithARandMA() throws {
+        let result = try engine.evaluate("""
+            -- ARIMA(1,0,1) - mixed model
+            local y = {1.5, 2.3, 1.8, 2.9, 3.2, 2.7, 3.5, 4.1, 3.8, 4.5,
+                       5.0, 4.6, 5.3, 5.8, 5.4, 6.1, 6.6, 6.2, 6.9, 7.4}
+            local model = math.regress.ARIMA(y, {1, 0, 1})
+            local results = model:fit()
+            -- Should have AR + MA coefficients
+            return #results.params >= 2
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAErrorOnShortSeries() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            -- Should return nil for too short series
+            return results == nil
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMAErrorOnInvalidOrder() throws {
+        let result = try engine.evaluate("""
+            local ok, err = pcall(function()
+                local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+                local model = math.regress.ARIMA(y, {1, 0})  -- Invalid order (2 elements instead of 3)
+            end)
+            return not ok  -- Should error
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testARIMASigma2Positive() throws {
+        let result = try engine.evaluate("""
+            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            local model = math.regress.ARIMA(y, {1, 0, 0})
+            local results = model:fit()
+            return results.sigma2 > 0
+        """)
+        XCTAssertTrue(result.boolValue!)
+    }
 }

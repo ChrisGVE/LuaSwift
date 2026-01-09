@@ -39,3 +39,21 @@ Thumbs.db
 .lancedb/
 lancedb/
 models/
+
+# Local development files (never track)
+CLAUDE.md
+CLAUDE.local.md
+claude.json
+.claude/
+.taskmaster/
+.serena/
+.specstory/
+tmp/
+
+# PRD and planning documents (local only)
+*PRD*.md
+*PRD*.txt
+DRAFT_*.md
+
+# Temporary build directories
+.build-*/

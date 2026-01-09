@@ -121,6 +121,9 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_intersection", callback: intersectionCallback)
         engine.registerFunction(name: "_luaswift_geo_sphere_from_4_points", callback: sphereFrom4PointsCallback)
 
+        // Curve fitting operations
+        engine.registerFunction(name: "_luaswift_geo_cubic_spline_coeffs", callback: cubicSplineCoeffsCallback)
+
         // Set up the luaswift.geometry namespace
         do {
             try engine.run(geometryLuaWrapper)
@@ -1125,6 +1128,160 @@ public struct GeometryModule {
         ])
     }
 
+    // MARK: - Curve Fitting Callbacks
+
+    /// Compute cubic spline coefficients using tridiagonal solver
+    /// Input: either array of {x, y} points OR two arrays (xs, ys)
+    /// Output: {knots, values, coeffs} where coeffs[i] = {a, b, c, d} for each segment
+    private static let cubicSplineCoeffsCallback: ([LuaValue]) throws -> LuaValue = { args in
+        var points: [(x: Double, y: Double)] = []
+
+        // Check if we have two array arguments (xs, ys format)
+        if args.count >= 2,
+           let xsArray = args[0].arrayValue,
+           let ysArray = args[1].arrayValue {
+            // Two separate arrays format
+            let count = min(xsArray.count, ysArray.count)
+            for i in 0..<count {
+                if let x = xsArray[i].numberValue,
+                   let y = ysArray[i].numberValue {
+                    points.append((x, y))
+                }
+            }
+        } else if let pointsArray = args.first?.arrayValue {
+            // Single array of {x, y} points format
+            for pt in pointsArray {
+                guard let table = pt.tableValue else { continue }
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
+                if let x = x, let y = y {
+                    points.append((x, y))
+                }
+            }
+        } else {
+            throw LuaError.callbackError("cubic_spline requires array of points or two arrays (xs, ys)")
+        }
+
+        // Handle edge cases
+        guard points.count >= 2 else {
+            throw LuaError.callbackError("cubic_spline requires at least 2 points")
+        }
+
+        // Sort by x
+        points.sort { $0.x < $1.x }
+
+        let n = points.count - 1  // n+1 points, n intervals
+
+        // Handle 2-point case (linear interpolation)
+        if n == 1 {
+            let h = points[1].x - points[0].x
+            let slope = (points[1].y - points[0].y) / h
+            return .table([
+                "knots": .array(points.map { .number($0.x) }),
+                "values": .array(points.map { .number($0.y) }),
+                "coeffs": .array([
+                    .table([
+                        "a": .number(points[0].y),
+                        "b": .number(slope),
+                        "c": .number(0),
+                        "d": .number(0)
+                    ])
+                ])
+            ])
+        }
+
+        // Calculate interval widths h_i = x_{i+1} - x_i
+        var h = [Double](repeating: 0, count: n)
+        for i in 0..<n {
+            h[i] = points[i + 1].x - points[i].x
+        }
+
+        // Build tridiagonal system for natural cubic spline
+        // The system is: h[i-1]*M[i-1] + 2*(h[i-1]+h[i])*M[i] + h[i]*M[i+1] = 6*(d[i] - d[i-1])
+        // where d[i] = (y[i+1] - y[i]) / h[i]
+        // Natural boundary: M[0] = 0, M[n] = 0
+
+        // For interior points (1 to n-1), we have a tridiagonal system
+        let systemSize = n - 1
+        if systemSize == 0 {
+            // Only 2 points, already handled above
+            return .nil
+        }
+
+        // Subdiagonal (lower), diagonal, superdiagonal (upper)
+        var dl = [Double](repeating: 0, count: systemSize - 1)  // subdiagonal
+        var d = [Double](repeating: 0, count: systemSize)        // diagonal
+        var du = [Double](repeating: 0, count: systemSize - 1)  // superdiagonal
+        var b = [Double](repeating: 0, count: systemSize)        // right-hand side
+
+        // Fill the system matrices
+        for i in 0..<systemSize {
+            let hi = h[i]
+            let hi1 = h[i + 1]
+            d[i] = 2 * (hi + hi1)
+
+            // Calculate right-hand side
+            let di0 = (points[i + 1].y - points[i].y) / hi
+            let di1 = (points[i + 2].y - points[i + 1].y) / hi1
+            b[i] = 6 * (di1 - di0)
+
+            if i > 0 {
+                dl[i - 1] = hi
+            }
+            if i < systemSize - 1 {
+                du[i] = hi1
+            }
+        }
+
+        // Solve tridiagonal system using LAPACK dgtsv_
+        var nrhs: __CLPK_integer = 1
+        var size: __CLPK_integer = __CLPK_integer(systemSize)
+        var ldb: __CLPK_integer = __CLPK_integer(systemSize)
+        var info: __CLPK_integer = 0
+
+        dgtsv_(&size, &nrhs, &dl, &d, &du, &b, &ldb, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("cubic_spline: tridiagonal solver failed")
+        }
+
+        // The solution b now contains M[1] to M[n-1]
+        // M[0] = 0 and M[n] = 0 (natural spline)
+        var M = [Double](repeating: 0, count: n + 1)
+        for i in 0..<systemSize {
+            M[i + 1] = b[i]
+        }
+
+        // Calculate spline coefficients for each interval
+        // S_i(x) = a_i + b_i*(x-x_i) + c_i*(x-x_i)^2 + d_i*(x-x_i)^3
+        var coeffsArray: [LuaValue] = []
+        for i in 0..<n {
+            let hi = h[i]
+            let yi = points[i].y
+            let yi1 = points[i + 1].y
+            let mi = M[i]
+            let mi1 = M[i + 1]
+
+            let a = yi
+            let bi = (yi1 - yi) / hi - hi * (2 * mi + mi1) / 6
+            let c = mi / 2
+            let di = (mi1 - mi) / (6 * hi)
+
+            coeffsArray.append(.table([
+                "a": .number(a),
+                "b": .number(bi),
+                "c": .number(c),
+                "d": .number(di)
+            ]))
+        }
+
+        return .table([
+            "knots": .array(points.map { .number($0.x) }),
+            "values": .array(points.map { .number($0.y) }),
+            "coeffs": .array(coeffsArray)
+        ])
+    }
+
     // MARK: - Coordinate Conversion Callbacks
 
     /// Convert vec2 (x, y) to polar (r, theta)
@@ -1272,6 +1429,8 @@ public struct GeometryModule {
     local _plane_plane_intersection = _luaswift_geo_plane_plane_intersection
     local _intersection = _luaswift_geo_intersection
     local _sphere_from_4_points = _luaswift_geo_sphere_from_4_points
+
+    local _cubic_spline_coeffs = _luaswift_geo_cubic_spline_coeffs
 
     local _vec2_to_polar = _luaswift_geo_vec2_to_polar
     local _vec2_from_polar = _luaswift_geo_vec2_from_polar
@@ -2065,6 +2224,199 @@ public struct GeometryModule {
         poly.ys = ys
 
         return poly
+    end
+
+    -- Cubic Spline type for smooth interpolation
+    -- Each segment i uses: S_i(x) = a + b*(x-x_i) + c*(x-x_i)^2 + d*(x-x_i)^3
+    local spline_mt = {
+        __tostring = function(self)
+            local n = #self._knots
+            return string.format("cubic_spline(%d points, domain [%.4g, %.4g])",
+                n, self._knots[1], self._knots[n])
+        end,
+        __index = {
+            -- Evaluate spline at x
+            evaluate = function(self, x)
+                local knots = self._knots
+                local n = #knots
+
+                -- Handle out of bounds
+                if x <= knots[1] then
+                    -- Extrapolate using first segment
+                    local c = self._coeffs[1]
+                    local dx = x - knots[1]
+                    return c.a + c.b * dx + c.c * dx * dx + c.d * dx * dx * dx
+                end
+                if x >= knots[n] then
+                    -- Extrapolate using last segment
+                    local c = self._coeffs[n - 1]
+                    local dx = x - knots[n - 1]
+                    return c.a + c.b * dx + c.c * dx * dx + c.d * dx * dx * dx
+                end
+
+                -- Binary search for the correct segment
+                local lo, hi = 1, n - 1
+                while lo < hi do
+                    local mid = math.floor((lo + hi + 1) / 2)
+                    if knots[mid] <= x then
+                        lo = mid
+                    else
+                        hi = mid - 1
+                    end
+                end
+
+                -- Evaluate cubic polynomial for segment
+                local c = self._coeffs[lo]
+                local dx = x - knots[lo]
+                return c.a + c.b * dx + c.c * dx * dx + c.d * dx * dx * dx
+            end,
+
+            -- First derivative at x
+            derivative = function(self, x)
+                local knots = self._knots
+                local n = #knots
+
+                -- Find segment (same as evaluate)
+                local seg = 1
+                if x <= knots[1] then
+                    seg = 1
+                elseif x >= knots[n] then
+                    seg = n - 1
+                else
+                    local lo, hi = 1, n - 1
+                    while lo < hi do
+                        local mid = math.floor((lo + hi + 1) / 2)
+                        if knots[mid] <= x then
+                            lo = mid
+                        else
+                            hi = mid - 1
+                        end
+                    end
+                    seg = lo
+                end
+
+                -- Derivative: b + 2*c*(x-x_i) + 3*d*(x-x_i)^2
+                local c = self._coeffs[seg]
+                local dx = x - knots[seg]
+                return c.b + 2 * c.c * dx + 3 * c.d * dx * dx
+            end,
+
+            -- Second derivative at x
+            second_derivative = function(self, x)
+                local knots = self._knots
+                local n = #knots
+
+                -- Find segment
+                local seg = 1
+                if x <= knots[1] then
+                    seg = 1
+                elseif x >= knots[n] then
+                    seg = n - 1
+                else
+                    local lo, hi = 1, n - 1
+                    while lo < hi do
+                        local mid = math.floor((lo + hi + 1) / 2)
+                        if knots[mid] <= x then
+                            lo = mid
+                        else
+                            hi = mid - 1
+                        end
+                    end
+                    seg = lo
+                end
+
+                -- Second derivative: 2*c + 6*d*(x-x_i)
+                local c = self._coeffs[seg]
+                local dx = x - knots[seg]
+                return 2 * c.c + 6 * c.d * dx
+            end,
+
+            -- Batch evaluate for efficiency
+            evaluate_array = function(self, xs)
+                local results = {}
+                for i, x in ipairs(xs) do
+                    results[i] = self:evaluate(x)
+                end
+                return results
+            end,
+
+            -- Return domain [x_min, x_max]
+            domain = function(self)
+                local n = #self._knots
+                return self._knots[1], self._knots[n]
+            end,
+
+            -- Get knots (interpolation x-values)
+            knots = function(self)
+                local result = {}
+                for i, k in ipairs(self._knots) do
+                    result[i] = k
+                end
+                return result
+            end,
+
+            -- Get values (interpolation y-values)
+            values = function(self)
+                local result = {}
+                for i, v in ipairs(self._values) do
+                    result[i] = v
+                end
+                return result
+            end,
+
+            -- Get number of segments
+            segments = function(self)
+                return #self._coeffs
+            end,
+
+            -- Get coefficients for a specific segment (1-indexed)
+            segment_coeffs = function(self, i)
+                local c = self._coeffs[i]
+                if not c then return nil end
+                return {a = c.a, b = c.b, c = c.c, d = c.d}
+            end
+        }
+    }
+
+    -- Construct a natural cubic spline from data points
+    -- points: array of {x, y} pairs or two arrays (xs, ys)
+    function geo.cubic_spline(points_or_xs, maybe_ys)
+        local xs, ys = {}, {}
+
+        -- Parse input format
+        if maybe_ys then
+            -- Two separate arrays: xs, ys
+            for i, x in ipairs(points_or_xs) do
+                xs[i] = x
+            end
+            for i, y in ipairs(maybe_ys) do
+                ys[i] = y
+            end
+        else
+            -- Array of {x, y} pairs
+            for i, pt in ipairs(points_or_xs) do
+                xs[i] = pt[1] or pt.x
+                ys[i] = pt[2] or pt.y
+            end
+        end
+
+        if #xs < 2 then
+            error("cubic_spline requires at least 2 points")
+        end
+
+        -- Call Swift callback to compute coefficients
+        local result = _cubic_spline_coeffs(xs, ys)
+
+        -- Build spline object
+        local spline = {
+            _knots = result.knots,
+            _values = result.values,
+            _coeffs = result.coeffs,
+            __luaswift_type = "cubic_spline"
+        }
+
+        setmetatable(spline, spline_mt)
+        return spline
     end
 
     -- Make available via require

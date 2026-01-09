@@ -1579,4 +1579,277 @@ struct GeometryModuleTests {
         #expect(abs(arr[1].numberValue! - 1.0) < 0.0001)   // root at 1
         #expect(abs(arr[2].numberValue! - 2.0) < 0.0001)   // root at 2
     }
+
+    // MARK: - Cubic Spline Tests
+
+    @Test("cubic_spline interpolates through all knots exactly")
+    func cubicSplineInterpolatesKnots() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 1}, {1, 2}, {2, 0}, {3, 3}, {4, 1}}
+            local s = geo.cubic_spline(points)
+
+            -- Check that spline passes through each knot
+            local errors = {}
+            for i, pt in ipairs(points) do
+                errors[i] = math.abs(s:evaluate(pt[1]) - pt[2])
+            end
+            return errors
+        """)
+
+        let arr = try #require(result.arrayValue)
+        for (i, err) in arr.enumerated() {
+            #expect(err.numberValue! < 1e-10, "Knot \(i+1) should be interpolated exactly")
+        }
+    }
+
+    @Test("cubic_spline with two separate arrays")
+    func cubicSplineTwoArrays() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local xs = {0, 1, 2, 3}
+            local ys = {0, 1, 0, 1}
+            local s = geo.cubic_spline(xs, ys)
+            return {
+                s:evaluate(0),
+                s:evaluate(1),
+                s:evaluate(2),
+                s:evaluate(3)
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[1].numberValue! - 1.0) < 1e-10)
+        #expect(abs(arr[2].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[3].numberValue! - 1.0) < 1e-10)
+    }
+
+    @Test("cubic_spline smooth interpolation between knots")
+    func cubicSplineInterpolation() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // For y = x^2 sampled at points, the cubic spline should
+        // closely approximate the true function between knots
+        // (Using x^2 because natural boundary conditions match better)
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {1, 1}, {2, 4}, {3, 9}}  -- y = x^2
+            local s = geo.cubic_spline(points)
+
+            -- Test at midpoints
+            local function square(x) return x * x end
+            return {
+                math.abs(s:evaluate(0.5) - square(0.5)),
+                math.abs(s:evaluate(1.5) - square(1.5)),
+                math.abs(s:evaluate(2.5) - square(2.5))
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // Natural cubic spline should be reasonably close to quadratic
+        #expect(arr[0].numberValue! < 0.2)  // Near boundary, larger error expected
+        #expect(arr[1].numberValue! < 0.1)  // Interior should be more accurate
+        #expect(arr[2].numberValue! < 0.2)  // Near boundary
+    }
+
+    @Test("cubic_spline natural boundary conditions")
+    func cubicSplineNaturalBoundary() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // Natural cubic spline has S''(x_0) = 0 and S''(x_n) = 0
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {1, 1}, {2, 0}, {3, 1}}
+            local s = geo.cubic_spline(points)
+
+            -- Second derivative at boundaries should be 0
+            return {
+                math.abs(s:second_derivative(0)),
+                math.abs(s:second_derivative(3))
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue! < 1e-10, "Second derivative at left boundary should be 0")
+        #expect(arr[1].numberValue! < 1e-10, "Second derivative at right boundary should be 0")
+    }
+
+    @Test("cubic_spline derivative is continuous")
+    func cubicSplineDerivativeContinuous() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // First derivative should be continuous at knots
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 1}, {1, 2}, {2, 0}, {3, 3}}
+            local s = geo.cubic_spline(points)
+
+            -- Check continuity at interior knots
+            local eps = 1e-6
+            local errors = {}
+            for i = 2, #points - 1 do
+                local x = points[i][1]
+                local left_deriv = s:derivative(x - eps)
+                local right_deriv = s:derivative(x + eps)
+                errors[i-1] = math.abs(left_deriv - right_deriv)
+            end
+            return errors
+        """)
+
+        let arr = try #require(result.arrayValue)
+        for (i, err) in arr.enumerated() {
+            #expect(err.numberValue! < 1e-4, "Derivative at knot \(i+2) should be continuous")
+        }
+    }
+
+    @Test("cubic_spline domain method")
+    func cubicSplineDomain() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{-2, 1}, {0, 0}, {3, 2}, {5, 1}}
+            local s = geo.cubic_spline(points)
+            local x_min, x_max = s:domain()
+            return {x_min, x_max}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == -2)
+        #expect(arr[1].numberValue == 5)
+    }
+
+    @Test("cubic_spline knots and values accessors")
+    func cubicSplineKnotsValues() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{1, 10}, {2, 20}, {3, 30}}
+            local s = geo.cubic_spline(points)
+            local k = s:knots()
+            local v = s:values()
+            return {k[1], k[2], k[3], v[1], v[2], v[3]}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)
+        #expect(arr[1].numberValue == 2)
+        #expect(arr[2].numberValue == 3)
+        #expect(arr[3].numberValue == 10)
+        #expect(arr[4].numberValue == 20)
+        #expect(arr[5].numberValue == 30)
+    }
+
+    @Test("cubic_spline segments count")
+    func cubicSplineSegments() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {1, 1}, {2, 0}, {3, 1}, {4, 0}}
+            local s = geo.cubic_spline(points)
+            return s:segments()
+        """)
+
+        #expect(result.numberValue == 4)  // 5 points = 4 segments
+    }
+
+    @Test("cubic_spline tostring representation")
+    func cubicSplineTostring() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 1}, {1, 2}, {2, 3}}
+            local s = geo.cubic_spline(points)
+            return tostring(s)
+        """)
+
+        let str = try #require(result.stringValue)
+        #expect(str.contains("cubic_spline"))
+        #expect(str.contains("3 points"))
+    }
+
+    @Test("cubic_spline evaluate_array batch evaluation")
+    func cubicSplineEvaluateArray() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {1, 1}, {2, 4}, {3, 9}}  -- approximately y = x^2
+            local s = geo.cubic_spline(points)
+            local xs = {0, 0.5, 1, 1.5, 2, 2.5, 3}
+            local ys = s:evaluate_array(xs)
+            return {ys[1], ys[3], ys[5], ys[7]}  -- values at 0, 1, 2, 3
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[1].numberValue! - 1.0) < 1e-10)
+        #expect(abs(arr[2].numberValue! - 4.0) < 1e-10)
+        #expect(abs(arr[3].numberValue! - 9.0) < 1e-10)
+    }
+
+    @Test("cubic_spline with two points gives linear interpolation")
+    func cubicSplineTwoPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {2, 4}}
+            local s = geo.cubic_spline(points)
+            return {
+                s:evaluate(0),
+                s:evaluate(1),  -- midpoint should be 2
+                s:evaluate(2),
+                s:derivative(1)  -- slope should be 2
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[1].numberValue! - 2.0) < 1e-10)  // linear interpolation
+        #expect(abs(arr[2].numberValue! - 4.0) < 1e-10)
+        #expect(abs(arr[3].numberValue! - 2.0) < 1e-10)  // slope = (4-0)/(2-0) = 2
+    }
+
+    @Test("cubic_spline extrapolates outside domain")
+    func cubicSplineExtrapolation() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // Extrapolation should use endpoint segments
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {1, 1}, {2, 0}}
+            local s = geo.cubic_spline(points)
+
+            -- Evaluate outside domain (extrapolation)
+            local left = s:evaluate(-0.5)
+            local right = s:evaluate(2.5)
+            return {left, right}
+        """)
+
+        // Just check it doesn't error - extrapolation values will depend on spline
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue != nil)
+        #expect(arr[1].numberValue != nil)
+    }
 }

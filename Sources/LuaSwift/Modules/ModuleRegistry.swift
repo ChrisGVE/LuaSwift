@@ -403,6 +403,30 @@ public struct ModuleRegistry {
         SeriesModule.register(in: engine)
     }
 
+    /// Install only the HTTP module.
+    ///
+    /// This module provides HTTP client functionality using URLSession.
+    /// Unlike other modules, HTTPModule is NOT included in `installModules()`
+    /// because network access may not be desired in all environments.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// let engine = try LuaEngine()
+    /// ModuleRegistry.installHTTPModule(in: engine)
+    ///
+    /// let result = try engine.evaluate("""
+    ///     local http = require("luaswift.http")
+    ///     local resp = http.get("https://api.example.com/data")
+    ///     return resp.status
+    /// """)
+    /// ```
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installHTTPModule(in engine: LuaEngine) {
+        HTTPModule.register(in: engine)
+    }
+
     /// Install only the IO module.
     ///
     /// This module provides sandboxed file system operations. Unlike other modules,

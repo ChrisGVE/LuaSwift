@@ -2700,4 +2700,351 @@ struct GeometryModuleTests {
         #expect(arr[3].numberValue == 4)  // scaled semi_minor
         #expect(abs(arr[4].numberValue! - Double.pi/4) < 0.0001)  // rotated angle
     }
+
+    // MARK: - Sphere Tests
+
+    @Test("sphere constructor with center vec3")
+    func sphereConstructorWithVec3() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local center = geo.vec3(1, 2, 3)
+            local s = geo.sphere(center, 5)
+            return {s.center.x, s.center.y, s.center.z, s.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)
+        #expect(arr[1].numberValue == 2)
+        #expect(arr[2].numberValue == 3)
+        #expect(arr[3].numberValue == 5)
+    }
+
+    @Test("sphere constructor with coordinates")
+    func sphereConstructorWithCoordinates() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(4, 5, 6, 3)
+            return {s.center.x, s.center.y, s.center.z, s.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 4)
+        #expect(arr[1].numberValue == 5)
+        #expect(arr[2].numberValue == 6)
+        #expect(arr[3].numberValue == 3)
+    }
+
+    @Test("sphere volume and surface area")
+    func sphereVolumeAndSurfaceArea() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(0, 0, 0, 2)  -- radius 2
+            return {s:volume(), s:surface_area()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // Volume = 4/3 * π * r³ = 4/3 * π * 8 = 32π/3 ≈ 33.51
+        #expect(abs(arr[0].numberValue! - 4.0/3.0 * Double.pi * 8) < 0.001)
+        // Surface area = 4 * π * r² = 4 * π * 4 = 16π ≈ 50.27
+        #expect(abs(arr[1].numberValue! - 4.0 * Double.pi * 4) < 0.001)
+    }
+
+    @Test("sphere contains point")
+    func sphereContainsPoint() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(0, 0, 0, 5)
+            local inside = s:contains(geo.vec3(1, 1, 1))    -- dist = sqrt(3) ≈ 1.73 < 5
+            local outside = s:contains(geo.vec3(4, 4, 4))   -- dist = sqrt(48) ≈ 6.93 > 5
+            local on_surface = s:contains(geo.vec3(5, 0, 0)) -- dist = 5, on surface
+            return {inside, outside, on_surface}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)   // inside
+        #expect(arr[1].boolValue == false)  // outside
+        #expect(arr[2].boolValue == true)   // on surface (within tolerance)
+    }
+
+    @Test("sphere point_at generates points on sphere")
+    func spherePointAt() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(1, 2, 3, 4)
+            -- theta=0, phi=0 should give point at (cx, cy, cz + r)
+            local p1 = s:point_at(0, 0)
+            -- theta=pi/2, phi=0 should give point at (cx + r, cy, cz)
+            local p2 = s:point_at(math.pi/2, 0)
+            -- theta=pi/2, phi=pi/2 should give point at (cx, cy + r, cz)
+            local p3 = s:point_at(math.pi/2, math.pi/2)
+
+            -- Verify all points are on the sphere
+            local d1 = math.sqrt((p1.x - 1)^2 + (p1.y - 2)^2 + (p1.z - 3)^2)
+            local d2 = math.sqrt((p2.x - 1)^2 + (p2.y - 2)^2 + (p2.z - 3)^2)
+            local d3 = math.sqrt((p3.x - 1)^2 + (p3.y - 2)^2 + (p3.z - 3)^2)
+
+            return {d1, d2, d3}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 4.0) < 0.0001)  // all distances should equal radius
+        #expect(abs(arr[1].numberValue! - 4.0) < 0.0001)
+        #expect(abs(arr[2].numberValue! - 4.0) < 0.0001)
+    }
+
+    @Test("sphere_fit exact points recovers original sphere")
+    func sphereFitExactPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Create points exactly on a sphere centered at (1, 2, 3) with radius 5
+            local points = {
+                geo.vec3(6, 2, 3),   -- +x
+                geo.vec3(-4, 2, 3),  -- -x
+                geo.vec3(1, 7, 3),   -- +y
+                geo.vec3(1, -3, 3),  -- -y
+                geo.vec3(1, 2, 8),   -- +z
+                geo.vec3(1, 2, -2)   -- -z
+            }
+            local fitted = geo.sphere_fit(points)
+            return {
+                fitted.center.x, fitted.center.y, fitted.center.z,
+                fitted.radius, fitted:rmse()
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 1.0) < 0.0001)  // center x
+        #expect(abs(arr[1].numberValue! - 2.0) < 0.0001)  // center y
+        #expect(abs(arr[2].numberValue! - 3.0) < 0.0001)  // center z
+        #expect(abs(arr[3].numberValue! - 5.0) < 0.0001)  // radius
+        #expect(arr[4].numberValue! < 0.0001)             // rmse should be ~0
+    }
+
+    @Test("sphere_fit with noisy points")
+    func sphereFitNoisyPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Points approximately on a unit sphere at origin
+            local points = {
+                geo.vec3(1.02, 0, 0),
+                geo.vec3(-0.98, 0, 0),
+                geo.vec3(0, 1.01, 0),
+                geo.vec3(0, -0.99, 0),
+                geo.vec3(0, 0, 1.03),
+                geo.vec3(0, 0, -0.97),
+                geo.vec3(0.71, 0.71, 0),
+                geo.vec3(0, 0.71, 0.71)
+            }
+            local fitted = geo.sphere_fit(points)
+            return {
+                fitted.center.x, fitted.center.y, fitted.center.z,
+                fitted.radius, fitted:rmse()
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.05)   // center x ≈ 0
+        #expect(abs(arr[1].numberValue!) < 0.05)   // center y ≈ 0
+        #expect(abs(arr[2].numberValue!) < 0.05)   // center z ≈ 0
+        #expect(abs(arr[3].numberValue! - 1.0) < 0.1)  // radius ≈ 1
+        #expect(arr[4].numberValue! < 0.1)         // rmse should be small
+    }
+
+    @Test("sphere_fit with coplanar points returns nil")
+    func sphereFitCoplanarPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- All points in z=0 plane - coplanar, can't fit sphere
+            local points = {
+                geo.vec3(1, 0, 0),
+                geo.vec3(0, 1, 0),
+                geo.vec3(-1, 0, 0),
+                geo.vec3(0, -1, 0),
+                geo.vec3(0.5, 0.5, 0)
+            }
+            local fitted = geo.sphere_fit(points)
+            return fitted == nil
+        """)
+
+        #expect(result.boolValue == true)
+    }
+
+    @Test("sphere_fit with too few points returns nil")
+    func sphereFitTooFewPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec3(1, 0, 0),
+                geo.vec3(0, 1, 0),
+                geo.vec3(0, 0, 1)
+            }
+            local fitted = geo.sphere_fit(points)
+            return fitted == nil
+        """)
+
+        #expect(result.boolValue == true)
+    }
+
+    @Test("sphere_from_4_points returns proper sphere object")
+    func sphereFrom4PointsReturnsSphereObject() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere_from_4_points(
+                geo.vec3(1, 0, 0),
+                geo.vec3(0, 1, 0),
+                geo.vec3(0, 0, 1),
+                geo.vec3(-1, 0, 0)
+            )
+            -- Verify it's a proper sphere object with methods
+            local has_volume = type(s.volume) == "function"
+            local has_contains = type(s.contains) == "function"
+            local has_center = s.center ~= nil
+            local has_radius = s.radius ~= nil
+            return {has_volume, has_contains, has_center, has_radius, s.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].boolValue == true)  // has volume method
+        #expect(arr[1].boolValue == true)  // has contains method
+        #expect(arr[2].boolValue == true)  // has center
+        #expect(arr[3].boolValue == true)  // has radius
+        #expect(arr[4].numberValue! > 0)   // radius is positive
+    }
+
+    @Test("sphere translate")
+    func sphereTranslate() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(0, 0, 0, 5)
+            local translated = s:translate(1, 2, 3)
+            return {
+                translated.center.x, translated.center.y, translated.center.z,
+                translated.radius,
+                s.center.x  -- original unchanged
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)  // translated x
+        #expect(arr[1].numberValue == 2)  // translated y
+        #expect(arr[2].numberValue == 3)  // translated z
+        #expect(arr[3].numberValue == 5)  // radius unchanged
+        #expect(arr[4].numberValue == 0)  // original unchanged
+    }
+
+    @Test("sphere scale")
+    func sphereScale() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(1, 2, 3, 4)
+            local scaled = s:scale(2)
+            return {scaled.radius, s.radius}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 8)  // scaled radius
+        #expect(arr[1].numberValue == 4)  // original unchanged
+    }
+
+    @Test("sphere bounds")
+    func sphereBounds() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(1, 2, 3, 5)
+            local b = s:bounds()
+            return {b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == -4)  // min x = 1 - 5
+        #expect(arr[1].numberValue == -3)  // min y = 2 - 5
+        #expect(arr[2].numberValue == -2)  // min z = 3 - 5
+        #expect(arr[3].numberValue == 6)   // max x = 1 + 5
+        #expect(arr[4].numberValue == 7)   // max y = 2 + 5
+        #expect(arr[5].numberValue == 8)   // max z = 3 + 5
+    }
+
+    @Test("sphere distance to point")
+    func sphereDistanceToPoint() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(0, 0, 0, 5)
+            local outside = s:distance(geo.vec3(10, 0, 0))  -- 10 - 5 = 5
+            local inside = s:distance(geo.vec3(2, 0, 0))    -- 2 - 5 = -3 (negative = inside)
+            local on_surface = s:distance(geo.vec3(5, 0, 0))
+            return {outside, inside, on_surface}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001)   // outside
+        #expect(abs(arr[1].numberValue! + 3.0) < 0.0001)   // inside (negative)
+        #expect(abs(arr[2].numberValue!) < 0.0001)         // on surface
+    }
+
+    @Test("sphere clone")
+    func sphereClone() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local s = geo.sphere(1, 2, 3, 4)
+            local cloned = s:clone()
+            -- Modify original to ensure clone is independent
+            local translated = s:translate(10, 10, 10)
+            return {
+                cloned.center.x, cloned.center.y, cloned.center.z, cloned.radius,
+                s.center.x  -- original shouldn't be affected by translate
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 1)  // clone unchanged
+        #expect(arr[1].numberValue == 2)
+        #expect(arr[2].numberValue == 3)
+        #expect(arr[3].numberValue == 4)
+        #expect(arr[4].numberValue == 1)  // original unchanged (translate returns new)
+    }
 }

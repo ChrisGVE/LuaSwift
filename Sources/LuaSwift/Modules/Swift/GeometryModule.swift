@@ -130,6 +130,7 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_circle_fit_algebraic", callback: circleFitAlgebraicCallback)
         engine.registerFunction(name: "_luaswift_geo_circle_fit_taubin", callback: circleFitTaubinCallback)
         engine.registerFunction(name: "_luaswift_geo_ellipse_fit_direct", callback: ellipseFitDirectCallback)
+        engine.registerFunction(name: "_luaswift_geo_sphere_fit_algebraic", callback: sphereFitAlgebraicCallback)
 
         // Set up the luaswift.geometry namespace
         do {
@@ -2440,6 +2441,219 @@ public struct GeometryModule {
         }
     }
 
+    // MARK: - Sphere Fitting Callbacks
+
+    /// Fit sphere to 3D points using algebraic least squares (3D analog of Kåsa method)
+    /// Minimize Σ(x² + y² + z² + Dx + Ey + Fz + G)² in least squares sense
+    private static let sphereFitAlgebraicCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard let pointsArray = args.first?.arrayValue else {
+            throw LuaError.callbackError("sphere_fit requires array of 3D points")
+        }
+
+        // Extract points
+        var points: [(x: Double, y: Double, z: Double)] = []
+        for pt in pointsArray {
+            if let table = pt.tableValue {
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
+                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
+                if let x = x, let y = y, let z = z {
+                    points.append((x, y, z))
+                }
+            }
+        }
+
+        guard points.count >= 4 else {
+            return .nil  // Need at least 4 points
+        }
+
+        let n = points.count
+
+        // Check for coplanarity using first 4 points
+        if n >= 4 {
+            let p1 = simd_double3(points[0].x, points[0].y, points[0].z)
+            let p2 = simd_double3(points[1].x, points[1].y, points[1].z)
+            let p3 = simd_double3(points[2].x, points[2].y, points[2].z)
+            let p4 = simd_double3(points[3].x, points[3].y, points[3].z)
+
+            let v1 = p2 - p1
+            let v2 = p3 - p1
+            let v3 = p4 - p1
+            let normal = simd_cross(v1, v2)
+            let volume = abs(simd_dot(normal, v3))
+
+            if volume < 1e-10 {
+                // Try other point combinations
+                var isCoplanar = true
+                outerLoop: for i in 0..<min(n, 8) {
+                    for j in (i+1)..<min(n, 8) {
+                        for k in (j+1)..<min(n, 8) {
+                            for l in (k+1)..<min(n, 8) {
+                                let pi = simd_double3(points[i].x, points[i].y, points[i].z)
+                                let pj = simd_double3(points[j].x, points[j].y, points[j].z)
+                                let pk = simd_double3(points[k].x, points[k].y, points[k].z)
+                                let pl = simd_double3(points[l].x, points[l].y, points[l].z)
+
+                                let vi = pj - pi
+                                let vj = pk - pi
+                                let vk = pl - pi
+                                let n = simd_cross(vi, vj)
+                                let vol = abs(simd_dot(n, vk))
+
+                                if vol > 1e-10 {
+                                    isCoplanar = false
+                                    break outerLoop
+                                }
+                            }
+                        }
+                    }
+                }
+                if isCoplanar {
+                    return .nil  // Points are coplanar, no sphere fits
+                }
+            }
+        }
+
+        // Kåsa-like method for sphere: solve [x, y, z, 1] * [D, E, F, G]' = -(x² + y² + z²)
+        // Build normal equations: A'A * params = A'b
+
+        var sumX = 0.0, sumY = 0.0, sumZ = 0.0
+        var sumX2 = 0.0, sumY2 = 0.0, sumZ2 = 0.0
+        var sumXY = 0.0, sumXZ = 0.0, sumYZ = 0.0
+        var sumX3 = 0.0, sumY3 = 0.0, sumZ3 = 0.0
+        var sumX2Y = 0.0, sumX2Z = 0.0
+        var sumXY2 = 0.0, sumY2Z = 0.0
+        var sumXZ2 = 0.0, sumYZ2 = 0.0
+
+        for p in points {
+            let x = p.x, y = p.y, z = p.z
+            let x2 = x * x, y2 = y * y, z2 = z * z
+
+            sumX += x
+            sumY += y
+            sumZ += z
+            sumX2 += x2
+            sumY2 += y2
+            sumZ2 += z2
+            sumXY += x * y
+            sumXZ += x * z
+            sumYZ += y * z
+            sumX3 += x2 * x
+            sumY3 += y2 * y
+            sumZ3 += z2 * z
+            sumX2Y += x2 * y
+            sumX2Z += x2 * z
+            sumXY2 += x * y2
+            sumY2Z += y2 * z
+            sumXZ2 += x * z2
+            sumYZ2 += y * z2
+        }
+
+        // Normal equations matrix A'A (4x4)
+        let a11 = sumX2, a12 = sumXY, a13 = sumXZ, a14 = sumX
+        let a21 = sumXY, a22 = sumY2, a23 = sumYZ, a24 = sumY
+        let a31 = sumXZ, a32 = sumYZ, a33 = sumZ2, a34 = sumZ
+        let a41 = sumX, a42 = sumY, a43 = sumZ, a44 = Double(n)
+
+        // Right-hand side A'b
+        let b1 = -(sumX3 + sumXY2 + sumXZ2)
+        let b2 = -(sumX2Y + sumY3 + sumYZ2)
+        let b3 = -(sumX2Z + sumY2Z + sumZ3)
+        let b4 = -(sumX2 + sumY2 + sumZ2)
+
+        // Solve 4x4 system using Gaussian elimination with partial pivoting
+        var A = [
+            [a11, a12, a13, a14, b1],
+            [a21, a22, a23, a24, b2],
+            [a31, a32, a33, a34, b3],
+            [a41, a42, a43, a44, b4]
+        ]
+
+        // Forward elimination with partial pivoting
+        for k in 0..<4 {
+            // Find pivot
+            var maxVal = abs(A[k][k])
+            var maxRow = k
+            for i in (k+1)..<4 {
+                if abs(A[i][k]) > maxVal {
+                    maxVal = abs(A[i][k])
+                    maxRow = i
+                }
+            }
+
+            // Swap rows
+            if maxRow != k {
+                let temp = A[k]
+                A[k] = A[maxRow]
+                A[maxRow] = temp
+            }
+
+            guard abs(A[k][k]) > 1e-15 else {
+                return .nil  // Singular matrix
+            }
+
+            // Eliminate column
+            for i in (k+1)..<4 {
+                let factor = A[i][k] / A[k][k]
+                for j in k..<5 {
+                    A[i][j] -= factor * A[k][j]
+                }
+            }
+        }
+
+        // Back substitution
+        var solution = [0.0, 0.0, 0.0, 0.0]
+        for i in stride(from: 3, through: 0, by: -1) {
+            var sum = A[i][4]
+            for j in (i+1)..<4 {
+                sum -= A[i][j] * solution[j]
+            }
+            solution[i] = sum / A[i][i]
+        }
+
+        let D = solution[0]
+        let E = solution[1]
+        let F = solution[2]
+        let G = solution[3]
+
+        // Extract sphere parameters
+        let cx = -D / 2.0
+        let cy = -E / 2.0
+        let cz = -F / 2.0
+        let r2 = D * D / 4.0 + E * E / 4.0 + F * F / 4.0 - G
+
+        guard r2 > 0 else {
+            return .nil  // Invalid radius
+        }
+
+        let r = sqrt(r2)
+
+        // Compute residuals
+        var residuals: [Double] = []
+        var sumResidualsSq = 0.0
+        var maxResidual = 0.0
+        for p in points {
+            let dist = sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy) + (p.z - cz) * (p.z - cz))
+            let residual = dist - r
+            residuals.append(residual)
+            sumResidualsSq += residual * residual
+            maxResidual = max(maxResidual, abs(residual))
+        }
+
+        let rmse = sqrt(sumResidualsSq / Double(n))
+
+        return .table([
+            "cx": .number(cx),
+            "cy": .number(cy),
+            "cz": .number(cz),
+            "r": .number(r),
+            "residuals": .array(residuals.map { .number($0) }),
+            "rmse": .number(rmse),
+            "max_error": .number(maxResidual),
+            "method": .string("algebraic")
+        ])
+    }
+
     // MARK: - Lua Wrapper Code
 
     private static let geometryLuaWrapper = """
@@ -2532,6 +2746,7 @@ public struct GeometryModule {
     local _circle_fit_algebraic = _luaswift_geo_circle_fit_algebraic
     local _circle_fit_taubin = _luaswift_geo_circle_fit_taubin
     local _ellipse_fit_direct = _luaswift_geo_ellipse_fit_direct
+    local _sphere_fit_algebraic = _luaswift_geo_sphere_fit_algebraic
 
     local _vec2_to_polar = _luaswift_geo_vec2_to_polar
     local _vec2_from_polar = _luaswift_geo_vec2_from_polar
@@ -2989,6 +3204,153 @@ public struct GeometryModule {
         return ellipse
     end
 
+    -- Sphere type with center (vec3) and radius
+    local sphere_mt = {
+        __eq = function(a, b)
+            return a.center.x == b.center.x and a.center.y == b.center.y
+                and a.center.z == b.center.z and a.radius == b.radius
+        end,
+        __tostring = function(a)
+            return string.format("sphere(center=vec3(%.4f, %.4f, %.4f), radius=%.4f)",
+                a.center.x, a.center.y, a.center.z, a.radius)
+        end,
+        __index = {
+            -- Chainable transformations
+            translate = function(self, dx, dy, dz)
+                return geo.sphere(self.center.x + dx, self.center.y + dy, self.center.z + dz, self.radius)
+            end,
+            scale = function(self, factor)
+                return geo.sphere(self.center.x, self.center.y, self.center.z, self.radius * factor)
+            end,
+            -- Queries
+            contains = function(self, point)
+                local dx = point.x - self.center.x
+                local dy = point.y - self.center.y
+                local dz = point.z - self.center.z
+                return (dx * dx + dy * dy + dz * dz) <= (self.radius * self.radius)
+            end,
+            volume = function(self)
+                return (4/3) * math.pi * self.radius^3
+            end,
+            surface_area = function(self)
+                return 4 * math.pi * self.radius^2
+            end,
+            -- Point generation (spherical coordinates)
+            point_at = function(self, theta, phi)
+                -- theta: azimuthal angle (0 to 2π), phi: polar angle (0 to π)
+                local x = self.center.x + self.radius * math.sin(phi) * math.cos(theta)
+                local y = self.center.y + self.radius * math.sin(phi) * math.sin(theta)
+                local z = self.center.z + self.radius * math.cos(phi)
+                return geo.vec3(x, y, z)
+            end,
+            -- Bounding box
+            bounds = function(self)
+                return {
+                    min = geo.vec3(self.center.x - self.radius, self.center.y - self.radius, self.center.z - self.radius),
+                    max = geo.vec3(self.center.x + self.radius, self.center.y + self.radius, self.center.z + self.radius)
+                }
+            end,
+            -- Clone
+            clone = function(self)
+                return geo.sphere(self.center.x, self.center.y, self.center.z, self.radius)
+            end,
+            -- Distance from point to surface (positive = outside, negative = inside)
+            distance = function(self, point)
+                local dx = point.x - self.center.x
+                local dy = point.y - self.center.y
+                local dz = point.z - self.center.z
+                return math.sqrt(dx * dx + dy * dy + dz * dz) - self.radius
+            end
+        }
+    }
+
+    -- Sphere constructor: geo.sphere(center, radius) or geo.sphere(cx, cy, cz, radius)
+    function geo.sphere(a, b, c, d)
+        local center, radius
+        if type(a) == "table" and a.x ~= nil and a.y ~= nil and a.z ~= nil then
+            -- geo.sphere(center_vec3, radius)
+            center = geo.vec3(a.x, a.y, a.z)
+            radius = b
+        elseif type(a) == "number" and type(b) == "number" and type(c) == "number" and type(d) == "number" then
+            -- geo.sphere(cx, cy, cz, radius)
+            center = geo.vec3(a, b, c)
+            radius = d
+        else
+            return nil
+        end
+
+        local sphere = {
+            center = center,
+            radius = radius,
+            __luaswift_type = "sphere"
+        }
+        setmetatable(sphere, sphere_mt)
+        return sphere
+    end
+
+    -- Fit sphere to 3D points using least squares
+    -- method: 'algebraic' (default)
+    -- Returns sphere object with additional fit diagnostics
+    function geo.sphere_fit(points, method)
+        method = method or 'algebraic'
+
+        -- Convert points to array format if needed
+        local pts = {}
+        for i, pt in ipairs(points) do
+            pts[i] = {x = pt.x or pt[1], y = pt.y or pt[2], z = pt.z or pt[3]}
+        end
+
+        -- Call fitting method
+        local result = _sphere_fit_algebraic(pts)
+
+        if not result then
+            return nil  -- Fitting failed (coplanar points, etc.)
+        end
+
+        -- Create sphere object with fit diagnostics
+        local sphere = geo.sphere(result.cx, result.cy, result.cz, result.r)
+        sphere._fit_residuals = result.residuals
+        sphere._fit_rmse = result.rmse
+        sphere._fit_max_error = result.max_error
+        sphere._fit_method = result.method
+        sphere._fit_points = pts
+
+        -- Add fit diagnostic methods to this specific sphere
+        local mt = getmetatable(sphere)
+        local old_index = mt.__index
+
+        local new_mt = {}
+        for k, v in pairs(mt) do
+            new_mt[k] = v
+        end
+        new_mt.__index = function(t, k)
+            if k == "residuals" then
+                return function() return t._fit_residuals end
+            elseif k == "rmse" then
+                return function() return t._fit_rmse end
+            elseif k == "max_error" then
+                return function() return t._fit_max_error end
+            elseif k == "fit_method" then
+                return function() return t._fit_method end
+            elseif k == "fit_points" then
+                return function() return t._fit_points end
+            elseif k == "cx" then
+                return t.center.x
+            elseif k == "cy" then
+                return t.center.y
+            elseif k == "cz" then
+                return t.center.z
+            elseif k == "r" then
+                return t.radius
+            else
+                return old_index[k]
+            end
+        end
+        setmetatable(sphere, new_mt)
+
+        return sphere
+    end
+
     -- Quaternion type
     local quat_mt = {
         __mul = function(a, b)
@@ -3250,10 +3612,7 @@ public struct GeometryModule {
     geo.sphere_from_4_points = function(p1, p2, p3, p4)
         local r = _sphere_from_4_points(p1, p2, p3, p4)
         if r then
-            return {
-                center = geo.vec3(r.center.x, r.center.y, r.center.z),
-                radius = r.radius
-            }
+            return geo.sphere(r.center.x, r.center.y, r.center.z, r.radius)
         end
         return nil
     end

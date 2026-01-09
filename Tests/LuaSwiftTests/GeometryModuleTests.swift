@@ -377,6 +377,162 @@ struct GeometryModuleTests {
         #expect(result.numberValue == 5)
     }
 
+    @Test("Distance with quaternions")
+    func distanceQuaternion() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local q1 = geo.quaternion.identity()
+            local q2 = geo.quaternion.identity()
+            return geo.distance(q1, q2)
+        """)
+
+        #expect(result.numberValue == 0)
+    }
+
+    @Test("Distance sugar syntax vec2")
+    func distanceSugarVec2() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec2(0, 0)
+            local v2 = geo.vec2(3, 4)
+            return v1:distance(v2)
+        """)
+
+        #expect(result.numberValue == 5)
+    }
+
+    @Test("Distance sugar syntax vec3")
+    func distanceSugarVec3() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec3(0, 0, 0)
+            local v2 = geo.vec3(1, 2, 2)
+            return v1:distance(v2)
+        """)
+
+        #expect(result.numberValue == 3)
+    }
+
+    @Test("Distance sugar syntax quaternion")
+    func distanceSugarQuat() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local q1 = geo.quaternion.identity()
+            local q2 = geo.quaternion(1, 0, 0, 0)
+            return q1:distance(q2)
+        """)
+
+        #expect(result.numberValue == 0)
+    }
+
+    @Test("Angle between vec2")
+    func angleBetweenVec2() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec2(1, 0)
+            local v2 = geo.vec2(0, 1)
+            return geo.angle_between(v1, v2)
+        """)
+
+        let angle = try #require(result.numberValue)
+        #expect(abs(angle - Double.pi / 2) < 1e-10)
+    }
+
+    @Test("Angle between vec3")
+    func angleBetweenVec3() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec3(1, 0, 0)
+            local v2 = geo.vec3(0, 1, 0)
+            return geo.angle_between(v1, v2)
+        """)
+
+        let angle = try #require(result.numberValue)
+        #expect(abs(angle - Double.pi / 2) < 1e-10)
+    }
+
+    @Test("Angle sugar syntax vec2")
+    func angleSugarVec2() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec2(1, 0)
+            local v2 = geo.vec2(0, 1)
+            return v1:angle_to(v2)
+        """)
+
+        let angle = try #require(result.numberValue)
+        #expect(abs(angle - Double.pi / 2) < 1e-10)
+    }
+
+    @Test("Angle sugar syntax vec3")
+    func angleSugarVec3() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec3(1, 0, 0)
+            local v2 = geo.vec3(0, 1, 0)
+            return v1:angle_to(v2)
+        """)
+
+        let angle = try #require(result.numberValue)
+        #expect(abs(angle - Double.pi / 2) < 1e-10)
+    }
+
+    @Test("Angle between parallel vectors")
+    func angleBetweenParallel() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec3(1, 0, 0)
+            local v2 = geo.vec3(2, 0, 0)
+            return geo.angle_between(v1, v2)
+        """)
+
+        let angle = try #require(result.numberValue)
+        #expect(abs(angle) < 1e-10)
+    }
+
+    @Test("Angle between opposite vectors")
+    func angleBetweenOpposite() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec3(1, 0, 0)
+            local v2 = geo.vec3(-1, 0, 0)
+            return geo.angle_between(v1, v2)
+        """)
+
+        let angle = try #require(result.numberValue)
+        #expect(abs(angle - Double.pi) < 1e-10)
+    }
+
     @Test("Convex hull")
     func convexHull() throws {
         let engine = try LuaEngine()

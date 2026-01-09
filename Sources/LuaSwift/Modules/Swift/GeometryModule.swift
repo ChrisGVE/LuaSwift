@@ -107,6 +107,7 @@ public struct GeometryModule {
 
         // Geometric calculations
         engine.registerFunction(name: "_luaswift_geo_distance", callback: distanceCallback)
+        engine.registerFunction(name: "_luaswift_geo_angle_between", callback: angleBetweenCallback)
         engine.registerFunction(name: "_luaswift_geo_convex_hull", callback: convexHullCallback)
         engine.registerFunction(name: "_luaswift_geo_point_in_polygon", callback: pointInPolygonCallback)
         engine.registerFunction(name: "_luaswift_geo_line_intersection", callback: lineIntersectionCallback)
@@ -688,11 +689,43 @@ public struct GeometryModule {
     private static let distanceCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2 else { return .nil }
 
-        // Try 3D first, then 2D
-        if let v1 = extractVec3(args[0]), let v2 = extractVec3(args[1]) {
+        // Try quaternion first (4D), then 3D, then 2D
+        if let q1 = extractQuat(args[0]), let q2 = extractQuat(args[1]) {
+            // Quaternion distance: Euclidean distance in 4D
+            let dw = q1.real - q2.real
+            let dx = q1.imag.x - q2.imag.x
+            let dy = q1.imag.y - q2.imag.y
+            let dz = q1.imag.z - q2.imag.z
+            return .number(sqrt(dw * dw + dx * dx + dy * dy + dz * dz))
+        } else if let v1 = extractVec3(args[0]), let v2 = extractVec3(args[1]) {
             return .number(simd_distance(v1, v2))
         } else if let v1 = extractVec2(args[0]), let v2 = extractVec2(args[1]) {
             return .number(simd_distance(v1, v2))
+        }
+        return .nil
+    }
+
+    /// Angle between two vectors (implicit origin translation)
+    private static let angleBetweenCallback: ([LuaValue]) -> LuaValue = { args in
+        guard args.count >= 2 else { return .nil }
+
+        // Try 3D first, then 2D
+        if let v1 = extractVec3(args[0]), let v2 = extractVec3(args[1]) {
+            let len1 = simd_length(v1)
+            let len2 = simd_length(v2)
+            guard len1 > 0 && len2 > 0 else { return .nil }
+            let dotProduct = simd_dot(v1, v2)
+            // Clamp to avoid numerical issues with acos
+            let cosAngle = max(-1.0, min(1.0, dotProduct / (len1 * len2)))
+            return .number(acos(cosAngle))
+        } else if let v1 = extractVec2(args[0]), let v2 = extractVec2(args[1]) {
+            let len1 = simd_length(v1)
+            let len2 = simd_length(v2)
+            guard len1 > 0 && len2 > 0 else { return .nil }
+            // Use atan2 for signed angle in 2D
+            let cross = v1.x * v2.y - v1.y * v2.x
+            let dot = simd_dot(v1, v2)
+            return .number(atan2(cross, dot))
         }
         return .nil
     }
@@ -1170,6 +1203,7 @@ public struct GeometryModule {
     local _mat4_apply = _luaswift_geo_mat4_apply
 
     local _distance = _luaswift_geo_distance
+    local _angle_between = _luaswift_geo_angle_between
     local _convex_hull = _luaswift_geo_convex_hull
     local _point_in_polygon = _luaswift_geo_point_in_polygon
     local _line_intersection = _luaswift_geo_line_intersection
@@ -1248,7 +1282,10 @@ public struct GeometryModule {
             to_polar = function(self)
                 return _vec2_to_polar(self)
             end,
-            clone = function(self) return geo.vec2(self.x, self.y) end
+            clone = function(self) return geo.vec2(self.x, self.y) end,
+            -- Sugar methods for common operations
+            distance = function(self, other) return _distance(self, other) end,
+            angle_to = function(self, other) return _angle_between(self, other) end
         }
     }
 
@@ -1319,7 +1356,10 @@ public struct GeometryModule {
             to_cylindrical = function(self)
                 return _vec3_to_cylindrical(self)
             end,
-            clone = function(self) return geo.vec3(self.x, self.y, self.z) end
+            clone = function(self) return geo.vec3(self.x, self.y, self.z) end,
+            -- Sugar methods for common operations
+            distance = function(self, other) return _distance(self, other) end,
+            angle_to = function(self, other) return _angle_between(self, other) end
         }
     }
 
@@ -1381,7 +1421,9 @@ public struct GeometryModule {
             length = function(self)
                 return _quat_length(self)
             end,
-            clone = function(self) return geo.quaternion(self.w, self.x, self.y, self.z) end
+            clone = function(self) return geo.quaternion(self.w, self.x, self.y, self.z) end,
+            -- Sugar method for distance
+            distance = function(self, other) return _distance(self, other) end
         }
     }
 
@@ -1466,6 +1508,13 @@ public struct GeometryModule {
     -- Expose Swift-optimized functions with proper wrapping
     geo.distance = function(v1, v2)
         return _distance(v1, v2)
+    end
+
+    -- Angle between two vectors (implicit origin translation)
+    -- For 2D: returns signed angle using atan2
+    -- For 3D: returns unsigned angle using acos(dot/lengths)
+    geo.angle_between = function(v1, v2)
+        return _angle_between(v1, v2)
     end
 
     geo.convex_hull = function(points)

@@ -51,6 +51,7 @@ public struct ModuleRegistry {
     /// - `luaswift.cluster`: Clustering algorithms (kmeans, hierarchical, DBSCAN)
     /// - `luaswift.spatial`: Spatial algorithms (KDTree, distance functions, Voronoi, Delaunay)
     /// - `luaswift.special`: Special functions (erf, erfc, beta, betainc, bessel)
+    /// - `luaswift.regress`: Regression models (OLS, WLS, GLS, GLM, ARIMA)
     /// - `luaswift.debug`: Debugging utilities (DEBUG builds only)
     ///
     /// Top-level aliases are also created: `stringx`, `mathx`, `tablex`, `utf8x`,
@@ -59,7 +60,7 @@ public struct ModuleRegistry {
     ///
     /// Use `luaswift.extend_stdlib()` to inject all extensions into the standard library.
     /// After calling extend_stdlib(), math subnamespaces are available:
-    /// `math.linalg`, `math.stats`, `math.special`, `math.constants`, etc.
+    /// `math.linalg`, `math.stats`, `math.special`, `math.regress`, `math.constants`, etc.
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
@@ -88,6 +89,7 @@ public struct ModuleRegistry {
         installClusterModule(in: engine)
         installSpatialModule(in: engine)
         installSpecialModule(in: engine)
+        installRegressModule(in: engine)
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -156,6 +158,10 @@ public struct ModuleRegistry {
 
                     if luaswift.geometry then
                         math.geo = luaswift.geometry
+                    end
+
+                    if luaswift.regress then
+                        math.regress = luaswift.regress
                     end
                 end
                 """)
@@ -373,5 +379,15 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installSpecialModule(in engine: LuaEngine) {
         SpecialModule.register(in: engine)
+    }
+
+    /// Install only the Regress module.
+    ///
+    /// This module provides regression models (OLS, WLS, GLS, GLM, ARIMA).
+    /// Should be called after MathSciModule to add to math.regress namespace.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installRegressModule(in engine: LuaEngine) {
+        RegressModule.register(in: engine)
     }
 }

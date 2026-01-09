@@ -127,6 +127,8 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_bspline_basis", callback: bsplineBasisCallback)
         engine.registerFunction(name: "_luaswift_geo_bspline_uniform_knots", callback: bsplineUniformKnotsCallback)
         engine.registerFunction(name: "_luaswift_geo_bspline_derivative", callback: bsplineDerivativeCallback)
+        engine.registerFunction(name: "_luaswift_geo_circle_fit_algebraic", callback: circleFitAlgebraicCallback)
+        engine.registerFunction(name: "_luaswift_geo_circle_fit_taubin", callback: circleFitTaubinCallback)
 
         // Set up the luaswift.geometry namespace
         do {
@@ -1665,6 +1667,266 @@ public struct GeometryModule {
         }
     }
 
+    // MARK: - Circle Fitting Callbacks
+
+    /// Fit circle to points using algebraic (Kåsa) method
+    /// Minimizes Σ(x² + y² + Dx + Ey + F)² - a linear least squares problem
+    /// Input: array of points [{x, y}, ...]
+    /// Output: {cx, cy, r, residuals, method}
+    private static let circleFitAlgebraicCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard let pointsArray = args.first?.arrayValue else {
+            throw LuaError.callbackError("circle_fit requires array of points")
+        }
+
+        // Extract points
+        var points: [(x: Double, y: Double)] = []
+        for pt in pointsArray {
+            if let table = pt.tableValue {
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
+                if let x = x, let y = y {
+                    points.append((x, y))
+                }
+            }
+        }
+
+        guard points.count >= 3 else {
+            throw LuaError.callbackError("circle_fit requires at least 3 points")
+        }
+
+        let n = points.count
+
+        // Check for collinearity using area of triangle formed by first 3 points
+        if n >= 3 {
+            let p1 = points[0], p2 = points[1], p3 = points[2]
+            let area = abs((p2.x - p1.x) * (p3.y - p1.y) - (p3.x - p1.x) * (p2.y - p1.y)) / 2.0
+            if area < 1e-10 {
+                // Try other point combinations
+                var isCollinear = true
+                for i in 0..<min(n, 10) {
+                    for j in (i+1)..<min(n, 10) {
+                        for k in (j+1)..<min(n, 10) {
+                            let pi = points[i], pj = points[j], pk = points[k]
+                            let a = abs((pj.x - pi.x) * (pk.y - pi.y) - (pk.x - pi.x) * (pj.y - pi.y)) / 2.0
+                            if a > 1e-10 {
+                                isCollinear = false
+                                break
+                            }
+                        }
+                        if !isCollinear { break }
+                    }
+                    if !isCollinear { break }
+                }
+                if isCollinear {
+                    return .nil  // Points are collinear, no circle fits
+                }
+            }
+        }
+
+        // Kåsa's method: solve [x, y, 1] * [D, E, F]^T = -(x² + y²) in least squares sense
+        // Build the linear system A * [D, E, F]^T = b
+        // Using normal equations: A^T A * x = A^T b
+
+        // Compute sums
+        var sumX = 0.0, sumY = 0.0, sumX2 = 0.0, sumY2 = 0.0, sumXY = 0.0
+        var sumX3 = 0.0, sumY3 = 0.0, sumX2Y = 0.0, sumXY2 = 0.0
+
+        for p in points {
+            let x = p.x, y = p.y
+            let x2 = x * x, y2 = y * y
+            sumX += x
+            sumY += y
+            sumX2 += x2
+            sumY2 += y2
+            sumXY += x * y
+            sumX3 += x2 * x
+            sumY3 += y2 * y
+            sumX2Y += x2 * y
+            sumXY2 += x * y2
+        }
+
+        // Normal equations matrix A^T A (3x3)
+        // A^T A = [sumX2, sumXY, sumX; sumXY, sumY2, sumY; sumX, sumY, n]
+        // A^T b = [-(sumX3 + sumXY2), -(sumX2Y + sumY3), -(sumX2 + sumY2)]
+
+        let a11 = sumX2, a12 = sumXY, a13 = sumX
+        let a21 = sumXY, a22 = sumY2, a23 = sumY
+        let a31 = sumX, a32 = sumY, a33 = Double(n)
+
+        let b1 = -(sumX3 + sumXY2)
+        let b2 = -(sumX2Y + sumY3)
+        let b3 = -(sumX2 + sumY2)
+
+        // Solve 3x3 system using Cramer's rule
+        let det = a11 * (a22 * a33 - a23 * a32) - a12 * (a21 * a33 - a23 * a31) + a13 * (a21 * a32 - a22 * a31)
+
+        guard abs(det) > 1e-15 else {
+            return .nil  // Singular matrix, points may be collinear
+        }
+
+        let detD = b1 * (a22 * a33 - a23 * a32) - a12 * (b2 * a33 - a23 * b3) + a13 * (b2 * a32 - a22 * b3)
+        let detE = a11 * (b2 * a33 - a23 * b3) - b1 * (a21 * a33 - a23 * a31) + a13 * (a21 * b3 - b2 * a31)
+        let detF = a11 * (a22 * b3 - b2 * a32) - a12 * (a21 * b3 - b2 * a31) + b1 * (a21 * a32 - a22 * a31)
+
+        let D = detD / det
+        let E = detE / det
+        let F = detF / det
+
+        // Extract circle parameters
+        let cx = -D / 2.0
+        let cy = -E / 2.0
+        let r2 = D * D / 4.0 + E * E / 4.0 - F
+
+        guard r2 > 0 else {
+            return .nil  // Invalid radius (imaginary)
+        }
+
+        let r = sqrt(r2)
+
+        // Compute residuals (distances from points to fitted circle)
+        var residuals: [Double] = []
+        var sumResidualsSq = 0.0
+        for p in points {
+            let dist = sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy))
+            let residual = dist - r
+            residuals.append(residual)
+            sumResidualsSq += residual * residual
+        }
+
+        let rmse = sqrt(sumResidualsSq / Double(n))
+
+        return .table([
+            "cx": .number(cx),
+            "cy": .number(cy),
+            "r": .number(r),
+            "residuals": .array(residuals.map { .number($0) }),
+            "rmse": .number(rmse),
+            "method": .string("algebraic")
+        ])
+    }
+
+    /// Fit circle using Taubin's method (modified algebraic with normalization)
+    /// More accurate than Kåsa for noisy data
+    private static let circleFitTaubinCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard let pointsArray = args.first?.arrayValue else {
+            throw LuaError.callbackError("circle_fit requires array of points")
+        }
+
+        // Extract points
+        var points: [(x: Double, y: Double)] = []
+        for pt in pointsArray {
+            if let table = pt.tableValue {
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
+                if let x = x, let y = y {
+                    points.append((x, y))
+                }
+            }
+        }
+
+        guard points.count >= 3 else {
+            throw LuaError.callbackError("circle_fit requires at least 3 points")
+        }
+
+        let n = Double(points.count)
+
+        // Center the data
+        var meanX = 0.0, meanY = 0.0
+        for p in points {
+            meanX += p.x
+            meanY += p.y
+        }
+        meanX /= n
+        meanY /= n
+
+        // Compute moments of centered data
+        var Mxx = 0.0, Myy = 0.0, Mxy = 0.0
+        var Mxz = 0.0, Myz = 0.0, Mzz = 0.0
+
+        for p in points {
+            let xi = p.x - meanX
+            let yi = p.y - meanY
+            let zi = xi * xi + yi * yi
+
+            Mxx += xi * xi
+            Myy += yi * yi
+            Mxy += xi * yi
+            Mxz += xi * zi
+            Myz += yi * zi
+            Mzz += zi * zi
+        }
+
+        Mxx /= n
+        Myy /= n
+        Mxy /= n
+        Mxz /= n
+        Myz /= n
+        Mzz /= n
+
+        // Taubin's method: solve the constraint optimization problem
+        // Using Newton's method on the characteristic polynomial
+
+        let Mz = Mxx + Myy
+        let Cov_xy = Mxx * Myy - Mxy * Mxy
+        let Var_z = Mzz - Mz * Mz
+
+        let A3 = 4.0 * Mz
+        let A2 = -3.0 * Mz * Mz - Mzz
+        let A1 = Var_z * Mz + 4.0 * Cov_xy * Mz - Mxz * Mxz - Myz * Myz
+        let A0 = Mxz * (Mxz * Myy - Myz * Mxy) + Myz * (Myz * Mxx - Mxz * Mxy) - Var_z * Cov_xy
+
+        // Newton's method to find the root
+        var y = A0
+        var x = 0.0
+
+        for _ in 0..<20 {
+            let Dy = A1 + x * (2.0 * A2 + x * 3.0 * A3)
+            guard abs(Dy) > 1e-15 else { break }
+            let xNew = x - y / Dy
+            if abs(xNew - x) < 1e-12 { break }
+            x = xNew
+            y = A0 + x * (A1 + x * (A2 + x * A3))
+        }
+
+        // Compute circle parameters
+        let DET = x * x - x * Mz + Cov_xy
+        guard abs(DET) > 1e-15 else {
+            return .nil
+        }
+
+        let Xcenter = (Mxz * (Myy - x) - Myz * Mxy) / DET / 2.0
+        let Ycenter = (Myz * (Mxx - x) - Mxz * Mxy) / DET / 2.0
+
+        let cx = Xcenter + meanX
+        let cy = Ycenter + meanY
+        let r = sqrt(Xcenter * Xcenter + Ycenter * Ycenter + Mz)
+
+        guard r > 0 && r.isFinite else {
+            return .nil
+        }
+
+        // Compute residuals
+        var residuals: [Double] = []
+        var sumResidualsSq = 0.0
+        for p in points {
+            let dist = sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy))
+            let residual = dist - r
+            residuals.append(residual)
+            sumResidualsSq += residual * residual
+        }
+
+        let rmse = sqrt(sumResidualsSq / n)
+
+        return .table([
+            "cx": .number(cx),
+            "cy": .number(cy),
+            "r": .number(r),
+            "residuals": .array(residuals.map { .number($0) }),
+            "rmse": .number(rmse),
+            "method": .string("taubin")
+        ])
+    }
+
     // MARK: - Coordinate Conversion Callbacks
 
     /// Convert vec2 (x, y) to polar (r, theta)
@@ -1818,6 +2080,8 @@ public struct GeometryModule {
     local _bspline_basis = _luaswift_geo_bspline_basis
     local _bspline_uniform_knots = _luaswift_geo_bspline_uniform_knots
     local _bspline_derivative = _luaswift_geo_bspline_derivative
+    local _circle_fit_algebraic = _luaswift_geo_circle_fit_algebraic
+    local _circle_fit_taubin = _luaswift_geo_circle_fit_taubin
 
     local _vec2_to_polar = _luaswift_geo_vec2_to_polar
     local _vec2_from_polar = _luaswift_geo_vec2_from_polar
@@ -2975,6 +3239,70 @@ public struct GeometryModule {
             knots[i] = k
         end
         return knots
+    end
+
+    -- Fit circle to points using least squares
+    -- method: 'algebraic' (default, fast), 'taubin' (more accurate for noise)
+    -- Returns circle object with additional fit diagnostics
+    function geo.circle_fit(points, method)
+        method = method or 'algebraic'
+
+        -- Convert points to array format if needed
+        local pts = {}
+        for i, pt in ipairs(points) do
+            pts[i] = {x = pt.x or pt[1], y = pt.y or pt[2]}
+        end
+
+        -- Call appropriate fitting method
+        local result
+        if method == 'taubin' then
+            result = _circle_fit_taubin(pts)
+        else
+            result = _circle_fit_algebraic(pts)
+        end
+
+        if not result then
+            return nil  -- Fitting failed (collinear points, etc.)
+        end
+
+        -- Create circle object with fit diagnostics
+        local circle = geo.circle(result.cx, result.cy, result.r)
+        circle._fit_residuals = result.residuals
+        circle._fit_rmse = result.rmse
+        circle._fit_method = result.method
+        circle._fit_points = pts
+
+        -- Add residuals method to this specific circle
+        local mt = getmetatable(circle)
+        local old_index = mt.__index
+
+        -- Create new metatable with extended __index
+        local new_mt = {}
+        for k, v in pairs(mt) do
+            new_mt[k] = v
+        end
+        new_mt.__index = function(t, k)
+            if k == "residuals" then
+                return function() return t._fit_residuals end
+            elseif k == "rmse" then
+                return function() return t._fit_rmse end
+            elseif k == "fit_method" then
+                return function() return t._fit_method end
+            elseif k == "fit_points" then
+                return function() return t._fit_points end
+            elseif k == "cx" then
+                return t.center.x
+            elseif k == "cy" then
+                return t.center.y
+            elseif k == "r" then
+                return t.radius
+            else
+                return old_index[k]
+            end
+        end
+        setmetatable(circle, new_mt)
+
+        return circle
     end
 
     -- Make available via require

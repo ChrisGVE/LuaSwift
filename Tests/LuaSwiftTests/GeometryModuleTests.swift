@@ -2116,4 +2116,270 @@ struct GeometryModuleTests {
         #expect(arr[2].numberValue == 0)   // Knot 4 is still 0 (p+1 zeros)
         #expect(arr[3].numberValue == 1)   // Last knot is 1 (clamped)
     }
+
+    // MARK: - Circle Fitting Tests
+
+    @Test("circle_fit exact points recovers original circle")
+    func circleFitExactPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Generate exact points on circle with center (5, 3), radius 4
+            local cx, cy, r = 5, 3, 4
+            local points = {}
+            for i = 0, 7 do
+                local angle = i * math.pi / 4
+                points[#points + 1] = geo.vec2(cx + r * math.cos(angle), cy + r * math.sin(angle))
+            end
+            local fitted = geo.circle_fit(points)
+            return {fitted.cx, fitted.cy, fitted.r, fitted:rmse()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 5.0) < 0.0001)   // cx
+        #expect(abs(arr[1].numberValue! - 3.0) < 0.0001)   // cy
+        #expect(abs(arr[2].numberValue! - 4.0) < 0.0001)   // r
+        #expect(arr[3].numberValue! < 1e-10)               // RMSE should be ~0
+    }
+
+    @Test("circle_fit with noisy points gives approximate result")
+    func circleFitNoisyPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Generate points on circle with small perturbations
+            local cx, cy, r = 10, -5, 7
+            local points = {}
+            local seed = 12345
+            local function noise()
+                seed = (seed * 1103515245 + 12345) % 2147483648
+                return (seed / 2147483648 - 0.5) * 0.2  -- noise in [-0.1, 0.1]
+            end
+            for i = 0, 15 do
+                local angle = i * math.pi / 8
+                local x = cx + (r + noise()) * math.cos(angle)
+                local y = cy + (r + noise()) * math.sin(angle)
+                points[#points + 1] = geo.vec2(x, y)
+            end
+            local fitted = geo.circle_fit(points)
+            return {fitted.cx, fitted.cy, fitted.r, fitted:rmse()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 10.0) < 0.5)   // cx within 0.5
+        #expect(abs(arr[1].numberValue! - (-5.0)) < 0.5) // cy within 0.5
+        #expect(abs(arr[2].numberValue! - 7.0) < 0.5)    // r within 0.5
+        #expect(arr[3].numberValue! < 0.2)               // RMSE should be small
+    }
+
+    @Test("circle_fit taubin method")
+    func circleFitTaubin() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local cx, cy, r = 2, 4, 3
+            local points = {}
+            for i = 0, 11 do
+                local angle = i * math.pi / 6
+                points[#points + 1] = geo.vec2(cx + r * math.cos(angle), cy + r * math.sin(angle))
+            end
+            local fitted = geo.circle_fit(points, 'taubin')
+            return {fitted.cx, fitted.cy, fitted.r, fitted:fit_method()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 2.0) < 0.0001)   // cx
+        #expect(abs(arr[1].numberValue! - 4.0) < 0.0001)   // cy
+        #expect(abs(arr[2].numberValue! - 3.0) < 0.0001)   // r
+        #expect(arr[3].stringValue == "taubin")
+    }
+
+    @Test("circle_fit collinear points returns nil")
+    func circleFitCollinear() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Three collinear points
+            local points = {
+                geo.vec2(0, 0),
+                geo.vec2(1, 1),
+                geo.vec2(2, 2)
+            }
+            local fitted = geo.circle_fit(points)
+            return fitted == nil
+        """)
+
+        #expect(result.boolValue == true)
+    }
+
+    @Test("circle_fit residuals method")
+    func circleFitResiduals() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec2(1, 0),
+                geo.vec2(0, 1),
+                geo.vec2(-1, 0),
+                geo.vec2(0, -1)
+            }
+            local fitted = geo.circle_fit(points)
+            local res = fitted:residuals()
+            return {#res, res[1], res[2], res[3], res[4]}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 4)   // 4 residuals
+        // Exact points should have near-zero residuals
+        #expect(abs(arr[1].numberValue!) < 1e-10)
+        #expect(abs(arr[2].numberValue!) < 1e-10)
+        #expect(abs(arr[3].numberValue!) < 1e-10)
+        #expect(abs(arr[4].numberValue!) < 1e-10)
+    }
+
+    @Test("circle_fit fit_points method")
+    func circleFitFitPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec2(3, 0),
+                geo.vec2(0, 3),
+                geo.vec2(-3, 0),
+                geo.vec2(0, -3)
+            }
+            local fitted = geo.circle_fit(points)
+            local pts = fitted:fit_points()
+            return {#pts, pts[1].x, pts[1].y, pts[3].x, pts[3].y}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 4)   // 4 points
+        #expect(arr[1].numberValue == 3)   // first point x
+        #expect(arr[2].numberValue == 0)   // first point y
+        #expect(arr[3].numberValue == -3)  // third point x
+        #expect(arr[4].numberValue == 0)   // third point y
+    }
+
+    @Test("circle_fit algebraic vs taubin comparison")
+    func circleFitMethodComparison() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Create arc (not full circle) - this shows bias differences
+            local cx, cy, r = 0, 0, 5
+            local points = {}
+            for i = 0, 5 do
+                local angle = i * math.pi / 10  -- 0 to π/2 arc
+                points[#points + 1] = geo.vec2(cx + r * math.cos(angle), cy + r * math.sin(angle))
+            end
+            local alg = geo.circle_fit(points, 'algebraic')
+            local tau = geo.circle_fit(points, 'taubin')
+            return {
+                alg:fit_method(),
+                tau:fit_method(),
+                alg.r,
+                tau.r
+            }
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].stringValue == "algebraic")
+        #expect(arr[1].stringValue == "taubin")
+        // Both should get radius close to 5
+        #expect(abs(arr[2].numberValue! - 5.0) < 0.5)
+        #expect(abs(arr[3].numberValue! - 5.0) < 0.5)
+    }
+
+    @Test("circle_fit with array-style points")
+    func circleFitArrayPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Use {x, y} array format instead of vec2
+            local points = {
+                {5, 0},
+                {0, 5},
+                {-5, 0},
+                {0, -5}
+            }
+            local fitted = geo.circle_fit(points)
+            return {fitted.cx, fitted.cy, fitted.r}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue!) < 0.0001)        // cx ≈ 0
+        #expect(abs(arr[1].numberValue!) < 0.0001)        // cy ≈ 0
+        #expect(abs(arr[2].numberValue! - 5.0) < 0.0001)  // r ≈ 5
+    }
+
+    @Test("circle_fit with minimum 3 points")
+    func circleFitMinPoints() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Exactly 3 non-collinear points uniquely define a circle
+            local points = {
+                geo.vec2(0, 0),
+                geo.vec2(2, 0),
+                geo.vec2(1, 1)
+            }
+            local fitted = geo.circle_fit(points)
+            -- Center should be at (1, 0) with r = 1
+            return {fitted.cx, fitted.cy, fitted.r}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 1.0) < 0.0001)  // cx ≈ 1
+        #expect(abs(arr[1].numberValue!) < 0.0001)        // cy ≈ 0
+        #expect(abs(arr[2].numberValue! - 1.0) < 0.0001)  // r ≈ 1
+    }
+
+    @Test("circle_fit fitted circle inherits circle methods")
+    func circleFitInheritsMethods() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {
+                geo.vec2(3, 0),
+                geo.vec2(0, 3),
+                geo.vec2(-3, 0),
+                geo.vec2(0, -3)
+            }
+            local fitted = geo.circle_fit(points)
+            -- Test inherited circle methods
+            local area = fitted:area()
+            local circumference = fitted:circumference()
+            local contains = fitted:contains(geo.vec2(0, 0))
+            return {area, circumference, contains}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // area = π * 3² ≈ 28.27
+        #expect(abs(arr[0].numberValue! - 28.2743) < 0.01)
+        // circumference = 2π * 3 ≈ 18.85
+        #expect(abs(arr[1].numberValue! - 18.8495) < 0.01)
+        // center (0,0) is inside circle of radius 3
+        #expect(arr[2].boolValue == true)
+    }
 }

@@ -112,7 +112,89 @@ public struct RegressModule {
 
                     table.insert(lines, string.rep("=", 78))
 
+                    -- Diagnostics section
+                    table.insert(lines, string.format("%-38s %-38s",
+                        string.format("Cond. No.: %.4g", self.condition_number or 0),
+                        string.format("MSE Resid: %.4g", self.mse_resid or 0)))
+                    table.insert(lines, string.rep("=", 78))
+
+                    -- Warnings
+                    local warnings = {}
+                    if self.condition_number and self.condition_number > 1000 then
+                        table.insert(warnings, "[1] The condition number is large (" ..
+                            string.format("%.0f", self.condition_number) ..
+                            "). This might indicate strong multicollinearity.")
+                    end
+
+                    -- Check for high leverage points
+                    if self.hat_diag then
+                        local n = #self.hat_diag
+                        local k = #self.params
+                        local threshold = 2 * (k + 1) / n
+                        local high_leverage = 0
+                        for i = 1, n do
+                            if self.hat_diag[i] > threshold then
+                                high_leverage = high_leverage + 1
+                            end
+                        end
+                        if high_leverage > 0 then
+                            table.insert(warnings, "[" .. (#warnings + 1) .. "] " ..
+                                high_leverage .. " observations have high leverage (h > 2(k+1)/n).")
+                        end
+                    end
+
+                    -- Check for influential points
+                    if self.cooks_distance then
+                        local influential = 0
+                        for i = 1, #self.cooks_distance do
+                            if self.cooks_distance[i] > 1 then
+                                influential = influential + 1
+                            end
+                        end
+                        if influential > 0 then
+                            table.insert(warnings, "[" .. (#warnings + 1) .. "] " ..
+                                influential .. " observations have Cook's D > 1 (highly influential).")
+                        end
+                    end
+
+                    if #warnings > 0 then
+                        table.insert(lines, "")
+                        table.insert(lines, "Warnings:")
+                        for _, w in ipairs(warnings) do
+                            table.insert(lines, w)
+                        end
+                    end
+
                     return table.concat(lines, "\\n")
+                end
+
+                -- Get influence diagnostics as a table
+                function Results_mt:get_influence()
+                    return {
+                        hat_diag = self.hat_diag,
+                        resid_studentized = self.resid_studentized,
+                        cooks_distance = self.cooks_distance,
+                        dffits = self.dffits
+                    }
+                end
+
+                -- Get standard errors with optional robust covariance type
+                function Results_mt:get_bse(cov_type)
+                    cov_type = cov_type or "nonrobust"
+                    if cov_type == "nonrobust" or cov_type == "classical" then
+                        return self.bse
+                    elseif cov_type == "HC0" then
+                        return self.bse_hc0
+                    elseif cov_type == "HC1" then
+                        return self.bse_hc1
+                    elseif cov_type == "HC2" then
+                        return self.bse_hc2
+                    elseif cov_type == "HC3" then
+                        return self.bse_hc3
+                    else
+                        error("Unknown cov_type: " .. tostring(cov_type) ..
+                            ". Use 'nonrobust', 'HC0', 'HC1', 'HC2', or 'HC3'.")
+                    end
                 end
 
                 function Results_mt:predict(exog)
@@ -178,11 +260,28 @@ public struct RegressModule {
                     -- Create Results object
                     local results = setmetatable({}, Results_mt)
 
-                    -- Copy all results from Swift
+                    -- Per-parameter metrics
                     results.params = result.params
                     results.bse = result.bse
                     results.tvalues = result.tvalues
                     results.pvalues = result.pvalues
+                    results._conf_int = result.conf_int
+
+                    -- Robust standard errors (HC0-HC3)
+                    results.bse_hc0 = result.bse_hc0
+                    results.bse_hc1 = result.bse_hc1
+                    results.bse_hc2 = result.bse_hc2
+                    results.bse_hc3 = result.bse_hc3
+
+                    -- Per-observation metrics
+                    results.resid = result.resid
+                    results.fittedvalues = result.fittedvalues
+                    results.hat_diag = result.hat_diag
+                    results.resid_studentized = result.resid_studentized
+                    results.cooks_distance = result.cooks_distance
+                    results.dffits = result.dffits
+
+                    -- Model-level metrics
                     results.rsquared = result.rsquared
                     results.rsquared_adj = result.rsquared_adj
                     results.fvalue = result.fvalue
@@ -192,13 +291,15 @@ public struct RegressModule {
                     results.bic = result.bic
                     results.ssr = result.ssr
                     results.ess = result.ess
+                    results.mse_resid = result.mse_resid
                     results.centered_tss = result.centered_tss
                     results.nobs = result.nobs
                     results.df_model = result.df_model
                     results.df_resid = result.df_resid
-                    results.resid = result.resid
-                    results.fittedvalues = result.fittedvalues
-                    results._conf_int = result.conf_int
+
+                    -- Multicollinearity diagnostics
+                    results.condition_number = result.condition_number
+                    results.eigenvalues = result.eigenvalues
 
                     -- Store metadata
                     results._model_type = self._model_type or "OLS"
@@ -533,12 +634,227 @@ public struct RegressModule {
                 confInt.append([params[i] - tCrit * bse[i], params[i] + tCrit * bse[i]])
             }
 
-            // Build result table
+            // ============================================================
+            // Per-Observation Influence Diagnostics
+            // ============================================================
+
+            // Hat matrix diagonal: h_ii = [X(X'X)^-1 X']_ii
+            // More efficient computation: h_ii = sum_j (X_ij * [XtXInv * X']_ji)
+            var hatDiag = [Double](repeating: 0.0, count: n)
+            if infoInv == 0 {
+                for i in 0..<n {
+                    var h_ii = 0.0
+                    for j in 0..<k {
+                        var sum = 0.0
+                        for l in 0..<k {
+                            sum += XtXInv[l * k + j] * exog[i][l]
+                        }
+                        h_ii += exog[i][j] * sum
+                    }
+                    hatDiag[i] = h_ii
+                }
+            }
+
+            // Studentized residuals (internal): e_i / (s * sqrt(1 - h_ii))
+            var residStudentized = [Double](repeating: 0.0, count: n)
+            let rmse = sqrt(mse)
+            for i in 0..<n {
+                let denom = rmse * sqrt(max(1e-15, 1.0 - hatDiag[i]))
+                residStudentized[i] = denom > 1e-15 ? residuals[i] / denom : 0.0
+            }
+
+            // Cook's distance: D_i = (e_i^2 / (p * MSE)) * (h_ii / (1 - h_ii)^2)
+            var cooksDistance = [Double](repeating: 0.0, count: n)
+            if k > 0 && mse > 0 {
+                for i in 0..<n {
+                    let h_ii = hatDiag[i]
+                    if h_ii < 1.0 - 1e-10 {
+                        let e2 = residuals[i] * residuals[i]
+                        cooksDistance[i] = (e2 / (Double(k) * mse)) * (h_ii / ((1.0 - h_ii) * (1.0 - h_ii)))
+                    }
+                }
+            }
+
+            // DFFITS: studentized_resid * sqrt(h_ii / (1 - h_ii))
+            var dffits = [Double](repeating: 0.0, count: n)
+            for i in 0..<n {
+                let h_ii = hatDiag[i]
+                if h_ii < 1.0 - 1e-10 {
+                    dffits[i] = residStudentized[i] * sqrt(h_ii / (1.0 - h_ii))
+                }
+            }
+
+            // ============================================================
+            // Multicollinearity Diagnostics
+            // ============================================================
+
+            // Condition number: sqrt(max_eigenvalue / min_eigenvalue) of X'X
+            var conditionNumber = Double.infinity
+            var eigenvalues = [Double](repeating: 0.0, count: k)
+
+            if k > 0 {
+                // Compute eigenvalues of X'X using LAPACK dsyev
+                var XtXCopy = [Double](repeating: 0.0, count: k * k)
+                // Recompute X'X since we may have modified it
+                for i in 0..<k {
+                    for j in 0..<k {
+                        var sum = 0.0
+                        for obs in 0..<n {
+                            sum += exog[obs][i] * exog[obs][j]
+                        }
+                        XtXCopy[j * k + i] = sum
+                    }
+                }
+
+                var kEig = __CLPK_integer(k)
+                var ldaEig = __CLPK_integer(k)
+                var eigenW = [Double](repeating: 0.0, count: k)
+                var workEig = [Double](repeating: 0.0, count: 1)
+                var lworkEig: __CLPK_integer = -1
+                var infoEig: __CLPK_integer = 0
+
+                // Query workspace size
+                dsyev_(UnsafeMutablePointer(mutating: ("V" as NSString).utf8String),
+                       UnsafeMutablePointer(mutating: ("U" as NSString).utf8String),
+                       &kEig, &XtXCopy, &ldaEig, &eigenW, &workEig, &lworkEig, &infoEig)
+
+                lworkEig = __CLPK_integer(workEig[0])
+                workEig = [Double](repeating: 0.0, count: Int(lworkEig))
+
+                // Compute eigenvalues
+                dsyev_(UnsafeMutablePointer(mutating: ("V" as NSString).utf8String),
+                       UnsafeMutablePointer(mutating: ("U" as NSString).utf8String),
+                       &kEig, &XtXCopy, &ldaEig, &eigenW, &workEig, &lworkEig, &infoEig)
+
+                if infoEig == 0 {
+                    eigenvalues = eigenW.sorted(by: >)  // Descending order
+                    let maxEig = eigenvalues.first ?? 1.0
+                    let minEig = eigenvalues.last ?? 1.0
+                    if minEig > 1e-15 {
+                        conditionNumber = sqrt(maxEig / minEig)
+                    }
+                }
+            }
+
+            // ============================================================
+            // Heteroscedasticity-Robust Covariance (HC0-HC3)
+            // ============================================================
+
+            // Compute X' * diag(u^2) * X for HC estimators where u = residuals
+            // HC0: Omega = diag(e_i^2)
+            // HC1: n/(n-k) * HC0
+            // HC2: Omega = diag(e_i^2 / (1 - h_ii))
+            // HC3: Omega = diag(e_i^2 / (1 - h_ii)^2)
+
+            var bseHC0 = [Double](repeating: 0.0, count: k)
+            var bseHC1 = [Double](repeating: 0.0, count: k)
+            var bseHC2 = [Double](repeating: 0.0, count: k)
+            var bseHC3 = [Double](repeating: 0.0, count: k)
+
+            if infoInv == 0 && n > k {
+                // Compute X' * Omega * X for each HC type
+                // Then cov = (X'X)^-1 * X'OmegaX * (X'X)^-1
+
+                func computeHCStdErrors(omega: [Double]) -> [Double] {
+                    // Compute X' * Omega * X
+                    var XtOmegaX = [Double](repeating: 0.0, count: k * k)
+                    for i in 0..<k {
+                        for j in 0..<k {
+                            var sum = 0.0
+                            for obs in 0..<n {
+                                sum += exog[obs][i] * omega[obs] * exog[obs][j]
+                            }
+                            XtOmegaX[j * k + i] = sum
+                        }
+                    }
+
+                    // Compute (X'X)^-1 * X'OmegaX * (X'X)^-1
+                    // First: temp = X'OmegaX * (X'X)^-1
+                    var temp = [Double](repeating: 0.0, count: k * k)
+                    for i in 0..<k {
+                        for j in 0..<k {
+                            var sum = 0.0
+                            for l in 0..<k {
+                                sum += XtOmegaX[l * k + i] * XtXInv[j * k + l]
+                            }
+                            temp[j * k + i] = sum
+                        }
+                    }
+
+                    // Then: cov = (X'X)^-1 * temp
+                    var cov = [Double](repeating: 0.0, count: k * k)
+                    for i in 0..<k {
+                        for j in 0..<k {
+                            var sum = 0.0
+                            for l in 0..<k {
+                                sum += XtXInv[l * k + i] * temp[j * k + l]
+                            }
+                            cov[j * k + i] = sum
+                        }
+                    }
+
+                    // Extract diagonal and sqrt
+                    var se = [Double](repeating: 0.0, count: k)
+                    for i in 0..<k {
+                        se[i] = sqrt(max(0.0, cov[i * k + i]))
+                    }
+                    return se
+                }
+
+                // HC0: Omega = diag(e_i^2)
+                let omegaHC0 = residuals.map { $0 * $0 }
+                bseHC0 = computeHCStdErrors(omega: omegaHC0)
+
+                // HC1: n/(n-k) * HC0
+                let hc1Factor = Double(n) / Double(n - k)
+                bseHC1 = bseHC0.map { $0 * sqrt(hc1Factor) }
+
+                // HC2: Omega = diag(e_i^2 / (1 - h_ii))
+                var omegaHC2 = [Double](repeating: 0.0, count: n)
+                for i in 0..<n {
+                    let denom = max(1e-15, 1.0 - hatDiag[i])
+                    omegaHC2[i] = residuals[i] * residuals[i] / denom
+                }
+                bseHC2 = computeHCStdErrors(omega: omegaHC2)
+
+                // HC3: Omega = diag(e_i^2 / (1 - h_ii)^2)
+                var omegaHC3 = [Double](repeating: 0.0, count: n)
+                for i in 0..<n {
+                    let denom = max(1e-15, 1.0 - hatDiag[i])
+                    omegaHC3[i] = residuals[i] * residuals[i] / (denom * denom)
+                }
+                bseHC3 = computeHCStdErrors(omega: omegaHC3)
+            }
+
+            // ============================================================
+            // Build Result Table
+            // ============================================================
+
             return .table([
+                // Per-parameter metrics
                 "params": .array(params.map { .number($0) }),
                 "bse": .array(bse.map { .number($0) }),
                 "tvalues": .array(tvalues.map { .number($0) }),
                 "pvalues": .array(pvalues.map { .number($0) }),
+                "conf_int": .array(confInt.map { row in
+                    .array(row.map { .number($0) })
+                }),
+
+                // Robust standard errors (HC0-HC3)
+                "bse_hc0": .array(bseHC0.map { .number($0) }),
+                "bse_hc1": .array(bseHC1.map { .number($0) }),
+                "bse_hc2": .array(bseHC2.map { .number($0) }),
+                "bse_hc3": .array(bseHC3.map { .number($0) }),
+
+                // Per-observation metrics
+                "resid": .array(residuals.map { .number($0) }),
+                "fittedvalues": .array(fittedValues.map { .number($0) }),
+                "hat_diag": .array(hatDiag.map { .number($0) }),
+                "resid_studentized": .array(residStudentized.map { .number($0) }),
+                "cooks_distance": .array(cooksDistance.map { .number($0) }),
+                "dffits": .array(dffits.map { .number($0) }),
+
+                // Model-level metrics
                 "rsquared": .number(rsquared),
                 "rsquared_adj": .number(rsquaredAdj),
                 "fvalue": .number(fvalue),
@@ -548,15 +864,15 @@ public struct RegressModule {
                 "bic": .number(bic),
                 "ssr": .number(ssr),
                 "ess": .number(ess),
+                "mse_resid": .number(mse),
                 "centered_tss": .number(tss),
                 "nobs": .number(Double(n)),
                 "df_model": .number(Double(dfModel)),
                 "df_resid": .number(Double(dfResid)),
-                "resid": .array(residuals.map { .number($0) }),
-                "fittedvalues": .array(fittedValues.map { .number($0) }),
-                "conf_int": .array(confInt.map { row in
-                    .array(row.map { .number($0) })
-                })
+
+                // Multicollinearity diagnostics
+                "condition_number": .number(conditionNumber),
+                "eigenvalues": .array(eigenvalues.map { .number($0) })
             ])
         }
     }

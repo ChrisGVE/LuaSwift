@@ -2819,7 +2819,16 @@ public struct GeometryModule {
             -- Sugar methods for common operations
             distance = function(self, other) return _distance(self, other) end,
             angle_to = function(self, other) return _angle_between(self, other) end,
-            in_polygon = function(self, polygon) return _in_polygon(self, polygon) end
+            angle = function(self, other)
+                if other then
+                    return _angle_between(self, other)
+                else
+                    return _vec2_angle(self)
+                end
+            end,
+            in_polygon = function(self, polygon) return _in_polygon(self, polygon) end,
+            -- Create circle centered at this point
+            circle = function(self, radius) return geo.circle(self, radius) end
         }
     }
 
@@ -2893,7 +2902,8 @@ public struct GeometryModule {
             clone = function(self) return geo.vec3(self.x, self.y, self.z) end,
             -- Sugar methods for common operations
             distance = function(self, other) return _distance(self, other) end,
-            angle_to = function(self, other) return _angle_between(self, other) end
+            angle_to = function(self, other) return _angle_between(self, other) end,
+            angle = function(self, other) return _angle_between(self, other) end
         }
     }
 
@@ -3498,6 +3508,8 @@ public struct GeometryModule {
     geo.angle_between = function(v1, v2)
         return _angle_between(v1, v2)
     end
+    -- Alias for convenience
+    geo.angle = geo.angle_between
 
     geo.convex_hull = function(points)
         local result = _convex_hull(points)

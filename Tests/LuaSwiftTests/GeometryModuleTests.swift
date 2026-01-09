@@ -623,6 +623,67 @@ struct GeometryModuleTests {
         #expect(arr[1].boolValue == false)
     }
 
+    @Test("Circle sugar syntax vec2")
+    func circleSugarVec2() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local center = geo.vec2(3, 4)
+            local c = center:circle(5)
+            return {c.center.x, c.center.y, c.radius, c.__luaswift_type}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue == 3)
+        #expect(arr[1].numberValue == 4)
+        #expect(arr[2].numberValue == 5)
+        #expect(arr[3].stringValue == "circle")
+    }
+
+    @Test("geo.angle alias for angle_between")
+    func geoAngleAlias() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec2(1, 0)
+            local v2 = geo.vec2(0, 1)
+            local angle1 = geo.angle(v1, v2)
+            local angle2 = geo.angle_between(v1, v2)
+            return {angle1, angle2, math.abs(angle1 - angle2) < 0.0001}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - Double.pi / 2) < 0.0001)
+        #expect(arr[2].boolValue == true)
+    }
+
+    @Test("vec2:angle polymorphic (no arg returns own angle)")
+    func vec2AnglePolymorphic() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local v1 = geo.vec2(1, 1)
+            local v2 = geo.vec2(0, 1)
+            -- Without arg: returns angle of vector from origin
+            local own_angle = v1:angle()
+            -- With arg: returns angle between two vectors
+            local between_angle = v1:angle(v2)
+            return {own_angle, between_angle}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // vec2(1,1) angle is π/4
+        #expect(abs(arr[0].numberValue! - Double.pi / 4) < 0.0001)
+        // Angle between (1,1) and (0,1) should be π/4
+        #expect(abs(arr[1].numberValue! - Double.pi / 4) < 0.0001)
+    }
+
     @Test("Line intersection")
     func lineIntersection() throws {
         let engine = try LuaEngine()

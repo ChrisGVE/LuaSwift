@@ -114,9 +114,17 @@ final class MathXModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, -.infinity)
     }
 
-    func testLog10Negative() throws {
+    func testLog10NegativeReturnsComplex() throws {
+        // With complex support, log10(-1) returns complex: {re=0, im=pi/log(10)}
         let result = try engine.evaluate("return mathx.log10(-1)")
-        XCTAssertTrue(result.numberValue!.isNaN)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result for log10(-1)")
+            return
+        }
+        XCTAssertEqual(re, 0.0, accuracy: 1e-10)
+        XCTAssertEqual(im, Double.pi / log(10.0), accuracy: 1e-10)
     }
 
     func testLog2Zero() throws {
@@ -124,9 +132,17 @@ final class MathXModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, -.infinity)
     }
 
-    func testLog2Negative() throws {
+    func testLog2NegativeReturnsComplex() throws {
+        // With complex support, log2(-1) returns complex: {re=0, im=pi/log(2)}
         let result = try engine.evaluate("return mathx.log2(-1)")
-        XCTAssertTrue(result.numberValue!.isNaN)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result for log2(-1)")
+            return
+        }
+        XCTAssertEqual(re, 0.0, accuracy: 1e-10)
+        XCTAssertEqual(im, Double.pi / log(2.0), accuracy: 1e-10)
     }
 
     // MARK: - Statistics Functions
@@ -373,5 +389,358 @@ final class MathXModuleTests: XCTestCase {
         // Verify math.mininteger is available (Lua 5.3+)
         let result = try engine.evaluate("return math.mininteger")
         XCTAssertNotNil(result.numberValue)
+    }
+
+    // MARK: - Complex Number Support Tests (Task 184)
+
+    // MARK: Complex sinh
+    func testComplexSinhPureImaginary() throws {
+        // sinh(i*pi/2) = i
+        let result = try engine.evaluate("""
+            local z = {re = 0, im = math.pi/2}
+            local r = mathx.sinh(z)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 0.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 1.0, accuracy: 1e-10)
+    }
+
+    func testComplexSinhGeneral() throws {
+        // sinh(1+i) - verify against known value
+        // sinh(1+i) = sinh(1)cos(1) + i*cosh(1)sin(1)
+        let result = try engine.evaluate("""
+            local z = {re = 1, im = 1}
+            local r = mathx.sinh(z)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        let expectedRe = sinh(1.0) * cos(1.0)
+        let expectedIm = cosh(1.0) * sin(1.0)
+        XCTAssertEqual(re, expectedRe, accuracy: 1e-10)
+        XCTAssertEqual(im, expectedIm, accuracy: 1e-10)
+    }
+
+    // MARK: Complex cosh
+    func testComplexCoshPureImaginary() throws {
+        // cosh(i*pi) = -1 (real)
+        let result = try engine.evaluate("""
+            local z = {re = 0, im = math.pi}
+            return mathx.cosh(z)
+            """)
+        // cosh(0+i*pi) = cosh(0)*cos(pi) = 1*(-1) = -1, and sinh(0)*sin(pi) = 0
+        // Should return real -1
+        XCTAssertEqual(result.numberValue!, -1.0, accuracy: 1e-10)
+    }
+
+    func testComplexCoshGeneral() throws {
+        // cosh(1+i) = cosh(1)cos(1) + i*sinh(1)sin(1)
+        let result = try engine.evaluate("""
+            local z = {re = 1, im = 1}
+            local r = mathx.cosh(z)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        let expectedRe = cosh(1.0) * cos(1.0)
+        let expectedIm = sinh(1.0) * sin(1.0)
+        XCTAssertEqual(re, expectedRe, accuracy: 1e-10)
+        XCTAssertEqual(im, expectedIm, accuracy: 1e-10)
+    }
+
+    // MARK: Complex tanh
+    func testComplexTanhZero() throws {
+        // tanh(0+0i) = 0
+        let result = try engine.evaluate("""
+            local z = {re = 0, im = 0}
+            return mathx.tanh(z)
+            """)
+        // Should return real 0
+        XCTAssertEqual(result.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testComplexTanhGeneral() throws {
+        // tanh(1+i) - verify the formula works
+        let result = try engine.evaluate("""
+            local z = {re = 1, im = 1}
+            local r = mathx.tanh(z)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        // tanh(a+bi) = [sinh(2a) + i*sin(2b)] / [cosh(2a) + cos(2b)]
+        let sinh2a = sinh(2.0)
+        let sin2b = sin(2.0)
+        let cosh2a = cosh(2.0)
+        let cos2b = cos(2.0)
+        let denom = cosh2a + cos2b
+        let expectedRe = sinh2a / denom
+        let expectedIm = sin2b / denom
+        XCTAssertEqual(re, expectedRe, accuracy: 1e-10)
+        XCTAssertEqual(im, expectedIm, accuracy: 1e-10)
+    }
+
+    // MARK: Complex asinh
+    func testComplexAsinhRoundtrip() throws {
+        // asinh(sinh(1+i)) should give back approximately 1+i
+        let result = try engine.evaluate("""
+            local z = {re = 1, im = 1}
+            local s = mathx.sinh(z)
+            local r = mathx.asinh(s)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 1.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 1.0, accuracy: 1e-10)
+    }
+
+    // MARK: Complex acosh
+    func testComplexAcoshRoundtrip() throws {
+        // acosh(cosh(1+i)) should give back approximately 1+i
+        let result = try engine.evaluate("""
+            local z = {re = 1, im = 1}
+            local c = mathx.cosh(z)
+            local r = mathx.acosh(c)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 1.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 1.0, accuracy: 1e-10)
+    }
+
+    func testComplexAcoshRealLessThanOne() throws {
+        // acosh(0.5) for real < 1 should return complex
+        let result = try engine.evaluate("return mathx.acosh(0.5)")
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        // acosh(0.5) = i * acos(0.5) = i * pi/3
+        XCTAssertEqual(re, 0.0, accuracy: 1e-10)
+        XCTAssertEqual(im, acos(0.5), accuracy: 1e-10)
+    }
+
+    // MARK: Complex atanh
+    func testComplexAtanhRoundtrip() throws {
+        // atanh(tanh(0.5+0.5i)) should give back approximately 0.5+0.5i
+        let result = try engine.evaluate("""
+            local z = {re = 0.5, im = 0.5}
+            local t = mathx.tanh(z)
+            local r = mathx.atanh(t)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 0.5, accuracy: 1e-10)
+        XCTAssertEqual(im, 0.5, accuracy: 1e-10)
+    }
+
+    func testComplexAtanhRealGreaterThanOne() throws {
+        // atanh(2) for |x| > 1 should return complex
+        let result = try engine.evaluate("return mathx.atanh(2)")
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        // For |x| > 1: re = 0.5 * log(|(x+1)/(x-1)|), im = -pi/2 for x > 1
+        let expectedRe = 0.5 * log(abs((2.0 + 1) / (2.0 - 1)))
+        let expectedIm = -Double.pi / 2
+        XCTAssertEqual(re, expectedRe, accuracy: 1e-10)
+        XCTAssertEqual(im, expectedIm, accuracy: 1e-10)
+    }
+
+    // MARK: Complex log10
+    func testComplexLog10() throws {
+        // log10({re=10, im=0}) should equal 1
+        let result = try engine.evaluate("""
+            local z = {re = 10, im = 0}
+            return mathx.log10(z)
+            """)
+        // Should return real 1.0 (imaginary part is negligible)
+        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 1e-10)
+    }
+
+    func testComplexLog10Negative() throws {
+        // log10(-10) should return complex with im = pi/log(10)
+        let result = try engine.evaluate("return mathx.log10(-10)")
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 1.0, accuracy: 1e-10)  // log10(10) = 1
+        XCTAssertEqual(im, Double.pi / log(10.0), accuracy: 1e-10)
+    }
+
+    // MARK: Complex log2
+    func testComplexLog2() throws {
+        // log2({re=8, im=0}) should equal 3
+        let result = try engine.evaluate("""
+            local z = {re = 8, im = 0}
+            return mathx.log2(z)
+            """)
+        // Should return real 3.0 (imaginary part is negligible)
+        XCTAssertEqual(result.numberValue!, 3.0, accuracy: 1e-10)
+    }
+
+    func testComplexLog2Negative() throws {
+        // log2(-8) should return complex with im = pi/log(2)
+        let result = try engine.evaluate("return mathx.log2(-8)")
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 3.0, accuracy: 1e-10)  // log2(8) = 3
+        XCTAssertEqual(im, Double.pi / log(2.0), accuracy: 1e-10)
+    }
+
+    // MARK: csqrt function
+    func testCsqrtPositiveReal() throws {
+        // csqrt(4) should return {re=2, im=0}
+        let result = try engine.evaluate("return mathx.csqrt(4)")
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 2.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 0.0, accuracy: 1e-10)
+    }
+
+    func testCsqrtNegativeReal() throws {
+        // csqrt(-4) should return {re=0, im=2} (principal sqrt)
+        let result = try engine.evaluate("return mathx.csqrt(-4)")
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 0.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 2.0, accuracy: 1e-10)
+    }
+
+    func testCsqrtComplex() throws {
+        // csqrt(3+4i) should satisfy result^2 = 3+4i
+        let result = try engine.evaluate("""
+            local z = {re = 3, im = 4}
+            local r = mathx.csqrt(z)
+            -- Verify r^2 = z
+            local r2_re = r.re * r.re - r.im * r.im
+            local r2_im = 2 * r.re * r.im
+            return {re = r2_re, im = r2_im}
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 3.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 4.0, accuracy: 1e-10)
+    }
+
+    // MARK: clog function
+    func testClogPositiveReal() throws {
+        // clog(e) should return {re=1, im=0}
+        let result = try engine.evaluate("""
+            return mathx.clog(math.exp(1))
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 1.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 0.0, accuracy: 1e-10)
+    }
+
+    func testClogNegativeReal() throws {
+        // clog(-1) should return {re=0, im=pi}
+        let result = try engine.evaluate("return mathx.clog(-1)")
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 0.0, accuracy: 1e-10)
+        XCTAssertEqual(im, Double.pi, accuracy: 1e-10)
+    }
+
+    func testClogComplex() throws {
+        // clog(e^(1+i)) should return approximately 1+i
+        let result = try engine.evaluate("""
+            -- e^(1+i) = e * (cos(1) + i*sin(1))
+            local e = math.exp(1)
+            local z = {re = e * math.cos(1), im = e * math.sin(1)}
+            local r = mathx.clog(z)
+            return r
+            """)
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(re, 1.0, accuracy: 1e-10)
+        XCTAssertEqual(im, 1.0, accuracy: 1e-10)
+    }
+
+    // MARK: Real function backward compatibility
+    func testRealSinhStillWorks() throws {
+        let result = try engine.evaluate("return mathx.sinh(1)")
+        XCTAssertEqual(result.numberValue!, sinh(1.0), accuracy: 1e-10)
+    }
+
+    func testRealCoshStillWorks() throws {
+        let result = try engine.evaluate("return mathx.cosh(1)")
+        XCTAssertEqual(result.numberValue!, cosh(1.0), accuracy: 1e-10)
+    }
+
+    func testRealTanhStillWorks() throws {
+        let result = try engine.evaluate("return mathx.tanh(0.5)")
+        XCTAssertEqual(result.numberValue!, tanh(0.5), accuracy: 1e-10)
     }
 }

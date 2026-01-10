@@ -10,6 +10,9 @@
 
 import Foundation
 
+// Import ComplexHelper for complex number support
+// ComplexHelper provides isComplex(), toComplex(), toLua(), toResult()
+
 /// Swift-backed extended math module for LuaSwift.
 ///
 /// Provides comprehensive math functions beyond the standard Lua math library,
@@ -98,6 +101,10 @@ public struct MathXModule {
         engine.registerFunction(name: "_luaswift_math_comb", callback: combCallback)
         engine.registerFunction(name: "_luaswift_math_binomial", callback: combCallback)  // alias for comb
 
+        // Complex-only functions
+        engine.registerFunction(name: "_luaswift_math_csqrt", callback: csqrtCallback)
+        engine.registerFunction(name: "_luaswift_math_clog", callback: clogCallback)
+
         // Set up the luaswift.mathx namespace
         do {
             try engine.run("""
@@ -134,6 +141,8 @@ public struct MathXModule {
                 local perm_fn = _luaswift_math_perm
                 local comb_fn = _luaswift_math_comb
                 local binomial_fn = _luaswift_math_binomial
+                local csqrt_fn = _luaswift_math_csqrt
+                local clog_fn = _luaswift_math_clog
 
                 luaswift.mathx = {
                     -- Hyperbolic functions
@@ -185,6 +194,10 @@ public struct MathXModule {
                     spherical_to_cart = spherical_to_cart_fn,
                     cart_to_spherical = cart_to_spherical_fn,
 
+                    -- Complex-only functions
+                    csqrt = csqrt_fn,
+                    clog = clog_fn,
+
                     -- import() extends the math table
                     import = function()
                         math.sinh = sinh_fn
@@ -218,6 +231,8 @@ public struct MathXModule {
                         math.cart_to_polar = cart_to_polar_fn
                         math.spherical_to_cart = spherical_to_cart_fn
                         math.cart_to_spherical = cart_to_spherical_fn
+                        math.csqrt = csqrt_fn
+                        math.clog = clog_fn
                     end
                 }
 
@@ -258,58 +273,225 @@ public struct MathXModule {
                 _luaswift_math_perm = nil
                 _luaswift_math_comb = nil
                 _luaswift_math_binomial = nil
+                _luaswift_math_csqrt = nil
+                _luaswift_math_clog = nil
                 """)
         } catch {
             // Silently fail if setup fails - callbacks are still registered
         }
     }
 
-    // MARK: - Hyperbolic Functions
+    // MARK: - Hyperbolic Functions (with complex number support)
 
+    /// sinh(z) for real or complex z
+    /// sinh(a+bi) = sinh(a)cos(b) + i*cosh(a)sin(b)
     private static func sinhCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("sinh requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("sinh requires an argument")
+        }
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("sinh: invalid complex number")
+            }
+            let re = Darwin.sinh(a) * Darwin.cos(b)
+            let im = Darwin.cosh(a) * Darwin.sin(b)
+            return ComplexHelper.toResult(re, im)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("sinh requires a number or complex")
         }
         return .number(Darwin.sinh(x))
     }
 
+    /// cosh(z) for real or complex z
+    /// cosh(a+bi) = cosh(a)cos(b) + i*sinh(a)sin(b)
     private static func coshCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("cosh requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("cosh requires an argument")
+        }
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("cosh: invalid complex number")
+            }
+            let re = Darwin.cosh(a) * Darwin.cos(b)
+            let im = Darwin.sinh(a) * Darwin.sin(b)
+            return ComplexHelper.toResult(re, im)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("cosh requires a number or complex")
         }
         return .number(Darwin.cosh(x))
     }
 
+    /// tanh(z) for real or complex z
+    /// tanh(z) = sinh(z) / cosh(z)
     private static func tanhCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("tanh requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("tanh requires an argument")
+        }
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("tanh: invalid complex number")
+            }
+            // tanh(a+bi) = [sinh(2a) + i*sin(2b)] / [cosh(2a) + cos(2b)]
+            let sinh2a = Darwin.sinh(2 * a)
+            let sin2b = Darwin.sin(2 * b)
+            let cosh2a = Darwin.cosh(2 * a)
+            let cos2b = Darwin.cos(2 * b)
+            let denom = cosh2a + cos2b
+            let re = sinh2a / denom
+            let im = sin2b / denom
+            return ComplexHelper.toResult(re, im)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("tanh requires a number or complex")
         }
         return .number(Darwin.tanh(x))
     }
 
+    /// asinh(z) for real or complex z
+    /// asinh(z) = log(z + sqrt(z^2 + 1))
     private static func asinhCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("asinh requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("asinh requires an argument")
+        }
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("asinh: invalid complex number")
+            }
+            // asinh(z) = log(z + sqrt(z^2 + 1))
+            // z^2 = (a+bi)^2 = a^2 - b^2 + 2abi
+            let z2Re = a * a - b * b
+            let z2Im = 2 * a * b
+            // z^2 + 1
+            let sumRe = z2Re + 1
+            let sumIm = z2Im
+            // sqrt(z^2 + 1)
+            let (sqrtRe, sqrtIm) = ComplexHelper.sqrt(sumRe, sumIm)
+            // z + sqrt(z^2 + 1)
+            let argRe = a + sqrtRe
+            let argIm = b + sqrtIm
+            // log(...)
+            guard let (logRe, logIm) = ComplexHelper.log(argRe, argIm) else {
+                throw LuaError.callbackError("asinh: logarithm of zero")
+            }
+            return ComplexHelper.toResult(logRe, logIm)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("asinh requires a number or complex")
         }
         return .number(Darwin.asinh(x))
     }
 
+    /// acosh(z) for real or complex z
+    /// acosh(z) = log(z + sqrt(z^2 - 1))
     private static func acoshCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("acosh requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("acosh requires an argument")
         }
-        guard x >= 1.0 else {
-            throw LuaError.callbackError("acosh requires argument >= 1")
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("acosh: invalid complex number")
+            }
+            // acosh(z) = log(z + sqrt(z^2 - 1))
+            // z^2 = (a+bi)^2 = a^2 - b^2 + 2abi
+            let z2Re = a * a - b * b
+            let z2Im = 2 * a * b
+            // z^2 - 1
+            let diffRe = z2Re - 1
+            let diffIm = z2Im
+            // sqrt(z^2 - 1)
+            let (sqrtRe, sqrtIm) = ComplexHelper.sqrt(diffRe, diffIm)
+            // z + sqrt(z^2 - 1)
+            let argRe = a + sqrtRe
+            let argIm = b + sqrtIm
+            // log(...)
+            guard let (logRe, logIm) = ComplexHelper.log(argRe, argIm) else {
+                throw LuaError.callbackError("acosh: logarithm of zero")
+            }
+            return ComplexHelper.toResult(logRe, logIm)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("acosh requires a number or complex")
+        }
+        // For real acosh, x must be >= 1
+        // If x < 1, return complex result
+        if x < 1.0 {
+            // acosh(x) for x < 1 gives complex result: i * acos(x)
+            let acosx = Darwin.acos(x)
+            return ComplexHelper.toLua(0, acosx)
         }
         return .number(Darwin.acosh(x))
     }
 
+    /// atanh(z) for real or complex z
+    /// atanh(z) = 0.5 * log((1+z)/(1-z))
     private static func atanhCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("atanh requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("atanh requires an argument")
         }
-        guard abs(x) < 1.0 else {
-            throw LuaError.callbackError("atanh requires argument in (-1, 1)")
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("atanh: invalid complex number")
+            }
+            // atanh(z) = 0.5 * log((1+z)/(1-z))
+            // (1+z) = (1+a) + bi
+            // (1-z) = (1-a) - bi
+            let numRe = 1 + a
+            let numIm = b
+            let denRe = 1 - a
+            let denIm = -b
+            // (1+z)/(1-z)
+            guard let (divRe, divIm) = ComplexHelper.divide(numRe, numIm, denRe, denIm) else {
+                throw LuaError.callbackError("atanh: division by zero")
+            }
+            // log(...)
+            guard let (logRe, logIm) = ComplexHelper.log(divRe, divIm) else {
+                throw LuaError.callbackError("atanh: logarithm of zero")
+            }
+            // 0.5 * log
+            return ComplexHelper.toResult(0.5 * logRe, 0.5 * logIm)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("atanh requires a number or complex")
+        }
+        // For real atanh, |x| must be < 1
+        // If |x| >= 1, return complex result or infinity
+        if abs(x) >= 1.0 {
+            if x == 1.0 {
+                return .number(.infinity)
+            } else if x == -1.0 {
+                return .number(-.infinity)
+            }
+            // |x| > 1: atanh(x) = atanh(1/x) + i*pi/2 * sign(x)
+            // Actually: atanh(x) for |x| > 1 is complex
+            let re = 0.5 * Darwin.log(abs((x + 1) / (x - 1)))
+            let im = x > 0 ? -Double.pi / 2 : Double.pi / 2
+            return ComplexHelper.toLua(re, im)
         }
         return .number(Darwin.atanh(x))
     }
@@ -351,19 +533,73 @@ public struct MathXModule {
         }
     }
 
-    // MARK: - Logarithm Functions
+    // MARK: - Logarithm Functions (with complex number support)
 
+    /// log10(z) for real or complex z
+    /// log10(z) = log(z) / log(10)
     private static func log10Callback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("log10 requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("log10 requires an argument")
+        }
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("log10: invalid complex number")
+            }
+            guard let (logRe, logIm) = ComplexHelper.log(a, b) else {
+                throw LuaError.callbackError("log10: logarithm of zero")
+            }
+            let log10E = Darwin.log(10.0)
+            return ComplexHelper.toResult(logRe / log10E, logIm / log10E)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("log10 requires a number or complex")
+        }
+        // For negative real, return complex result
+        if x < 0 {
+            guard let (logRe, logIm) = ComplexHelper.log(x, 0) else {
+                throw LuaError.callbackError("log10: logarithm of zero")
+            }
+            let log10E = Darwin.log(10.0)
+            return ComplexHelper.toLua(logRe / log10E, logIm / log10E)
         }
         // Returns -inf for 0, nan for negative (numpy behavior)
         return .number(Darwin.log10(x))
     }
 
+    /// log2(z) for real or complex z
+    /// log2(z) = log(z) / log(2)
     private static func log2Callback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let x = args.first?.numberValue else {
-            throw LuaError.callbackError("log2 requires a numeric argument")
+        guard let arg = args.first else {
+            throw LuaError.callbackError("log2 requires an argument")
+        }
+
+        // Check for complex first
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("log2: invalid complex number")
+            }
+            guard let (logRe, logIm) = ComplexHelper.log(a, b) else {
+                throw LuaError.callbackError("log2: logarithm of zero")
+            }
+            let log2E = Darwin.log(2.0)
+            return ComplexHelper.toResult(logRe / log2E, logIm / log2E)
+        }
+
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("log2 requires a number or complex")
+        }
+        // For negative real, return complex result
+        if x < 0 {
+            guard let (logRe, logIm) = ComplexHelper.log(x, 0) else {
+                throw LuaError.callbackError("log2: logarithm of zero")
+            }
+            let log2E = Darwin.log(2.0)
+            return ComplexHelper.toLua(logRe / log2E, logIm / log2E)
         }
         // Returns -inf for 0, nan for negative (numpy behavior)
         return .number(Darwin.log2(x))
@@ -814,6 +1050,42 @@ public struct MathXModule {
 
         // Return as array [r, theta, phi]
         return .array([.number(r), .number(theta), .number(phi)])
+    }
+
+    // MARK: - Complex-Only Functions
+
+    /// csqrt(z) - Complex square root that always returns complex
+    /// For real inputs, returns complex with im=0 for positive, or purely imaginary for negative
+    private static func csqrtCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("csqrt requires an argument")
+        }
+
+        // Extract as complex (works for both complex and real)
+        guard let (a, b) = ComplexHelper.toComplex(arg) else {
+            throw LuaError.callbackError("csqrt requires a number or complex")
+        }
+
+        let (re, im) = ComplexHelper.sqrt(a, b)
+        return ComplexHelper.toLua(re, im)
+    }
+
+    /// clog(z) - Complex natural logarithm that always returns complex
+    /// For real inputs, returns complex with im=pi for negative, im=0 for positive
+    private static func clogCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("clog requires an argument")
+        }
+
+        // Extract as complex (works for both complex and real)
+        guard let (a, b) = ComplexHelper.toComplex(arg) else {
+            throw LuaError.callbackError("clog requires a number or complex")
+        }
+
+        guard let (re, im) = ComplexHelper.log(a, b) else {
+            throw LuaError.callbackError("clog: logarithm of zero")
+        }
+        return ComplexHelper.toLua(re, im)
     }
 
     // MARK: - Helper Functions

@@ -50,6 +50,7 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_real", callback: realPartCallback)
         engine.registerFunction(name: "_luaswift_array_imag", callback: imagPartCallback)
         engine.registerFunction(name: "_luaswift_array_conj", callback: conjCallback)
+        engine.registerFunction(name: "_luaswift_array_arg", callback: argCallback)
 
         // Register property accessors
         engine.registerFunction(name: "_luaswift_array_shape", callback: shapeCallback)
@@ -319,6 +320,14 @@ public struct ArrayModule {
                 local _convolve = _luaswift_array_convolve
                 local _gradient = _luaswift_array_gradient
                 local _interp = _luaswift_array_interp
+                local _complex_array = _luaswift_array_complex_array
+                local _from_polar = _luaswift_array_from_polar
+                local _dtype = _luaswift_array_dtype
+                local _iscomplex = _luaswift_array_iscomplex
+                local _real = _luaswift_array_real
+                local _imag = _luaswift_array_imag
+                local _conj = _luaswift_array_conj
+                local _arg = _luaswift_array_arg
 
                 -- Define array metatable
                 local array_mt = {
@@ -353,6 +362,20 @@ public struct ArrayModule {
                             tolist = function(_) return _tolist(self._data) end,
                             copy = function(_)
                                 return luaswift.array._wrap(_copy(self._data))
+                            end,
+                            dtype = function(_) return _dtype(self._data) end,
+                            iscomplex = function(_) return _iscomplex(self._data) end,
+                            real = function(_)
+                                return luaswift.array._wrap(_real(self._data))
+                            end,
+                            imag = function(_)
+                                return luaswift.array._wrap(_imag(self._data))
+                            end,
+                            conj = function(_)
+                                return luaswift.array._wrap(_conj(self._data))
+                            end,
+                            arg = function(_)
+                                return luaswift.array._wrap(_arg(self._data))
                             end,
                             sum = function(_, axis)
                                 local result = _sum(self._data, axis)
@@ -506,6 +529,36 @@ public struct ArrayModule {
                         return luaswift.array._wrap(_linspace(start, stop, num or 50))
                     end,
                     random = random_ns,
+
+                    -- Complex array creation
+                    complex_array = function(real, imag)
+                        local real_data = type(real) == "table" and real._data or real
+                        local imag_data = type(imag) == "table" and imag._data or imag
+                        return luaswift.array._wrap(_complex_array(real_data, imag_data))
+                    end,
+                    from_polar = function(magnitude, angle)
+                        local mag_data = type(magnitude) == "table" and magnitude._data or magnitude
+                        local ang_data = type(angle) == "table" and angle._data or angle
+                        return luaswift.array._wrap(_from_polar(mag_data, ang_data))
+                    end,
+
+                    -- Complex property functions
+                    real = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_real(data))
+                    end,
+                    imag = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_imag(data))
+                    end,
+                    conj = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_conj(data))
+                    end,
+                    arg = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_arg(data))
+                    end,
 
                     -- Element-wise functions
                     abs = function(a)
@@ -1136,6 +1189,14 @@ public struct ArrayModule {
                 _luaswift_array_convolve = nil
                 _luaswift_array_gradient = nil
                 _luaswift_array_interp = nil
+                _luaswift_array_complex_array = nil
+                _luaswift_array_from_polar = nil
+                _luaswift_array_dtype = nil
+                _luaswift_array_iscomplex = nil
+                _luaswift_array_real = nil
+                _luaswift_array_imag = nil
+                _luaswift_array_conj = nil
+                _luaswift_array_arg = nil
                 """)
         } catch {
             print("ArrayModule: Failed to initialize Lua wrapper: \(error)")
@@ -2536,7 +2597,56 @@ public struct ArrayModule {
 
         let arrayData = try extractArrayData(arg)
         var result = [Double](repeating: 0, count: arrayData.size)
-        vDSP_vabsD(arrayData.data, 1, &result, 1, vDSP_Length(arrayData.size))
+
+        if arrayData.isComplex {
+            // Complex magnitude: |z| = sqrt(re² + im²)
+            arrayData.real.withUnsafeBufferPointer { realBuf in
+                arrayData.imag!.withUnsafeBufferPointer { imagBuf in
+                    result.withUnsafeMutableBufferPointer { resBuf in
+                        var split = DSPDoubleSplitComplex(
+                            realp: UnsafeMutablePointer(mutating: realBuf.baseAddress!),
+                            imagp: UnsafeMutablePointer(mutating: imagBuf.baseAddress!)
+                        )
+                        vDSP_zvabsD(&split, 1, resBuf.baseAddress!, 1, vDSP_Length(arrayData.size))
+                    }
+                }
+            }
+        } else {
+            // Real absolute value
+            vDSP_vabsD(arrayData.real, 1, &result, 1, vDSP_Length(arrayData.size))
+        }
+
+        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+    }
+
+    /// Complex argument (phase angle) using vDSP
+    private static func argCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.arg: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+        var result = [Double](repeating: 0, count: arrayData.size)
+
+        if arrayData.isComplex {
+            // Complex phase: arg(z) = atan2(im, re)
+            arrayData.real.withUnsafeBufferPointer { realBuf in
+                arrayData.imag!.withUnsafeBufferPointer { imagBuf in
+                    result.withUnsafeMutableBufferPointer { resBuf in
+                        var split = DSPDoubleSplitComplex(
+                            realp: UnsafeMutablePointer(mutating: realBuf.baseAddress!),
+                            imagp: UnsafeMutablePointer(mutating: imagBuf.baseAddress!)
+                        )
+                        vDSP_zvphasD(&split, 1, resBuf.baseAddress!, 1, vDSP_Length(arrayData.size))
+                    }
+                }
+            }
+        } else {
+            // Real numbers: phase is 0 for positive, π for negative
+            for i in 0..<arrayData.size {
+                result[i] = arrayData.real[i] >= 0 ? 0 : Double.pi
+            }
+        }
 
         return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
     }

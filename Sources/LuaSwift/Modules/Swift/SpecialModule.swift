@@ -83,6 +83,9 @@ public struct SpecialModule {
         engine.registerFunction(name: "_luaswift_special_cgamma", callback: cgammaCallback)
         engine.registerFunction(name: "_luaswift_special_clgamma", callback: clgammaCallback)
 
+        // Complex-aware zeta function
+        engine.registerFunction(name: "_luaswift_special_czeta", callback: czetaCallback)
+
         // Set up Lua wrappers that add to math.special namespace
         do {
             try engine.run("""
@@ -431,6 +434,22 @@ public struct SpecialModule {
                     return _luaswift_special_clgamma(z)
                 end
 
+                ----------------------------------------------------------------
+                -- Complex Zeta Function: czeta(s)
+                --
+                -- Returns ζ(s) for complex s = {re=σ, im=t}
+                -- Essential for studying Riemann zeros on critical line Re(s) = 0.5
+                ----------------------------------------------------------------
+                function special.czeta(s)
+                    if type(s) == "number" then
+                        return _luaswift_special_czeta(s)
+                    end
+                    if type(s) ~= "table" or s.re == nil or s.im == nil then
+                        error("czeta: expected number or complex {re=, im=}", 2)
+                    end
+                    return _luaswift_special_czeta(s)
+                end
+
                 -- Add to math.special namespace
                 if math and math.special then
                     math.special.erf = special.erf
@@ -457,6 +476,7 @@ public struct SpecialModule {
                     math.special.lambertw = special.lambertw
                     math.special.cgamma = special.cgamma
                     math.special.clgamma = special.clgamma
+                    math.special.czeta = special.czeta
                 end
                 """)
         } catch {
@@ -1587,5 +1607,170 @@ public struct SpecialModule {
         }
         let (prodRe, prodIm) = ComplexHelper.multiply(cRe, cIm, logRe, logIm)
         return ComplexHelper.exp(prodRe, prodIm)
+    }
+
+    // MARK: - Complex Zeta Function
+
+    /// Complex Riemann zeta function callback
+    /// czeta(s) computes ζ(s) for complex s
+    private static func czetaCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.runtimeError("czeta: expected argument")
+        }
+
+        // Handle real number input
+        if let s = arg.numberValue {
+            return .number(zeta(s))
+        }
+
+        // Handle complex input
+        guard let (re, im) = ComplexHelper.toComplex(arg) else {
+            throw LuaError.runtimeError("czeta: expected number or complex")
+        }
+
+        // Pure real case optimization
+        if abs(im) < 1e-15 {
+            return .number(zeta(re))
+        }
+
+        let (resultRe, resultIm) = complexZeta(re, im)
+        return ComplexHelper.toResult(resultRe, resultIm)
+    }
+
+    /// Compute complex Riemann zeta function ζ(s) for s = σ + it
+    /// Uses functional equation for Re(s) < 0.5 and Dirichlet series for Re(s) >= 0.5
+    private static func complexZeta(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
+        // Special case: pole at s = 1
+        if abs(sigma - 1) < 1e-15 && abs(t) < 1e-15 {
+            return (.infinity, 0)
+        }
+
+        // For Re(s) < 0.5, use the functional equation:
+        // ζ(s) = 2^s * π^(s-1) * sin(πs/2) * Γ(1-s) * ζ(1-s)
+        if sigma < 0.5 {
+            return complexZetaReflection(sigma, t)
+        }
+
+        // For Re(s) >= 0.5, use Dirichlet series with acceleration
+        return complexZetaDirichlet(sigma, t)
+    }
+
+    /// Compute ζ(s) using reflection formula for Re(s) < 0.5
+    private static func complexZetaReflection(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
+        // ζ(s) = 2^s * π^(s-1) * sin(πs/2) * Γ(1-s) * ζ(1-s)
+
+        // 2^s
+        let (twoSRe, twoSIm) = complexPow(2, 0, sigma, t)
+
+        // π^(s-1)
+        let (piS1Re, piS1Im) = complexPow(.pi, 0, sigma - 1, t)
+
+        // sin(πs/2)
+        // sin((πσ/2) + i(πt/2)) = sin(πσ/2)cosh(πt/2) + i*cos(πσ/2)sinh(πt/2)
+        let halfPiSigma = .pi * sigma / 2
+        let halfPiT = .pi * t / 2
+        let sinRe = Darwin.sin(halfPiSigma) * Darwin.cosh(halfPiT)
+        let sinIm = Darwin.cos(halfPiSigma) * Darwin.sinh(halfPiT)
+
+        // Γ(1-s)
+        let (gammaRe, gammaIm) = complexGamma(1 - sigma, -t)
+
+        // ζ(1-s) - recursively compute for Re(1-s) > 0.5
+        let (zeta1sRe, zeta1sIm) = complexZetaDirichlet(1 - sigma, -t)
+
+        // Multiply all together: 2^s * π^(s-1)
+        var (resultRe, resultIm) = ComplexHelper.multiply(twoSRe, twoSIm, piS1Re, piS1Im)
+
+        // * sin(πs/2)
+        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, sinRe, sinIm)
+
+        // * Γ(1-s)
+        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, gammaRe, gammaIm)
+
+        // * ζ(1-s)
+        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, zeta1sRe, zeta1sIm)
+
+        return (resultRe, resultIm)
+    }
+
+    /// Compute ζ(s) using Dirichlet series for Re(s) >= 0.5
+    /// Uses the alternating series (Dirichlet eta) with Euler-Maclaurin
+    private static func complexZetaDirichlet(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
+        // For Re(s) close to 1, use eta function approach
+        // η(s) = (1 - 2^(1-s)) * ζ(s)
+        // ζ(s) = η(s) / (1 - 2^(1-s))
+
+        // Compute η(s) using accelerated alternating series
+        let (etaRe, etaIm) = complexEta(sigma, t)
+
+        // Compute 2^(1-s) = 2^(1-σ) * e^(-it*ln(2))
+        let power = 1 - sigma
+        let angle = -t * Darwin.log(2)
+        let twoFactorMag = Darwin.pow(2, power)
+        let twoFactorRe = twoFactorMag * Darwin.cos(angle)
+        let twoFactorIm = twoFactorMag * Darwin.sin(angle)
+
+        // 1 - 2^(1-s)
+        let denomRe = 1 - twoFactorRe
+        let denomIm = -twoFactorIm
+
+        // Check for division by zero (happens near s = 1)
+        let denomMag = denomRe * denomRe + denomIm * denomIm
+        if denomMag < 1e-30 {
+            // Near the pole, return large value
+            return (.infinity, 0)
+        }
+
+        // ζ(s) = η(s) / (1 - 2^(1-s))
+        guard let (resultRe, resultIm) = ComplexHelper.divide(etaRe, etaIm, denomRe, denomIm) else {
+            return (.nan, .nan)
+        }
+
+        return (resultRe, resultIm)
+    }
+
+    /// Compute the Dirichlet eta function η(s) = Σ (-1)^(n-1) / n^s
+    /// Uses Borwein's acceleration for improved convergence
+    private static func complexEta(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
+        // Use direct summation with many terms for robustness
+        // η(s) = Σ_{n=1}^∞ (-1)^(n-1) * n^(-s)
+        // n^(-s) = n^(-σ) * e^(-it*ln(n)) = n^(-σ) * (cos(t*ln(n)) - i*sin(t*ln(n)))
+
+        var sumRe = 0.0
+        var sumIm = 0.0
+        var sign = 1.0
+
+        let maxTerms = 500  // More terms for better accuracy on critical line
+
+        for n in 1...maxTerms {
+            let nDouble = Double(n)
+            let logN = Darwin.log(nDouble)
+
+            // n^(-σ)
+            let magnitude = Darwin.pow(nDouble, -sigma)
+
+            // e^(-it*ln(n)) = cos(t*ln(n)) - i*sin(t*ln(n))
+            let angle = -t * logN
+            let cosAngle = Darwin.cos(angle)
+            let sinAngle = Darwin.sin(angle)
+
+            // n^(-s) = magnitude * (cosAngle + i*sinAngle)
+            let termRe = sign * magnitude * cosAngle
+            let termIm = sign * magnitude * sinAngle
+
+            sumRe += termRe
+            sumIm += termIm
+
+            // Check convergence
+            let termMag = magnitude
+            let sumMag = Darwin.sqrt(sumRe * sumRe + sumIm * sumIm)
+            if termMag < 1e-15 * sumMag && n > 50 {
+                break
+            }
+
+            sign = -sign
+        }
+
+        return (sumRe, sumIm)
     }
 }

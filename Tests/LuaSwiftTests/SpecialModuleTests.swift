@@ -1077,4 +1077,90 @@ struct SpecialModuleTests {
             return
         }
     }
+
+    // MARK: - Complex Zeta Function Tests
+
+    @Test("czeta function exists")
+    func testCzetaExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.czeta)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("czeta(2) = zeta(2) = π²/6")
+    func testCzetaRealArgument() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local z = math.special.czeta(2)
+            local expected = math.pi^2 / 6
+            return math.abs(z - expected)
+            """)
+        // Uses eta function approximation, ~1e-4 accuracy for pure real
+        #expect(result.numberValue! < 1e-3)
+    }
+
+    @Test("czeta({re=2, im=0}) equals zeta(2)")
+    func testCzetaComplexWithZeroIm() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local z = math.special.czeta({re = 2, im = 0})
+            local expected = math.pi^2 / 6
+            if type(z) == "table" then
+                return math.abs(z.re - expected)
+            else
+                return math.abs(z - expected)
+            end
+            """)
+        // Uses eta function approximation, ~1e-4 accuracy
+        #expect(result.numberValue! < 1e-3)
+    }
+
+    @Test("czeta on critical line returns complex")
+    func testCzetaCriticalLine() throws {
+        let engine = try createEngine()
+        // Test at s = 0.5 + 10i (not a zero, should return non-zero complex)
+        let result = try engine.evaluate("""
+            local s = {re = 0.5, im = 10}
+            local z = math.special.czeta(s)
+            return z
+            """)
+        guard let table = result.tableValue else {
+            Issue.record("Expected complex result")
+            return
+        }
+        // Should have both real and imaginary parts
+        #expect(table["re"]?.numberValue != nil)
+        #expect(table["im"]?.numberValue != nil)
+    }
+
+    @Test("czeta first Riemann zero approximately at s = 0.5 + 14.1347i")
+    func testCzetaFirstRiemannZero() throws {
+        let engine = try createEngine()
+        // The first non-trivial zero is at approximately s = 0.5 + 14.134725142i
+        let result = try engine.evaluate("""
+            local s = {re = 0.5, im = 14.134725142}
+            local z = math.special.czeta(s)
+            if type(z) == "number" then
+                return math.abs(z)
+            else
+                return math.sqrt(z.re^2 + z.im^2)
+            end
+            """)
+        // The value at a zero should be very small
+        // Note: Due to numerical approximation, it may not be exactly zero
+        #expect(result.numberValue! < 0.1)  // Should be close to zero
+    }
+
+    @Test("czeta(-1) = -1/12 (via functional equation)")
+    func testCzetaNegativeOne() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local z = math.special.czeta(-1)
+            local expected = -1/12
+            return math.abs(z - expected)
+            """)
+        // ζ(-1) = -1/12 is the famous result related to 1+2+3+... = -1/12
+        // Uses reflection formula, ~1e-5 accuracy
+        #expect(result.numberValue! < 1e-4)
+    }
 }

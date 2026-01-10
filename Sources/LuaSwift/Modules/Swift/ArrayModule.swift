@@ -1188,13 +1188,23 @@ public struct ArrayModule {
 
     // MARK: - Array Data Structure
 
-    /// Internal array representation
+    /// Internal array representation with split storage for complex support
+    /// Uses separate real/imag arrays for optimal vDSP vectorization
     private struct ArrayData {
         var shape: [Int]
-        var data: [Double]
+        var dtype: ArrayDType
+        var real: [Double]           // Real part (always present)
+        var imag: [Double]?          // Imaginary part (only for complex128)
 
         var ndim: Int { shape.count }
-        var size: Int { data.count }
+        var size: Int { real.count }
+        var isComplex: Bool { dtype.isComplex }
+
+        /// Backward compatibility: access real data as 'data'
+        var data: [Double] {
+            get { real }
+            set { real = newValue }
+        }
 
         /// Calculate strides for row-major (C-style) ordering
         var strides: [Int] {
@@ -1213,6 +1223,24 @@ public struct ArrayModule {
                 index += indices[i] * strides[i]
             }
             return index
+        }
+
+        // MARK: - Initializers
+
+        /// Create a real (float64) array - backward compatible initializer
+        init(shape: [Int], data: [Double]) {
+            self.shape = shape
+            self.dtype = .float64
+            self.real = data
+            self.imag = nil
+        }
+
+        /// Create array with explicit dtype
+        init(shape: [Int], dtype: ArrayDType, real: [Double], imag: [Double]?) {
+            self.shape = shape
+            self.dtype = dtype
+            self.real = real
+            self.imag = imag
         }
     }
 

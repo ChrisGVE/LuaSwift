@@ -57,6 +57,53 @@ public struct IntegrateModule {
                 local DEFAULT_LIMIT = 50
 
                 ----------------------------------------------------------------
+                -- Complex number helpers for integration
+                ----------------------------------------------------------------
+                local function is_complex(v)
+                    return type(v) == "table" and v.re ~= nil and v.im ~= nil
+                end
+
+                local function complex_add(a, b)
+                    if is_complex(a) and is_complex(b) then
+                        return {re = a.re + b.re, im = a.im + b.im}
+                    elseif is_complex(a) then
+                        return {re = a.re + b, im = a.im}
+                    elseif is_complex(b) then
+                        return {re = a + b.re, im = b.im}
+                    else
+                        return a + b
+                    end
+                end
+
+                local function complex_mul_scalar(z, s)
+                    if is_complex(z) then
+                        return {re = z.re * s, im = z.im * s}
+                    else
+                        return z * s
+                    end
+                end
+
+                local function complex_abs(z)
+                    if is_complex(z) then
+                        return math.sqrt(z.re * z.re + z.im * z.im)
+                    else
+                        return math.abs(z)
+                    end
+                end
+
+                local function complex_sub(a, b)
+                    if is_complex(a) and is_complex(b) then
+                        return {re = a.re - b.re, im = a.im - b.im}
+                    elseif is_complex(a) then
+                        return {re = a.re - b, im = a.im}
+                    elseif is_complex(b) then
+                        return {re = a - b.re, im = -b.im}
+                    else
+                        return a - b
+                    end
+                end
+
+                ----------------------------------------------------------------
                 -- Gauss-Kronrod 15-point quadrature weights and abscissae
                 -- These are the standard G7-K15 points
                 ----------------------------------------------------------------
@@ -93,35 +140,37 @@ public struct IntegrateModule {
 
                 ----------------------------------------------------------------
                 -- Single Gauss-Kronrod 15-point quadrature step
+                -- Supports both real and complex-valued integrands
                 ----------------------------------------------------------------
                 local function gk15(f, a, b)
                     local center = 0.5 * (a + b)
                     local half_length = 0.5 * (b - a)
                     local f_center = f(center)
 
-                    -- Initialize with center point
-                    local result_kronrod = f_center * wgk[8]
-                    local result_gauss = f_center * wg[4]
+                    -- Initialize with center point (use complex-aware operations)
+                    local result_kronrod = complex_mul_scalar(f_center, wgk[8])
+                    local result_gauss = complex_mul_scalar(f_center, wg[4])
 
                     -- Evaluate at symmetric points
                     for i = 1, 7 do
                         local x = half_length * xgk[i]
                         local fval1 = f(center - x)
                         local fval2 = f(center + x)
-                        local fsum = fval1 + fval2
+                        local fsum = complex_add(fval1, fval2)
 
-                        result_kronrod = result_kronrod + fsum * wgk[i]
+                        result_kronrod = complex_add(result_kronrod, complex_mul_scalar(fsum, wgk[i]))
 
                         -- Gauss points (odd indices in Kronrod)
                         if i % 2 == 0 then
-                            result_gauss = result_gauss + fsum * wg[i / 2]
+                            result_gauss = complex_add(result_gauss, complex_mul_scalar(fsum, wg[i / 2]))
                         end
                     end
 
-                    result_kronrod = result_kronrod * half_length
-                    result_gauss = result_gauss * half_length
+                    result_kronrod = complex_mul_scalar(result_kronrod, half_length)
+                    result_gauss = complex_mul_scalar(result_gauss, half_length)
 
-                    local abs_error = math.abs(result_kronrod - result_gauss)
+                    -- Error is the absolute difference
+                    local abs_error = complex_abs(complex_sub(result_kronrod, result_gauss))
 
                     return result_kronrod, abs_error
                 end
@@ -182,8 +231,9 @@ public struct IntegrateModule {
                     end
 
                     -- Stack-based adaptive integration
+                    -- Supports complex-valued integrands
                     local stack = {{a, b}}
-                    local total_result = 0
+                    local total_result = 0  -- Will become complex if integrand is complex
                     local total_error = 0
                     local neval = 0
                     local subdivisions = 0
@@ -195,11 +245,12 @@ public struct IntegrateModule {
                         local result, abs_error = gk15(f_transformed, ia, ib)
                         neval = neval + 15
 
-                        local tolerance = math.max(epsabs, epsrel * math.abs(result))
+                        -- Tolerance based on magnitude (works for both real and complex)
+                        local tolerance = math.max(epsabs, epsrel * complex_abs(result))
 
                         if abs_error <= tolerance or (ib - ia) < 1e-15 then
-                            -- Accept this interval
-                            total_result = total_result + result
+                            -- Accept this interval (complex-aware addition)
+                            total_result = complex_add(total_result, result)
                             total_error = total_error + abs_error
                         else
                             -- Subdivide
@@ -214,7 +265,7 @@ public struct IntegrateModule {
                     while #stack > 0 do
                         local interval = table.remove(stack)
                         local result, abs_error = gk15(f_transformed, interval[1], interval[2])
-                        total_result = total_result + result
+                        total_result = complex_add(total_result, result)
                         total_error = total_error + abs_error
                         neval = neval + 15
                     end

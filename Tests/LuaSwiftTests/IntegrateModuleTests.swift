@@ -713,4 +713,72 @@ final class IntegrateModuleTests: XCTestCase {
         // y(1) = e^(-1)
         XCTAssertEqual(result.numberValue!, exp(-1), accuracy: 1e-4)
     }
+
+    // MARK: - Complex Integration Tests
+
+    func testQuadComplexExponential() throws {
+        // Integral of e^(ix) from 0 to π
+        // ∫₀^π e^(ix) dx = [e^(ix)/i]₀^π = (e^(iπ) - 1)/i = (-1 - 1)/i = -2/i = 2i
+        let result = try engine.evaluate("""
+            local function f(x)
+                -- e^(ix) = cos(x) + i*sin(x)
+                return {re = math.cos(x), im = math.sin(x)}
+            end
+            local result, err = math.integrate.quad(f, 0, math.pi)
+            return result
+            """)
+        // Should return complex {re ≈ 0, im ≈ 2}
+        guard let table = result.tableValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(table["re"]?.numberValue ?? 999, 0, accuracy: 1e-8)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 2, accuracy: 1e-8)
+    }
+
+    func testQuadComplexPolynomial() throws {
+        // Integral of (1 + ix) from 0 to 1
+        // ∫₀¹ (1 + ix) dx = [x + ix²/2]₀¹ = 1 + i/2
+        let result = try engine.evaluate("""
+            local function f(x)
+                return {re = 1, im = x}
+            end
+            local result, err = math.integrate.quad(f, 0, 1)
+            return result
+            """)
+        guard let table = result.tableValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, 1.0, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 0.5, accuracy: 1e-10)
+    }
+
+    func testQuadComplexSine() throws {
+        // Integral of sin(x) + i*cos(x) from 0 to π/2
+        // ∫₀^(π/2) sin(x) dx = 1, ∫₀^(π/2) cos(x) dx = 1
+        // Result: 1 + i
+        let result = try engine.evaluate("""
+            local function f(x)
+                return {re = math.sin(x), im = math.cos(x)}
+            end
+            local result, err = math.integrate.quad(f, 0, math.pi/2)
+            return result
+            """)
+        guard let table = result.tableValue else {
+            XCTFail("Expected complex result")
+            return
+        }
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, 1.0, accuracy: 1e-8)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 1.0, accuracy: 1e-8)
+    }
+
+    func testQuadRealIntegrandStillWorks() throws {
+        // Verify real integrands still return real numbers
+        let result = try engine.evaluate("""
+            local result, err = math.integrate.quad(function(x) return x^2 end, 0, 1)
+            return type(result)
+            """)
+        XCTAssertEqual(result.stringValue, "number")
+    }
 }

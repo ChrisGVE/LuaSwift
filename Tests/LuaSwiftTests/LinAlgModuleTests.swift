@@ -990,4 +990,103 @@ final class LinAlgModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue!, 25.0, accuracy: 1e-10)  // 3^2 + 4^2
     }
+
+    // MARK: - Complex Linear Algebra
+
+    func testCsolveSimple() throws {
+        // Solve (1+i)*x = 2+2i, should give x = 1
+        let result = try engine.evaluate("""
+            local A = {rows = 1, cols = 1, real = {1}, imag = {1}}
+            local b = {rows = 1, cols = 1, real = {2}, imag = {2}}
+            local x = luaswift.linalg.csolve(A, b)
+            return {re = x.real[1], im = x.imag[1]}
+            """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]!.numberValue!, 2.0, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]!.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testCsolve2x2() throws {
+        // Solve a 2x2 complex system
+        // [[1, i], [i, 1]] * [x, y] = [1+i, 1+i]
+        // Solution: x = 1, y = 1
+        let result = try engine.evaluate("""
+            local A = {rows = 2, cols = 2, real = {1, 0, 0, 1}, imag = {0, 1, 1, 0}}
+            local b = {rows = 2, cols = 1, real = {1, 1}, imag = {1, 1}}
+            local x = luaswift.linalg.csolve(A, b)
+            -- Check x[1] and x[2] are approximately 1
+            return {x1_re = x.real[1], x1_im = x.imag[1], x2_re = x.real[2], x2_im = x.imag[2]}
+            """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["x1_re"]!.numberValue!, 1.0, accuracy: 1e-10)
+        XCTAssertEqual(table["x1_im"]!.numberValue!, 0.0, accuracy: 1e-10)
+        XCTAssertEqual(table["x2_re"]!.numberValue!, 1.0, accuracy: 1e-10)
+        XCTAssertEqual(table["x2_im"]!.numberValue!, 0.0, accuracy: 1e-10)
+    }
+
+    func testCsolveIdentity() throws {
+        // Solving I*x = b should give x = b for complex matrices
+        let result = try engine.evaluate("""
+            local A = {rows = 2, cols = 2, real = {1, 0, 0, 1}, imag = {0, 0, 0, 0}}
+            local b = {rows = 2, cols = 1, real = {3, 5}, imag = {4, 6}}
+            local x = luaswift.linalg.csolve(A, b)
+            return {x1_re = x.real[1], x1_im = x.imag[1], x2_re = x.real[2], x2_im = x.imag[2]}
+            """)
+
+        let table = result.tableValue!
+        XCTAssertEqual(table["x1_re"]!.numberValue!, 3.0, accuracy: 1e-10)
+        XCTAssertEqual(table["x1_im"]!.numberValue!, 4.0, accuracy: 1e-10)
+        XCTAssertEqual(table["x2_re"]!.numberValue!, 5.0, accuracy: 1e-10)
+        XCTAssertEqual(table["x2_im"]!.numberValue!, 6.0, accuracy: 1e-10)
+    }
+
+    func testCsvd2x2() throws {
+        // SVD of a simple complex matrix
+        let result = try engine.evaluate("""
+            local A = {rows = 2, cols = 2, real = {1, 0, 0, 1}, imag = {0, 1, 1, 0}}
+            local U, S, Vt = luaswift.linalg.csvd(A)
+            -- Check singular values (should be 2 and 0 for this matrix: [[1,i],[i,1]])
+            -- Actually for [[1,i],[i,1]], eigenvalues are 1+i and 1-i, singular values are sqrt(2) and sqrt(2)
+            return S.data[1] + S.data[2]
+            """)
+
+        // For [[1,i],[i,1]], singular values are sqrt(2), sqrt(2)
+        XCTAssertEqual(result.numberValue!, 2 * sqrt(2), accuracy: 1e-10)
+    }
+
+    func testCsvdIdentity() throws {
+        // SVD of complex identity matrix
+        let result = try engine.evaluate("""
+            local A = {rows = 2, cols = 2, real = {1, 0, 0, 1}, imag = {0, 0, 0, 0}}
+            local U, S, Vt = luaswift.linalg.csvd(A)
+            -- Singular values of identity should be 1, 1
+            return S.data[1] + S.data[2]
+            """)
+
+        XCTAssertEqual(result.numberValue!, 2.0, accuracy: 1e-10)
+    }
+
+    func testCsvdReturnsComplexU() throws {
+        // Check that U has complex structure
+        let result = try engine.evaluate("""
+            local A = {rows = 2, cols = 2, real = {1, 0, 0, 1}, imag = {0, 1, 1, 0}}
+            local U, S, Vt = luaswift.linalg.csvd(A)
+            return U.dtype
+            """)
+
+        XCTAssertEqual(result.stringValue, "complex128")
+    }
+
+    func testCsvdReturnsComplexVt() throws {
+        // Check that Vt has complex structure
+        let result = try engine.evaluate("""
+            local A = {rows = 2, cols = 2, real = {1, 0, 0, 1}, imag = {0, 1, 1, 0}}
+            local U, S, Vt = luaswift.linalg.csvd(A)
+            return Vt.dtype
+            """)
+
+        XCTAssertEqual(result.stringValue, "complex128")
+    }
 }

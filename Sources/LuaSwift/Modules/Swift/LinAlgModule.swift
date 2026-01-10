@@ -115,6 +115,10 @@ public struct LinAlgModule {
         engine.registerFunction(name: "_luaswift_linalg_solve", callback: solveCallback)
         engine.registerFunction(name: "_luaswift_linalg_lstsq", callback: lstsqCallback)
 
+        // Register complex solvers
+        engine.registerFunction(name: "_luaswift_linalg_csolve", callback: csolveCallback)
+        engine.registerFunction(name: "_luaswift_linalg_csvd", callback: csvdCallback)
+
         // Register advanced solvers
         engine.registerFunction(name: "_luaswift_linalg_solve_triangular", callback: solveTriangularCallback)
         engine.registerFunction(name: "_luaswift_linalg_cho_solve", callback: choSolveCallback)
@@ -169,6 +173,8 @@ public struct LinAlgModule {
                 local _chol = _luaswift_linalg_chol
                 local _solve = _luaswift_linalg_solve
                 local _lstsq = _luaswift_linalg_lstsq
+                local _csolve = _luaswift_linalg_csolve
+                local _csvd = _luaswift_linalg_csvd
                 local _solve_triangular = _luaswift_linalg_solve_triangular
                 local _cho_solve = _luaswift_linalg_cho_solve
                 local _lu_solve = _luaswift_linalg_lu_solve
@@ -387,6 +393,14 @@ public struct LinAlgModule {
                         local A_data = type(A) == "table" and A._data or A
                         return luaswift.linalg._wrap(_pinv(A_data, rcond))
                     end,
+                    -- Complex matrix operations
+                    csolve = function(A, b)
+                        return _csolve(A, b)
+                    end,
+                    csvd = function(A)
+                        local result = _csvd(A)
+                        return result[1], result[2], result[3]
+                    end,
                     eig = function(A)
                         local A_data = type(A) == "table" and A._data or A
                         local result = _eig(A_data)
@@ -436,6 +450,8 @@ public struct LinAlgModule {
                 _luaswift_linalg_chol = nil
                 _luaswift_linalg_solve = nil
                 _luaswift_linalg_lstsq = nil
+                _luaswift_linalg_csolve = nil
+                _luaswift_linalg_csvd = nil
                 _luaswift_linalg_solve_triangular = nil
                 _luaswift_linalg_cho_solve = nil
                 _luaswift_linalg_lu_solve = nil
@@ -1969,6 +1985,227 @@ public struct LinAlgModule {
         }
 
         return createMatrixTable(rows: colsA, cols: colsB, data: result)
+    }
+
+    // MARK: - Complex Linear Algebra
+
+    /// Extract complex matrix data from Lua table.
+    /// Expects either:
+    /// 1. A table with 'real' and 'imag' arrays (like createComplexMatrixTable output)
+    /// 2. A nested array of {re=, im=} complex numbers
+    private static func extractComplexMatrixData(_ value: LuaValue) throws -> (rows: Int, cols: Int, real: [Double], imag: [Double]) {
+        guard case .table(let dict) = value else {
+            throw LuaError.callbackError("linalg.csolve: expected complex matrix table")
+        }
+
+        // Try format 1: {rows=, cols=, real=[], imag=[]}
+        if let rowsVal = dict["rows"]?.numberValue,
+           let colsVal = dict["cols"]?.numberValue,
+           let realArr = dict["real"]?.arrayValue,
+           let imagArr = dict["imag"]?.arrayValue {
+            let rows = Int(rowsVal)
+            let cols = Int(colsVal)
+            var real: [Double] = []
+            var imag: [Double] = []
+            real.reserveCapacity(realArr.count)
+            imag.reserveCapacity(imagArr.count)
+
+            for val in realArr {
+                guard let num = val.numberValue else {
+                    throw LuaError.callbackError("linalg: complex matrix real data must be numeric")
+                }
+                real.append(num)
+            }
+            for val in imagArr {
+                guard let num = val.numberValue else {
+                    throw LuaError.callbackError("linalg: complex matrix imag data must be numeric")
+                }
+                imag.append(num)
+            }
+
+            return (rows, cols, real, imag)
+        }
+
+        // Try format 2: nested array of {re=, im=}
+        guard let rowsVal = dict["rows"]?.numberValue,
+              let colsVal = dict["cols"]?.numberValue,
+              let dataArr = dict["data"]?.arrayValue else {
+            throw LuaError.callbackError("linalg: invalid complex matrix structure")
+        }
+
+        let rows = Int(rowsVal)
+        let cols = Int(colsVal)
+        var real: [Double] = []
+        var imag: [Double] = []
+        real.reserveCapacity(dataArr.count)
+        imag.reserveCapacity(dataArr.count)
+
+        for val in dataArr {
+            if let table = val.tableValue,
+               let re = table["re"]?.numberValue,
+               let im = table["im"]?.numberValue {
+                real.append(re)
+                imag.append(im)
+            } else if let num = val.numberValue {
+                // Real number, imaginary part is 0
+                real.append(num)
+                imag.append(0)
+            } else {
+                throw LuaError.callbackError("linalg: complex matrix elements must be {re=, im=} tables or numbers")
+            }
+        }
+
+        return (rows, cols, real, imag)
+    }
+
+    /// Solve complex linear system Ax = b using LAPACK zgesv
+    private static func csolveCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("linalg.csolve: requires A and b arguments")
+        }
+
+        let (rowsA, colsA, realA, imagA) = try extractComplexMatrixData(args[0])
+        let (rowsB, colsB, realB, imagB) = try extractComplexMatrixData(args[1])
+
+        guard rowsA == colsA else {
+            throw LuaError.callbackError("linalg.csolve: A must be square")
+        }
+
+        guard rowsA == rowsB else {
+            throw LuaError.callbackError("linalg.csolve: A and b must have compatible dimensions")
+        }
+
+        // Convert to column-major interleaved complex for LAPACK
+        // LAPACK uses __CLPK_doublecomplex which is {r: Double, i: Double}
+        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rowsA * colsA)
+        for i in 0..<rowsA {
+            for j in 0..<colsA {
+                let srcIdx = i * colsA + j
+                let dstIdx = j * rowsA + i  // Column-major
+                a[dstIdx] = __CLPK_doublecomplex(r: realA[srcIdx], i: imagA[srcIdx])
+            }
+        }
+
+        var b = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rowsB * colsB)
+        for i in 0..<rowsB {
+            for j in 0..<colsB {
+                let srcIdx = i * colsB + j
+                let dstIdx = j * rowsB + i  // Column-major
+                b[dstIdx] = __CLPK_doublecomplex(r: realB[srcIdx], i: imagB[srcIdx])
+            }
+        }
+
+        var n1 = __CLPK_integer(rowsA)
+        var nrhs = __CLPK_integer(colsB)
+        var lda = __CLPK_integer(rowsA)
+        var ipiv = [__CLPK_integer](repeating: 0, count: rowsA)
+        var ldb = __CLPK_integer(rowsA)
+        var info: __CLPK_integer = 0
+
+        zgesv_(&n1, &nrhs, &a, &lda, &ipiv, &b, &ldb, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("linalg.csolve: system is singular or computation failed (info=\(info))")
+        }
+
+        // Convert back to row-major separate real/imag arrays
+        var resultReal = [Double](repeating: 0, count: rowsB * colsB)
+        var resultImag = [Double](repeating: 0, count: rowsB * colsB)
+        for i in 0..<rowsB {
+            for j in 0..<colsB {
+                let srcIdx = j * rowsB + i  // Column-major source
+                let dstIdx = i * colsB + j  // Row-major destination
+                resultReal[dstIdx] = b[srcIdx].r
+                resultImag[dstIdx] = b[srcIdx].i
+            }
+        }
+
+        return createComplexMatrixTable(rows: rowsB, cols: colsB, real: resultReal, imag: resultImag)
+    }
+
+    /// Compute complex SVD using LAPACK zgesdd
+    private static func csvdCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("linalg.csvd: missing argument")
+        }
+
+        let (rows, cols, real, imag) = try extractComplexMatrixData(arg)
+        let minDim = min(rows, cols)
+
+        // Convert to column-major interleaved complex for LAPACK
+        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * cols)
+        for i in 0..<rows {
+            for j in 0..<cols {
+                let srcIdx = i * cols + j
+                let dstIdx = j * rows + i  // Column-major
+                a[dstIdx] = __CLPK_doublecomplex(r: real[srcIdx], i: imag[srcIdx])
+            }
+        }
+
+        var m1 = __CLPK_integer(rows)
+        var n1 = __CLPK_integer(cols)
+        var lda1 = __CLPK_integer(rows)
+        var s = [Double](repeating: 0, count: minDim)
+        var u = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * rows)
+        var vt = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: cols * cols)
+        var ldu = __CLPK_integer(rows)
+        var ldvt = __CLPK_integer(cols)
+        var info: __CLPK_integer = 0
+
+        // zgesdd requires workspace query
+        var lwork: __CLPK_integer = -1
+        var work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
+        var rwork = [Double](repeating: 0, count: max(1, 5 * minDim * minDim + 7 * minDim))
+        var iwork = [__CLPK_integer](repeating: 0, count: 8 * minDim)
+        var jobz = Int8(UInt8(ascii: "A"))
+
+        zgesdd_(&jobz, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &rwork, &iwork, &info)
+
+        lwork = __CLPK_integer(work[0].r)
+        work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: Int(lwork))
+
+        var m2 = __CLPK_integer(rows)
+        var n2 = __CLPK_integer(cols)
+        var lda2 = __CLPK_integer(rows)
+
+        zgesdd_(&jobz, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &rwork, &iwork, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("linalg.csvd: computation failed (info=\(info))")
+        }
+
+        // Convert U to row-major
+        var Ureal = [Double](repeating: 0, count: rows * rows)
+        var Uimag = [Double](repeating: 0, count: rows * rows)
+        for i in 0..<rows {
+            for j in 0..<rows {
+                let srcIdx = j * rows + i  // Column-major source
+                let dstIdx = i * rows + j  // Row-major destination
+                Ureal[dstIdx] = u[srcIdx].r
+                Uimag[dstIdx] = u[srcIdx].i
+            }
+        }
+
+        // S is real - return as 1D vector
+        let sValue = createMatrixTable(rows: minDim, cols: 1, data: s)
+
+        // Convert Vt to row-major (it's already the conjugate transpose)
+        var Vtreal = [Double](repeating: 0, count: cols * cols)
+        var Vtimag = [Double](repeating: 0, count: cols * cols)
+        for i in 0..<cols {
+            for j in 0..<cols {
+                let srcIdx = j * cols + i  // Column-major source
+                let dstIdx = i * cols + j  // Row-major destination
+                Vtreal[dstIdx] = vt[srcIdx].r
+                Vtimag[dstIdx] = vt[srcIdx].i
+            }
+        }
+
+        return .array([
+            createComplexMatrixTable(rows: rows, cols: rows, real: Ureal, imag: Uimag),
+            sValue,
+            createComplexMatrixTable(rows: cols, cols: cols, real: Vtreal, imag: Vtimag)
+        ])
     }
 
     // MARK: - Advanced Solvers

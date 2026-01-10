@@ -2465,6 +2465,34 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(list[5], 0, accuracy: 1e-10)  // im(sqrt(4)) = 0
     }
 
+    func testClogNegative() throws {
+        // clog(-1) = iπ, clog(-e) = 1 + iπ
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({-1, math.exp(1), -math.exp(1)})
+            local z = luaswift.array.clog(a)
+            local re = z:real():tolist()
+            local im = z:imag():tolist()
+            return {re[1], im[1], re[2], im[2], re[3], im[3]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 0, accuracy: 1e-10)         // re(log(-1)) = 0
+        XCTAssertEqual(list[1], Double.pi, accuracy: 1e-10) // im(log(-1)) = π
+        XCTAssertEqual(list[2], 1, accuracy: 1e-10)         // re(log(e)) = 1
+        XCTAssertEqual(list[3], 0, accuracy: 1e-10)         // im(log(e)) = 0
+        XCTAssertEqual(list[4], 1, accuracy: 1e-10)         // re(log(-e)) = 1
+        XCTAssertEqual(list[5], Double.pi, accuracy: 1e-10) // im(log(-e)) = π
+    }
+
+    func testClogPositive() throws {
+        // clog for positive reals should return real
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, math.exp(2)})
+            local z = luaswift.array.clog(a)
+            return z:iscomplex()
+            """)
+        XCTAssertFalse(result.boolValue!)  // All positive, returns real
+    }
+
     func testComplexSin() throws {
         // sin(i) = i*sinh(1) ≈ i*1.1752
         let result = try engine.evaluate("""
@@ -2526,6 +2554,94 @@ final class ArrayModuleTests: XCTestCase {
             return sum:dtype()
             """)
         XCTAssertEqual(result.stringValue, "complex128")
+    }
+
+    // MARK: - Complex Scalar Interop Tests
+
+    func testComplexScalarMulArray() throws {
+        // Multiply real array by complex scalar
+        // {1, 2, 3} * (2 + i) = {2+i, 4+2i, 6+3i}
+        let result = try engine.evaluate("""
+            local arr = luaswift.array.array({1, 2, 3})
+            local scalar = {re = 2, im = 1}  -- Complex scalar table
+            local result = arr * scalar
+            local re = result:real():tolist()
+            local im = result:imag():tolist()
+            return {re[1], re[2], re[3], im[1], im[2], im[3]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [2, 4, 6, 1, 2, 3])
+    }
+
+    func testComplexScalarAddArray() throws {
+        // Add complex scalar to real array
+        // (1 + 2i) + {10, 20} = {11+2i, 21+2i}
+        let result = try engine.evaluate("""
+            local arr = luaswift.array.array({10, 20})
+            local scalar = {re = 1, im = 2}  -- Complex scalar table
+            local result = scalar + arr
+            local re = result:real():tolist()
+            local im = result:imag():tolist()
+            return {re[1], re[2], im[1], im[2]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [11, 21, 2, 2])
+    }
+
+    func testComplexScalarDivArray() throws {
+        // Divide complex array by complex scalar
+        // {2+2i, 4+4i} / (1+i) = {2, 4} (since (2+2i)/(1+i) = 2)
+        let result = try engine.evaluate("""
+            local arr = luaswift.array.complex_array(
+                luaswift.array.array({2, 4}),
+                luaswift.array.array({2, 4})
+            )
+            local scalar = {re = 1, im = 1}  -- Complex scalar table
+            local result = arr / scalar
+            local re = result:real():tolist()
+            local im = result:imag():tolist()
+            return {re[1], re[2], im[1], im[2]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 2, accuracy: 1e-10)
+        XCTAssertEqual(list[1], 4, accuracy: 1e-10)
+        XCTAssertEqual(list[2], 0, accuracy: 1e-10)
+        XCTAssertEqual(list[3], 0, accuracy: 1e-10)
+    }
+
+    func testComplexScalarSubArray() throws {
+        // Subtract complex scalar from complex array
+        // {5+3i, 7+4i} - (1+1i) = {4+2i, 6+3i}
+        let result = try engine.evaluate("""
+            local arr = luaswift.array.complex_array(
+                luaswift.array.array({5, 7}),
+                luaswift.array.array({3, 4})
+            )
+            local scalar = {re = 1, im = 1}  -- Complex scalar table
+            local result = arr - scalar
+            local re = result:real():tolist()
+            local im = result:imag():tolist()
+            return {re[1], re[2], im[1], im[2]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [4, 6, 2, 3])
+    }
+
+    func testRealScalarMulComplexArray() throws {
+        // Multiply complex array by real scalar
+        // {1+2i, 3+4i} * 2 = {2+4i, 6+8i}
+        let result = try engine.evaluate("""
+            local arr = luaswift.array.complex_array(
+                luaswift.array.array({1, 3}),
+                luaswift.array.array({2, 4})
+            )
+            local result = arr * 2
+            local re = result:real():tolist()
+            local im = result:imag():tolist()
+            return {re[1], re[2], im[1], im[2]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [2, 6, 4, 8])
     }
 
 }

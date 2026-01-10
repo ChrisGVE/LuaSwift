@@ -78,6 +78,7 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_abs", callback: absCallback)
         engine.registerFunction(name: "_luaswift_array_sqrt", callback: sqrtCallback)
         engine.registerFunction(name: "_luaswift_array_csqrt", callback: csqrtCallback)
+        engine.registerFunction(name: "_luaswift_array_clog", callback: clogCallback)
         engine.registerFunction(name: "_luaswift_array_exp", callback: expCallback)
         engine.registerFunction(name: "_luaswift_array_log", callback: logCallback)
         engine.registerFunction(name: "_luaswift_array_log2", callback: log2Callback)
@@ -232,6 +233,7 @@ public struct ArrayModule {
                 local _abs = _luaswift_array_abs
                 local _sqrt = _luaswift_array_sqrt
                 local _csqrt = _luaswift_array_csqrt
+                local _clog = _luaswift_array_clog
                 local _exp = _luaswift_array_exp
                 local _log = _luaswift_array_log
                 local _log2 = _luaswift_array_log2
@@ -574,6 +576,10 @@ public struct ArrayModule {
                     csqrt = function(a)
                         local data = type(a) == "table" and a._data or a
                         return luaswift.array._wrap(_csqrt(data))
+                    end,
+                    clog = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_clog(data))
                     end,
                     exp = function(a)
                         local data = type(a) == "table" and a._data or a
@@ -1143,6 +1149,7 @@ public struct ArrayModule {
                 _luaswift_array_abs = nil
                 _luaswift_array_sqrt = nil
                 _luaswift_array_csqrt = nil
+                _luaswift_array_clog = nil
                 _luaswift_array_exp = nil
                 _luaswift_array_log = nil
                 _luaswift_array_sin = nil
@@ -2311,8 +2318,8 @@ public struct ArrayModule {
                                     realp: resRealBuf.baseAddress!,
                                     imagp: resImagBuf.baseAddress!
                                 )
-                                // Note: vDSP_zvsub computes B - A, so we swap A and B
-                                vDSP_zvsubD(&splitB, 1, &splitA, 1, &splitC, 1, vDSP_Length(size))
+                                // vDSP_zvsubD computes A - B: C[i] = A[i] - B[i]
+                                vDSP_zvsubD(&splitA, 1, &splitB, 1, &splitC, 1, vDSP_Length(size))
                             }
                         }
                     }
@@ -2396,22 +2403,59 @@ public struct ArrayModule {
     }
 
     /// Check if args contain complex arrays and perform complex binary operation
+    /// Check if a value is a complex scalar (table with re/im but not an array)
+    private static func isComplexScalar(_ value: LuaValue) -> Bool {
+        guard let table = value.tableValue else { return false }
+        // Has re and im, but no dtype (which would indicate a complex array)
+        return table["re"]?.numberValue != nil &&
+               table["im"]?.numberValue != nil &&
+               table["dtype"] == nil
+    }
+
+    /// Extract complex scalar as single-element ArrayData
+    private static func extractComplexScalar(_ value: LuaValue) -> ArrayData? {
+        guard let table = value.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else { return nil }
+        return ArrayData.complexArray(shape: [1], real: [re], imag: [im])
+    }
+
     private static func complexBinaryOp(_ args: [LuaValue], name: String) throws -> LuaValue? {
         guard args.count >= 2 else { return nil }
 
-        // Check if either operand is complex
+        // Check if either operand is complex (array or scalar)
         let arr1Table = args[0].tableValue
         let arr2Table = args[1].tableValue
 
         let isComplex1 = arr1Table?["dtype"]?.stringValue == "complex128"
         let isComplex2 = arr2Table?["dtype"]?.stringValue == "complex128"
+        let isComplexScalar1 = isComplexScalar(args[0])
+        let isComplexScalar2 = isComplexScalar(args[1])
 
-        // If neither is complex, return nil to use standard real path
-        guard isComplex1 || isComplex2 else { return nil }
+        // If neither is complex (array or scalar), return nil to use standard real path
+        guard isComplex1 || isComplex2 || isComplexScalar1 || isComplexScalar2 else { return nil }
 
-        // Extract arrays
-        var a = try extractArrayData(args[0])
-        var b = try extractArrayData(args[1])
+        // Extract arrays (handle complex scalars and real scalars specially)
+        var a: ArrayData
+        var b: ArrayData
+
+        if isComplexScalar1 {
+            a = extractComplexScalar(args[0])!
+        } else if let realScalar = args[0].numberValue {
+            // Real scalar - treat as single-element array
+            a = ArrayData(shape: [1], data: [realScalar])
+        } else {
+            a = try extractArrayData(args[0])
+        }
+
+        if isComplexScalar2 {
+            b = extractComplexScalar(args[1])!
+        } else if let realScalar = args[1].numberValue {
+            // Real scalar - treat as single-element array
+            b = ArrayData(shape: [1], data: [realScalar])
+        } else {
+            b = try extractArrayData(args[1])
+        }
 
         // Promote to complex if needed
         if !a.isComplex { a = a.promoteToComplex() }
@@ -2743,6 +2787,75 @@ public struct ArrayModule {
                 var result = arrayData.real
                 var count = Int32(arrayData.size)
                 vvsqrt(&result, arrayData.real, &count)
+                return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
+            }
+        }
+    }
+
+    /// Complex-aware log: returns complex for negative/zero reals, real for positive reals
+    private static func clogCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.clog: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+
+        if arrayData.isComplex {
+            // Already complex - use the standard complex log
+            // log(a+bi) = ln(|z|) + i*arg(z)
+            let n = arrayData.size
+            var realResult = [Double](repeating: 0, count: n)
+            var imagResult = [Double](repeating: 0, count: n)
+            let imagPart = arrayData.imag ?? [Double](repeating: 0, count: n)
+
+            // Compute |z|² = a² + b² using vDSP
+            var magSquared = [Double](repeating: 0, count: n)
+            vDSP_vsqD(arrayData.real, 1, &magSquared, 1, vDSP_Length(n))
+            var imagSquared = [Double](repeating: 0, count: n)
+            vDSP_vsqD(imagPart, 1, &imagSquared, 1, vDSP_Length(n))
+            vDSP_vaddD(magSquared, 1, imagSquared, 1, &magSquared, 1, vDSP_Length(n))
+
+            // ln(|z|) = 0.5 * ln(a²+b²)
+            var count = Int32(n)
+            vvlog(&realResult, magSquared, &count)
+            var half = 0.5
+            vDSP_vsmulD(realResult, 1, &half, &realResult, 1, vDSP_Length(n))
+
+            // arg(z) = atan2(b, a)
+            vvatan2(&imagResult, imagPart, arrayData.real, &count)
+
+            return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+        } else {
+            // Check if any values are non-positive - if so, return complex
+            let hasNonPositive = arrayData.real.contains { $0 <= 0 }
+
+            if hasNonPositive {
+                // Return complex: log(x) = ln|x| + i*π for negative x, undefined for 0
+                let n = arrayData.size
+                var realResult = [Double](repeating: 0, count: n)
+                var imagResult = [Double](repeating: 0, count: n)
+
+                for i in 0..<n {
+                    let val = arrayData.real[i]
+                    if val > 0 {
+                        realResult[i] = Darwin.log(val)
+                        imagResult[i] = 0
+                    } else if val < 0 {
+                        realResult[i] = Darwin.log(-val)
+                        imagResult[i] = Double.pi
+                    } else {
+                        // log(0) = -inf + 0i
+                        realResult[i] = -.infinity
+                        imagResult[i] = 0
+                    }
+                }
+
+                return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+            } else {
+                // All positive - return real log
+                var result = arrayData.real
+                var count = Int32(arrayData.size)
+                vvlog(&result, arrayData.real, &count)
                 return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
             }
         }

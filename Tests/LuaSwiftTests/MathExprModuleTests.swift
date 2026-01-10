@@ -1395,4 +1395,126 @@ final class MathExprModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue ?? 0, 15, accuracy: 1e-10)
     }
+
+    // MARK: - Complex Number Literal Tests
+
+    func testTokenizeImaginaryLiteral() throws {
+        // Test that 5i is tokenized as imaginary literal
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("5i")
+            return {count = #tokens, type = tokens[1].type, value = tokens[1].value}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["count"]?.numberValue, 1)
+        XCTAssertEqual(table["type"]?.stringValue, "imaginary")
+        XCTAssertEqual(table["value"]?.numberValue, 5)
+    }
+
+    func testEvalPureImaginary() throws {
+        // Test eval("5i") returns {re=0, im=5}
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("5i")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue, 0)
+        XCTAssertEqual(table["im"]?.numberValue, 5)
+    }
+
+    func testEvalComplexLiteral() throws {
+        // Test eval("2+3i") returns {re=2, im=3}
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("2+3i")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue, 2)
+        XCTAssertEqual(table["im"]?.numberValue, 3)
+    }
+
+    func testEvalComplexSubtraction() throws {
+        // Test eval("5-2i") returns {re=5, im=-2}
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("5-2i")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue, 5)
+        XCTAssertEqual(table["im"]?.numberValue, -2)
+    }
+
+    func testEvalImaginaryUnit() throws {
+        // Test that '1i' syntax for pure imaginary unit works
+        // Note: standalone 'i' is NOT a constant to avoid conflicts with loop variables
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("1i")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue, 0)
+        XCTAssertEqual(table["im"]?.numberValue, 1)
+    }
+
+    func testEvalComplexMultiplication() throws {
+        // Test (2+i)*(1+i) = 2 + 2i + i + i^2 = 2 + 3i - 1 = 1 + 3i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("(2+1i)*(1+1i)")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, 1, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 3, accuracy: 1e-10)
+    }
+
+    func testEvalComplexISquared() throws {
+        // Test i^2 = -1 (fundamental property of imaginary unit)
+        // Using 1i syntax since standalone 'i' is not a constant
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("1i^2")
+            if type(z) == "table" then
+                return z.re
+            else
+                return z
+            end
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, -1, accuracy: 1e-10, "(1i)^2 should equal -1")
+    }
 }

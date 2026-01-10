@@ -38,6 +38,7 @@ public struct MathExprModule {
     /// Token types for mathematical expression parsing
     public enum Token: Equatable {
         case number(Double)
+        case imaginary(Double)  // e.g., 2i, 5i (coefficient of imaginary unit)
         case `operator`(String)
         case function(String)
         case lparen
@@ -51,6 +52,8 @@ public struct MathExprModule {
             switch self {
             case .number(let n):
                 return "number(\(n))"
+            case .imaginary(let n):
+                return "imaginary(\(n))"
             case .operator(let op):
                 return "operator(\(op))"
             case .function(let name):
@@ -91,6 +94,8 @@ public struct MathExprModule {
     ]
 
     /// Known mathematical constants
+    /// Note: 'i' is NOT included to avoid conflicts with loop variables.
+    /// Use '1i' syntax for pure imaginary unit.
     private static let knownConstants: Set<String> = [
         "pi", "e", "inf", "nan"
     ]
@@ -115,9 +120,19 @@ public struct MathExprModule {
                 continue
             }
 
-            // Numbers (including decimals and scientific notation)
+            // Numbers (including decimals, scientific notation, and imaginary suffix)
             if char.isNumber || (char == "." && index < expression.endIndex) {
                 let (number, endIndex) = try parseNumber(expression, startingAt: index)
+                // Check for imaginary suffix 'i' (no space between number and i)
+                if endIndex < expression.endIndex && expression[endIndex] == "i" {
+                    let nextIdx = expression.index(after: endIndex)
+                    // Ensure 'i' is not followed by more identifier characters (like 'in', 'if')
+                    if nextIdx >= expression.endIndex || !expression[nextIdx].isLetter {
+                        tokens.append(.imaginary(number))
+                        index = nextIdx
+                        continue
+                    }
+                }
                 tokens.append(.number(number))
                 index = endIndex
                 continue
@@ -238,6 +253,8 @@ public struct MathExprModule {
         switch token {
         case .number(let n):
             return .table(["type": .string("number"), "value": .number(n)])
+        case .imaginary(let n):
+            return .table(["type": .string("imaginary"), "value": .number(n)])
         case .operator(let op):
             return .table(["type": .string("operator"), "value": .string(op)])
         case .function(let name):
@@ -368,6 +385,8 @@ public struct MathExprModule {
     end
 
     -- Constants for evaluation
+    -- Note: 'i' is NOT included to avoid conflicts with loop variables.
+    -- Use '1i' syntax for pure imaginary unit.
     eval.constants = {
         pi = math.pi,
         e = math.exp(1),
@@ -447,6 +466,9 @@ public struct MathExprModule {
         for i, token in ipairs(tokens) do
             if token.type == "number" then
                 table.insert(output, {type = "number", value = token.value})
+            elseif token.type == "imaginary" then
+                -- Imaginary literal like 2i -> complex {re=0, im=value}
+                table.insert(output, {type = "imaginary", value = token.value})
             elseif token.type == "constant" then
                 table.insert(output, {type = "constant", name = token.value})
             elseif token.type == "variable" then
@@ -511,12 +533,85 @@ public struct MathExprModule {
         return output[1]
     end
 
+    -- Helper to check if value is a complex table
+    local function is_complex(v)
+        return type(v) == "table" and v.re ~= nil and v.im ~= nil
+    end
+
+    -- Helper to normalize value to complex
+    local function to_complex(v)
+        if is_complex(v) then return v end
+        return {re = v, im = 0}
+    end
+
+    -- Complex arithmetic helpers
+    local function complex_add(a, b)
+        a, b = to_complex(a), to_complex(b)
+        return {re = a.re + b.re, im = a.im + b.im}
+    end
+
+    local function complex_sub(a, b)
+        a, b = to_complex(a), to_complex(b)
+        return {re = a.re - b.re, im = a.im - b.im}
+    end
+
+    local function complex_mul(a, b)
+        a, b = to_complex(a), to_complex(b)
+        return {re = a.re * b.re - a.im * b.im, im = a.re * b.im + a.im * b.re}
+    end
+
+    local function complex_div(a, b)
+        a, b = to_complex(a), to_complex(b)
+        local denom = b.re * b.re + b.im * b.im
+        return {re = (a.re * b.re + a.im * b.im) / denom, im = (a.im * b.re - a.re * b.im) / denom}
+    end
+
+    -- Lua 5.3+ uses math.atan(y, x) instead of math.atan2(y, x)
+    local function atan2(y, x)
+        if math.atan2 then
+            return math.atan2(y, x)
+        else
+            return math.atan(y, x)
+        end
+    end
+
+    local function complex_pow(a, n)
+        -- For now, only support real exponent
+        a = to_complex(a)
+        if is_complex(n) then
+            -- Complex exponent: a^n = exp(n * log(a))
+            local r = math.sqrt(a.re * a.re + a.im * a.im)
+            local theta = atan2(a.im, a.re)
+            local log_a = {re = math.log(r), im = theta}
+            local n_log_a = complex_mul(n, log_a)
+            local exp_re = math.exp(n_log_a.re)
+            return {re = exp_re * math.cos(n_log_a.im), im = exp_re * math.sin(n_log_a.im)}
+        else
+            -- Real exponent: use De Moivre's formula
+            local r = math.sqrt(a.re * a.re + a.im * a.im)
+            local theta = atan2(a.im, a.re)
+            local rn = r ^ n
+            return {re = rn * math.cos(n * theta), im = rn * math.sin(n * theta)}
+        end
+    end
+
+    -- Simplify complex result: return real if imaginary is negligible
+    local function simplify_complex(v)
+        if is_complex(v) and math.abs(v.im) < 1e-14 then
+            return v.re
+        end
+        return v
+    end
+
     -- Evaluate an AST node
     function eval.eval_ast(ast, vars)
         vars = vars or {}
 
         if ast.type == "number" then
             return ast.value
+        elseif ast.type == "imaginary" then
+            -- Imaginary literal: ni -> {re=0, im=n}
+            return {re = 0, im = ast.value}
         elseif ast.type == "constant" then
             return eval.constants[ast.name]
         elseif ast.type == "variable" then
@@ -524,11 +619,24 @@ public struct MathExprModule {
         elseif ast.type == "binop" then
             local left = eval.eval_ast(ast.left, vars)
             local right = eval.eval_ast(ast.right, vars)
-            if ast.op == "+" then return left + right
-            elseif ast.op == "-" then return left - right
-            elseif ast.op == "*" then return left * right
-            elseif ast.op == "/" then return left / right
-            elseif ast.op == "^" then return left ^ right
+            -- Check if either operand is complex
+            if is_complex(left) or is_complex(right) then
+                local result
+                if ast.op == "+" then result = complex_add(left, right)
+                elseif ast.op == "-" then result = complex_sub(left, right)
+                elseif ast.op == "*" then result = complex_mul(left, right)
+                elseif ast.op == "/" then result = complex_div(left, right)
+                elseif ast.op == "^" then result = complex_pow(left, right)
+                end
+                return simplify_complex(result)
+            else
+                -- Both operands are real
+                if ast.op == "+" then return left + right
+                elseif ast.op == "-" then return left - right
+                elseif ast.op == "*" then return left * right
+                elseif ast.op == "/" then return left / right
+                elseif ast.op == "^" then return left ^ right
+                end
             end
         elseif ast.type == "call" then
             local func = eval.functions[ast.name]
@@ -593,6 +701,9 @@ public struct MathExprModule {
 
         if ast.type == "number" then
             return ast.value
+        elseif ast.type == "imaginary" then
+            -- Imaginary literal: ni -> {re=0, im=n}
+            return {re = 0, im = ast.value}
         elseif ast.type == "constant" then
             return eval.constants[ast.name]
         elseif ast.type == "variable" then
@@ -613,11 +724,24 @@ public struct MathExprModule {
         elseif ast.type == "binop" then
             local left = eval._eval_ast_lazy(ast.left, raw_scope, resolved_cache)
             local right = eval._eval_ast_lazy(ast.right, raw_scope, resolved_cache)
-            if ast.op == "+" then return left + right
-            elseif ast.op == "-" then return left - right
-            elseif ast.op == "*" then return left * right
-            elseif ast.op == "/" then return left / right
-            elseif ast.op == "^" then return left ^ right
+            -- Check if either operand is complex
+            if is_complex(left) or is_complex(right) then
+                local result
+                if ast.op == "+" then result = complex_add(left, right)
+                elseif ast.op == "-" then result = complex_sub(left, right)
+                elseif ast.op == "*" then result = complex_mul(left, right)
+                elseif ast.op == "/" then result = complex_div(left, right)
+                elseif ast.op == "^" then result = complex_pow(left, right)
+                end
+                return simplify_complex(result)
+            else
+                -- Both operands are real
+                if ast.op == "+" then return left + right
+                elseif ast.op == "-" then return left - right
+                elseif ast.op == "*" then return left * right
+                elseif ast.op == "/" then return left / right
+                elseif ast.op == "^" then return left ^ right
+                end
             end
         elseif ast.type == "call" then
             local func = eval.functions[ast.name]

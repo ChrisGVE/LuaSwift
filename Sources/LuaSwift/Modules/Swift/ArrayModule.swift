@@ -40,6 +40,17 @@ public struct ArrayModule {
         engine.registerFunction(name: "_luaswift_array_randn", callback: randnCallback)
         engine.registerFunction(name: "_luaswift_array_full", callback: fullCallback)
 
+        // Register complex array creation functions
+        engine.registerFunction(name: "_luaswift_array_complex_array", callback: complexArrayCallback)
+        engine.registerFunction(name: "_luaswift_array_from_polar", callback: fromPolarCallback)
+
+        // Register complex property accessors
+        engine.registerFunction(name: "_luaswift_array_dtype", callback: dtypeCallback)
+        engine.registerFunction(name: "_luaswift_array_iscomplex", callback: isComplexCallback)
+        engine.registerFunction(name: "_luaswift_array_real", callback: realPartCallback)
+        engine.registerFunction(name: "_luaswift_array_imag", callback: imagPartCallback)
+        engine.registerFunction(name: "_luaswift_array_conj", callback: conjCallback)
+
         // Register property accessors
         engine.registerFunction(name: "_luaswift_array_shape", callback: shapeCallback)
         engine.registerFunction(name: "_luaswift_array_ndim", callback: ndimCallback)
@@ -1597,8 +1608,19 @@ public struct ArrayModule {
             throw LuaError.callbackError("array.zeros: invalid shape")
         }
 
+        // Check for optional dtype parameter (second argument)
+        let dtype = ArrayDType(from: args.count > 1 ? args[1].stringValue : nil)
         let size = shape.reduce(1, *)
-        try trackArrayAllocation(count: size)
+        try trackArrayAllocation(count: size * (dtype.isComplex ? 2 : 1))
+
+        if dtype.isComplex {
+            return createArrayTable(ArrayData(
+                shape: shape,
+                dtype: .complex128,
+                real: [Double](repeating: 0, count: size),
+                imag: [Double](repeating: 0, count: size)
+            ))
+        }
         return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: 0, count: size)))
     }
 
@@ -1624,8 +1646,20 @@ public struct ArrayModule {
             throw LuaError.callbackError("array.ones: invalid shape")
         }
 
+        // Check for optional dtype parameter (second argument)
+        let dtype = ArrayDType(from: args.count > 1 ? args[1].stringValue : nil)
         let size = shape.reduce(1, *)
-        try trackArrayAllocation(count: size)
+        try trackArrayAllocation(count: size * (dtype.isComplex ? 2 : 1))
+
+        if dtype.isComplex {
+            // Complex ones: 1+0i
+            return createArrayTable(ArrayData(
+                shape: shape,
+                dtype: .complex128,
+                real: [Double](repeating: 1, count: size),
+                imag: [Double](repeating: 0, count: size)
+            ))
+        }
         return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: 1, count: size)))
     }
 
@@ -1658,6 +1692,123 @@ public struct ArrayModule {
         let size = shape.reduce(1, *)
         try trackArrayAllocation(count: size)
         return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: value, count: size)))
+    }
+
+    // MARK: - Complex Array Creation Callbacks
+
+    /// Create complex array from two real arrays (real and imaginary parts)
+    private static func complexArrayCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.complex_array: requires real and imag arrays")
+        }
+
+        let realArray = try extractArrayData(args[0])
+        let imagArray = try extractArrayData(args[1])
+
+        guard realArray.shape == imagArray.shape else {
+            throw LuaError.callbackError("array.complex_array: real and imag arrays must have same shape")
+        }
+
+        try trackArrayAllocation(count: realArray.size * 2)
+        return createArrayTable(ArrayData.complexArray(
+            shape: realArray.shape,
+            real: realArray.real,
+            imag: imagArray.real
+        ))
+    }
+
+    /// Create complex array from polar form (magnitudes and phases)
+    private static func fromPolarCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 2 else {
+            throw LuaError.callbackError("array.from_polar: requires magnitude and phase arrays")
+        }
+
+        let magArray = try extractArrayData(args[0])
+        let phaseArray = try extractArrayData(args[1])
+
+        guard magArray.shape == phaseArray.shape else {
+            throw LuaError.callbackError("array.from_polar: magnitude and phase arrays must have same shape")
+        }
+
+        let size = magArray.size
+        try trackArrayAllocation(count: size * 2)
+
+        var real = [Double](repeating: 0, count: size)
+        var imag = [Double](repeating: 0, count: size)
+
+        // Convert polar to rectangular: z = r * (cos(θ) + i*sin(θ))
+        for i in 0..<size {
+            let r = magArray.real[i]
+            let theta = phaseArray.real[i]
+            real[i] = r * cos(theta)
+            imag[i] = r * sin(theta)
+        }
+
+        return createArrayTable(ArrayData.complexArray(shape: magArray.shape, real: real, imag: imag))
+    }
+
+    // MARK: - Complex Property Accessors
+
+    /// Get dtype string for array
+    private static func dtypeCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.dtype: requires an array argument")
+        }
+        let arrayData = try extractArrayData(args[0])
+        return .string(arrayData.dtype.rawValue)
+    }
+
+    /// Check if array is complex
+    private static func isComplexCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.iscomplex: requires an array argument")
+        }
+        let arrayData = try extractArrayData(args[0])
+        return .bool(arrayData.isComplex)
+    }
+
+    /// Extract real part of array (returns copy for complex, same data for real)
+    private static func realPartCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.real: requires an array argument")
+        }
+        let arrayData = try extractArrayData(args[0])
+        return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: arrayData.real))
+    }
+
+    /// Extract imaginary part of array (returns zeros for real arrays)
+    private static func imagPartCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.imag: requires an array argument")
+        }
+        let arrayData = try extractArrayData(args[0])
+        let imagData = arrayData.imag ?? [Double](repeating: 0, count: arrayData.size)
+        return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: imagData))
+    }
+
+    /// Complex conjugate of array
+    private static func conjCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard args.count >= 1 else {
+            throw LuaError.callbackError("array.conj: requires an array argument")
+        }
+        let arrayData = try extractArrayData(args[0])
+
+        if !arrayData.isComplex {
+            // Real array: conjugate is same as original
+            return createArrayTable(arrayData)
+        }
+
+        // Complex array: negate imaginary part
+        var conjugateImag = [Double](repeating: 0, count: arrayData.size)
+        if let imag = arrayData.imag {
+            vDSP_vnegD(imag, 1, &conjugateImag, 1, vDSP_Length(arrayData.size))
+        }
+
+        return createArrayTable(ArrayData.complexArray(
+            shape: arrayData.shape,
+            real: arrayData.real,
+            imag: conjugateImag
+        ))
     }
 
     private static func arangeCallback(_ args: [LuaValue]) throws -> LuaValue {

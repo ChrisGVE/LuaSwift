@@ -2182,21 +2182,232 @@ public struct ArrayModule {
         return createArrayTable(ArrayData(shape: newShape, data: newData))
     }
 
+    // MARK: - Complex Arithmetic Helpers
+
+    /// Complex addition using vDSP: C = A + B
+    private static func complexAdd(_ a: ArrayData, _ b: ArrayData) -> ArrayData {
+        let size = a.size
+        var resultReal = [Double](repeating: 0, count: size)
+        var resultImag = [Double](repeating: 0, count: size)
+
+        a.real.withUnsafeBufferPointer { aRealBuf in
+            a.imag!.withUnsafeBufferPointer { aImagBuf in
+                b.real.withUnsafeBufferPointer { bRealBuf in
+                    b.imag!.withUnsafeBufferPointer { bImagBuf in
+                        resultReal.withUnsafeMutableBufferPointer { resRealBuf in
+                            resultImag.withUnsafeMutableBufferPointer { resImagBuf in
+                                var splitA = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: aRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: aImagBuf.baseAddress!)
+                                )
+                                var splitB = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: bRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: bImagBuf.baseAddress!)
+                                )
+                                var splitC = DSPDoubleSplitComplex(
+                                    realp: resRealBuf.baseAddress!,
+                                    imagp: resImagBuf.baseAddress!
+                                )
+                                vDSP_zvaddD(&splitA, 1, &splitB, 1, &splitC, 1, vDSP_Length(size))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return ArrayData.complexArray(shape: a.shape, real: resultReal, imag: resultImag)
+    }
+
+    /// Complex subtraction using vDSP: C = A - B
+    private static func complexSub(_ a: ArrayData, _ b: ArrayData) -> ArrayData {
+        let size = a.size
+        var resultReal = [Double](repeating: 0, count: size)
+        var resultImag = [Double](repeating: 0, count: size)
+
+        a.real.withUnsafeBufferPointer { aRealBuf in
+            a.imag!.withUnsafeBufferPointer { aImagBuf in
+                b.real.withUnsafeBufferPointer { bRealBuf in
+                    b.imag!.withUnsafeBufferPointer { bImagBuf in
+                        resultReal.withUnsafeMutableBufferPointer { resRealBuf in
+                            resultImag.withUnsafeMutableBufferPointer { resImagBuf in
+                                var splitA = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: aRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: aImagBuf.baseAddress!)
+                                )
+                                var splitB = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: bRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: bImagBuf.baseAddress!)
+                                )
+                                var splitC = DSPDoubleSplitComplex(
+                                    realp: resRealBuf.baseAddress!,
+                                    imagp: resImagBuf.baseAddress!
+                                )
+                                // Note: vDSP_zvsub computes B - A, so we swap A and B
+                                vDSP_zvsubD(&splitB, 1, &splitA, 1, &splitC, 1, vDSP_Length(size))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return ArrayData.complexArray(shape: a.shape, real: resultReal, imag: resultImag)
+    }
+
+    /// Complex multiplication using vDSP: C = A * B
+    private static func complexMul(_ a: ArrayData, _ b: ArrayData) -> ArrayData {
+        let size = a.size
+        var resultReal = [Double](repeating: 0, count: size)
+        var resultImag = [Double](repeating: 0, count: size)
+
+        a.real.withUnsafeBufferPointer { aRealBuf in
+            a.imag!.withUnsafeBufferPointer { aImagBuf in
+                b.real.withUnsafeBufferPointer { bRealBuf in
+                    b.imag!.withUnsafeBufferPointer { bImagBuf in
+                        resultReal.withUnsafeMutableBufferPointer { resRealBuf in
+                            resultImag.withUnsafeMutableBufferPointer { resImagBuf in
+                                var splitA = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: aRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: aImagBuf.baseAddress!)
+                                )
+                                var splitB = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: bRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: bImagBuf.baseAddress!)
+                                )
+                                var splitC = DSPDoubleSplitComplex(
+                                    realp: resRealBuf.baseAddress!,
+                                    imagp: resImagBuf.baseAddress!
+                                )
+                                // conjugate flag = 1 means don't conjugate (normal multiplication)
+                                vDSP_zvmulD(&splitA, 1, &splitB, 1, &splitC, 1, vDSP_Length(size), 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return ArrayData.complexArray(shape: a.shape, real: resultReal, imag: resultImag)
+    }
+
+    /// Complex division using vDSP: C = A / B
+    private static func complexDiv(_ a: ArrayData, _ b: ArrayData) -> ArrayData {
+        let size = a.size
+        var resultReal = [Double](repeating: 0, count: size)
+        var resultImag = [Double](repeating: 0, count: size)
+
+        a.real.withUnsafeBufferPointer { aRealBuf in
+            a.imag!.withUnsafeBufferPointer { aImagBuf in
+                b.real.withUnsafeBufferPointer { bRealBuf in
+                    b.imag!.withUnsafeBufferPointer { bImagBuf in
+                        resultReal.withUnsafeMutableBufferPointer { resRealBuf in
+                            resultImag.withUnsafeMutableBufferPointer { resImagBuf in
+                                var splitA = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: aRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: aImagBuf.baseAddress!)
+                                )
+                                var splitB = DSPDoubleSplitComplex(
+                                    realp: UnsafeMutablePointer(mutating: bRealBuf.baseAddress!),
+                                    imagp: UnsafeMutablePointer(mutating: bImagBuf.baseAddress!)
+                                )
+                                var splitC = DSPDoubleSplitComplex(
+                                    realp: resRealBuf.baseAddress!,
+                                    imagp: resImagBuf.baseAddress!
+                                )
+                                // Note: vDSP_zvdiv computes B / A, so we swap A and B
+                                vDSP_zvdivD(&splitB, 1, &splitA, 1, &splitC, 1, vDSP_Length(size))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return ArrayData.complexArray(shape: a.shape, real: resultReal, imag: resultImag)
+    }
+
+    /// Check if args contain complex arrays and perform complex binary operation
+    private static func complexBinaryOp(_ args: [LuaValue], name: String) throws -> LuaValue? {
+        guard args.count >= 2 else { return nil }
+
+        // Check if either operand is complex
+        let arr1Table = args[0].tableValue
+        let arr2Table = args[1].tableValue
+
+        let isComplex1 = arr1Table?["dtype"]?.stringValue == "complex128"
+        let isComplex2 = arr2Table?["dtype"]?.stringValue == "complex128"
+
+        // If neither is complex, return nil to use standard real path
+        guard isComplex1 || isComplex2 else { return nil }
+
+        // Extract arrays
+        var a = try extractArrayData(args[0])
+        var b = try extractArrayData(args[1])
+
+        // Promote to complex if needed
+        if !a.isComplex { a = a.promoteToComplex() }
+        if !b.isComplex { b = b.promoteToComplex() }
+
+        // Broadcast shapes
+        let resultShape = try broadcastShapes(a.shape, b.shape)
+        let broadcast1 = broadcastToComplex(a, shape: resultShape)
+        let broadcast2 = broadcastToComplex(b, shape: resultShape)
+
+        // Perform complex operation
+        let result: ArrayData
+        switch name {
+        case "add": result = complexAdd(broadcast1, broadcast2)
+        case "sub": result = complexSub(broadcast1, broadcast2)
+        case "mul": result = complexMul(broadcast1, broadcast2)
+        case "div": result = complexDiv(broadcast1, broadcast2)
+        default:
+            throw LuaError.callbackError("array.\(name): complex operation not supported")
+        }
+
+        return createArrayTable(result)
+    }
+
+    /// Broadcast complex array to target shape
+    private static func broadcastToComplex(_ array: ArrayData, shape targetShape: [Int]) -> ArrayData {
+        if array.shape == targetShape {
+            return array
+        }
+
+        let realBroadcast = broadcastTo(ArrayData(shape: array.shape, data: array.real), shape: targetShape)
+        let imagData = array.imag ?? [Double](repeating: 0, count: array.size)
+        let imagBroadcast = broadcastTo(ArrayData(shape: array.shape, data: imagData), shape: targetShape)
+
+        return ArrayData.complexArray(shape: targetShape, real: realBroadcast.real, imag: imagBroadcast.real)
+    }
+
     // MARK: - Arithmetic Operations
 
     private static func addCallback(_ args: [LuaValue]) throws -> LuaValue {
+        if let complexResult = try complexBinaryOp(args, name: "add") {
+            return complexResult
+        }
         return try binaryOp(args, op: { $0 + $1 }, name: "add")
     }
 
     private static func subCallback(_ args: [LuaValue]) throws -> LuaValue {
+        if let complexResult = try complexBinaryOp(args, name: "sub") {
+            return complexResult
+        }
         return try binaryOp(args, op: { $0 - $1 }, name: "sub")
     }
 
     private static func mulCallback(_ args: [LuaValue]) throws -> LuaValue {
+        if let complexResult = try complexBinaryOp(args, name: "mul") {
+            return complexResult
+        }
         return try binaryOp(args, op: { $0 * $1 }, name: "mul")
     }
 
     private static func divCallback(_ args: [LuaValue]) throws -> LuaValue {
+        if let complexResult = try complexBinaryOp(args, name: "div") {
+            return complexResult
+        }
         return try binaryOp(args, op: { $0 / $1 }, name: "div")
     }
 

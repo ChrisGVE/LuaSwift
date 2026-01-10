@@ -1156,6 +1156,36 @@ public struct ArrayModule {
         }
     }
 
+    // MARK: - Array Data Types
+
+    /// Data type enumeration for array elements
+    /// Supports real (float64) and complex (complex128) numbers
+    public enum ArrayDType: String, CaseIterable {
+        /// Real numbers - 64-bit floating point (default)
+        case float64 = "float64"
+        /// Complex numbers - two 64-bit floats (real + imaginary)
+        case complex128 = "complex128"
+
+        /// Bytes per element for this dtype
+        var bytesPerElement: Int {
+            switch self {
+            case .float64: return 8
+            case .complex128: return 16
+            }
+        }
+
+        /// Whether this dtype represents complex numbers
+        var isComplex: Bool { self == .complex128 }
+
+        /// Create dtype from string, defaulting to float64 for unknown values
+        init(from string: String?) {
+            switch string?.lowercased() {
+            case "complex128", "complex": self = .complex128
+            default: self = .float64
+            }
+        }
+    }
+
     // MARK: - Array Data Structure
 
     /// Internal array representation

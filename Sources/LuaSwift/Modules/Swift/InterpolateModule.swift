@@ -61,6 +61,79 @@ public struct InterpolateModule {
                 end
 
                 ----------------------------------------------------------------
+                -- Complex number helpers for complex-valued interpolation
+                ----------------------------------------------------------------
+                local function is_complex(v)
+                    return type(v) == "table" and v.re ~= nil and v.im ~= nil
+                end
+
+                local function complex_add(a, b)
+                    if is_complex(a) and is_complex(b) then
+                        return {re = a.re + b.re, im = a.im + b.im}
+                    elseif is_complex(a) then
+                        return {re = a.re + b, im = a.im}
+                    elseif is_complex(b) then
+                        return {re = a + b.re, im = b.im}
+                    else
+                        return a + b
+                    end
+                end
+
+                local function complex_sub(a, b)
+                    if is_complex(a) and is_complex(b) then
+                        return {re = a.re - b.re, im = a.im - b.im}
+                    elseif is_complex(a) then
+                        return {re = a.re - b, im = a.im}
+                    elseif is_complex(b) then
+                        return {re = a - b.re, im = -b.im}
+                    else
+                        return a - b
+                    end
+                end
+
+                local function complex_mul_scalar(c, s)
+                    if is_complex(c) then
+                        return {re = c.re * s, im = c.im * s}
+                    else
+                        return c * s
+                    end
+                end
+
+                -- Check if any element in array is complex
+                local function has_complex(arr)
+                    for i = 1, #arr do
+                        if is_complex(arr[i]) then return true end
+                    end
+                    return false
+                end
+
+                -- Extract real parts from array
+                local function get_real_parts(arr)
+                    local result = {}
+                    for i = 1, #arr do
+                        if is_complex(arr[i]) then
+                            result[i] = arr[i].re
+                        else
+                            result[i] = arr[i]
+                        end
+                    end
+                    return result
+                end
+
+                -- Extract imaginary parts from array
+                local function get_imag_parts(arr)
+                    local result = {}
+                    for i = 1, #arr do
+                        if is_complex(arr[i]) then
+                            result[i] = arr[i].im
+                        else
+                            result[i] = 0
+                        end
+                    end
+                    return result
+                end
+
+                ----------------------------------------------------------------
                 -- interp1d: 1D interpolation
                 --
                 -- Arguments:
@@ -98,9 +171,20 @@ public struct InterpolateModule {
 
                     -- For cubic interpolation, precompute spline coefficients
                     local coeffs = nil
+                    local coeffs_re, coeffs_im = nil, nil
+                    local is_complex_data = has_complex(ys)
+
                     if kind == "cubic" then
-                        -- Use natural cubic spline
-                        coeffs = interpolate._compute_spline_coeffs(xs, ys, "natural")
+                        if is_complex_data then
+                            -- Complex data: compute coefficients for real and imaginary parts separately
+                            local ys_re = get_real_parts(ys)
+                            local ys_im = get_imag_parts(ys)
+                            coeffs_re = interpolate._compute_spline_coeffs(xs, ys_re, "natural")
+                            coeffs_im = interpolate._compute_spline_coeffs(xs, ys_im, "natural")
+                        else
+                            -- Use natural cubic spline
+                            coeffs = interpolate._compute_spline_coeffs(xs, ys, "natural")
+                        end
                     end
 
                     -- Return interpolation function
@@ -110,20 +194,21 @@ public struct InterpolateModule {
                             local result = {}
                             for i, xi in ipairs(x_new) do
                                 result[i] = interpolate._interp1d_single(
-                                    xs, ys, xi, kind, fill_value, bounds_error, coeffs
+                                    xs, ys, xi, kind, fill_value, bounds_error, coeffs, coeffs_re, coeffs_im
                                 )
                             end
                             return result
                         else
                             return interpolate._interp1d_single(
-                                xs, ys, x_new, kind, fill_value, bounds_error, coeffs
+                                xs, ys, x_new, kind, fill_value, bounds_error, coeffs, coeffs_re, coeffs_im
                             )
                         end
                     end
                 end
 
                 -- Single point interpolation helper
-                function interpolate._interp1d_single(xs, ys, x_new, kind, fill_value, bounds_error, coeffs)
+                -- Added coeffs_re/coeffs_im for complex cubic interpolation
+                function interpolate._interp1d_single(xs, ys, x_new, kind, fill_value, bounds_error, coeffs, coeffs_re, coeffs_im)
                     local n = #xs
 
                     -- Check bounds
@@ -155,13 +240,29 @@ public struct InterpolateModule {
                     elseif kind == "cubic" then
                         -- Cubic spline evaluation
                         local dx = x_new - xs[i]
-                        local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                        return a + b * dx + c * dx^2 + d * dx^3
+                        if coeffs_re and coeffs_im then
+                            -- Complex cubic: evaluate real and imaginary parts separately
+                            local ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
+                            local ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
+                            local re = ar + br * dx + cr * dx^2 + dr * dx^3
+                            local im = ai + bi * dx + ci * dx^2 + di * dx^3
+                            return {re = re, im = im}
+                        else
+                            local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
+                            return a + b * dx + c * dx^2 + d * dx^3
+                        end
 
                     else  -- "linear" or default
-                        -- Linear interpolation
+                        -- Linear interpolation (supports complex y values)
                         local t = (x_new - xs[i]) / (xs[i + 1] - xs[i])
-                        return ys[i] + t * (ys[i + 1] - ys[i])
+                        local y1, y2 = ys[i], ys[i + 1]
+                        if is_complex(y1) or is_complex(y2) then
+                            -- Complex linear interpolation: y1 + t * (y2 - y1)
+                            local diff = complex_sub(y2, y1)
+                            return complex_add(y1, complex_mul_scalar(diff, t))
+                        else
+                            return y1 + t * (y2 - y1)
+                        end
                     end
                 end
 
@@ -332,20 +433,35 @@ public struct InterpolateModule {
                         ys[i] = y[i]
                     end
 
-                    -- Compute spline coefficients
-                    local coeffs = interpolate._compute_spline_coeffs(xs, ys, bc_type)
+                    -- Check for complex data
+                    local is_complex_data = has_complex(ys)
+                    local coeffs, coeffs_re, coeffs_im = nil, nil, nil
+
+                    if is_complex_data then
+                        -- Complex data: compute coefficients for real and imaginary parts separately
+                        local ys_re = get_real_parts(ys)
+                        local ys_im = get_imag_parts(ys)
+                        coeffs_re = interpolate._compute_spline_coeffs(xs, ys_re, bc_type)
+                        coeffs_im = interpolate._compute_spline_coeffs(xs, ys_im, bc_type)
+                    else
+                        -- Compute spline coefficients
+                        coeffs = interpolate._compute_spline_coeffs(xs, ys, bc_type)
+                    end
 
                     -- Create spline object
                     local spline = {
                         x = xs,
                         y = ys,
                         coeffs = coeffs,
+                        coeffs_re = coeffs_re,
+                        coeffs_im = coeffs_im,
+                        is_complex = is_complex_data,
                         extrapolate = extrapolate
                     }
 
                     -- Evaluate spline at point(s)
                     local function evaluate(x_new)
-                        if type(x_new) == "table" then
+                        if type(x_new) == "table" and not is_complex(x_new) then
                             local result = {}
                             for i, xi in ipairs(x_new) do
                                 result[i] = evaluate(xi)
@@ -358,30 +474,58 @@ public struct InterpolateModule {
                             if not extrapolate then return 0/0 end
                             -- Linear extrapolation using first segment
                             local dx = x_new - xs[1]
-                            local b = coeffs[1][2]
-                            return ys[1] + b * dx
+                            if is_complex_data then
+                                local br = coeffs_re[1][2]
+                                local bi = coeffs_im[1][2]
+                                local y1 = ys[1]
+                                local y1re = is_complex(y1) and y1.re or y1
+                                local y1im = is_complex(y1) and y1.im or 0
+                                return {re = y1re + br * dx, im = y1im + bi * dx}
+                            else
+                                local b = coeffs[1][2]
+                                return ys[1] + b * dx
+                            end
                         end
                         if x_new > xs[n] then
                             if not extrapolate then return 0/0 end
                             -- Linear extrapolation using last segment
                             local h = xs[n] - xs[n - 1]
-                            local a, b, c, d = coeffs[n - 1][1], coeffs[n - 1][2], coeffs[n - 1][3], coeffs[n - 1][4]
-                            local slope = b + 2 * c * h + 3 * d * h^2
-                            return ys[n] + slope * (x_new - xs[n])
+                            if is_complex_data then
+                                local ar, br, cr, dr = coeffs_re[n - 1][1], coeffs_re[n - 1][2], coeffs_re[n - 1][3], coeffs_re[n - 1][4]
+                                local ai, bi, ci, di = coeffs_im[n - 1][1], coeffs_im[n - 1][2], coeffs_im[n - 1][3], coeffs_im[n - 1][4]
+                                local slope_re = br + 2 * cr * h + 3 * dr * h^2
+                                local slope_im = bi + 2 * ci * h + 3 * di * h^2
+                                local yn = ys[n]
+                                local ynre = is_complex(yn) and yn.re or yn
+                                local ynim = is_complex(yn) and yn.im or 0
+                                return {re = ynre + slope_re * (x_new - xs[n]), im = ynim + slope_im * (x_new - xs[n])}
+                            else
+                                local a, b, c, d = coeffs[n - 1][1], coeffs[n - 1][2], coeffs[n - 1][3], coeffs[n - 1][4]
+                                local slope = b + 2 * c * h + 3 * d * h^2
+                                return ys[n] + slope * (x_new - xs[n])
+                            end
                         end
 
                         -- Find interval and evaluate
                         local i = find_interval(xs, x_new)
                         local dx = x_new - xs[i]
-                        local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                        return a + b * dx + c * dx^2 + d * dx^3
+                        if is_complex_data then
+                            local ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
+                            local ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
+                            local re = ar + br * dx + cr * dx^2 + dr * dx^3
+                            local im = ai + bi * dx + ci * dx^2 + di * dx^3
+                            return {re = re, im = im}
+                        else
+                            local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
+                            return a + b * dx + c * dx^2 + d * dx^3
+                        end
                     end
 
                     -- Evaluate derivative
                     function spline.derivative(x_new, nu)
                         nu = nu or 1
 
-                        if type(x_new) == "table" then
+                        if type(x_new) == "table" and not is_complex(x_new) then
                             local result = {}
                             for i, xi in ipairs(x_new) do
                                 result[i] = spline.derivative(xi, nu)
@@ -395,16 +539,30 @@ public struct InterpolateModule {
                         if i >= n then i = n - 1 end
 
                         local dx = x_eval - xs[i]
-                        local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
 
-                        if nu == 1 then
-                            return b + 2 * c * dx + 3 * d * dx^2
-                        elseif nu == 2 then
-                            return 2 * c + 6 * d * dx
-                        elseif nu == 3 then
-                            return 6 * d
+                        if is_complex_data then
+                            local ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
+                            local ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
+                            if nu == 1 then
+                                return {re = br + 2 * cr * dx + 3 * dr * dx^2, im = bi + 2 * ci * dx + 3 * di * dx^2}
+                            elseif nu == 2 then
+                                return {re = 2 * cr + 6 * dr * dx, im = 2 * ci + 6 * di * dx}
+                            elseif nu == 3 then
+                                return {re = 6 * dr, im = 6 * di}
+                            else
+                                return {re = 0, im = 0}  -- Higher derivatives of cubic are 0
+                            end
                         else
-                            return 0  -- Higher derivatives of cubic are 0
+                            local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
+                            if nu == 1 then
+                                return b + 2 * c * dx + 3 * d * dx^2
+                            elseif nu == 2 then
+                                return 2 * c + 6 * d * dx
+                            elseif nu == 3 then
+                                return 6 * d
+                            else
+                                return 0  -- Higher derivatives of cubic are 0
+                            end
                         end
                     end
 
@@ -415,10 +573,15 @@ public struct InterpolateModule {
                         local x1 = math.max(xs[1], math.min(b, xs[n]))
 
                         if x0 > x1 then
-                            return -spline.integrate(b, a)
+                            local neg_result = spline.integrate(b, a)
+                            if is_complex_data then
+                                return {re = -neg_result.re, im = -neg_result.im}
+                            else
+                                return -neg_result
+                            end
                         end
 
-                        local total = 0
+                        local total_re, total_im = 0, 0
                         local i0 = find_interval(xs, x0)
                         local i1 = find_interval(xs, x1)
 
@@ -428,35 +591,66 @@ public struct InterpolateModule {
                             return a * dx + b * dx^2 / 2 + c * dx^3 / 3 + d * dx^4 / 4
                         end
 
-                        if i0 == i1 then
-                            -- Same interval
-                            local aa, bb, cc, dd = coeffs[i0][1], coeffs[i0][2], coeffs[i0][3], coeffs[i0][4]
-                            local dx0 = x0 - xs[i0]
-                            local dx1 = x1 - xs[i0]
-                            total = integrate_poly(aa, bb, cc, dd, dx1) - integrate_poly(aa, bb, cc, dd, dx0)
+                        if is_complex_data then
+                            if i0 == i1 then
+                                local ar, br, cr, dr = coeffs_re[i0][1], coeffs_re[i0][2], coeffs_re[i0][3], coeffs_re[i0][4]
+                                local ai, bi, ci, di = coeffs_im[i0][1], coeffs_im[i0][2], coeffs_im[i0][3], coeffs_im[i0][4]
+                                local dx0 = x0 - xs[i0]
+                                local dx1 = x1 - xs[i0]
+                                total_re = integrate_poly(ar, br, cr, dr, dx1) - integrate_poly(ar, br, cr, dr, dx0)
+                                total_im = integrate_poly(ai, bi, ci, di, dx1) - integrate_poly(ai, bi, ci, di, dx0)
+                            else
+                                local ar, br, cr, dr = coeffs_re[i0][1], coeffs_re[i0][2], coeffs_re[i0][3], coeffs_re[i0][4]
+                                local ai, bi, ci, di = coeffs_im[i0][1], coeffs_im[i0][2], coeffs_im[i0][3], coeffs_im[i0][4]
+                                local dx0 = x0 - xs[i0]
+                                local dx1 = xs[i0 + 1] - xs[i0]
+                                total_re = integrate_poly(ar, br, cr, dr, dx1) - integrate_poly(ar, br, cr, dr, dx0)
+                                total_im = integrate_poly(ai, bi, ci, di, dx1) - integrate_poly(ai, bi, ci, di, dx0)
+
+                                for i = i0 + 1, i1 - 1 do
+                                    ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
+                                    ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
+                                    local h = xs[i + 1] - xs[i]
+                                    total_re = total_re + integrate_poly(ar, br, cr, dr, h)
+                                    total_im = total_im + integrate_poly(ai, bi, ci, di, h)
+                                end
+
+                                if i1 <= n - 1 then
+                                    ar, br, cr, dr = coeffs_re[i1][1], coeffs_re[i1][2], coeffs_re[i1][3], coeffs_re[i1][4]
+                                    ai, bi, ci, di = coeffs_im[i1][1], coeffs_im[i1][2], coeffs_im[i1][3], coeffs_im[i1][4]
+                                    dx1 = x1 - xs[i1]
+                                    total_re = total_re + integrate_poly(ar, br, cr, dr, dx1)
+                                    total_im = total_im + integrate_poly(ai, bi, ci, di, dx1)
+                                end
+                            end
+                            return {re = total_re, im = total_im}
                         else
-                            -- First partial interval
-                            local aa, bb, cc, dd = coeffs[i0][1], coeffs[i0][2], coeffs[i0][3], coeffs[i0][4]
-                            local dx0 = x0 - xs[i0]
-                            local dx1 = xs[i0 + 1] - xs[i0]
-                            total = integrate_poly(aa, bb, cc, dd, dx1) - integrate_poly(aa, bb, cc, dd, dx0)
+                            local total = 0
+                            if i0 == i1 then
+                                local aa, bb, cc, dd = coeffs[i0][1], coeffs[i0][2], coeffs[i0][3], coeffs[i0][4]
+                                local dx0 = x0 - xs[i0]
+                                local dx1 = x1 - xs[i0]
+                                total = integrate_poly(aa, bb, cc, dd, dx1) - integrate_poly(aa, bb, cc, dd, dx0)
+                            else
+                                local aa, bb, cc, dd = coeffs[i0][1], coeffs[i0][2], coeffs[i0][3], coeffs[i0][4]
+                                local dx0 = x0 - xs[i0]
+                                local dx1 = xs[i0 + 1] - xs[i0]
+                                total = integrate_poly(aa, bb, cc, dd, dx1) - integrate_poly(aa, bb, cc, dd, dx0)
 
-                            -- Full intervals
-                            for i = i0 + 1, i1 - 1 do
-                                aa, bb, cc, dd = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                                local h = xs[i + 1] - xs[i]
-                                total = total + integrate_poly(aa, bb, cc, dd, h)
-                            end
+                                for i = i0 + 1, i1 - 1 do
+                                    aa, bb, cc, dd = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
+                                    local h = xs[i + 1] - xs[i]
+                                    total = total + integrate_poly(aa, bb, cc, dd, h)
+                                end
 
-                            -- Last partial interval
-                            if i1 <= n - 1 then
-                                aa, bb, cc, dd = coeffs[i1][1], coeffs[i1][2], coeffs[i1][3], coeffs[i1][4]
-                                dx1 = x1 - xs[i1]
-                                total = total + integrate_poly(aa, bb, cc, dd, dx1)
+                                if i1 <= n - 1 then
+                                    aa, bb, cc, dd = coeffs[i1][1], coeffs[i1][2], coeffs[i1][3], coeffs[i1][4]
+                                    dx1 = x1 - xs[i1]
+                                    total = total + integrate_poly(aa, bb, cc, dd, dx1)
+                                end
                             end
+                            return total
                         end
-
-                        return total
                     end
 
                     -- Make spline callable
@@ -702,19 +896,33 @@ public struct InterpolateModule {
 
                 function interpolate._eval_lagrange(x, y, x_new)
                     local n = #x
-                    local result = 0
+                    local is_complex_data = has_complex(y)
+                    local result_re, result_im = 0, 0
 
                     for i = 1, n do
-                        local term = y[i]
+                        -- Compute Lagrange basis polynomial L_i(x_new)
+                        local basis = 1
                         for j = 1, n do
                             if i ~= j then
-                                term = term * (x_new - x[j]) / (x[i] - x[j])
+                                basis = basis * (x_new - x[j]) / (x[i] - x[j])
                             end
                         end
-                        result = result + term
+
+                        -- Add contribution: y[i] * L_i(x_new)
+                        local yi = y[i]
+                        if is_complex(yi) then
+                            result_re = result_re + yi.re * basis
+                            result_im = result_im + yi.im * basis
+                        else
+                            result_re = result_re + yi * basis
+                        end
                     end
 
-                    return result
+                    if is_complex_data then
+                        return {re = result_re, im = result_im}
+                    else
+                        return result_re
+                    end
                 end
 
                 ----------------------------------------------------------------
@@ -765,6 +973,7 @@ public struct InterpolateModule {
 
                 function interpolate._eval_barycentric(xs, ys, w, x_new)
                     local n = #xs
+                    local is_complex_data = has_complex(ys)
 
                     -- Check for exact match
                     for i = 1, n do
@@ -773,15 +982,25 @@ public struct InterpolateModule {
                         end
                     end
 
-                    local num = 0
+                    local num_re, num_im = 0, 0
                     local den = 0
                     for i = 1, n do
                         local term = w[i] / (x_new - xs[i])
-                        num = num + term * ys[i]
+                        local yi = ys[i]
+                        if is_complex(yi) then
+                            num_re = num_re + term * yi.re
+                            num_im = num_im + term * yi.im
+                        else
+                            num_re = num_re + term * yi
+                        end
                         den = den + term
                     end
 
-                    return num / den
+                    if is_complex_data then
+                        return {re = num_re / den, im = num_im / den}
+                    else
+                        return num_re / den
+                    end
                 end
 
                 -- Store the module

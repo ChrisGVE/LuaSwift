@@ -509,4 +509,141 @@ final class InterpolateModuleTests: XCTestCase {
         // sin(pi/2) = 1
         XCTAssertEqual(result.numberValue!, 1.0, accuracy: 0.1)
     }
+
+    // MARK: - Complex Interpolation Tests
+
+    func testInterp1dLinearComplex() throws {
+        // Linear interpolation of complex data: y = (1+i), (2+2i), (3+3i), (4+4i)
+        // At x=1.5: should be (2.5 + 2.5i)
+        let result = try engine.evaluate("""
+            local x = {1, 2, 3, 4}
+            local y = {{re=1, im=1}, {re=2, im=2}, {re=3, im=3}, {re=4, im=4}}
+            local f = math.interpolate.interp1d(x, y, "linear")
+            local z = f(2.5)
+            return {re = z.re, im = z.im}
+            """)
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]!.numberValue!, 2.5, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]!.numberValue!, 2.5, accuracy: 1e-10)
+    }
+
+    func testInterp1dLinearComplexEndpoints() throws {
+        // Interpolation at data points should return exact values
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2}
+            local y = {{re=1, im=2}, {re=3, im=4}, {re=5, im=6}}
+            local f = math.interpolate.interp1d(x, y, "linear")
+            local z = f(1)  -- Should return {re=3, im=4}
+            return {re = z.re, im = z.im}
+            """)
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]!.numberValue!, 3.0, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]!.numberValue!, 4.0, accuracy: 1e-10)
+    }
+
+    func testInterp1dCubicComplex() throws {
+        // Cubic interpolation of complex quadratic: y = x + ix²
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2, 3, 4}
+            local y = {}
+            for i = 1, 5 do
+                local xi = x[i]
+                y[i] = {re = xi, im = xi * xi}
+            end
+            local f = math.interpolate.interp1d(x, y, "cubic")
+            local z = f(1.5)
+            return {re = z.re, im = z.im}
+            """)
+        let table = result.tableValue!
+        // At x=1.5: re=1.5, im=2.25
+        XCTAssertEqual(table["re"]!.numberValue!, 1.5, accuracy: 0.1)
+        XCTAssertEqual(table["im"]!.numberValue!, 2.25, accuracy: 0.1)
+    }
+
+    func testCubicSplineComplex() throws {
+        // CubicSpline with complex y data
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2, 3}
+            local y = {{re=0, im=0}, {re=1, im=1}, {re=4, im=4}, {re=9, im=9}}
+            local cs = math.interpolate.CubicSpline(x, y)
+            local z = cs(1.5)
+            return {re = z.re, im = z.im}
+            """)
+        let table = result.tableValue!
+        // Both real and imaginary parts should be around 2.25 (quadratic-like)
+        XCTAssertEqual(table["re"]!.numberValue!, table["im"]!.numberValue!, accuracy: 0.01)
+    }
+
+    func testCubicSplineComplexDerivative() throws {
+        // Test derivative of complex spline
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2, 3}
+            local y = {{re=0, im=0}, {re=1, im=2}, {re=4, im=8}, {re=9, im=18}}
+            local cs = math.interpolate.CubicSpline(x, y)
+            local dz = cs.derivative(1.5)
+            return {re = dz.re, im = dz.im}
+            """)
+        let table = result.tableValue!
+        // Derivative should also be complex
+        XCTAssertNotNil(table["re"]?.numberValue)
+        XCTAssertNotNil(table["im"]?.numberValue)
+    }
+
+    func testCubicSplineComplexIntegrate() throws {
+        // Test integration of complex spline: y = 1 + i (constant)
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2, 3}
+            local y = {{re=1, im=1}, {re=1, im=1}, {re=1, im=1}, {re=1, im=1}}
+            local cs = math.interpolate.CubicSpline(x, y)
+            local integral = cs.integrate(0, 3)
+            return {re = integral.re, im = integral.im}
+            """)
+        let table = result.tableValue!
+        // Integral of constant (1+i) over [0,3] = 3 + 3i
+        XCTAssertEqual(table["re"]!.numberValue!, 3.0, accuracy: 0.01)
+        XCTAssertEqual(table["im"]!.numberValue!, 3.0, accuracy: 0.01)
+    }
+
+    func testLagrangeComplex() throws {
+        // Lagrange interpolation with complex data
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2}
+            local y = {{re=1, im=0}, {re=0, im=1}, {re=-1, im=0}}  -- points on unit circle
+            local f = math.interpolate.lagrange(x, y)
+            local z = f(0.5)
+            return {re = z.re, im = z.im}
+            """)
+        let table = result.tableValue!
+        XCTAssertNotNil(table["re"]?.numberValue)
+        XCTAssertNotNil(table["im"]?.numberValue)
+    }
+
+    func testBarycentricComplex() throws {
+        // Barycentric interpolation with complex data
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2, 3}
+            local y = {{re=1, im=1}, {re=2, im=2}, {re=3, im=3}, {re=4, im=4}}
+            local f = math.interpolate.BarycentricInterpolator(x, y)
+            local z = f(1.5)
+            return {re = z.re, im = z.im}
+            """)
+        let table = result.tableValue!
+        // Linear data: at x=1.5, should be (2.5, 2.5)
+        XCTAssertEqual(table["re"]!.numberValue!, 2.5, accuracy: 0.01)
+        XCTAssertEqual(table["im"]!.numberValue!, 2.5, accuracy: 0.01)
+    }
+
+    func testInterp1dComplexNearestReturnsComplex() throws {
+        // Nearest interpolation should return the nearest complex value
+        let result = try engine.evaluate("""
+            local x = {0, 1, 2}
+            local y = {{re=1, im=2}, {re=3, im=4}, {re=5, im=6}}
+            local f = math.interpolate.interp1d(x, y, "nearest")
+            local z = f(0.6)  -- Nearest to x=1
+            return {re = z.re, im = z.im}
+            """)
+        let table = result.tableValue!
+        XCTAssertEqual(table["re"]!.numberValue!, 3.0, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]!.numberValue!, 4.0, accuracy: 1e-10)
+    }
 }

@@ -4068,33 +4068,60 @@ public struct GeometryModule {
         }
     }
 
-    -- Construct a natural cubic spline from data points
-    -- points: array of {x, y} pairs or two arrays (xs, ys)
-    function geo.cubic_spline(points_or_xs, maybe_ys)
+    -- Construct a cubic spline from data points
+    -- Signatures:
+    --   geo.cubic_spline(points, [options])        - points as {x,y} pairs
+    --   geo.cubic_spline(xs, ys, [options])        - separate x and y arrays
+    -- Options:
+    --   bc_type: "natural" (default), "clamped", "not-a-knot"
+    --   extrapolate: boolean (default true)
+    -- For "natural" bc_type, uses fast Swift/LAPACK implementation.
+    -- For "clamped" or "not-a-knot", delegates to math.interpolate.CubicSpline.
+    function geo.cubic_spline(points_or_xs, maybe_ys_or_options, maybe_options)
         local xs, ys = {}, {}
+        local options = {}
 
         -- Parse input format
-        if maybe_ys then
-            -- Two separate arrays: xs, ys
-            for i, x in ipairs(points_or_xs) do
-                xs[i] = x
-            end
-            for i, y in ipairs(maybe_ys) do
-                ys[i] = y
-            end
-        else
-            -- Array of {x, y} pairs
+        if type(maybe_ys_or_options) == "table" and #maybe_ys_or_options == 0 and not maybe_ys_or_options[1] then
+            -- Second arg is options table (no numeric keys)
+            options = maybe_ys_or_options
+            -- First arg is array of {x, y} pairs
             for i, pt in ipairs(points_or_xs) do
                 xs[i] = pt[1] or pt.x
                 ys[i] = pt[2] or pt.y
             end
+        elseif type(maybe_ys_or_options) == "table" and (maybe_ys_or_options[1] or #maybe_ys_or_options > 0) then
+            -- Two separate arrays: xs, ys
+            for i, x in ipairs(points_or_xs) do
+                xs[i] = x
+            end
+            for i, y in ipairs(maybe_ys_or_options) do
+                ys[i] = y
+            end
+            options = maybe_options or {}
+        elseif maybe_ys_or_options == nil then
+            -- First arg is array of {x, y} pairs, no options
+            for i, pt in ipairs(points_or_xs) do
+                xs[i] = pt[1] or pt.x
+                ys[i] = pt[2] or pt.y
+            end
+        else
+            error("cubic_spline: invalid arguments")
         end
 
         if #xs < 2 then
             error("cubic_spline requires at least 2 points")
         end
 
-        -- Call Swift callback to compute coefficients
+        local bc_type = options.bc_type or "natural"
+
+        -- For non-natural boundary conditions, delegate to math.interpolate.CubicSpline
+        if bc_type ~= "natural" then
+            -- Use InterpolateModule which supports clamped and not-a-knot
+            return math.interpolate.CubicSpline(xs, ys, options)
+        end
+
+        -- Natural boundary: use fast Swift/LAPACK implementation
         local result = _cubic_spline_coeffs(xs, ys)
 
         -- Build spline object

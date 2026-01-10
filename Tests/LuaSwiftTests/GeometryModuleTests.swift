@@ -1914,6 +1914,83 @@ struct GeometryModuleTests {
         #expect(arr[1].numberValue != nil)
     }
 
+    @Test("cubic_spline with clamped bc_type delegates to InterpolateModule")
+    func cubicSplineClampedBC() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        // Clamped boundary conditions with zero end derivatives
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {{0, 0}, {1, 1}, {2, 0}, {3, 1}}
+            local s = geo.cubic_spline(points, {bc_type = "clamped"})
+
+            -- Evaluate at knots and midpoints
+            local v0 = s(0)
+            local v1 = s(1)
+            local v2 = s(2)
+            local v1_5 = s(1.5)
+            return {v0, v1, v2, v1_5}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[1].numberValue! - 1.0) < 1e-10)
+        #expect(abs(arr[2].numberValue! - 0.0) < 1e-10)
+        #expect(arr[3].numberValue != nil)  // Just check it evaluated
+    }
+
+    @Test("cubic_spline with not-a-knot bc_type delegates to InterpolateModule")
+    func cubicSplineNotAKnotBC() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        // not-a-knot is scipy's default - third derivative continuous at 2nd/2nd-last knots
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local xs = {0, 1, 2, 3, 4}
+            local ys = {0, 1, 4, 9, 16}  -- y = x^2
+            local s = geo.cubic_spline(xs, ys, {bc_type = "not-a-knot"})
+
+            -- Should interpolate exactly through data points
+            local v0 = s(0)
+            local v2 = s(2)
+            local v4 = s(4)
+            -- And at midpoint
+            local v1_5 = s(1.5)
+            return {v0, v2, v4, v1_5}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[1].numberValue! - 4.0) < 1e-10)
+        #expect(abs(arr[2].numberValue! - 16.0) < 1e-10)
+        // 1.5^2 = 2.25 - spline should be close for quadratic data
+        #expect(abs(arr[3].numberValue! - 2.25) < 0.5)
+    }
+
+    @Test("cubic_spline bc_type with separate x,y arrays")
+    func cubicSplineBCWithSeparateArrays() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local xs = {0, 1, 2, 3}
+            local ys = {0, 1, 0, 1}
+            local s = geo.cubic_spline(xs, ys, {bc_type = "clamped"})
+
+            -- Should interpolate through data
+            return {s(0), s(1), s(2), s(3)}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(abs(arr[0].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[1].numberValue! - 1.0) < 1e-10)
+        #expect(abs(arr[2].numberValue! - 0.0) < 1e-10)
+        #expect(abs(arr[3].numberValue! - 1.0) < 1e-10)
+    }
+
     // MARK: - B-Spline Tests
 
     @Test("bspline degree 1 is piecewise linear")

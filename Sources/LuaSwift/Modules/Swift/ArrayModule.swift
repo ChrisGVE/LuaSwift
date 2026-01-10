@@ -77,6 +77,7 @@ public struct ArrayModule {
         // Register math functions
         engine.registerFunction(name: "_luaswift_array_abs", callback: absCallback)
         engine.registerFunction(name: "_luaswift_array_sqrt", callback: sqrtCallback)
+        engine.registerFunction(name: "_luaswift_array_csqrt", callback: csqrtCallback)
         engine.registerFunction(name: "_luaswift_array_exp", callback: expCallback)
         engine.registerFunction(name: "_luaswift_array_log", callback: logCallback)
         engine.registerFunction(name: "_luaswift_array_log2", callback: log2Callback)
@@ -230,6 +231,7 @@ public struct ArrayModule {
                 local _neg = _luaswift_array_neg
                 local _abs = _luaswift_array_abs
                 local _sqrt = _luaswift_array_sqrt
+                local _csqrt = _luaswift_array_csqrt
                 local _exp = _luaswift_array_exp
                 local _log = _luaswift_array_log
                 local _log2 = _luaswift_array_log2
@@ -568,6 +570,10 @@ public struct ArrayModule {
                     sqrt = function(a)
                         local data = type(a) == "table" and a._data or a
                         return luaswift.array._wrap(_sqrt(data))
+                    end,
+                    csqrt = function(a)
+                        local data = type(a) == "table" and a._data or a
+                        return luaswift.array._wrap(_csqrt(data))
                     end,
                     exp = function(a)
                         local data = type(a) == "table" and a._data or a
@@ -1136,6 +1142,7 @@ public struct ArrayModule {
                 _luaswift_array_neg = nil
                 _luaswift_array_abs = nil
                 _luaswift_array_sqrt = nil
+                _luaswift_array_csqrt = nil
                 _luaswift_array_exp = nil
                 _luaswift_array_log = nil
                 _luaswift_array_sin = nil
@@ -2657,11 +2664,88 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(arg)
-        var result = arrayData.data
-        var count = Int32(arrayData.size)
-        vvsqrt(&result, arrayData.data, &count)
 
-        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        if arrayData.isComplex {
+            // Complex sqrt: sqrt(a+bi) = sqrt((|z|+a)/2) + i*sign(b)*sqrt((|z|-a)/2)
+            let n = arrayData.size
+            var realResult = [Double](repeating: 0, count: n)
+            var imagResult = [Double](repeating: 0, count: n)
+            let imagPart = arrayData.imag ?? [Double](repeating: 0, count: n)
+
+            for i in 0..<n {
+                let a = arrayData.real[i]
+                let b = imagPart[i]
+                let mag = sqrt(a*a + b*b)  // |z|
+                realResult[i] = sqrt((mag + a) / 2)
+                let imagMag = sqrt((mag - a) / 2)
+                imagResult[i] = b >= 0 ? imagMag : -imagMag  // sign(b)
+            }
+
+            return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+        } else {
+            // Real sqrt - use vvsqrt
+            var result = arrayData.real
+            var count = Int32(arrayData.size)
+            vvsqrt(&result, arrayData.real, &count)
+            return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
+        }
+    }
+
+    /// Complex-aware sqrt: returns complex for negative reals, real for positive reals
+    private static func csqrtCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("array.csqrt: missing argument")
+        }
+
+        let arrayData = try extractArrayData(arg)
+
+        if arrayData.isComplex {
+            // Already complex - use the standard complex sqrt
+            let n = arrayData.size
+            var realResult = [Double](repeating: 0, count: n)
+            var imagResult = [Double](repeating: 0, count: n)
+            let imagPart = arrayData.imag ?? [Double](repeating: 0, count: n)
+
+            for i in 0..<n {
+                let a = arrayData.real[i]
+                let b = imagPart[i]
+                let mag = sqrt(a*a + b*b)
+                realResult[i] = sqrt((mag + a) / 2)
+                let imagMag = sqrt((mag - a) / 2)
+                imagResult[i] = b >= 0 ? imagMag : -imagMag
+            }
+
+            return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+        } else {
+            // Check if any values are negative - if so, return complex
+            let hasNegative = arrayData.real.contains { $0 < 0 }
+
+            if hasNegative {
+                // Return complex: sqrt(x) = sqrt(|x|)*i for negative x
+                let n = arrayData.size
+                var realResult = [Double](repeating: 0, count: n)
+                var imagResult = [Double](repeating: 0, count: n)
+
+                for i in 0..<n {
+                    let val = arrayData.real[i]
+                    if val >= 0 {
+                        realResult[i] = sqrt(val)
+                        imagResult[i] = 0
+                    } else {
+                        realResult[i] = 0
+                        imagResult[i] = sqrt(-val)
+                    }
+                }
+
+                return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+            } else {
+                // All positive - return real sqrt
+                var result = arrayData.real
+                var count = Int32(arrayData.size)
+                vvsqrt(&result, arrayData.real, &count)
+                return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
+            }
+        }
     }
 
     private static func expCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -2670,11 +2754,36 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(arg)
-        var result = arrayData.data
-        var count = Int32(arrayData.size)
-        vvexp(&result, arrayData.data, &count)
 
-        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        if arrayData.isComplex {
+            // Complex exp: exp(a+bi) = e^a * (cos(b) + i*sin(b))
+            let n = arrayData.size
+            var realResult = [Double](repeating: 0, count: n)
+            var imagResult = [Double](repeating: 0, count: n)
+            let imagPart = arrayData.imag ?? [Double](repeating: 0, count: n)
+
+            // Compute e^a for all elements using vvexp
+            var expReal = arrayData.real
+            var count = Int32(n)
+            vvexp(&expReal, arrayData.real, &count)
+
+            // Compute cos(b) and sin(b) using vvsincos
+            var cosB = [Double](repeating: 0, count: n)
+            var sinB = [Double](repeating: 0, count: n)
+            vvsincos(&sinB, &cosB, imagPart, &count)
+
+            // Combine: e^a * cos(b) and e^a * sin(b)
+            vDSP_vmulD(expReal, 1, cosB, 1, &realResult, 1, vDSP_Length(n))
+            vDSP_vmulD(expReal, 1, sinB, 1, &imagResult, 1, vDSP_Length(n))
+
+            return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+        } else {
+            // Real exp - use vvexp
+            var result = arrayData.real
+            var count = Int32(arrayData.size)
+            vvexp(&result, arrayData.real, &count)
+            return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
+        }
     }
 
     private static func logCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -2683,11 +2792,39 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(arg)
-        var result = arrayData.data
-        var count = Int32(arrayData.size)
-        vvlog(&result, arrayData.data, &count)
 
-        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        if arrayData.isComplex {
+            // Complex log: log(a+bi) = ln(|z|) + i*arg(z)
+            // where |z| = sqrt(a²+b²), arg(z) = atan2(b,a)
+            let n = arrayData.size
+            var realResult = [Double](repeating: 0, count: n)
+            var imagResult = [Double](repeating: 0, count: n)
+            let imagPart = arrayData.imag ?? [Double](repeating: 0, count: n)
+
+            // Compute |z|² = a² + b² using vDSP
+            var magSquared = [Double](repeating: 0, count: n)
+            vDSP_vsqD(arrayData.real, 1, &magSquared, 1, vDSP_Length(n))
+            var imagSquared = [Double](repeating: 0, count: n)
+            vDSP_vsqD(imagPart, 1, &imagSquared, 1, vDSP_Length(n))
+            vDSP_vaddD(magSquared, 1, imagSquared, 1, &magSquared, 1, vDSP_Length(n))
+
+            // ln(|z|) = 0.5 * ln(a²+b²)
+            var count = Int32(n)
+            vvlog(&realResult, magSquared, &count)
+            var half = 0.5
+            vDSP_vsmulD(realResult, 1, &half, &realResult, 1, vDSP_Length(n))
+
+            // arg(z) = atan2(b, a)
+            vvatan2(&imagResult, imagPart, arrayData.real, &count)
+
+            return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+        } else {
+            // Real log - use vvlog
+            var result = arrayData.real
+            var count = Int32(arrayData.size)
+            vvlog(&result, arrayData.real, &count)
+            return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
+        }
     }
 
     private static func log2Callback(_ args: [LuaValue]) throws -> LuaValue {
@@ -2752,11 +2889,38 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(arg)
-        var result = arrayData.data
-        var count = Int32(arrayData.size)
-        vvsin(&result, arrayData.data, &count)
 
-        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        if arrayData.isComplex {
+            // Complex sin: sin(a+bi) = sin(a)*cosh(b) + i*cos(a)*sinh(b)
+            let n = arrayData.size
+            var realResult = [Double](repeating: 0, count: n)
+            var imagResult = [Double](repeating: 0, count: n)
+            let imagPart = arrayData.imag ?? [Double](repeating: 0, count: n)
+            var count = Int32(n)
+
+            // sin(a) and cos(a)
+            var sinA = [Double](repeating: 0, count: n)
+            var cosA = [Double](repeating: 0, count: n)
+            vvsincos(&sinA, &cosA, arrayData.real, &count)
+
+            // sinh(b) and cosh(b)
+            var sinhB = [Double](repeating: 0, count: n)
+            var coshB = [Double](repeating: 0, count: n)
+            vvsinh(&sinhB, imagPart, &count)
+            vvcosh(&coshB, imagPart, &count)
+
+            // real = sin(a)*cosh(b), imag = cos(a)*sinh(b)
+            vDSP_vmulD(sinA, 1, coshB, 1, &realResult, 1, vDSP_Length(n))
+            vDSP_vmulD(cosA, 1, sinhB, 1, &imagResult, 1, vDSP_Length(n))
+
+            return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+        } else {
+            // Real sin - use vvsin
+            var result = arrayData.real
+            var count = Int32(arrayData.size)
+            vvsin(&result, arrayData.real, &count)
+            return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
+        }
     }
 
     private static func cosCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -2765,11 +2929,39 @@ public struct ArrayModule {
         }
 
         let arrayData = try extractArrayData(arg)
-        var result = arrayData.data
-        var count = Int32(arrayData.size)
-        vvcos(&result, arrayData.data, &count)
 
-        return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+        if arrayData.isComplex {
+            // Complex cos: cos(a+bi) = cos(a)*cosh(b) - i*sin(a)*sinh(b)
+            let n = arrayData.size
+            var realResult = [Double](repeating: 0, count: n)
+            var imagResult = [Double](repeating: 0, count: n)
+            let imagPart = arrayData.imag ?? [Double](repeating: 0, count: n)
+            var count = Int32(n)
+
+            // sin(a) and cos(a)
+            var sinA = [Double](repeating: 0, count: n)
+            var cosA = [Double](repeating: 0, count: n)
+            vvsincos(&sinA, &cosA, arrayData.real, &count)
+
+            // sinh(b) and cosh(b)
+            var sinhB = [Double](repeating: 0, count: n)
+            var coshB = [Double](repeating: 0, count: n)
+            vvsinh(&sinhB, imagPart, &count)
+            vvcosh(&coshB, imagPart, &count)
+
+            // real = cos(a)*cosh(b), imag = -sin(a)*sinh(b)
+            vDSP_vmulD(cosA, 1, coshB, 1, &realResult, 1, vDSP_Length(n))
+            vDSP_vmulD(sinA, 1, sinhB, 1, &imagResult, 1, vDSP_Length(n))
+            vDSP_vnegD(imagResult, 1, &imagResult, 1, vDSP_Length(n))  // negate
+
+            return createArrayTable(ArrayData.complexArray(shape: arrayData.shape, real: realResult, imag: imagResult))
+        } else {
+            // Real cos - use vvcos
+            var result = arrayData.real
+            var count = Int32(arrayData.size)
+            vvcos(&result, arrayData.real, &count)
+            return createArrayTable(ArrayData.realArray(shape: arrayData.shape, data: result))
+        }
     }
 
     private static func tanCallback(_ args: [LuaValue]) throws -> LuaValue {

@@ -108,6 +108,7 @@ public struct LinAlgModule {
         engine.registerFunction(name: "_luaswift_linalg_qr", callback: qrCallback)
         engine.registerFunction(name: "_luaswift_linalg_svd", callback: svdCallback)
         engine.registerFunction(name: "_luaswift_linalg_eig", callback: eigCallback)
+        engine.registerFunction(name: "_luaswift_linalg_eigvals", callback: eigvalsCallback)
         engine.registerFunction(name: "_luaswift_linalg_chol", callback: cholCallback)
 
         // Register solvers
@@ -164,6 +165,7 @@ public struct LinAlgModule {
                 local _qr = _luaswift_linalg_qr
                 local _svd = _luaswift_linalg_svd
                 local _eig = _luaswift_linalg_eig
+                local _eigvals = _luaswift_linalg_eigvals
                 local _chol = _luaswift_linalg_chol
                 local _solve = _luaswift_linalg_solve
                 local _lstsq = _luaswift_linalg_lstsq
@@ -227,6 +229,9 @@ public struct LinAlgModule {
                             eig = function(_)  -- Legacy alias
                                 local result = _eig(self._data)
                                 return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
+                            end,
+                            eigvals = function(_)
+                                return luaswift.linalg._wrap(_eigvals(self._data))
                             end,
                             chol = function(_) return luaswift.linalg._wrap(_chol(self._data)) end,
                             expm = function(_) return luaswift.linalg._wrap(_expm(self._data)) end,
@@ -382,6 +387,15 @@ public struct LinAlgModule {
                         local A_data = type(A) == "table" and A._data or A
                         return luaswift.linalg._wrap(_pinv(A_data, rcond))
                     end,
+                    eig = function(A)
+                        local A_data = type(A) == "table" and A._data or A
+                        local result = _eig(A_data)
+                        return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
+                    end,
+                    eigvals = function(A)
+                        local A_data = type(A) == "table" and A._data or A
+                        return luaswift.linalg._wrap(_eigvals(A_data))
+                    end,
                 }
 
                 -- Clean up temporary globals
@@ -418,6 +432,7 @@ public struct LinAlgModule {
                 _luaswift_linalg_qr = nil
                 _luaswift_linalg_svd = nil
                 _luaswift_linalg_eig = nil
+                _luaswift_linalg_eigvals = nil
                 _luaswift_linalg_chol = nil
                 _luaswift_linalg_solve = nil
                 _luaswift_linalg_lstsq = nil
@@ -476,6 +491,18 @@ public struct LinAlgModule {
             "rows": .number(Double(rows)),
             "cols": .number(Double(cols)),
             "data": .array(data.map { .number($0) })
+        ])
+    }
+
+    /// Create a complex matrix/vector table with real and imaginary parts
+    private static func createComplexMatrixTable(rows: Int, cols: Int, real: [Double], imag: [Double]) -> LuaValue {
+        return .table([
+            "type": .string(cols == 1 ? "complex_vector" : "complex_matrix"),
+            "dtype": .string("complex128"),
+            "rows": .number(Double(rows)),
+            "cols": .number(Double(cols)),
+            "real": .array(real.map { .number($0) }),
+            "imag": .array(imag.map { .number($0) })
         ])
     }
 
@@ -1691,8 +1718,8 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.eig: computation failed")
         }
 
-        // For now, return only real eigenvalues (simplified)
-        // Full implementation would handle complex eigenvalues
+        // Check if there are any complex eigenvalues
+        let hasComplexEigenvalues = wi.contains { abs($0) > 1e-14 }
 
         // Convert eigenvectors to row-major
         var vecs = [Double](repeating: 0, count: rows * rows)
@@ -1702,10 +1729,81 @@ public struct LinAlgModule {
             }
         }
 
-        return .array([
-            createMatrixTable(rows: rows, cols: 1, data: wr),
-            createMatrixTable(rows: rows, cols: rows, data: vecs)
-        ])
+        if hasComplexEigenvalues {
+            // Return complex eigenvalues and eigenvectors
+            // Note: For complex conjugate pairs, LAPACK stores eigenvectors specially
+            // For simplicity, we return the eigenvalues as complex and vectors as real
+            // (full complex eigenvector support would require more complex handling)
+            return .array([
+                createComplexMatrixTable(rows: rows, cols: 1, real: wr, imag: wi),
+                createMatrixTable(rows: rows, cols: rows, data: vecs)
+            ])
+        } else {
+            // All real eigenvalues
+            return .array([
+                createMatrixTable(rows: rows, cols: 1, data: wr),
+                createMatrixTable(rows: rows, cols: rows, data: vecs)
+            ])
+        }
+    }
+
+    /// Returns only eigenvalues (more efficient when eigenvectors not needed)
+    private static func eigvalsCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("linalg.eigvals: missing argument")
+        }
+
+        let (rows, cols, data) = try extractMatrixData(arg)
+
+        guard rows == cols else {
+            throw LuaError.callbackError("linalg.eigvals: matrix must be square")
+        }
+
+        // Convert to column-major for LAPACK
+        var a = [Double](repeating: 0, count: rows * cols)
+        for i in 0..<rows {
+            for j in 0..<cols {
+                a[j * rows + i] = data[i * cols + j]
+            }
+        }
+
+        var n1 = __CLPK_integer(rows)
+        var lda1 = __CLPK_integer(rows)
+        var wr = [Double](repeating: 0, count: rows)
+        var wi = [Double](repeating: 0, count: rows)
+        var vl = [Double](repeating: 0, count: 1)
+        var vr = [Double](repeating: 0, count: 1)  // Don't compute eigenvectors
+        var ldvl: __CLPK_integer = 1
+        var ldvr: __CLPK_integer = 1
+        var info: __CLPK_integer = 0
+
+        // Query workspace
+        var lwork: __CLPK_integer = -1
+        var work = [Double](repeating: 0, count: 1)
+        var jobvl = Int8(UInt8(ascii: "N"))
+        var jobvr = Int8(UInt8(ascii: "N"))  // Don't compute eigenvectors
+
+        dgeev_(&jobvl, &jobvr, &n1, &a, &lda1, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
+
+        lwork = __CLPK_integer(work[0])
+        work = [Double](repeating: 0, count: Int(lwork))
+
+        var n2 = __CLPK_integer(rows)
+        var lda2 = __CLPK_integer(rows)
+        dgeev_(&jobvl, &jobvr, &n2, &a, &lda2, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
+
+        if info != 0 {
+            throw LuaError.callbackError("linalg.eigvals: computation failed")
+        }
+
+        // Check if there are any complex eigenvalues
+        let hasComplexEigenvalues = wi.contains { abs($0) > 1e-14 }
+
+        if hasComplexEigenvalues {
+            return createComplexMatrixTable(rows: rows, cols: 1, real: wr, imag: wi)
+        } else {
+            return createMatrixTable(rows: rows, cols: 1, data: wr)
+        }
     }
 
     private static func cholCallback(_ args: [LuaValue]) throws -> LuaValue {

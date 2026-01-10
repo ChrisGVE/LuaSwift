@@ -1242,6 +1242,116 @@ public struct ArrayModule {
             self.real = real
             self.imag = imag
         }
+
+        // MARK: - Factory Methods
+
+        /// Create a real (float64) array
+        static func realArray(shape: [Int], data: [Double]) -> ArrayData {
+            ArrayData(shape: shape, dtype: .float64, real: data, imag: nil)
+        }
+
+        /// Create a complex (complex128) array from split real/imag parts
+        static func complexArray(shape: [Int], real: [Double], imag: [Double]) -> ArrayData {
+            precondition(real.count == imag.count, "real and imag arrays must have same size")
+            return ArrayData(shape: shape, dtype: .complex128, real: real, imag: imag)
+        }
+
+        /// Create a complex array from interleaved format [r0, i0, r1, i1, ...]
+        /// Uses vDSP for SIMD-optimized deinterleaving
+        static func fromInterleaved(shape: [Int], interleaved: [Double]) -> ArrayData {
+            precondition(interleaved.count % 2 == 0, "interleaved array must have even count")
+            let count = interleaved.count / 2
+            var realPart = [Double](repeating: 0, count: count)
+            var imagPart = [Double](repeating: 0, count: count)
+
+            // Use vDSP for efficient deinterleaving
+            interleaved.withUnsafeBufferPointer { src in
+                realPart.withUnsafeMutableBufferPointer { realBuf in
+                    imagPart.withUnsafeMutableBufferPointer { imagBuf in
+                        var split = DSPDoubleSplitComplex(
+                            realp: realBuf.baseAddress!,
+                            imagp: imagBuf.baseAddress!
+                        )
+                        // Convert from interleaved to split complex format
+                        vDSP_ctozD(
+                            UnsafePointer<DSPDoubleComplex>(OpaquePointer(src.baseAddress!)),
+                            2,  // stride in source (interleaved pairs)
+                            &split,
+                            1,  // stride in destination
+                            vDSP_Length(count)
+                        )
+                    }
+                }
+            }
+
+            return ArrayData(shape: shape, dtype: .complex128, real: realPart, imag: imagPart)
+        }
+
+        /// Convert complex array to interleaved format [r0, i0, r1, i1, ...]
+        /// Uses vDSP for SIMD-optimized interleaving
+        /// Returns nil for real arrays
+        func toInterleaved() -> [Double]? {
+            guard isComplex, let imagPart = imag else { return nil }
+
+            var result = [Double](repeating: 0, count: size * 2)
+
+            real.withUnsafeBufferPointer { realBuf in
+                imagPart.withUnsafeBufferPointer { imagBuf in
+                    var split = DSPDoubleSplitComplex(
+                        realp: UnsafeMutablePointer(mutating: realBuf.baseAddress!),
+                        imagp: UnsafeMutablePointer(mutating: imagBuf.baseAddress!)
+                    )
+                    result.withUnsafeMutableBufferPointer { dst in
+                        // Convert from split to interleaved complex format
+                        vDSP_ztocD(
+                            &split,
+                            1,  // stride in source
+                            UnsafeMutablePointer<DSPDoubleComplex>(OpaquePointer(dst.baseAddress!)),
+                            2,  // stride in destination (interleaved pairs)
+                            vDSP_Length(size)
+                        )
+                    }
+                }
+            }
+
+            return result
+        }
+
+        // MARK: - Element Access
+
+        /// Get real element at flat index
+        func getReal(at index: Int) -> Double {
+            real[index]
+        }
+
+        /// Get complex element at flat index as (re, im) tuple
+        func getComplex(at index: Int) -> (re: Double, im: Double) {
+            (real[index], imag?[index] ?? 0)
+        }
+
+        /// Set real element at flat index
+        mutating func setReal(at index: Int, value: Double) {
+            real[index] = value
+        }
+
+        /// Set complex element at flat index
+        mutating func setComplex(at index: Int, re: Double, im: Double) {
+            real[index] = re
+            if imag != nil {
+                imag![index] = im
+            }
+        }
+
+        /// Promote real array to complex (with zero imaginary part)
+        func promoteToComplex() -> ArrayData {
+            if isComplex { return self }
+            return ArrayData(
+                shape: shape,
+                dtype: .complex128,
+                real: real,
+                imag: [Double](repeating: 0, count: size)
+            )
+        }
     }
 
     // MARK: - Helper Functions

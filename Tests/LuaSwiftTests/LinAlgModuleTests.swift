@@ -1089,4 +1089,177 @@ final class LinAlgModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "complex128")
     }
+
+    // MARK: - Complex Eigenvalues (ceig)
+
+    func testCeigDiagonal() throws {
+        // Eigenvalues of diagonal complex matrix are the diagonal entries
+        let result = try engine.evaluate("""
+            local A = {
+                rows = 2, cols = 2,
+                shape = {2, 2},
+                dtype = "complex128",
+                real = {{1, 0}, {0, 2}},
+                imag = {{1, 0}, {0, -1}}
+            }
+            local vals, vecs = luaswift.linalg.ceig(A)
+            -- Eigenvalues are returned as flat arrays
+            local re1 = vals.real[1]
+            local im1 = vals.imag[1]
+            local re2 = vals.real[2]
+            local im2 = vals.imag[2]
+            return {re1, im1, re2, im2}
+            """)
+
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        // Eigenvalues should be 1+i and 2-i (order may vary)
+        let eigenvalues = [(list[0], list[1]), (list[2], list[3])]
+
+        // Check that we have both eigenvalues (order may vary)
+        var found1 = false
+        var found2 = false
+        for (re, im) in eigenvalues {
+            if abs(re - 1.0) < 1e-10 && abs(im - 1.0) < 1e-10 { found1 = true }
+            if abs(re - 2.0) < 1e-10 && abs(im - (-1.0)) < 1e-10 { found2 = true }
+        }
+        XCTAssertTrue(found1 && found2, "Expected eigenvalues 1+i and 2-i")
+    }
+
+    func testCeigvalsRotation() throws {
+        // 90-degree rotation matrix [[0,-1],[1,0]] has eigenvalues ±i
+        let result = try engine.evaluate("""
+            local A = {
+                rows = 2, cols = 2,
+                shape = {2, 2},
+                dtype = "complex128",
+                real = {{0, -1}, {1, 0}},
+                imag = {{0, 0}, {0, 0}}
+            }
+            local vals = luaswift.linalg.ceigvals(A)
+            -- Eigenvalues are returned as flat arrays
+            local re1 = vals.real[1]
+            local im1 = vals.imag[1]
+            local re2 = vals.real[2]
+            local im2 = vals.imag[2]
+            -- Eigenvalues should be +i and -i
+            return math.abs(re1) + math.abs(re2) + math.abs(im1) + math.abs(im2)
+            """)
+
+        // Sum of |re| should be ~0, sum of |im| should be 2 (1 + 1)
+        XCTAssertEqual(result.numberValue!, 2.0, accuracy: 1e-10)
+    }
+
+    func testCeigReturnsComplexVectors() throws {
+        // Verify eigenvectors have complex dtype
+        let result = try engine.evaluate("""
+            local A = {
+                rows = 2, cols = 2,
+                shape = {2, 2},
+                dtype = "complex128",
+                real = {{1, 0}, {0, 1}},
+                imag = {{0, 1}, {1, 0}}
+            }
+            local vals, vecs = luaswift.linalg.ceig(A)
+            return vecs.dtype
+            """)
+
+        XCTAssertEqual(result.stringValue, "complex128")
+    }
+
+    // MARK: - Complex Determinant Tests
+
+    func testCdetDiagonal() throws {
+        // Determinant of diagonal matrix is product of diagonal entries
+        // det([[2+i, 0], [0, 3-i]]) = (2+i)(3-i) = 6 - 2i + 3i - i² = 6 + i + 1 = 7 + i
+        let result = try engine.evaluate("""
+            local A = {
+                shape = {2, 2},
+                dtype = "complex128",
+                real = {{2, 0}, {0, 3}},
+                imag = {{1, 0}, {0, -1}}
+            }
+            local d = luaswift.linalg.cdet(A)
+            return tostring(math.floor(d.re + 0.5)) .. "," .. tostring(math.floor(d.im + 0.5))
+        """)
+        XCTAssertEqual(result.stringValue, "7,1")
+    }
+
+    func testCdetSingular() throws {
+        // Determinant of singular matrix is 0
+        // [[1+i, 2+2i], [1, 2]] - second column is twice first (in real parts)
+        let result = try engine.evaluate("""
+            local A = {
+                shape = {2, 2},
+                dtype = "complex128",
+                real = {{1, 2}, {1, 2}},
+                imag = {{1, 2}, {0, 0}}
+            }
+            local d = luaswift.linalg.cdet(A)
+            return d.re == 0 and d.im == 0
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Complex Inverse Tests
+
+    func testCinvDiagonal() throws {
+        // Inverse of diagonal matrix has reciprocals on diagonal
+        // [[2, 0], [0, 2i]]^(-1) = [[0.5, 0], [0, -0.5i]]
+        let result = try engine.evaluate("""
+            local A = {
+                shape = {2, 2},
+                dtype = "complex128",
+                real = {{2, 0}, {0, 0}},
+                imag = {{0, 0}, {0, 2}}
+            }
+            local inv = luaswift.linalg.cinv(A)
+            -- Flat array: element (i,j) is at index i*cols+j+1 (1-based)
+            -- (0,0) -> 1, (1,1) -> 4
+            local re00 = inv.real[1]
+            local im00 = inv.imag[1]
+            local re11 = inv.real[4]
+            local im11 = inv.imag[4]
+            -- Entry (0,0): 1/2 = 0.5 + 0i
+            -- Entry (1,1): 1/(2i) = -i/2 = 0 - 0.5i
+            local ok00 = math.abs(re00 - 0.5) < 1e-10 and math.abs(im00) < 1e-10
+            local ok11 = math.abs(re11) < 1e-10 and math.abs(im11 + 0.5) < 1e-10
+            return ok00 and ok11
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testCinvMulOriginal() throws {
+        // A^(-1) * A = I for a complex matrix
+        let result = try engine.evaluate("""
+            local A = {
+                shape = {2, 2},
+                dtype = "complex128",
+                real = {{1, 2}, {3, 4}},
+                imag = {{0.5, -0.5}, {0.5, -0.5}}
+            }
+            local invA = luaswift.linalg.cinv(A)
+
+            -- Flat array indexing: (i,j) -> i*2+j+1 for 2x2
+            -- inv: (0,0)->1, (0,1)->2, (1,0)->3, (1,1)->4
+            -- A uses nested arrays: A.real[row][col]
+
+            -- Manual complex matrix multiplication for I = invA * A
+            -- I[0,0] = invA[0,0]*A[0,0] + invA[0,1]*A[1,0]
+            local I_re_00 = invA.real[1]*A.real[1][1] - invA.imag[1]*A.imag[1][1]
+                          + invA.real[2]*A.real[2][1] - invA.imag[2]*A.imag[2][1]
+            local I_im_00 = invA.real[1]*A.imag[1][1] + invA.imag[1]*A.real[1][1]
+                          + invA.real[2]*A.imag[2][1] + invA.imag[2]*A.real[2][1]
+            -- I[1,1] = invA[1,0]*A[0,1] + invA[1,1]*A[1,1]
+            local I_re_11 = invA.real[3]*A.real[1][2] - invA.imag[3]*A.imag[1][2]
+                          + invA.real[4]*A.real[2][2] - invA.imag[4]*A.imag[2][2]
+            local I_im_11 = invA.real[3]*A.imag[1][2] + invA.imag[3]*A.real[1][2]
+                          + invA.real[4]*A.imag[2][2] + invA.imag[4]*A.real[2][2]
+
+            -- Identity should have 1s on diagonal with 0 imaginary
+            local ok = math.abs(I_re_00 - 1) < 1e-10 and math.abs(I_im_00) < 1e-10
+                   and math.abs(I_re_11 - 1) < 1e-10 and math.abs(I_im_11) < 1e-10
+            return ok
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 }

@@ -1517,4 +1517,172 @@ final class MathExprModuleTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue ?? 0, -1, accuracy: 1e-10, "(1i)^2 should equal -1")
     }
+
+    // MARK: - Complex Literal Edge Cases
+
+    func testTokenizeDecimalImaginary() throws {
+        // Test decimal imaginary: 2.5i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("2.5i")
+            return {type = tokens[1].type, value = tokens[1].value}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["type"]?.stringValue, "imaginary")
+        XCTAssertEqual(table["value"]?.numberValue ?? 0, 2.5, accuracy: 1e-10)
+    }
+
+    func testTokenizeScientificImaginary() throws {
+        // Test scientific notation imaginary: 1e-3i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("1e-3i")
+            return {type = tokens[1].type, value = tokens[1].value}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["type"]?.stringValue, "imaginary")
+        XCTAssertEqual(table["value"]?.numberValue ?? 0, 0.001, accuracy: 1e-15)
+    }
+
+    func testEvalComplexDivision() throws {
+        // (1+2i)/(1+1i) = (1+2i)(1-1i)/((1+1i)(1-1i)) = (1-1i+2i-2i^2)/(1-i^2) = (3+1i)/2 = 1.5+0.5i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("(1+2i)/(1+1i)")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, 1.5, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 0.5, accuracy: 1e-10)
+    }
+
+    func testEvalImaginaryTimesImaginary() throws {
+        // 2i * 3i = 6i^2 = -6 (pure real result)
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("2i * 3i")
+            if type(z) == "table" then
+                return z.re
+            else
+                return z
+            end
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, -6, accuracy: 1e-10)
+    }
+
+    func testEvalComplexConjugateProduct() throws {
+        // (3+4i)*(3-4i) = 9 - 16i^2 = 9 + 16 = 25 (modulus squared)
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("(3+4i)*(3-4i)")
+            if type(z) == "table" then
+                return z.re
+            else
+                return z
+            end
+        """)
+
+        XCTAssertEqual(result.numberValue ?? 0, 25, accuracy: 1e-10)
+    }
+
+    func testEvalNegativeImaginary() throws {
+        // Test negative imaginary: -3i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("-3i")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, 0, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, -3, accuracy: 1e-10)
+    }
+
+    func testEvalComplexSquare() throws {
+        // (1+2i)^2 = 1 + 4i + 4i^2 = 1 + 4i - 4 = -3 + 4i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("(1+2i)^2")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, -3, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 4, accuracy: 1e-10)
+    }
+
+    func testEvalComplexCube() throws {
+        // (1+1i)^3 = ((1+1i)^2)*(1+1i) = (2i)*(1+1i) = 2i + 2i^2 = -2 + 2i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("(1+1i)^3")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, -2, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 2, accuracy: 1e-10)
+    }
+
+    func testEvalComplexDivisionByReal() throws {
+        // (4+6i)/2 = 2+3i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("(4+6i)/2")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, 2, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 3, accuracy: 1e-10)
+    }
+
+    func testEvalRealTimesComplex() throws {
+        // 3 * (2+1i) = 6+3i
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local z = mathexpr.eval("3 * (2+1i)")
+            return {re = z.re, im = z.im}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+
+        XCTAssertEqual(table["re"]?.numberValue ?? 0, 6, accuracy: 1e-10)
+        XCTAssertEqual(table["im"]?.numberValue ?? 0, 3, accuracy: 1e-10)
+    }
 }

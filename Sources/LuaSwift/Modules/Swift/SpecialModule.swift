@@ -79,6 +79,10 @@ public struct SpecialModule {
         engine.registerFunction(name: "_luaswift_special_zeta", callback: zetaCallback)
         engine.registerFunction(name: "_luaswift_special_lambertw", callback: lambertwCallback)
 
+        // Complex-aware gamma functions
+        engine.registerFunction(name: "_luaswift_special_cgamma", callback: cgammaCallback)
+        engine.registerFunction(name: "_luaswift_special_clgamma", callback: clgammaCallback)
+
         // Set up Lua wrappers that add to math.special namespace
         do {
             try engine.run("""
@@ -395,6 +399,38 @@ public struct SpecialModule {
                     return _luaswift_special_lambertw(x)
                 end
 
+                ----------------------------------------------------------------
+                -- Complex Gamma Function: cgamma(z)
+                --
+                -- Returns Gamma(z) for complex z = {re=a, im=b}
+                -- Uses Lanczos approximation for complex arguments
+                ----------------------------------------------------------------
+                function special.cgamma(z)
+                    if type(z) == "number" then
+                        return math.gamma and math.gamma(z) or _luaswift_special_cgamma(z)
+                    end
+                    if type(z) ~= "table" or z.re == nil or z.im == nil then
+                        error("cgamma: expected number or complex {re=, im=}", 2)
+                    end
+                    return _luaswift_special_cgamma(z)
+                end
+
+                ----------------------------------------------------------------
+                -- Complex Log Gamma Function: clgamma(z)
+                --
+                -- Returns log(Gamma(z)) for complex z = {re=a, im=b}
+                -- Returns complex result with principal branch
+                ----------------------------------------------------------------
+                function special.clgamma(z)
+                    if type(z) == "number" then
+                        return {re = math.lgamma and math.lgamma(z) or _luaswift_special_clgamma(z).re, im = 0}
+                    end
+                    if type(z) ~= "table" or z.re == nil or z.im == nil then
+                        error("clgamma: expected number or complex {re=, im=}", 2)
+                    end
+                    return _luaswift_special_clgamma(z)
+                end
+
                 -- Add to math.special namespace
                 if math and math.special then
                     math.special.erf = special.erf
@@ -419,6 +455,8 @@ public struct SpecialModule {
                     math.special.ellipe = special.ellipe
                     math.special.zeta = special.zeta
                     math.special.lambertw = special.lambertw
+                    math.special.cgamma = special.cgamma
+                    math.special.clgamma = special.clgamma
                 end
                 """)
         } catch {
@@ -1335,5 +1373,219 @@ public struct SpecialModule {
         }
 
         return w
+    }
+
+    // MARK: - Complex Gamma Functions
+
+    /// Lanczos coefficients for g=7, n=9 (accurate to ~15 digits)
+    private static let lanczosCoeffs: [Double] = [
+        0.99999999999980993,
+        676.5203681218851,
+        -1259.1392167224028,
+        771.32342877765313,
+        -176.61502916214059,
+        12.507343278686905,
+        -0.13857109526572012,
+        9.9843695780195716e-6,
+        1.5056327351493116e-7
+    ]
+
+    /// Complex gamma function callback
+    private static func cgammaCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.runtimeError("cgamma: expected argument")
+        }
+
+        // Handle real number input
+        if let x = arg.numberValue {
+            if x > 0 {
+                return .number(Darwin.tgamma(x))
+            }
+            // For non-positive reals, compute via complex
+            let (re, im) = complexGamma(x, 0)
+            return ComplexHelper.toResult(re, im)
+        }
+
+        // Handle complex input
+        guard let (re, im) = ComplexHelper.toComplex(arg) else {
+            throw LuaError.runtimeError("cgamma: expected number or complex")
+        }
+
+        let (resultRe, resultIm) = complexGamma(re, im)
+        return ComplexHelper.toResult(resultRe, resultIm)
+    }
+
+    /// Complex log-gamma function callback
+    private static func clgammaCallback(_ args: [LuaValue]) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.runtimeError("clgamma: expected argument")
+        }
+
+        // Handle real number input
+        if let x = arg.numberValue {
+            if x > 0 {
+                return ComplexHelper.toLua(Darwin.lgamma(x), 0)
+            }
+            // For non-positive reals, compute via complex
+            let (re, im) = complexLogGamma(x, 0)
+            return ComplexHelper.toLua(re, im)
+        }
+
+        // Handle complex input
+        guard let (re, im) = ComplexHelper.toComplex(arg) else {
+            throw LuaError.runtimeError("clgamma: expected number or complex")
+        }
+
+        let (resultRe, resultIm) = complexLogGamma(re, im)
+        return ComplexHelper.toLua(resultRe, resultIm)
+    }
+
+    /// Compute complex gamma using Lanczos approximation
+    /// Gamma(z) = sqrt(2*pi) * (z + g + 0.5)^(z+0.5) * exp(-(z+g+0.5)) * sum
+    private static func complexGamma(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
+        // Use reflection formula for Re(z) < 0.5
+        // Gamma(z) = pi / (sin(pi*z) * Gamma(1-z))
+        if re < 0.5 {
+            // sin(pi*z) for complex z
+            // sin(a+bi) = sin(a)cosh(b) + i*cos(a)sinh(b)
+            let sinRe = Darwin.sin(.pi * re) * Darwin.cosh(.pi * im)
+            let sinIm = Darwin.cos(.pi * re) * Darwin.sinh(.pi * im)
+
+            // Gamma(1-z)
+            let (g1Re, g1Im) = complexGammaPositive(1 - re, -im)
+
+            // pi / (sin(pi*z) * Gamma(1-z))
+            let (denRe, denIm) = ComplexHelper.multiply(sinRe, sinIm, g1Re, g1Im)
+            guard let (resultRe, resultIm) = ComplexHelper.divide(.pi, 0, denRe, denIm) else {
+                return (.nan, .nan)
+            }
+            return (resultRe, resultIm)
+        }
+
+        return complexGammaPositive(re, im)
+    }
+
+    /// Lanczos approximation for Re(z) >= 0.5
+    private static func complexGammaPositive(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
+        let g = 7.0
+        let zRe = re - 1
+        let zIm = im
+
+        // Sum of Lanczos series
+        var sumRe = lanczosCoeffs[0]
+        var sumIm = 0.0
+
+        for i in 1..<lanczosCoeffs.count {
+            // 1 / (z + i)
+            let denomRe = zRe + Double(i)
+            let denomIm = zIm
+            guard let (invRe, invIm) = ComplexHelper.divide(1, 0, denomRe, denomIm) else {
+                return (.nan, .nan)
+            }
+            sumRe += lanczosCoeffs[i] * invRe
+            sumIm += lanczosCoeffs[i] * invIm
+        }
+
+        // t = z + g + 0.5
+        let tRe = zRe + g + 0.5
+        let tIm = zIm
+
+        // t^(z + 0.5)
+        let expRe = zRe + 0.5
+        let expIm = zIm
+        let (powRe, powIm) = complexPow(tRe, tIm, expRe, expIm)
+
+        // exp(-t)
+        let (expNegRe, expNegIm) = ComplexHelper.exp(-tRe, -tIm)
+
+        // sqrt(2*pi) * t^(z+0.5) * exp(-t) * sum
+        let sqrt2pi = sqrt(2 * .pi)
+
+        var (resultRe, resultIm) = ComplexHelper.multiply(powRe, powIm, expNegRe, expNegIm)
+        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, sumRe, sumIm)
+        resultRe *= sqrt2pi
+        resultIm *= sqrt2pi
+
+        return (resultRe, resultIm)
+    }
+
+    /// Complex log-gamma using Lanczos approximation
+    private static func complexLogGamma(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
+        // Use reflection formula for Re(z) < 0.5
+        if re < 0.5 {
+            // log(Gamma(z)) = log(pi) - log(sin(pi*z)) - log(Gamma(1-z))
+            // sin(pi*z)
+            let sinRe = Darwin.sin(.pi * re) * Darwin.cosh(.pi * im)
+            let sinIm = Darwin.cos(.pi * re) * Darwin.sinh(.pi * im)
+
+            // log(sin(pi*z))
+            guard let (logSinRe, logSinIm) = ComplexHelper.log(sinRe, sinIm) else {
+                return (.nan, .nan)
+            }
+
+            // log(Gamma(1-z))
+            let (lgRe, lgIm) = complexLogGammaPositive(1 - re, -im)
+
+            // log(pi) - log(sin(pi*z)) - log(Gamma(1-z))
+            return (Darwin.log(.pi) - logSinRe - lgRe, -logSinIm - lgIm)
+        }
+
+        return complexLogGammaPositive(re, im)
+    }
+
+    /// Lanczos log-gamma for Re(z) >= 0.5
+    private static func complexLogGammaPositive(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
+        let g = 7.0
+        let zRe = re - 1
+        let zIm = im
+
+        // Sum of Lanczos series
+        var sumRe = lanczosCoeffs[0]
+        var sumIm = 0.0
+
+        for i in 1..<lanczosCoeffs.count {
+            let denomRe = zRe + Double(i)
+            let denomIm = zIm
+            guard let (invRe, invIm) = ComplexHelper.divide(1, 0, denomRe, denomIm) else {
+                return (.nan, .nan)
+            }
+            sumRe += lanczosCoeffs[i] * invRe
+            sumIm += lanczosCoeffs[i] * invIm
+        }
+
+        // t = z + g + 0.5
+        let tRe = zRe + g + 0.5
+        let tIm = zIm
+
+        // log(sqrt(2*pi)) + (z + 0.5) * log(t) - t + log(sum)
+        let halfLog2pi = 0.5 * Darwin.log(2 * .pi)
+
+        // log(t)
+        guard let (logTRe, logTIm) = ComplexHelper.log(tRe, tIm) else {
+            return (.nan, .nan)
+        }
+
+        // (z + 0.5) * log(t)
+        let (termRe, termIm) = ComplexHelper.multiply(zRe + 0.5, zIm, logTRe, logTIm)
+
+        // log(sum)
+        guard let (logSumRe, logSumIm) = ComplexHelper.log(sumRe, sumIm) else {
+            return (.nan, .nan)
+        }
+
+        // halfLog2pi + termRe - tRe + logSumRe
+        let resultRe = halfLog2pi + termRe - tRe + logSumRe
+        let resultIm = termIm - tIm + logSumIm
+
+        return (resultRe, resultIm)
+    }
+
+    /// Complex power: (a+bi)^(c+di) = exp((c+di) * log(a+bi))
+    private static func complexPow(_ aRe: Double, _ aIm: Double, _ cRe: Double, _ cIm: Double) -> (re: Double, im: Double) {
+        guard let (logRe, logIm) = ComplexHelper.log(aRe, aIm) else {
+            return (.nan, .nan)
+        }
+        let (prodRe, prodIm) = ComplexHelper.multiply(cRe, cIm, logRe, logIm)
+        return ComplexHelper.exp(prodRe, prodIm)
     }
 }

@@ -947,4 +947,134 @@ struct SpecialModuleTests {
         // W(100) ≈ 3.3856301402900502
         #expect(abs(result.numberValue! - 3.3856301402900502) < 1e-6)
     }
+
+    // MARK: - Complex Gamma Function Tests (Task 184)
+
+    @Test("cgamma function exists")
+    func testCgammaExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.cgamma)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("cgamma(5) = 4! = 24")
+    func testCgammaRealPositiveInteger() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.cgamma(5)")
+        #expect(abs(result.numberValue! - 24.0) < 1e-10)
+    }
+
+    @Test("cgamma(0.5) = sqrt(pi)")
+    func testCgammaHalf() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return math.special.cgamma(0.5)")
+        let sqrtPi = 1.7724538509055159  // sqrt(pi)
+        #expect(abs(result.numberValue! - sqrtPi) < 1e-10)
+    }
+
+    @Test("cgamma(1+i) - complex result")
+    func testCgammaComplexInput() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local z = {re = 1, im = 1}
+            local g = math.special.cgamma(z)
+            return g
+            """)
+        // Gamma(1+i) ≈ 0.498015668 - 0.154949828i
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            Issue.record("Expected complex result")
+            return
+        }
+        #expect(abs(re - 0.498015668) < 1e-6)
+        #expect(abs(im - (-0.154949828)) < 1e-6)
+    }
+
+    @Test("cgamma satisfies Gamma(z+1) = z*Gamma(z)")
+    func testCgammaRecurrence() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local z = {re = 2.5, im = 1.3}
+            local gz = math.special.cgamma(z)
+            local gz1 = math.special.cgamma({re = z.re + 1, im = z.im})
+            -- Check if gz1 ≈ z * gz
+            local expected_re = z.re * gz.re - z.im * gz.im
+            local expected_im = z.re * gz.im + z.im * gz.re
+            local err_re = math.abs(gz1.re - expected_re)
+            local err_im = math.abs(gz1.im - expected_im)
+            return math.max(err_re, err_im)
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("cgamma(i) - pure imaginary input")
+    func testCgammaPureImaginary() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local g = math.special.cgamma({re = 0, im = 1})
+            return g
+            """)
+        // Gamma(i) ≈ -0.1549498283 - 0.498015668i
+        guard let table = result.tableValue,
+              let re = table["re"]?.numberValue,
+              let im = table["im"]?.numberValue else {
+            Issue.record("Expected complex result")
+            return
+        }
+        #expect(abs(re - (-0.1549498283)) < 1e-6)
+        #expect(abs(im - (-0.498015668)) < 1e-6)
+    }
+
+    @Test("clgamma function exists")
+    func testClgammaExists() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("return type(math.special.clgamma)")
+        #expect(result == .string("function"))
+    }
+
+    @Test("clgamma(5) = log(24)")
+    func testClgammaRealPositive() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local lg = math.special.clgamma(5)
+            return lg.re
+            """)
+        let expected = log(24.0)
+        #expect(abs(result.numberValue! - expected) < 1e-10)
+    }
+
+    @Test("clgamma satisfies exp(clgamma(z)) = cgamma(z)")
+    func testClgammaExpRelation() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local z = {re = 2.0, im = 1.5}
+            local g = math.special.cgamma(z)
+            local lg = math.special.clgamma(z)
+            -- exp(lg) should equal g
+            local exp_re = math.exp(lg.re) * math.cos(lg.im)
+            local exp_im = math.exp(lg.re) * math.sin(lg.im)
+            local err_re = math.abs(exp_re - g.re)
+            local err_im = math.abs(exp_im - g.im)
+            return math.max(err_re, err_im)
+            """)
+        #expect(result.numberValue! < 1e-10)
+    }
+
+    @Test("clgamma(1+i) - complex input")
+    func testClgammaComplexInput() throws {
+        let engine = try createEngine()
+        let result = try engine.evaluate("""
+            local z = {re = 1, im = 1}
+            local lg = math.special.clgamma(z)
+            return lg
+            """)
+        // log(Gamma(1+i)) - verify it returns a complex result
+        guard let table = result.tableValue,
+              table["re"]?.numberValue != nil,
+              table["im"]?.numberValue != nil else {
+            Issue.record("Expected complex result with re and im")
+            return
+        }
+    }
 }

@@ -147,7 +147,7 @@ public enum ComplexHelper {
         let theta = atan2(b, a)
         let sqrtR = Darwin.sqrt(r)
         let halfTheta = theta / 2
-        return (sqrtR * cos(halfTheta), sqrtR * sin(halfTheta))
+        return (sqrtR * Darwin.cos(halfTheta), sqrtR * Darwin.sin(halfTheta))
     }
 
     /// Compute complex natural logarithm.
@@ -175,7 +175,7 @@ public enum ComplexHelper {
     /// - Returns: Tuple of (real, imaginary) parts of exp(a + bi)
     public static func exp(_ a: Double, _ b: Double) -> (re: Double, im: Double) {
         let expA = Darwin.exp(a)
-        return (expA * cos(b), expA * sin(b))
+        return (expA * Darwin.cos(b), expA * Darwin.sin(b))
     }
 
     /// Compute complex power: z^n where n is real.
@@ -192,6 +192,163 @@ public enum ComplexHelper {
         let theta = atan2(b, a)
         let rn = Darwin.pow(r, n)
         let ntheta = n * theta
-        return (rn * cos(ntheta), rn * sin(ntheta))
+        return (rn * Darwin.cos(ntheta), rn * Darwin.sin(ntheta))
+    }
+
+    // MARK: - Complex Trigonometric Functions
+
+    /// Compute complex sine.
+    ///
+    /// sin(a + bi) = sin(a)cosh(b) + i*cos(a)sinh(b)
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of sin(a + bi)
+    public static func sin(_ a: Double, _ b: Double) -> (re: Double, im: Double) {
+        return (Darwin.sin(a) * Darwin.cosh(b), Darwin.cos(a) * Darwin.sinh(b))
+    }
+
+    /// Compute complex cosine.
+    ///
+    /// cos(a + bi) = cos(a)cosh(b) - i*sin(a)sinh(b)
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of cos(a + bi)
+    public static func cos(_ a: Double, _ b: Double) -> (re: Double, im: Double) {
+        return (Darwin.cos(a) * Darwin.cosh(b), -Darwin.sin(a) * Darwin.sinh(b))
+    }
+
+    /// Compute complex tangent.
+    ///
+    /// tan(z) = sin(z) / cos(z)
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of tan(a + bi)
+    public static func tan(_ a: Double, _ b: Double) -> (re: Double, im: Double)? {
+        let sinZ = sin(a, b)
+        let cosZ = cos(a, b)
+        return divide(sinZ.re, sinZ.im, cosZ.re, cosZ.im)
+    }
+
+    // MARK: - Complex Hyperbolic Functions
+
+    /// Compute complex hyperbolic sine.
+    ///
+    /// sinh(a + bi) = sinh(a)cos(b) + i*cosh(a)sin(b)
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of sinh(a + bi)
+    public static func sinh(_ a: Double, _ b: Double) -> (re: Double, im: Double) {
+        return (Darwin.sinh(a) * Darwin.cos(b), Darwin.cosh(a) * Darwin.sin(b))
+    }
+
+    /// Compute complex hyperbolic cosine.
+    ///
+    /// cosh(a + bi) = cosh(a)cos(b) + i*sinh(a)sin(b)
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of cosh(a + bi)
+    public static func cosh(_ a: Double, _ b: Double) -> (re: Double, im: Double) {
+        return (Darwin.cosh(a) * Darwin.cos(b), Darwin.sinh(a) * Darwin.sin(b))
+    }
+
+    /// Compute complex hyperbolic tangent.
+    ///
+    /// tanh(z) = sinh(z) / cosh(z)
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of tanh(a + bi)
+    public static func tanh(_ a: Double, _ b: Double) -> (re: Double, im: Double)? {
+        let sinhZ = sinh(a, b)
+        let coshZ = cosh(a, b)
+        return divide(sinhZ.re, sinhZ.im, coshZ.re, coshZ.im)
+    }
+
+    // MARK: - Complex Inverse Hyperbolic Functions
+
+    /// Compute complex inverse hyperbolic sine.
+    ///
+    /// asinh(z) = log(z + sqrt(z² + 1))
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of asinh(a + bi)
+    public static func asinh(_ a: Double, _ b: Double) -> (re: Double, im: Double)? {
+        // z² = (a² - b², 2ab)
+        let z2re = a * a - b * b
+        let z2im = 2 * a * b
+        // z² + 1
+        let z2p1re = z2re + 1
+        let z2p1im = z2im
+        // sqrt(z² + 1)
+        let sqrtZ2p1 = sqrt(z2p1re, z2p1im)
+        // z + sqrt(z² + 1)
+        let sumRe = a + sqrtZ2p1.re
+        let sumIm = b + sqrtZ2p1.im
+        // log(...)
+        return log(sumRe, sumIm)
+    }
+
+    /// Compute complex inverse hyperbolic cosine.
+    ///
+    /// acosh(z) = log(z + sqrt(z² - 1))
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of acosh(a + bi)
+    public static func acosh(_ a: Double, _ b: Double) -> (re: Double, im: Double)? {
+        // z² = (a² - b², 2ab)
+        let z2re = a * a - b * b
+        let z2im = 2 * a * b
+        // z² - 1
+        let z2m1re = z2re - 1
+        let z2m1im = z2im
+        // sqrt(z² - 1)
+        let sqrtZ2m1 = sqrt(z2m1re, z2m1im)
+        // z + sqrt(z² - 1)
+        let sumRe = a + sqrtZ2m1.re
+        let sumIm = b + sqrtZ2m1.im
+        // log(...)
+        return log(sumRe, sumIm)
+    }
+
+    /// Compute complex inverse hyperbolic tangent.
+    ///
+    /// atanh(z) = 0.5 * log((1+z)/(1-z))
+    ///
+    /// - Parameters:
+    ///   - a: Real part
+    ///   - b: Imaginary part
+    /// - Returns: Tuple of (real, imaginary) parts of atanh(a + bi)
+    public static func atanh(_ a: Double, _ b: Double) -> (re: Double, im: Double)? {
+        // (1 + z)
+        let onePlusZRe = 1 + a
+        let onePlusZIm = b
+        // (1 - z)
+        let oneMinusZRe = 1 - a
+        let oneMinusZIm = -b
+        // (1+z)/(1-z)
+        guard let ratio = divide(onePlusZRe, onePlusZIm, oneMinusZRe, oneMinusZIm) else {
+            return nil
+        }
+        // log(...)
+        guard let logRatio = log(ratio.re, ratio.im) else {
+            return nil
+        }
+        // 0.5 * log(...)
+        return (0.5 * logRatio.re, 0.5 * logRatio.im)
     }
 }

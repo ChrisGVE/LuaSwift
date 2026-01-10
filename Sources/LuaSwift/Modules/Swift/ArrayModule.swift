@@ -1357,6 +1357,7 @@ public struct ArrayModule {
     // MARK: - Helper Functions
 
     /// Extract array data from a LuaValue
+    /// Supports both real (float64) and complex (complex128) arrays
     private static func extractArrayData(_ value: LuaValue) throws -> ArrayData {
         guard let table = value.tableValue,
               let shapeValue = table["shape"],
@@ -1376,7 +1377,7 @@ public struct ArrayModule {
             }
         }
 
-        // Extract data
+        // Extract data (real part)
         var data: [Double] = []
         if let dataArray = dataValue.arrayValue {
             data = dataArray.compactMap { $0.numberValue }
@@ -1397,15 +1398,55 @@ public struct ArrayModule {
             throw LuaError.callbackError("array: data size \(data.count) doesn't match shape \(shape) (expected \(expectedSize))")
         }
 
+        // Check for dtype and imag fields (complex128 support)
+        let dtypeString = table["dtype"]?.stringValue
+        let dtype = ArrayDType(from: dtypeString)
+
+        if dtype.isComplex {
+            // Extract imaginary part for complex arrays
+            var imag: [Double] = []
+            if let imagValue = table["imag"] {
+                if let imagArray = imagValue.arrayValue {
+                    imag = imagArray.compactMap { $0.numberValue }
+                } else if let imagTable = imagValue.tableValue {
+                    var i = 1
+                    while let val = imagTable[String(i)]?.numberValue {
+                        imag.append(val)
+                        i += 1
+                    }
+                }
+            }
+
+            // If no imag array provided, create zeros
+            if imag.isEmpty {
+                imag = [Double](repeating: 0, count: expectedSize)
+            }
+
+            guard imag.count == expectedSize else {
+                throw LuaError.callbackError("array: imag size \(imag.count) doesn't match shape \(shape) (expected \(expectedSize))")
+            }
+
+            return ArrayData(shape: shape, dtype: .complex128, real: data, imag: imag)
+        }
+
         return ArrayData(shape: shape, data: data)
     }
 
     /// Create a LuaValue table from ArrayData
+    /// Includes dtype and imag fields for complex arrays
     private static func createArrayTable(_ arrayData: ArrayData) -> LuaValue {
-        return .table([
+        var table: [String: LuaValue] = [
             "shape": .array(arrayData.shape.map { .number(Double($0)) }),
-            "data": .array(arrayData.data.map { .number($0) })
-        ])
+            "data": .array(arrayData.real.map { .number($0) }),
+            "dtype": .string(arrayData.dtype.rawValue)
+        ]
+
+        // Include imaginary part for complex arrays
+        if arrayData.isComplex, let imag = arrayData.imag {
+            table["imag"] = .array(imag.map { .number($0) })
+        }
+
+        return .table(table)
     }
 
     /// Flatten nested Lua table to 1D array with inferred shape

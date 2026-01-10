@@ -131,6 +131,7 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_circle_fit_taubin", callback: circleFitTaubinCallback)
         engine.registerFunction(name: "_luaswift_geo_ellipse_fit_direct", callback: ellipseFitDirectCallback)
         engine.registerFunction(name: "_luaswift_geo_sphere_fit_algebraic", callback: sphereFitAlgebraicCallback)
+        engine.registerFunction(name: "_luaswift_geo_bspline_fit", callback: bsplineFitCallback)
 
         // Set up the luaswift.geometry namespace
         do {
@@ -2654,6 +2655,270 @@ public struct GeometryModule {
         ])
     }
 
+    /// Fit a B-spline curve to data points using least squares
+    /// Input: points (array of {x,y} or {x,y,z}), degree, n_control_points, [parameterization]
+    /// Output: {control_points, knots, degree, residuals, rmse}
+    private static let bsplineFitCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 3,
+              let pointsArray = args[0].arrayValue,
+              let degree = args[1].numberValue.map({ Int($0) }),
+              let nControl = args[2].numberValue.map({ Int($0) }) else {
+            throw LuaError.callbackError("bspline_fit requires (points, degree, n_control_points)")
+        }
+
+        // Optional parameterization method: "chord" (default), "uniform", "centripetal"
+        let paramMethod = args.count > 3 ? (args[3].stringValue ?? "chord") : "chord"
+
+        // Extract points (2D or 3D)
+        var points2D: [(x: Double, y: Double)] = []
+        var points3D: [(x: Double, y: Double, z: Double)] = []
+        var is3D = false
+
+        for pt in pointsArray {
+            if let table = pt.tableValue {
+                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
+                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
+                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
+
+                if let x = x, let y = y {
+                    if let z = z {
+                        is3D = true
+                        points3D.append((x, y, z))
+                    } else {
+                        points2D.append((x, y))
+                    }
+                }
+            }
+        }
+
+        let nData = is3D ? points3D.count : points2D.count
+        guard nData >= nControl else {
+            throw LuaError.callbackError("bspline_fit: need at least as many data points as control points")
+        }
+        guard nControl >= degree + 1 else {
+            throw LuaError.callbackError("bspline_fit: need at least degree+1 control points")
+        }
+        guard degree >= 1 && degree <= 5 else {
+            throw LuaError.callbackError("bspline_fit: degree must be 1-5")
+        }
+
+        // Step 1: Generate parameter values using chord-length parameterization
+        var t: [Double] = Array(repeating: 0.0, count: nData)
+        t[0] = 0.0
+
+        if paramMethod == "uniform" {
+            for i in 0..<nData {
+                t[i] = Double(i) / Double(nData - 1)
+            }
+        } else {
+            // Chord-length or centripetal parameterization
+            var chordLengths: [Double] = [0.0]
+            for i in 1..<nData {
+                let dist: Double
+                if is3D {
+                    let dx = points3D[i].x - points3D[i-1].x
+                    let dy = points3D[i].y - points3D[i-1].y
+                    let dz = points3D[i].z - points3D[i-1].z
+                    dist = sqrt(dx*dx + dy*dy + dz*dz)
+                } else {
+                    let dx = points2D[i].x - points2D[i-1].x
+                    let dy = points2D[i].y - points2D[i-1].y
+                    dist = sqrt(dx*dx + dy*dy)
+                }
+                let d = paramMethod == "centripetal" ? sqrt(dist) : dist
+                chordLengths.append(chordLengths.last! + d)
+            }
+            let totalLength = chordLengths.last!
+            if totalLength > 1e-15 {
+                for i in 0..<nData {
+                    t[i] = chordLengths[i] / totalLength
+                }
+            } else {
+                // Fallback to uniform if all points coincide
+                for i in 0..<nData {
+                    t[i] = Double(i) / Double(nData - 1)
+                }
+            }
+        }
+
+        // Step 2: Generate clamped uniform knot vector
+        let m = nControl + degree + 1  // Total number of knots
+        var knots: [Double] = Array(repeating: 0.0, count: m)
+        for i in 0..<m {
+            if i <= degree {
+                knots[i] = 0.0
+            } else if i >= m - degree - 1 {
+                knots[i] = 1.0
+            } else {
+                // Interior knots uniformly spaced
+                let interior = i - degree
+                let numInterior = m - 2 * (degree + 1) + 1
+                knots[i] = Double(interior) / Double(numInterior)
+            }
+        }
+
+        // Step 3: Build design matrix A where A[i,j] = N_j(t[i])
+        // Cox-de Boor basis function
+        func basisFunc(_ knots: [Double], _ j: Int, _ p: Int, _ tVal: Double) -> Double {
+            if p == 0 {
+                if j >= 0 && j + 1 < knots.count {
+                    // Special case: at the right endpoint
+                    if abs(tVal - knots[knots.count - 1]) < 1e-15 && j == knots.count - degree - 2 {
+                        return 1.0
+                    }
+                    if tVal >= knots[j] && tVal < knots[j + 1] {
+                        return 1.0
+                    }
+                }
+                return 0.0
+            }
+
+            var result = 0.0
+            if j >= 0 && j + p < knots.count {
+                let denom1 = knots[j + p] - knots[j]
+                if abs(denom1) > 1e-15 {
+                    result += ((tVal - knots[j]) / denom1) * basisFunc(knots, j, p - 1, tVal)
+                }
+            }
+            if j + 1 >= 0 && j + p + 1 < knots.count {
+                let denom2 = knots[j + p + 1] - knots[j + 1]
+                if abs(denom2) > 1e-15 {
+                    result += ((knots[j + p + 1] - tVal) / denom2) * basisFunc(knots, j + 1, p - 1, tVal)
+                }
+            }
+            return result
+        }
+
+        // Build A matrix (nData x nControl) in column-major for LAPACK
+        var A: [Double] = Array(repeating: 0.0, count: nData * nControl)
+        for i in 0..<nData {
+            for j in 0..<nControl {
+                A[i + j * nData] = basisFunc(knots, j, degree, t[i])
+            }
+        }
+
+        // Step 4: Solve least squares using LAPACK dgels
+        // For 2D: solve for x and y coordinates separately
+        // For 3D: solve for x, y, and z coordinates separately
+
+        let numDims = is3D ? 3 : 2
+        var controlPoints: [[Double]] = Array(repeating: Array(repeating: 0.0, count: nControl), count: numDims)
+
+        for dim in 0..<numDims {
+            // Build right-hand side
+            var b: [Double] = Array(repeating: 0.0, count: max(nData, nControl))
+            for i in 0..<nData {
+                if is3D {
+                    switch dim {
+                    case 0: b[i] = points3D[i].x
+                    case 1: b[i] = points3D[i].y
+                    case 2: b[i] = points3D[i].z
+                    default: break
+                    }
+                } else {
+                    switch dim {
+                    case 0: b[i] = points2D[i].x
+                    case 1: b[i] = points2D[i].y
+                    default: break
+                    }
+                }
+            }
+
+            // Copy A matrix for this dimension (dgels modifies it)
+            var Acopy = A
+
+            // Call dgels
+            var trans: CChar = 78  // 'N' for no transpose
+            var mm: __CLPK_integer = __CLPK_integer(nData)
+            var nn: __CLPK_integer = __CLPK_integer(nControl)
+            var nrhs: __CLPK_integer = 1
+            var lda: __CLPK_integer = __CLPK_integer(nData)
+            var ldb: __CLPK_integer = __CLPK_integer(max(nData, nControl))
+            var work: [Double] = Array(repeating: 0.0, count: 1)
+            var lwork: __CLPK_integer = -1  // Query optimal work size
+            var info: __CLPK_integer = 0
+
+            // Query workspace size
+            dgels_(&trans, &mm, &nn, &nrhs, &Acopy, &lda, &b, &ldb, &work, &lwork, &info)
+
+            lwork = __CLPK_integer(work[0])
+            work = Array(repeating: 0.0, count: Int(lwork))
+
+            // Solve
+            Acopy = A  // Reset A since query may have modified it
+            dgels_(&trans, &mm, &nn, &nrhs, &Acopy, &lda, &b, &ldb, &work, &lwork, &info)
+
+            guard info == 0 else {
+                throw LuaError.callbackError("bspline_fit: least squares solver failed")
+            }
+
+            // Extract solution (first nControl elements of b)
+            for j in 0..<nControl {
+                controlPoints[dim][j] = b[j]
+            }
+        }
+
+        // Step 5: Compute residuals
+        var residuals: [Double] = []
+        var sumResidualsSq = 0.0
+        var maxResidual = 0.0
+
+        for i in 0..<nData {
+            // Evaluate the fitted spline at t[i]
+            var fitted: [Double] = Array(repeating: 0.0, count: numDims)
+            for j in 0..<nControl {
+                let basis = basisFunc(knots, j, degree, t[i])
+                for dim in 0..<numDims {
+                    fitted[dim] += basis * controlPoints[dim][j]
+                }
+            }
+
+            // Compute distance to actual point
+            var distSq = 0.0
+            if is3D {
+                distSq = pow(fitted[0] - points3D[i].x, 2) +
+                         pow(fitted[1] - points3D[i].y, 2) +
+                         pow(fitted[2] - points3D[i].z, 2)
+            } else {
+                distSq = pow(fitted[0] - points2D[i].x, 2) +
+                         pow(fitted[1] - points2D[i].y, 2)
+            }
+            let dist = sqrt(distSq)
+            residuals.append(dist)
+            sumResidualsSq += distSq
+            maxResidual = max(maxResidual, dist)
+        }
+
+        let rmse = sqrt(sumResidualsSq / Double(nData))
+
+        // Build control points array for return
+        var controlPointsLua: [LuaValue] = []
+        for j in 0..<nControl {
+            if is3D {
+                controlPointsLua.append(.table([
+                    "x": .number(controlPoints[0][j]),
+                    "y": .number(controlPoints[1][j]),
+                    "z": .number(controlPoints[2][j])
+                ]))
+            } else {
+                controlPointsLua.append(.table([
+                    "x": .number(controlPoints[0][j]),
+                    "y": .number(controlPoints[1][j])
+                ]))
+            }
+        }
+
+        return .table([
+            "control_points": .array(controlPointsLua),
+            "knots": .array(knots.map { .number($0) }),
+            "degree": .number(Double(degree)),
+            "residuals": .array(residuals.map { .number($0) }),
+            "rmse": .number(rmse),
+            "max_error": .number(maxResidual),
+            "parameters": .array(t.map { .number($0) })
+        ])
+    }
+
     // MARK: - Lua Wrapper Code
 
     private static let geometryLuaWrapper = """
@@ -2747,6 +3012,7 @@ public struct GeometryModule {
     local _circle_fit_taubin = _luaswift_geo_circle_fit_taubin
     local _ellipse_fit_direct = _luaswift_geo_ellipse_fit_direct
     local _sphere_fit_algebraic = _luaswift_geo_sphere_fit_algebraic
+    local _bspline_fit = _luaswift_geo_bspline_fit
 
     local _vec2_to_polar = _luaswift_geo_vec2_to_polar
     local _vec2_from_polar = _luaswift_geo_vec2_from_polar
@@ -4305,6 +4571,56 @@ public struct GeometryModule {
             knots[i] = k
         end
         return knots
+    end
+
+    -- Fit B-spline to data points using least squares
+    -- points: array of {x,y} or {x,y,z} points
+    -- degree: B-spline degree (1-5)
+    -- n_control_points: number of control points (>= degree+1)
+    -- options: {parameterization = "chord" | "uniform" | "centripetal"}
+    -- Returns a B-spline object with fit diagnostics
+    function geo.bspline_fit(points, degree, n_control_points, options)
+        options = options or {}
+        local param = options.parameterization or "chord"
+
+        -- Convert points to array format if needed
+        local pts = {}
+        local is3d = false
+        for i, pt in ipairs(points) do
+            local x = pt.x or pt[1]
+            local y = pt.y or pt[2]
+            local z = pt.z or pt[3]
+            if z then
+                is3d = true
+                pts[i] = {x = x, y = y, z = z}
+            else
+                pts[i] = {x = x, y = y}
+            end
+        end
+
+        -- Call Swift fitting callback
+        local result = _bspline_fit(pts, degree, n_control_points, param)
+
+        -- Build B-spline object from fit result
+        local control_points = {}
+        for i, cp in ipairs(result.control_points) do
+            if is3d then
+                control_points[i] = geo.vec3(cp.x, cp.y, cp.z)
+            else
+                control_points[i] = geo.vec2(cp.x, cp.y)
+            end
+        end
+
+        -- Create the B-spline using the fitted control points
+        local spline = geo.bspline(control_points, degree, result.knots)
+
+        -- Attach fit diagnostics
+        spline._residuals = result.residuals
+        spline._rmse = result.rmse
+        spline._max_error = result.max_error
+        spline._parameters = result.parameters
+
+        return spline
     end
 
     -- Fit circle to points using least squares

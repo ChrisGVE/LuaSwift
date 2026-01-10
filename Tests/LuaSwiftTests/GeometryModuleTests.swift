@@ -2255,6 +2255,137 @@ struct GeometryModuleTests {
         #expect(arr[3].numberValue == 1)   // Last knot is 1 (clamped)
     }
 
+    // MARK: - B-Spline Fitting Tests
+
+    @Test("bspline_fit 2D points with cubic spline")
+    func bsplineFit2DCubic() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        // Generate points along a sine curve
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {}
+            for i = 0, 10 do
+                local t = i / 10
+                local x = t * 2 * math.pi
+                local y = math.sin(x)
+                points[#points + 1] = {x = x, y = y}
+            end
+
+            -- Fit cubic B-spline with 6 control points
+            local spline = geo.bspline_fit(points, 3, 6)
+
+            -- Verify it returns a valid B-spline
+            local p0 = spline:evaluate(0)
+            local p1 = spline:evaluate(1)
+            local rmse = spline._rmse
+
+            return {p0.x, p0.y, p1.x, p1.y, rmse, spline:degree()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // Start point should be close to (0, 0)
+        #expect(abs(arr[0].numberValue! - 0) < 0.1)
+        #expect(abs(arr[1].numberValue! - 0) < 0.1)
+        // End point should be close to (2*pi, 0)
+        #expect(abs(arr[2].numberValue! - 2 * Double.pi) < 0.2)
+        // RMSE should be small (good fit)
+        #expect(arr[4].numberValue! < 0.2)
+        // Degree should be 3
+        #expect(arr[5].numberValue == 3)
+    }
+
+    @Test("bspline_fit 3D helix curve")
+    func bsplineFit3DHelix() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {}
+            for i = 0, 20 do
+                local t = i / 20
+                local theta = t * 4 * math.pi  -- 2 turns
+                local x = math.cos(theta)
+                local y = math.sin(theta)
+                local z = t * 2  -- Linear z progression
+                points[#points + 1] = geo.vec3(x, y, z)
+            end
+
+            -- Fit cubic B-spline with 8 control points
+            local spline = geo.bspline_fit(points, 3, 8)
+
+            -- Check it's a 3D spline
+            local p0 = spline:evaluate(0)
+            local rmse = spline._rmse
+
+            return {p0.x, p0.y, p0.z, rmse, spline:is_3d()}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // Start should be close to (1, 0, 0)
+        #expect(abs(arr[0].numberValue! - 1) < 0.2)
+        #expect(abs(arr[1].numberValue! - 0) < 0.2)
+        #expect(abs(arr[2].numberValue! - 0) < 0.2)
+        // RMSE should be reasonable
+        #expect(arr[3].numberValue! < 0.5)
+        // Should be 3D
+        #expect(arr[4].boolValue == true)
+    }
+
+    @Test("bspline_fit linear degree reproduces line")
+    func bsplineFitLinear() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            -- Points on a line y = 2x + 1
+            local points = {}
+            for i = 0, 5 do
+                local x = i
+                local y = 2 * x + 1
+                points[#points + 1] = {x = x, y = y}
+            end
+
+            -- Fit linear B-spline (degree 1)
+            local spline = geo.bspline_fit(points, 1, 3)
+
+            -- Should fit exactly
+            return {spline._rmse, spline._max_error}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        // For linear data with linear spline, fit should be very good
+        #expect(arr[0].numberValue! < 1e-6)  // RMSE near zero
+        #expect(arr[1].numberValue! < 1e-6)  // Max error near zero
+    }
+
+    @Test("bspline_fit with uniform parameterization")
+    func bsplineFitUniformParam() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installGeometryModule(in: engine)
+
+        let result = try engine.evaluate("""
+            local geo = luaswift.geometry
+            local points = {}
+            for i = 0, 8 do
+                local t = i / 8
+                points[#points + 1] = {x = t, y = t * t}  -- parabola
+            end
+
+            -- Fit with uniform parameterization
+            local spline = geo.bspline_fit(points, 2, 4, {parameterization = "uniform"})
+
+            return {spline._rmse, #spline._parameters}
+        """)
+
+        let arr = try #require(result.arrayValue)
+        #expect(arr[0].numberValue! < 0.1)  // Should fit reasonably
+        #expect(arr[1].numberValue == 9)     // 9 parameters for 9 points
+    }
+
     // MARK: - Circle Fitting Tests
 
     @Test("circle_fit exact points recovers original circle")

@@ -2254,6 +2254,280 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(list[3], 35, accuracy: 1e-10)
     }
 
+    // MARK: - Complex Array Tests
+
+    func testComplexArrayCreation() throws {
+        let result = try engine.evaluate("""
+            local real = luaswift.array.array({1, 2, 3})
+            local imag = luaswift.array.array({4, 5, 6})
+            local z = luaswift.array.complex_array(real, imag)
+            return z:dtype()
+            """)
+        XCTAssertEqual(result.stringValue, "complex128")
+    }
+
+    func testComplexArrayIsComplex() throws {
+        let result = try engine.evaluate("""
+            local real = luaswift.array.array({1, 2, 3})
+            local imag = luaswift.array.array({0, 0, 0})
+            local z = luaswift.array.complex_array(real, imag)
+            return z:iscomplex()
+            """)
+        XCTAssertTrue(result.boolValue!)
+    }
+
+    func testRealArrayNotComplex() throws {
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({1, 2, 3})
+            return a:iscomplex()
+            """)
+        XCTAssertFalse(result.boolValue!)
+    }
+
+    func testComplexRealPart() throws {
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({1, 2, 3}),
+                luaswift.array.array({4, 5, 6})
+            )
+            local re = z:real()
+            return re:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [1, 2, 3])
+    }
+
+    func testComplexImagPart() throws {
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({1, 2, 3}),
+                luaswift.array.array({4, 5, 6})
+            )
+            local im = z:imag()
+            return im:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [4, 5, 6])
+    }
+
+    func testComplexConjugate() throws {
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({1, 2}),
+                luaswift.array.array({3, 4})
+            )
+            local zc = z:conj()
+            local im = zc:imag()
+            return im:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list, [-3, -4])
+    }
+
+    func testComplexAbs() throws {
+        // |3+4i| = 5
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({3, 0}),
+                luaswift.array.array({4, 5})
+            )
+            local mag = luaswift.array.abs(z)
+            return mag:tolist()
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 5.0, accuracy: 1e-10)
+        XCTAssertEqual(list[1], 5.0, accuracy: 1e-10)
+    }
+
+    func testComplexArg() throws {
+        // arg(1+1i) = π/4
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({1}),
+                luaswift.array.array({1})
+            )
+            local phase = luaswift.array.arg(z)
+            return phase:tolist()[1]
+            """)
+        XCTAssertEqual(result.numberValue!, Double.pi / 4, accuracy: 1e-10)
+    }
+
+    func testComplexAdd() throws {
+        let result = try engine.evaluate("""
+            local z1 = luaswift.array.complex_array(
+                luaswift.array.array({1, 2}),
+                luaswift.array.array({3, 4})
+            )
+            local z2 = luaswift.array.complex_array(
+                luaswift.array.array({5, 6}),
+                luaswift.array.array({7, 8})
+            )
+            local z = z1 + z2
+            local re = z:real():tolist()
+            local im = z:imag():tolist()
+            return {re[1], re[2], im[1], im[2]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 6)  // 1+5
+        XCTAssertEqual(list[1], 8)  // 2+6
+        XCTAssertEqual(list[2], 10) // 3+7
+        XCTAssertEqual(list[3], 12) // 4+8
+    }
+
+    func testComplexMul() throws {
+        // (1+2i) * (3+4i) = 3 + 4i + 6i + 8i² = 3 + 10i - 8 = -5 + 10i
+        let result = try engine.evaluate("""
+            local z1 = luaswift.array.complex_array(
+                luaswift.array.array({1}),
+                luaswift.array.array({2})
+            )
+            local z2 = luaswift.array.complex_array(
+                luaswift.array.array({3}),
+                luaswift.array.array({4})
+            )
+            local z = z1 * z2
+            local re = z:real():tolist()[1]
+            local im = z:imag():tolist()[1]
+            return {re, im}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], -5, accuracy: 1e-10)
+        XCTAssertEqual(list[1], 10, accuracy: 1e-10)
+    }
+
+    func testComplexExp() throws {
+        // exp(0+iπ) = -1
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({0}),
+                luaswift.array.array({math.pi})
+            )
+            local ez = luaswift.array.exp(z)
+            local re = ez:real():tolist()[1]
+            local im = ez:imag():tolist()[1]
+            return {re, im}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], -1, accuracy: 1e-10)  // cos(π) = -1
+        XCTAssertEqual(list[1], 0, accuracy: 1e-10)   // sin(π) ≈ 0
+    }
+
+    func testComplexLog() throws {
+        // log(-1) = iπ (principal value)
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({-1}),
+                luaswift.array.array({0})
+            )
+            local lz = luaswift.array.log(z)
+            local re = lz:real():tolist()[1]
+            local im = lz:imag():tolist()[1]
+            return {re, im}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 0, accuracy: 1e-10)           // ln(|-1|) = 0
+        XCTAssertEqual(list[1], Double.pi, accuracy: 1e-10)   // arg(-1) = π
+    }
+
+    func testComplexSqrt() throws {
+        // sqrt(i) = (1+i)/√2
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({0}),
+                luaswift.array.array({1})
+            )
+            local sz = luaswift.array.sqrt(z)
+            local re = sz:real():tolist()[1]
+            local im = sz:imag():tolist()[1]
+            return {re, im}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        let expected = 1 / sqrt(2.0)
+        XCTAssertEqual(list[0], expected, accuracy: 1e-10)
+        XCTAssertEqual(list[1], expected, accuracy: 1e-10)
+    }
+
+    func testCsqrtNegative() throws {
+        // csqrt(-1) = i
+        let result = try engine.evaluate("""
+            local a = luaswift.array.array({-1, -4, 4})
+            local z = luaswift.array.csqrt(a)
+            local re = z:real():tolist()
+            local im = z:imag():tolist()
+            return {re[1], im[1], re[2], im[2], re[3], im[3]}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 0, accuracy: 1e-10)  // re(sqrt(-1)) = 0
+        XCTAssertEqual(list[1], 1, accuracy: 1e-10)  // im(sqrt(-1)) = 1
+        XCTAssertEqual(list[2], 0, accuracy: 1e-10)  // re(sqrt(-4)) = 0
+        XCTAssertEqual(list[3], 2, accuracy: 1e-10)  // im(sqrt(-4)) = 2
+        XCTAssertEqual(list[4], 2, accuracy: 1e-10)  // re(sqrt(4)) = 2
+        XCTAssertEqual(list[5], 0, accuracy: 1e-10)  // im(sqrt(4)) = 0
+    }
+
+    func testComplexSin() throws {
+        // sin(i) = i*sinh(1) ≈ i*1.1752
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({0}),
+                luaswift.array.array({1})
+            )
+            local sz = luaswift.array.sin(z)
+            local re = sz:real():tolist()[1]
+            local im = sz:imag():tolist()[1]
+            return {re, im}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 0, accuracy: 1e-10)           // sin(0)*cosh(1) = 0
+        XCTAssertEqual(list[1], sinh(1.0), accuracy: 1e-10)   // cos(0)*sinh(1) = sinh(1)
+    }
+
+    func testComplexCos() throws {
+        // cos(i) = cosh(1) ≈ 1.5431
+        let result = try engine.evaluate("""
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({0}),
+                luaswift.array.array({1})
+            )
+            local cz = luaswift.array.cos(z)
+            local re = cz:real():tolist()[1]
+            local im = cz:imag():tolist()[1]
+            return {re, im}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], cosh(1.0), accuracy: 1e-10)   // cos(0)*cosh(1) = cosh(1)
+        XCTAssertEqual(list[1], 0, accuracy: 1e-10)           // -sin(0)*sinh(1) = 0
+    }
+
+    func testFromPolar() throws {
+        // 1∠(π/2) = i
+        let result = try engine.evaluate("""
+            local mag = luaswift.array.array({1})
+            local ang = luaswift.array.array({math.pi / 2})
+            local z = luaswift.array.from_polar(mag, ang)
+            local re = z:real():tolist()[1]
+            local im = z:imag():tolist()[1]
+            return {re, im}
+            """)
+        let list = result.arrayValue!.compactMap { $0.numberValue }
+        XCTAssertEqual(list[0], 0, accuracy: 1e-10)   // cos(π/2) ≈ 0
+        XCTAssertEqual(list[1], 1, accuracy: 1e-10)   // sin(π/2) = 1
+    }
+
+    func testRealComplexPromotion() throws {
+        // Adding real array to complex promotes real to complex
+        let result = try engine.evaluate("""
+            local r = luaswift.array.array({1, 2})
+            local z = luaswift.array.complex_array(
+                luaswift.array.array({3, 4}),
+                luaswift.array.array({5, 6})
+            )
+            local sum = r + z
+            return sum:dtype()
+            """)
+        XCTAssertEqual(result.stringValue, "complex128")
+    }
+
 }
 
 // MARK: - Test DataServer for Array Integration

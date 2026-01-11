@@ -1,5 +1,9 @@
 # Array Module (NumPy-like)
 
+[← Module Index](index.md) | [Documentation](../index.md)
+
+---
+
 **Namespace:** `luaswift.array` | **Global:** `array`
 
 N-dimensional arrays with NumPy-style broadcasting and operations.

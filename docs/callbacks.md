@@ -1,5 +1,9 @@
 # Swift Callbacks
 
+[← Value Servers](value-servers.md) | [Documentation](index.md) | [Coroutines →](coroutines.md)
+
+---
+
 Register Swift functions that Lua scripts can call directly.
 
 ## Basic Callbacks
@@ -183,3 +187,8 @@ engine.registerFunction(name: "fetchData") { args in
 // Better: use coroutines for async patterns
 // See coroutines.md for details
 ```
+
+
+---
+
+[← Value Servers](value-servers.md) | [Documentation](index.md) | [Coroutines →](coroutines.md)

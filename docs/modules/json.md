@@ -1,5 +1,9 @@
 # JSON Module
 
+[← Module Index](index.md) | [Documentation](../index.md)
+
+---
+
 **Namespace:** `luaswift.json` | **Global:** `json`
 
 JSON encoding and decoding with support for nested structures, Unicode, and pretty printing.

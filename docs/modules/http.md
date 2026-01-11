@@ -1,5 +1,9 @@
 # HTTP Module (Network Client)
 
+[← Module Index](index.md) | [Documentation](../index.md)
+
+---
+
 **Namespace:** `luaswift.http` | **Global:** `http`
 
 HTTP client using URLSession for making network requests.

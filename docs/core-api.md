@@ -1,5 +1,9 @@
 # Core API Reference
 
+[← Documentation](index.md) | [Value Servers →](value-servers.md)
+
+---
+
 ## LuaEngine
 
 The main interface for executing Lua code from Swift.
@@ -180,3 +184,7 @@ do {
     }
 }
 ```
+
+---
+
+[← Documentation](index.md) | [Value Servers →](value-servers.md)

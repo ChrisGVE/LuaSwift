@@ -1,5 +1,9 @@
 # Coroutines
 
+[← Callbacks](callbacks.md) | [Documentation](index.md) | [Threading →](threading.md)
+
+---
+
 Create and manage Lua coroutines from Swift for cooperative multitasking.
 
 ## Basic Usage
@@ -239,3 +243,8 @@ while true {
     // Check for cancellation, update UI, etc.
 }
 ```
+
+
+---
+
+[← Callbacks](callbacks.md) | [Documentation](index.md) | [Threading →](threading.md)

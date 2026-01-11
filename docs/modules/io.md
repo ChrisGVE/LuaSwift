@@ -1,5 +1,9 @@
 # IO Module (Sandboxed File System)
 
+[← Module Index](index.md) | [Documentation](../index.md)
+
+---
+
 **Namespace:** `luaswift.iox` | **Global:** `iox`
 
 Sandboxed file system operations restricted to explicitly allowed directories.

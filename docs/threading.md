@@ -1,5 +1,9 @@
 # Thread Safety
 
+[← Coroutines](coroutines.md) | [Documentation](index.md) | [Engine Reuse →](engine-reuse.md)
+
+---
+
 `LuaEngine` is designed for safe concurrent access with comprehensive thread safety guarantees.
 
 ## Thread Safety Model
@@ -257,3 +261,7 @@ DispatchQueue.global().async {
     try! engine.run("x = 1")
 }
 ```
+
+---
+
+[← Coroutines](coroutines.md) | [Documentation](index.md) | [Engine Reuse →](engine-reuse.md)

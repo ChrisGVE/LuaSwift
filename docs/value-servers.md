@@ -1,5 +1,9 @@
 # Value Servers
 
+[← Core API](core-api.md) | [Documentation](index.md) | [Callbacks →](callbacks.md)
+
+---
+
 Value servers expose Swift data to Lua scripts. They act as bridges that allow Lua code to read (and optionally write) values stored in your Swift application.
 
 ## Basic Read-Only Server
@@ -172,3 +176,8 @@ engine.register(server: myServer)
 engine.unregister(namespace: "MyServer")
 // Server is now inaccessible from Lua
 ```
+
+
+---
+
+[← Core API](core-api.md) | [Documentation](index.md) | [Callbacks →](callbacks.md)

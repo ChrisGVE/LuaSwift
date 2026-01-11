@@ -20,14 +20,15 @@ LuaSwift embeds the Lua scripting language in iOS and macOS applications. The co
 - Configurable sandboxing
 - Thread-safe design
 
-**Optional Powerpack Modules:**
-- Data formats: JSON, YAML, TOML parsing
-- Scientific computing: N-dimensional arrays, linear algebra, statistics
-- Math & geometry: Extended math, complex numbers, 2D/3D vectors, quaternions
-- Probability & optimization: Distributions, integration, curve fitting
-- Visualization: Plotting, SVG generation
-- Utilities: Regex, string/table extensions, UTF-8
-- Security (opt-in): Sandboxed file I/O, HTTP client
+**Optional Powerpack:** Install additional modules for:
+- Standard library extensions (string, table, utf8)
+- Data format parsing (JSON, YAML, TOML)
+- Mathematics (extended math, linear algebra, complex numbers, geometry)
+- Scientific computing (statistics, optimization, integration, interpolation)
+- N-dimensional arrays (NumPy-like)
+- Visualization (plotting, SVG)
+- Pattern matching (regex)
+- External access (sandboxed file I/O, HTTP client)
 
 ## Requirements
 
@@ -49,7 +50,7 @@ Or in Xcode: File → Add Package Dependencies → Enter the repository URL.
 
 ## Quick Start
 
-### Minimal Example (Wrapper Only)
+### Wrapper Only (No Modules)
 
 ```swift
 import LuaSwift
@@ -78,22 +79,31 @@ let version = try engine.evaluate("return App.version")
 // Install all modules
 ModuleRegistry.installModules(in: engine)
 
+// Extend standard library with LuaSwift enhancements
+try engine.run("luaswift.extend_stdlib()")
+
 // Use from Lua
 try engine.run("""
-    local data = json.decode('{"x": 1, "y": 2}')
-    local v = geo.vec2(data.x, data.y)
-    print(v:length())  -- 2.236...
+    -- Standard library extensions work seamlessly
+    local s = string.capitalize("hello world")  -- "Hello world"
+    local keys = table.keys({a=1, b=2})         -- {"a", "b"}
 
-    local m = linalg.matrix({{1, 2}, {3, 4}})
-    print(m:det())  -- -2
+    -- Math submodules are available
+    local m = math.linalg.matrix({{1, 2}, {3, 4}})
+    local z = math.complex.new(3, 4)
+    local v = math.geo.vec3(1, 2, 3)
+
+    -- Data parsing
+    local data = json.decode('{"x": 1, "y": 2}')
+
+    -- Arrays (standalone module)
+    local a = array.zeros({3, 3})
 """)
 ```
 
 ## Lua Version Selection
 
 LuaSwift bundles Lua 5.1.5, 5.2.4, 5.3.6, 5.4.7, and 5.5.0. Default is 5.4.
-
-**Build with specific version:**
 
 ```bash
 LUASWIFT_LUA_VERSION=55 swift build  # Lua 5.5
@@ -110,89 +120,140 @@ LUASWIFT_LUA_VERSION=51 swift build  # Lua 5.1
 
 ## Module Reference
 
-All modules are auto-loaded. Use directly or via `require()`.
+### Standard Library Extensions
 
-### Core Modules
+These modules extend Lua's built-in libraries. After calling `luaswift.extend_stdlib()`, their functions are available directly on `string`, `table`, and `utf8`.
 
-| Module | Global | Require | Description |
-|--------|--------|---------|-------------|
-| JSON | `json` | `luaswift.json` | JSON encode/decode |
-| YAML | `yaml` | `luaswift.yaml` | YAML with multi-document |
-| TOML | `toml` | `luaswift.toml` | TOML configuration |
-| Regex | `regex` | `luaswift.regex` | ICU regular expressions |
+| Module | Extends | Key Functions |
+|--------|---------|---------------|
+| stringx | `string` | `capitalize`, `trim`, `split`, `join`, `startswith`, `endswith`, `replace` |
+| tablex | `table` | `keys`, `values`, `map`, `filter`, `reduce`, `merge`, `deepcopy` |
+| utf8x | `utf8` | `sub`, `reverse`, `upper`, `lower`, `width` (CJK-aware) |
+| compat | - | Lua version compatibility (bit32, unpack, loadstring) |
 
-### Math & Scientific
+```lua
+luaswift.extend_stdlib()
 
-| Module | Global | Require | Description |
-|--------|--------|---------|-------------|
-| Extended Math | `mathx` | `luaswift.math` | Statistics, hyperbolic, rounding |
-| Linear Algebra | `linalg` | `luaswift.linalg` | Matrices, SVD, eigenvalues (BLAS/LAPACK) |
-| Array | `array` | `luaswift.array` | NumPy-like N-dimensional arrays |
-| Complex | `complex` | `complex` | Complex number arithmetic |
-| Geometry | `geo` | `geo` | 2D/3D vectors, quaternions, transforms |
-| Special Functions | `special` | `luaswift.special` | Bessel, gamma, erf, elliptic |
+-- Now available on standard libraries
+string.trim("  hello  ")           -- "hello"
+table.keys({a=1, b=2})             -- {"a", "b"}
+utf8.sub("日本語", 1, 2)            -- "日本"
+```
 
-### SciPy-Inspired
+### Data Formats
 
-| Module | Global | Require | Description |
-|--------|--------|---------|-------------|
-| Distributions | `distributions` | `luaswift.distributions` | Probability distributions, statistical tests |
-| Integrate | `integrate` | `luaswift.integrate` | Numerical integration, ODE solvers |
-| Optimize | `optimize` | `luaswift.optimize` | Minimization, root finding, curve fit |
-| Interpolate | `interpolate` | `luaswift.interpolate` | Splines, PCHIP, Akima |
-| Cluster | `cluster` | `luaswift.cluster` | K-means, hierarchical, DBSCAN |
-| Spatial | `spatial` | `luaswift.spatial` | KDTree, Voronoi, Delaunay |
-| Regression | `regress` | `luaswift.regress` | OLS, WLS, GLS, GLM, ARIMA |
+| Module | Global | Description |
+|--------|--------|-------------|
+| json | `json` | JSON encode/decode with null handling |
+| yaml | `yaml` | YAML with multi-document support |
+| toml | `toml` | TOML configuration parsing |
+
+### Math (Unified Namespace)
+
+After `luaswift.extend_stdlib()`, all math modules are available under the `math` namespace:
+
+| Submodule | Access | Description |
+|-----------|--------|-------------|
+| Base extensions | `math.*` | Extended functions: `sign`, `round`, `factorial`, `gamma` |
+| Linear Algebra | `math.linalg` | Matrices, SVD, eigenvalues (BLAS/LAPACK) |
+| Complex Numbers | `math.complex` | Complex arithmetic and functions |
+| Geometry | `math.geo` | 2D/3D vectors, quaternions, transforms |
+| Special Functions | `math.special` | Bessel, gamma, erf, elliptic integrals |
+| Statistics | `math.stats` | Mean, median, variance, percentile |
+| Distributions | `math.distributions` | Normal, t, chi2, F, gamma, beta distributions |
+| Optimization | `math.optimize` | Minimization, root finding, curve fitting |
+| Integration | `math.integrate` | Numerical integration, ODE solvers |
+| Interpolation | `math.interpolate` | Splines, PCHIP, Akima |
+| Clustering | `math.cluster` | K-means, hierarchical, DBSCAN |
+| Spatial | `math.spatial` | KDTree, Voronoi, Delaunay |
+| Regression | `math.regress` | OLS, WLS, GLS, GLM, ARIMA |
+| Series | `math.series` | Taylor polynomials, summation, products |
+| Expressions | `math.eval` | Expression parsing, LaTeX support |
+| Constants | `math.constants` | Physical constants, unit conversions |
+| Number Theory | `math.numtheory` | Primes, factorization, totient |
+
+```lua
+luaswift.extend_stdlib()
+
+-- All under math namespace
+local m = math.linalg.matrix({{1, 2}, {3, 4}})
+local z = math.complex.new(3, 4)
+local v = math.geo.vec3(1, 2, 3)
+local g = math.special.gamma(5)    -- 24
+local c = math.constants.c         -- speed of light
+local avg = math.stats.mean({1, 2, 3, 4, 5})
+```
+
+### Array (Standalone)
+
+N-dimensional arrays with NumPy-style broadcasting. Standalone module, not under `math`.
+
+| Module | Global | Description |
+|--------|--------|-------------|
+| array | `array` | NumPy-like N-dimensional arrays |
+
+```lua
+local a = array.zeros({3, 3})
+local b = array.linspace(0, 1, 100)
+local c = a + 1  -- broadcasting
+```
 
 ### Visualization
 
-| Module | Global | Require | Description |
-|--------|--------|---------|-------------|
-| Plot | `plot` | `luaswift.plot` | Matplotlib-style plotting |
-| SVG | `svg` | `svg` | SVG document generation |
+| Module | Global | Description |
+|--------|--------|-------------|
+| plot | `plot` | Matplotlib-style plotting with retained graphics |
+| svg | `svg` | SVG document generation (used by plot) |
 
-### Utilities
+```lua
+local fig = plot.figure()
+local ax = fig:subplot(1, 1, 1)
+ax:plot({1, 2, 3}, {1, 4, 9})
+local svg_string = fig:render()
+```
 
-| Module | Global | Require | Description |
-|--------|--------|---------|-------------|
-| StringX | `stringx` | `stringx` | String manipulation |
-| TableX | `tablex` | `tablex` | Functional table operations |
-| UTF8X | `utf8x` | `utf8x` | Unicode-aware strings |
-| Types | `types` | `types` | Type detection/conversion |
-| Compat | `compat` | `compat` | Lua version compatibility |
-| Math Expr | `math_expr` | `luaswift.mathexpr` | Expression parsing, LaTeX |
-| Series | `series` | `luaswift.series` | Taylor, summation, products |
+### Pattern Matching
 
-### Security Modules (Opt-In)
+| Module | Global | Description |
+|--------|--------|-------------|
+| regex | `regex` | ICU regular expressions |
 
-These modules require explicit installation:
+### External Access (Opt-In)
 
-| Module | Require | Description |
-|--------|---------|-------------|
-| IO | `luaswift.iox` | Sandboxed file I/O |
-| HTTP | `luaswift.http` | URLSession-based HTTP client |
+These modules are **not** included in `installModules()` and require explicit installation because they access resources outside the Lua sandbox.
+
+| Module | Require | Why Separate |
+|--------|---------|--------------|
+| iox | `luaswift.iox` | File system access requires allowed directory configuration |
+| http | `luaswift.http` | Network access may not be desired in all environments |
 
 ```swift
-// IO: Configure allowed directories first
+// File I/O: Configure allowed directories first
 IOModule.setAllowedDirectories([documentsPath], for: engine)
 ModuleRegistry.installIOModule(in: engine)
 
-// HTTP: Explicit opt-in
+// HTTP: Explicit opt-in for network access
 ModuleRegistry.installHTTPModule(in: engine)
 ```
 
-## Extending the Standard Library
+The `iox` module provides sandboxed file operations restricted to configured directories. It does not replace Lua's standard `io` library (which is removed in sandboxed mode).
 
-Inject LuaSwift functions into Lua's built-in libraries:
+## Selective Module Installation
 
-```lua
--- Per-module
-stringx.import()  -- string.capitalize(), ("hello"):strip()
-mathx.import()    -- math.sign(), math.factorial()
+You can install individual modules instead of the full powerpack:
 
--- All at once
-luaswift.extend_stdlib()
--- Adds: math.complex, math.linalg, math.geo subnamespaces
+```swift
+let engine = try LuaEngine()
+
+// Install only what you need
+ModuleRegistry.installJSONModule(in: engine)
+ModuleRegistry.installStringXModule(in: engine)
+ModuleRegistry.installMathModule(in: engine)
+
+// Note: Some modules have dependencies
+// - math.linalg requires MathModule
+// - math.distributions requires MathModule + SpecialModule
+// - series requires MathExprModule
 ```
 
 ## Configuration
@@ -217,7 +278,7 @@ let engine = try LuaEngine(configuration: .unrestricted)
 
 ## Documentation
 
-For detailed API documentation, see the [docs/](docs/) folder:
+For detailed API documentation, see [docs/index.md](docs/index.md):
 
 - [Core API](docs/core-api.md) - LuaEngine, LuaValue, LuaValueServer
 - [Value Servers](docs/value-servers.md) - Exposing Swift data to Lua
@@ -225,7 +286,7 @@ For detailed API documentation, see the [docs/](docs/) folder:
 - [Coroutines](docs/coroutines.md) - Creating and managing coroutines
 - [Threading](docs/threading.md) - Thread safety and engine pools
 - [Engine Reuse](docs/engine-reuse.md) - Patterns for long-running engines
-- [Modules](docs/modules/) - Detailed module documentation
+- [Modules](docs/modules/index.md) - Detailed module documentation
 
 ## App Store Compliance
 

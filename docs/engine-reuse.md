@@ -1,5 +1,9 @@
 # Engine Reuse Patterns
 
+[← Threading](threading.md) | [Documentation](index.md) | [Modules →](modules/index.md)
+
+---
+
 `LuaEngine` is designed for reuse - create once, execute many scripts without reinitialization overhead.
 
 ## Reusing a Single Engine
@@ -284,3 +288,7 @@ func processScriptsInParallel(_ scripts: [String]) async throws -> [LuaValue] {
     }
 }
 ```
+
+---
+
+[← Threading](threading.md) | [Documentation](index.md) | [Modules →](modules/index.md)

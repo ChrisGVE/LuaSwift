@@ -1,6 +1,10 @@
 # Linear Algebra Module
 
-**Namespace:** `luaswift.linalg` | **Global:** `linalg`
+[← Module Index](index.md) | [Documentation](../index.md)
+
+---
+
+**Namespace:** `luaswift.linalg` | **Global:** `math.linalg` (after extend_stdlib)
 
 Matrix and vector operations powered by Apple's Accelerate framework (BLAS/LAPACK).
 

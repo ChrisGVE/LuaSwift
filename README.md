@@ -9,26 +9,7 @@ A lightweight Swift wrapper for Lua with an optional powerpack of advanced modul
 
 ## Overview
 
-LuaSwift embeds the Lua scripting language in iOS and macOS applications. The core wrapper is lightweight and dependency-free, bundling the complete Lua source for App Store compliance.
-
-**Core Wrapper Features:**
-- Multi-version Lua support (5.1, 5.2, 5.3, 5.4, 5.5 - default 5.4)
-- Type-safe Swift-Lua value bridging
-- Value servers for exposing Swift data to Lua
-- Swift callbacks callable from Lua
-- Coroutine management
-- Configurable sandboxing
-- Thread-safe design
-
-**Optional Powerpack:** Install additional modules for:
-- Standard library extensions (string, table, utf8)
-- Data format parsing (JSON, YAML, TOML)
-- Mathematics (extended math, linear algebra, complex numbers, geometry)
-- Scientific computing (statistics, optimization, integration, interpolation)
-- N-dimensional arrays (NumPy-like)
-- Visualization (plotting, SVG)
-- Pattern matching (regex)
-- External access (sandboxed file I/O, HTTP client)
+LuaSwift embeds the Lua scripting language in iOS and macOS applications. The core wrapper is lightweight and dependency-free, bundling the complete Lua source for App Store compliance. An optional powerpack adds scientific computing, data formats, and visualization.
 
 ## Requirements
 
@@ -186,11 +167,11 @@ local avg = math.stats.mean({1, 2, 3, 4, 5})
 
 ### Array (Standalone)
 
-N-dimensional arrays with NumPy-style broadcasting. Standalone module, not under `math`.
+N-dimensional arrays with broadcasting and element-wise operations. Standalone module, not under `math`.
 
 | Module | Global | Description |
 |--------|--------|-------------|
-| array | `array` | NumPy-like N-dimensional arrays |
+| array | `array` | N-dimensional arrays with broadcasting |
 
 ```lua
 local a = array.zeros({3, 3})
@@ -202,8 +183,7 @@ local c = a + 1  -- broadcasting
 
 | Module | Global | Description |
 |--------|--------|-------------|
-| plot | `plot` | Matplotlib-style plotting with retained graphics |
-| svg | `svg` | SVG document generation (used by plot) |
+| plot | `plot` | Retained-mode plotting (includes SVG generation) |
 
 ```lua
 local fig = plot.figure()
@@ -216,7 +196,7 @@ local svg_string = fig:render()
 
 | Module | Global | Description |
 |--------|--------|-------------|
-| regex | `regex` | ICU regular expressions |
+| regex | `regex` | ICU regular expressions (also extends `string` after extend_stdlib) |
 
 ### External Access (Opt-In)
 
@@ -238,22 +218,41 @@ ModuleRegistry.installHTTPModule(in: engine)
 
 The `iox` module provides sandboxed file operations restricted to configured directories. It does not replace Lua's standard `io` library (which is removed in sandboxed mode).
 
-## Selective Module Installation
+## Module Selection
 
-You can install individual modules instead of the full powerpack:
+LuaSwift supports compile-time module selection via environment variables, similar to Lua version selection:
+
+```bash
+# Build with specific module groups
+LUASWIFT_MODULES=core swift build                    # Core wrapper only
+LUASWIFT_MODULES=core,data swift build               # + JSON, YAML, TOML
+LUASWIFT_MODULES=core,data,math swift build          # + Math namespace
+LUASWIFT_MODULES=all swift build                     # Everything (default)
+```
+
+| Module Group | Contents |
+|--------------|----------|
+| `core` | Wrapper + stdlib extensions (stringx, tablex, utf8x, compat, regex) |
+| `data` | Data formats (json, yaml, toml) |
+| `math` | Math namespace (linalg, complex, geo, stats, optimize, etc.) |
+| `array` | N-dimensional arrays |
+| `plot` | Visualization (plot with SVG) |
+| `iox` | Sandboxed file I/O |
+| `http` | HTTP client |
+| `all` | All modules (default) |
+
+At runtime, install only what you need:
 
 ```swift
 let engine = try LuaEngine()
 
-// Install only what you need
+// Install specific modules
 ModuleRegistry.installJSONModule(in: engine)
 ModuleRegistry.installStringXModule(in: engine)
 ModuleRegistry.installMathModule(in: engine)
 
-// Note: Some modules have dependencies
-// - math.linalg requires MathModule
-// - math.distributions requires MathModule + SpecialModule
-// - series requires MathExprModule
+// Or install all compiled modules
+ModuleRegistry.installModules(in: engine)
 ```
 
 ## Configuration
@@ -306,6 +305,15 @@ Lua is also MIT licensed. See https://www.lua.org/license.html
 
 ## Acknowledgments
 
+LuaSwift's scientific computing modules are inspired by excellent open-source libraries:
+
+- [NumPy](https://numpy.org/) - N-dimensional array design and broadcasting semantics
+- [SciPy](https://scipy.org/) - Optimization, integration, interpolation, and special functions
+- [statsmodels](https://www.statsmodels.org/) - Statistical modeling and regression analysis
+- [matplotlib](https://matplotlib.org/) - Plotting API design
+- [Penlight](https://github.com/lunarmodules/Penlight) - String and table utility patterns
+
+**Dependencies:**
 - [Lua](https://www.lua.org/) - The Lua programming language
 - [Yams](https://github.com/jpsim/Yams) - YAML parsing for Swift
 - [TOMLKit](https://github.com/LebJe/TOMLKit) - TOML parsing for Swift

@@ -1,4 +1,4 @@
-# Array Module (NumPy-like)
+# Array Module
 
 [← Module Index](index.md) | [Documentation](../index.md)
 
@@ -6,7 +6,7 @@
 
 **Namespace:** `luaswift.array` | **Global:** `array`
 
-N-dimensional arrays with NumPy-style broadcasting and operations.
+N-dimensional arrays with broadcasting and element-wise operations.
 
 ## Creating Arrays
 

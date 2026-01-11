@@ -29,12 +29,11 @@ LuaSwift is a lightweight Swift wrapper for embedding Lua in iOS and macOS appli
 | Category | Description |
 |----------|-------------|
 | [Module Index](modules/index.md) | Complete module reference |
-| [Standard Library Extensions](modules/stdlib.md) | stringx, tablex, utf8x, compat |
-| [Data Formats](modules/data-formats.md) | JSON, YAML, TOML |
-| [Math Namespace](modules/math.md) | linalg, complex, geo, special, stats, etc. |
-| [Array](modules/array.md) | NumPy-like N-dimensional arrays |
-| [Visualization](modules/visualization.md) | plot, svg |
-| [External Access](modules/external.md) | iox (file I/O), http (network) |
+| [Array](modules/array.md) | N-dimensional arrays |
+| [Linear Algebra](modules/linalg.md) | Matrices, decompositions, solvers |
+| [JSON](modules/json.md) | JSON encode/decode |
+| [File I/O](modules/io.md) | Sandboxed file operations |
+| [HTTP](modules/http.md) | HTTP client |
 
 ## Getting Started
 
@@ -81,47 +80,34 @@ LuaSwift
 │   ├── LuaValue         - Type-safe values
 │   └── LuaValueServer   - Expose Swift data
 │
-└── Powerpack Modules (optional)
-    ├── Standard Library Extensions
+└── Powerpack Modules (compile-time optional)
+    ├── Standard Library Extensions (core)
     │   ├── stringx      → extends string.*
     │   ├── tablex       → extends table.*
     │   ├── utf8x        → extends utf8.*
+    │   ├── regex        → extends string.* (ICU patterns)
     │   └── compat       - version compatibility
     │
-    ├── Data Formats
+    ├── Data Formats (data)
     │   ├── json
     │   ├── yaml
     │   └── toml
     │
-    ├── Math (unified namespace after extend_stdlib)
-    │   ├── math.linalg
-    │   ├── math.complex
-    │   ├── math.geo
-    │   ├── math.special
-    │   ├── math.stats
-    │   ├── math.distributions
-    │   ├── math.optimize
-    │   ├── math.integrate
-    │   ├── math.interpolate
-    │   ├── math.cluster
-    │   ├── math.spatial
-    │   ├── math.regress
-    │   ├── math.series
-    │   ├── math.eval
-    │   ├── math.constants
+    ├── Math Namespace (math)
+    │   ├── math.linalg, math.complex, math.geo
+    │   ├── math.special, math.stats, math.distributions
+    │   ├── math.optimize, math.integrate, math.interpolate
+    │   ├── math.cluster, math.spatial, math.regress
+    │   ├── math.series, math.eval, math.constants
     │   └── math.numtheory
     │
-    ├── Array (standalone)
-    │   └── array        - NumPy-like arrays
+    ├── Array (array)
+    │   └── array        - N-dimensional arrays
     │
-    ├── Visualization
-    │   ├── plot         - matplotlib-style
-    │   └── svg          - SVG generation
+    ├── Visualization (plot)
+    │   └── plot         - plotting with SVG output
     │
-    ├── Pattern Matching
-    │   └── regex        - ICU regex
-    │
-    └── External Access (opt-in)
+    └── External Access (iox, http)
         ├── iox          - sandboxed file I/O
         └── http         - HTTP client
 ```
@@ -135,9 +121,8 @@ Most modules are independent, but some have dependencies:
 | math.distributions | math.special |
 | math.regress | math.linalg |
 | math.series | math.eval (MathExprModule) |
-| math.cluster | (uses array internally) |
-| math.spatial | (uses array internally) |
-| plot | svg |
+| math.cluster | array (internally) |
+| math.spatial | array (internally) |
 
 ## Configuration Reference
 

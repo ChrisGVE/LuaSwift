@@ -14,12 +14,13 @@ After installation, call `luaswift.extend_stdlib()` to:
 
 These modules extend Lua's built-in libraries.
 
-| Module | Extends | Documentation |
-|--------|---------|---------------|
-| [stringx](stringx.md) | `string` | String manipulation: trim, split, join, replace |
-| [tablex](tablex.md) | `table` | Functional operations: map, filter, reduce, merge |
-| [utf8x](utf8x.md) | `utf8` | Unicode-aware: sub, reverse, width (CJK) |
-| [compat](compat.md) | - | Lua version compatibility layer |
+| Module | Extends | Description |
+|--------|---------|-------------|
+| stringx | `string` | String manipulation: trim, split, join, replace |
+| tablex | `table` | Functional operations: map, filter, reduce, merge |
+| utf8x | `utf8` | Unicode-aware: sub, reverse, width (CJK) |
+| regex | `string` | ICU regular expressions |
+| compat | - | Lua version compatibility layer |
 
 ```lua
 luaswift.extend_stdlib()
@@ -29,35 +30,35 @@ table.keys({a=1, b=2})    -- {"a", "b"}
 
 ## Data Formats
 
-| Module | Global | Documentation |
-|--------|--------|---------------|
+| Module | Global | Description |
+|--------|--------|-------------|
 | [json](json.md) | `json` | JSON encode/decode |
-| [yaml](yaml.md) | `yaml` | YAML with multi-document |
-| [toml](toml.md) | `toml` | TOML configuration |
+| yaml | `yaml` | YAML with multi-document |
+| toml | `toml` | TOML configuration |
 
 ## Math Namespace
 
 After `extend_stdlib()`, these are available under `math.*`:
 
-| Module | Access | Documentation |
-|--------|--------|---------------|
+| Module | Access | Description |
+|--------|--------|-------------|
 | Base | `math.*` | sign, round, factorial, gamma |
 | [linalg](linalg.md) | `math.linalg` | Linear algebra (BLAS/LAPACK) |
-| [complex](complex.md) | `math.complex` | Complex numbers |
-| [geo](geo.md) | `math.geo` | 2D/3D geometry |
-| [special](special.md) | `math.special` | Special functions |
-| [stats](stats.md) | `math.stats` | Statistics |
-| [distributions](distributions.md) | `math.distributions` | Probability distributions |
-| [optimize](optimize.md) | `math.optimize` | Optimization |
-| [integrate](integrate.md) | `math.integrate` | Integration, ODEs |
-| [interpolate](interpolate.md) | `math.interpolate` | Interpolation |
-| [cluster](cluster.md) | `math.cluster` | Clustering |
-| [spatial](spatial.md) | `math.spatial` | Spatial algorithms |
-| [regress](regress.md) | `math.regress` | Regression models |
-| [series](series.md) | `math.series` | Series evaluation |
-| [eval](eval.md) | `math.eval` | Expression parsing |
-| [constants](constants.md) | `math.constants` | Physical constants |
-| [numtheory](numtheory.md) | `math.numtheory` | Number theory |
+| complex | `math.complex` | Complex numbers |
+| geo | `math.geo` | 2D/3D geometry |
+| special | `math.special` | Special functions |
+| stats | `math.stats` | Statistics |
+| distributions | `math.distributions` | Probability distributions |
+| optimize | `math.optimize` | Optimization |
+| integrate | `math.integrate` | Integration, ODEs |
+| interpolate | `math.interpolate` | Interpolation |
+| cluster | `math.cluster` | Clustering |
+| spatial | `math.spatial` | Spatial algorithms |
+| regress | `math.regress` | Regression models |
+| series | `math.series` | Series evaluation |
+| eval | `math.eval` | Expression parsing |
+| constants | `math.constants` | Physical constants, units |
+| numtheory | `math.numtheory` | Number theory |
 
 ```lua
 luaswift.extend_stdlib()
@@ -67,9 +68,9 @@ local c = math.constants.c  -- speed of light
 
 ## Array (Standalone)
 
-| Module | Global | Documentation |
-|--------|--------|---------------|
-| [array](array.md) | `array` | NumPy-like N-dimensional arrays |
+| Module | Global | Description |
+|--------|--------|-------------|
+| [array](array.md) | `array` | N-dimensional arrays with broadcasting |
 
 Array is a standalone module, not under `math`.
 
@@ -80,23 +81,23 @@ local b = a + 1  -- broadcasting
 
 ## Visualization
 
-| Module | Global | Documentation |
-|--------|--------|---------------|
-| [plot](plot.md) | `plot` | Matplotlib-style plotting |
-| [svg](svg.md) | `svg` | SVG document generation |
+| Module | Global | Description |
+|--------|--------|-------------|
+| plot | `plot` | Retained-mode plotting (includes SVG generation) |
 
-## Pattern Matching
-
-| Module | Global | Documentation |
-|--------|--------|---------------|
-| [regex](regex.md) | `regex` | ICU regular expressions |
+```lua
+local fig = plot.figure()
+local ax = fig:subplot(1, 1, 1)
+ax:plot({1, 2, 3}, {1, 4, 9})
+local svg_string = fig:render()
+```
 
 ## External Access (Opt-In)
 
 These modules access resources outside the Lua sandbox and require explicit installation.
 
-| Module | Require | Documentation |
-|--------|---------|---------------|
+| Module | Require | Description |
+|--------|---------|-------------|
 | [iox](io.md) | `luaswift.iox` | Sandboxed file I/O |
 | [http](http.md) | `luaswift.http` | HTTP client |
 
@@ -134,8 +135,8 @@ ModuleRegistry.installLinAlgModule(in: engine)
 | distributions | special |
 | regress | linalg |
 | series | MathExprModule |
-| cluster | (array internally) |
-| spatial | (array internally) |
+| cluster | array (internally) |
+| spatial | array (internally) |
 
 ---
 

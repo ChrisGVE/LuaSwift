@@ -8,9 +8,27 @@
 
 Descriptive statistics functions for analyzing numeric data. All statistics functions operate on Lua arrays containing numeric values.
 
-## Basic Statistics
+## Function Reference
 
-### sum
+| Function | Description |
+|----------|-------------|
+| [sum(data)](#sum) | Sum of all values |
+| [mean(data)](#mean) | Arithmetic mean (average) |
+| [median(data)](#median) | Median (middle value) |
+| [variance(data, ddof?)](#variance) | Variance with optional degrees of freedom |
+| [stddev(data, ddof?)](#stddev) | Standard deviation |
+| [percentile(data, p)](#percentile) | Value at percentile p (0-100) |
+| [gmean(data)](#gmean) | Geometric mean |
+| [hmean(data)](#hmean) | Harmonic mean |
+| [mode(data)](#mode) | Most frequently occurring value |
+
+---
+
+## sum
+
+```
+math.stats.sum(data) -> number
+```
 
 Calculate the sum of all values in an array.
 
@@ -21,7 +39,13 @@ local data = {1, 2, 3, 4, 5}
 local total = math.stats.sum(data)  -- 15
 ```
 
-### mean
+---
+
+## mean
+
+```
+math.stats.mean(data) -> number
+```
 
 Calculate the arithmetic mean (average) of values.
 
@@ -30,7 +54,13 @@ local data = {10, 20, 30, 40}
 local avg = math.stats.mean(data)  -- 25
 ```
 
-### median
+---
+
+## median
+
+```
+math.stats.median(data) -> number
+```
 
 Calculate the median (middle value) of a dataset.
 
@@ -44,11 +74,19 @@ local data2 = {1, 2, 3, 4}
 local med2 = math.stats.median(data2)  -- 2.5
 ```
 
-## Variability Measures
+---
 
-### variance
+## variance
 
-Calculate the variance of a dataset. Accepts optional `ddof` (delta degrees of freedom) parameter.
+```
+math.stats.variance(data, ddof?) -> number
+```
+
+Calculate the variance of a dataset.
+
+**Parameters:**
+- `data` (array): Numeric array
+- `ddof` (number, optional): Delta degrees of freedom. Default is 0 (population variance). Use 1 for sample variance.
 
 ```lua
 local data = {2, 4, 6, 8, 10}
@@ -60,13 +98,21 @@ local pop_var = math.stats.variance(data)
 local sample_var = math.stats.variance(data, 1)
 ```
 
+**Errors:** Throws if `ddof` is greater than or equal to array length.
+
+---
+
+## stddev
+
+```
+math.stats.stddev(data, ddof?) -> number
+```
+
+Calculate the standard deviation (square root of variance).
+
 **Parameters:**
 - `data` (array): Numeric array
-- `ddof` (number, optional): Delta degrees of freedom. Default is 0 (population variance). Use 1 for sample variance.
-
-### stddev
-
-Calculate the standard deviation (square root of variance). Accepts optional `ddof` parameter.
+- `ddof` (number, optional): Delta degrees of freedom. Default is 0. Use 1 for sample standard deviation.
 
 ```lua
 local data = {2, 4, 6, 8, 10}
@@ -78,15 +124,19 @@ local pop_std = math.stats.stddev(data)
 local sample_std = math.stats.stddev(data, 1)
 ```
 
-**Parameters:**
-- `data` (array): Numeric array
-- `ddof` (number, optional): Delta degrees of freedom. Default is 0. Use 1 for sample standard deviation.
+---
 
-## Percentiles and Quantiles
+## percentile
 
-### percentile
+```
+math.stats.percentile(data, p) -> number
+```
 
 Calculate the value at a given percentile using linear interpolation.
+
+**Parameters:**
+- `data` (array): Numeric array
+- `p` (number): Percentile value between 0 and 100
 
 ```lua
 local data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
@@ -97,15 +147,20 @@ local p75 = math.stats.percentile(data, 75)   -- Third quartile
 local p90 = math.stats.percentile(data, 90)   -- 90th percentile
 ```
 
+**Errors:** Throws if percentile is not in range [0, 100].
+
+---
+
+## gmean
+
+```
+math.stats.gmean(data) -> number
+```
+
+Calculate the geometric mean (nth root of the product of n values). Uses log-sum-exp formula for numerical stability: `exp(mean(log(x)))`.
+
 **Parameters:**
-- `data` (array): Numeric array
-- `percentile` (number): Value between 0 and 100
-
-## Advanced Means
-
-### gmean
-
-Calculate the geometric mean (nth root of the product of n values). Requires all positive values.
+- `data` (array): Numeric array (all values must be positive)
 
 ```lua
 -- Geometric mean for growth rates
@@ -117,11 +172,20 @@ local data = {2, 8, 32}
 local gm = math.stats.gmean(data)  -- 8 (cube root of 512)
 ```
 
-Uses log-sum-exp formula for numerical stability: `exp(mean(log(x)))`.
+**Errors:** Throws if any value is not positive.
 
-### hmean
+---
 
-Calculate the harmonic mean (reciprocal of the arithmetic mean of reciprocals). Requires all positive values.
+## hmean
+
+```
+math.stats.hmean(data) -> number
+```
+
+Calculate the harmonic mean (reciprocal of the arithmetic mean of reciprocals). Formula: `n / sum(1/x_i)`.
+
+**Parameters:**
+- `data` (array): Numeric array (all values must be positive)
 
 ```lua
 -- Harmonic mean for rates and ratios
@@ -133,9 +197,15 @@ local data = {1, 2, 4}
 local hm = math.stats.hmean(data)  -- ~1.71
 ```
 
-Formula: `n / sum(1/x_i)`.
+**Errors:** Throws if any value is not positive.
 
-### mode
+---
+
+## mode
+
+```
+math.stats.mode(data) -> number
+```
 
 Find the most frequently occurring value. Returns the smallest value if there are ties.
 
@@ -148,7 +218,9 @@ local data2 = {1, 1, 2, 2, 3}
 local mode2 = math.stats.mode(data2)  -- 1
 ```
 
-## Usage Examples
+---
+
+## Examples
 
 ### Complete Statistical Summary
 
@@ -202,40 +274,32 @@ local std_b = math.stats.stddev(group_b, 1)  -- ~4.34
 -- Group A has higher mean and higher variability
 ```
 
-## Error Handling
-
-All statistics functions validate their inputs:
+### Error Handling
 
 ```lua
 -- Empty arrays
-math.stats.mean({})  -- Error: mean requires non-empty array
+local ok, err = pcall(function()
+    math.stats.mean({})  -- Error: mean requires non-empty array
+end)
 
 -- Non-numeric values
-math.stats.mean({1, "two", 3})  -- Error: all elements must be numbers
+local ok, err = pcall(function()
+    math.stats.mean({1, "two", 3})  -- Error: all elements must be numbers
+end)
 
 -- Invalid percentile range
-math.stats.percentile({1, 2, 3}, 150)  -- Error: percentile must be in range [0, 100]
+local ok, err = pcall(function()
+    math.stats.percentile({1, 2, 3}, 150)  -- Error: percentile must be in range [0, 100]
+end)
 
 -- Geometric/harmonic mean requirements
-math.stats.gmean({-1, 2, 3})  -- Error: requires all positive values
-math.stats.hmean({0, 1, 2})   -- Error: requires all positive values
+local ok, err = pcall(function()
+    math.stats.gmean({-1, 2, 3})  -- Error: requires all positive values
+    math.stats.hmean({0, 1, 2})   -- Error: requires all positive values
+end)
 
 -- Variance with invalid ddof
-math.stats.variance({1, 2, 3}, 5)  -- Error: ddof must be less than array length
+local ok, err = pcall(function()
+    math.stats.variance({1, 2, 3}, 5)  -- Error: ddof must be less than array length
+end)
 ```
-
-## Function Reference
-
-| Function | Description | Parameters | Returns |
-|----------|-------------|------------|---------|
-| `sum(data)` | Sum of all values | `data`: array | number |
-| `mean(data)` | Arithmetic mean | `data`: array | number |
-| `median(data)` | Median (50th percentile) | `data`: array | number |
-| `variance(data, [ddof])` | Variance | `data`: array, `ddof`: number (default 0) | number |
-| `stddev(data, [ddof])` | Standard deviation | `data`: array, `ddof`: number (default 0) | number |
-| `percentile(data, p)` | Value at percentile p | `data`: array, `p`: number (0-100) | number |
-| `gmean(data)` | Geometric mean | `data`: array (all positive) | number |
-| `hmean(data)` | Harmonic mean | `data`: array (all positive) | number |
-| `mode(data)` | Most frequent value | `data`: array | number |
-
-All functions require non-empty arrays and will throw errors for invalid inputs.

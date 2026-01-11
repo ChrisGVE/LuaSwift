@@ -8,46 +8,140 @@
 
 The Number Theory module provides number-theoretic arithmetic functions including primality testing, factorization, divisor functions, and classical arithmetic functions used in analytic number theory.
 
-## Overview
+## Function Reference
 
-Number theory operations cover:
-- **Primes**: Primality testing, prime generation, prime counting
-- **Factorization**: Prime factorization, GCD, LCM
-- **Arithmetic functions**: Euler's totient, divisor sigma, Möbius, Liouville, Carmichael
-- **Analytic functions**: Chebyshev theta/psi, von Mangoldt
+| Function | Description |
+|----------|-------------|
+| [is_prime(n)](#is_prime) | Test if n is prime |
+| [primes_up_to(n)](#primes_up_to) | Generate all primes up to n |
+| [prime_pi(x)](#prime_pi) | Count primes up to x (π(x) function) |
+| [pi(x)](#pi) | Alias for prime_pi |
+| [factor(n)](#factor) | Prime factorization |
+| [gcd(a, b)](#gcd) | Greatest common divisor |
+| [lcm(a, b)](#lcm) | Least common multiple |
+| [euler_phi(n)](#euler_phi) | Euler's totient function φ(n) |
+| [phi(n)](#phi) | Alias for euler_phi |
+| [divisor_sigma(n, k)](#divisor_sigma) | Sum of k-th powers of divisors |
+| [sigma(n, k?)](#sigma) | Alias for divisor_sigma (k defaults to 1) |
+| [mobius(n)](#mobius) | Möbius function μ(n) |
+| [mu(n)](#mu) | Alias for mobius |
+| [liouville(n)](#liouville) | Liouville function λ(n) |
+| [carmichael(n)](#carmichael) | Carmichael function λ(n) |
+| [chebyshev_theta(x)](#chebyshev_theta) | Chebyshev θ(x) function |
+| [theta(x)](#theta) | Alias for chebyshev_theta |
+| [chebyshev_psi(x)](#chebyshev_psi) | Chebyshev ψ(x) function |
+| [psi(x)](#psi) | Alias for chebyshev_psi |
+| [mangoldt(n)](#mangoldt) | Von Mangoldt function Λ(n) |
+| [Lambda(n)](#Lambda) | Alias for mangoldt |
 
-All functions use trial division and the Sieve of Eratosthenes for efficient computation.
+## Type Mapping
 
-## Basic Operations
+| Mathematical Notation | Lua Representation |
+|-----------------------|--------------------|
+| Prime factors of n | Table `{[prime]=exponent}` |
+| Set of primes | Array `{2, 3, 5, 7, ...}` |
+| φ(n), σ(n), μ(n), λ(n) | Number |
 
-### Primality Testing
+---
+
+## is_prime
+
+```
+is_prime(n) -> boolean
+```
+
+Test if n is prime using trial division.
+
+**Parameters:**
+- `n` - Integer to test
 
 ```lua
 local nt = math.numtheory
 
--- Check if number is prime
 print(nt.is_prime(17))     -- true
 print(nt.is_prime(18))     -- false
-print(nt.is_prime(2))      -- true
-print(nt.is_prime(1))      -- false
+print(nt.is_prime(2))      -- true (smallest prime)
+print(nt.is_prime(1))      -- false (1 is not prime)
 ```
 
-### Prime Generation
+**Algorithm:** Trial division checking factors up to √n. Efficient for n < 10^9.
+
+---
+
+## primes_up_to
+
+```
+primes_up_to(n) -> array
+```
+
+Generate all primes up to n using the Sieve of Eratosthenes.
+
+**Parameters:**
+- `n` - Upper bound (inclusive)
+
+**Returns:** Array of primes in ascending order
 
 ```lua
--- Generate all primes up to 30
 local primes = nt.primes_up_to(30)
 -- {2, 3, 5, 7, 11, 13, 17, 19, 23, 29}
 
--- Count primes up to 100 (π(x) function)
-print(nt.prime_pi(100))    -- 25
-print(nt.pi(100))          -- 25 (alias)
+local small_primes = nt.primes_up_to(10)
+-- {2, 3, 5, 7}
 ```
 
-### Prime Factorization
+**Note:** Memory usage is O(n).
+
+---
+
+## prime_pi
+
+```
+prime_pi(x) -> number
+```
+
+Count primes up to x (the π(x) function from number theory).
+
+**Parameters:**
+- `x` - Upper bound
+
+**Returns:** Number of primes ≤ x
 
 ```lua
--- Factorize into prime powers
+print(nt.prime_pi(100))    -- 25
+print(nt.prime_pi(10))     -- 4  (primes: 2, 3, 5, 7)
+print(nt.prime_pi(1))      -- 0  (no primes ≤ 1)
+```
+
+---
+
+## pi
+
+```
+pi(x) -> number
+```
+
+Alias for `prime_pi(x)`.
+
+```lua
+print(nt.pi(100))          -- 25
+```
+
+---
+
+## factor
+
+```
+factor(n) -> table
+```
+
+Prime factorization of n.
+
+**Parameters:**
+- `n` - Integer to factor
+
+**Returns:** Table `{[prime]=exponent}` representing n = p₁^e₁ × p₂^e₂ × ...
+
+```lua
 local factors = nt.factor(360)
 -- {["2"] = 3, ["3"] = 2, ["5"] = 1}
 -- Represents 360 = 2³ × 3² × 5¹
@@ -56,114 +150,315 @@ local factors = nt.factor(360)
 for prime, exponent in pairs(factors) do
     print(string.format("%s^%d", prime, exponent))
 end
+
+local factors12 = nt.factor(12)
+-- {["2"] = 2, ["3"] = 1}
+-- Represents 12 = 2² × 3¹
 ```
 
-### GCD and LCM
+**Algorithm:** Trial division up to √n.
+
+---
+
+## gcd
+
+```
+gcd(a, b) -> number
+```
+
+Greatest common divisor using Euclidean algorithm.
+
+**Parameters:**
+- `a` - First integer
+- `b` - Second integer
 
 ```lua
--- Greatest common divisor
 print(nt.gcd(48, 18))      -- 6
 print(nt.gcd(100, 35))     -- 5
-
--- Least common multiple
-print(nt.lcm(12, 18))      -- 36
-print(nt.lcm(4, 6))        -- 12
+print(nt.gcd(17, 19))      -- 1  (coprime)
 ```
 
-## Arithmetic Functions
+---
 
-### Euler's Totient Function
+## lcm
 
-Counts integers 1 ≤ k ≤ n that are coprime to n.
+```
+lcm(a, b) -> number
+```
+
+Least common multiple.
+
+**Parameters:**
+- `a` - First integer
+- `b` - Second integer
 
 ```lua
--- φ(n) = count of numbers coprime to n
-print(nt.euler_phi(12))    -- 4  (1,5,7,11 are coprime to 12)
-print(nt.phi(12))          -- 4  (alias)
-print(nt.euler_phi(9))     -- 6  (1,2,4,5,7,8)
+print(nt.lcm(12, 18))      -- 36
+print(nt.lcm(4, 6))        -- 12
+print(nt.lcm(7, 5))        -- 35  (coprime: lcm = product)
+```
+
+---
+
+## euler_phi
+
+```
+euler_phi(n) -> number
+```
+
+Euler's totient function φ(n): counts integers 1 ≤ k ≤ n that are coprime to n.
+
+**Parameters:**
+- `n` - Integer
+
+```lua
+print(nt.euler_phi(12))    -- 4  (1, 5, 7, 11 are coprime to 12)
+print(nt.euler_phi(9))     -- 6  (1, 2, 4, 5, 7, 8)
 print(nt.euler_phi(7))     -- 6  (prime: φ(p) = p-1)
 ```
 
-### Divisor Sigma Function
+**Formula:** φ(n) = n × Π(1 - 1/p) for prime factors p
 
-Sum of k-th powers of divisors.
+---
+
+## phi
+
+```
+phi(n) -> number
+```
+
+Alias for `euler_phi(n)`.
 
 ```lua
--- σ_k(n) = sum of k-th powers of divisors
-print(nt.divisor_sigma(12, 0))  -- 6   (count of divisors)
-print(nt.divisor_sigma(12, 1))  -- 28  (sum of divisors: 1+2+3+4+6+12)
+print(nt.phi(12))          -- 4
+```
+
+---
+
+## divisor_sigma
+
+```
+divisor_sigma(n, k) -> number
+```
+
+Sum of k-th powers of divisors: σₖ(n) = Σ(d^k) for all divisors d of n.
+
+**Parameters:**
+- `n` - Integer
+- `k` - Power (0 for count, 1 for sum, 2 for sum of squares, etc.)
+
+```lua
+print(nt.divisor_sigma(12, 0))  -- 6   (count of divisors: 1,2,3,4,6,12)
+print(nt.divisor_sigma(12, 1))  -- 28  (sum: 1+2+3+4+6+12)
 print(nt.divisor_sigma(12, 2))  -- 210 (sum of squares: 1+4+9+16+36+144)
-
--- Default k=1
-print(nt.sigma(12))        -- 28
 ```
 
-### Möbius Function
+**Formula:** σₖ(n) = Π((p^(k(e+1)) - 1)/(p^k - 1)) for prime factors p^e
 
-Detects square-free integers with sign based on prime factor count.
+---
+
+## sigma
+
+```
+sigma(n, k?) -> number
+```
+
+Alias for `divisor_sigma(n, k)`. Default k=1 (sum of divisors).
 
 ```lua
--- μ(n) = (-1)^k if n is product of k distinct primes
---      = 0 if n has squared prime factor
+print(nt.sigma(12))        -- 28  (sum of divisors)
+print(nt.sigma(12, 0))     -- 6   (count of divisors)
+```
+
+---
+
+## mobius
+
+```
+mobius(n) -> number
+```
+
+Möbius function μ(n): detects square-free integers with sign based on prime factor count.
+
+**Returns:**
+- `1` if n = 1
+- `(-1)^k` if n is product of k distinct primes
+- `0` if n has a squared prime factor
+
+**Parameters:**
+- `n` - Integer
+
+```lua
 print(nt.mobius(1))        -- 1   (special case)
-print(nt.mobius(6))        -- 1   (2 × 3, two distinct primes: (-1)²)
-print(nt.mobius(30))       -- -1  (2 × 3 × 5, three primes: (-1)³)
+print(nt.mobius(6))        -- 1   (2 × 3: two distinct primes, (-1)²)
+print(nt.mobius(30))       -- -1  (2 × 3 × 5: three primes, (-1)³)
 print(nt.mobius(12))       -- 0   (2² × 3 has squared factor)
-print(nt.mu(30))           -- -1  (alias)
 ```
 
-### Liouville Function
+---
 
-Sign based on total prime factor count (with multiplicity).
+## mu
+
+```
+mu(n) -> number
+```
+
+Alias for `mobius(n)`.
 
 ```lua
--- λ(n) = (-1)^Ω(n) where Ω(n) counts prime factors with multiplicity
+print(nt.mu(30))           -- -1
+```
+
+---
+
+## liouville
+
+```
+liouville(n) -> number
+```
+
+Liouville function λ(n): sign based on total prime factor count with multiplicity.
+
+**Returns:** `(-1)^Ω(n)` where Ω(n) counts prime factors with multiplicity
+
+**Parameters:**
+- `n` - Integer
+
+```lua
 print(nt.liouville(1))     -- 1   (no factors)
 print(nt.liouville(4))     -- 1   (2² has 2 factors: (-1)²)
 print(nt.liouville(8))     -- -1  (2³ has 3 factors: (-1)³)
 print(nt.liouville(30))    -- -1  (2×3×5 has 3 factors)
 ```
 
-### Carmichael Function
+---
 
-Smallest exponent m such that a^m ≡ 1 (mod n) for all a coprime to n.
+## carmichael
+
+```
+carmichael(n) -> number
+```
+
+Carmichael function λ(n): smallest exponent m such that a^m ≡ 1 (mod n) for all a coprime to n.
+
+**Parameters:**
+- `n` - Integer
 
 ```lua
--- λ(n) = Carmichael reduced totient function
 print(nt.carmichael(12))   -- 2   (smaller than φ(12) = 4)
 print(nt.carmichael(15))   -- 4
 print(nt.carmichael(16))   -- 8
 ```
 
-## Analytic Functions
+**Note:** Also called the reduced totient function. Always divides φ(n).
 
-### Chebyshev Functions
+---
 
-Used in analytic number theory for studying prime distribution.
+## chebyshev_theta
 
-```lua
--- θ(x) = sum of log(p) for all primes p ≤ x
-print(nt.chebyshev_theta(10))   -- log(2) + log(3) + log(5) + log(7)
-print(nt.theta(10))             -- alias
-
--- ψ(x) = sum of Λ(n) for all n ≤ x (see von Mangoldt below)
-print(nt.chebyshev_psi(10))
-print(nt.psi(10))               -- alias
+```
+chebyshev_theta(x) -> number
 ```
 
-### Von Mangoldt Function
+Chebyshev θ(x) function: sum of log(p) for all primes p ≤ x.
 
-Returns log(p) if n is a prime power, 0 otherwise.
+**Parameters:**
+- `x` - Upper bound
 
 ```lua
--- Λ(n) = log(p) if n = p^k for prime p, else 0
+print(nt.chebyshev_theta(10))   -- log(2) + log(3) + log(5) + log(7)
+```
+
+**Usage:** Analytic number theory, studying prime distribution.
+
+---
+
+## theta
+
+```
+theta(x) -> number
+```
+
+Alias for `chebyshev_theta(x)`.
+
+```lua
+print(nt.theta(10))             -- Same as chebyshev_theta(10)
+```
+
+---
+
+## chebyshev_psi
+
+```
+chebyshev_psi(x) -> number
+```
+
+Chebyshev ψ(x) function: sum of Λ(n) for all n ≤ x (where Λ is the von Mangoldt function).
+
+**Parameters:**
+- `x` - Upper bound
+
+```lua
+print(nt.chebyshev_psi(10))
+```
+
+**Usage:** Analytic number theory, prime number theorem.
+
+---
+
+## psi
+
+```
+psi(x) -> number
+```
+
+Alias for `chebyshev_psi(x)`.
+
+```lua
+print(nt.psi(10))               -- Same as chebyshev_psi(10)
+```
+
+---
+
+## mangoldt
+
+```
+mangoldt(n) -> number
+```
+
+Von Mangoldt function Λ(n): returns log(p) if n is a prime power p^k, otherwise 0.
+
+**Parameters:**
+- `n` - Integer
+
+**Returns:**
+- `log(p)` if n = p^k for some prime p and k ≥ 1
+- `0` otherwise
+
+```lua
 print(nt.mangoldt(2))      -- log(2) ≈ 0.693
 print(nt.mangoldt(8))      -- log(2) ≈ 0.693 (8 = 2³)
+print(nt.mangoldt(9))      -- log(3) ≈ 1.099 (9 = 3²)
 print(nt.mangoldt(6))      -- 0 (not a prime power)
-print(nt.Lambda(9))        -- log(3) ≈ 1.099 (alias)
 ```
 
-## Practical Examples
+---
+
+## Lambda
+
+```
+Lambda(n) -> number
+```
+
+Alias for `mangoldt(n)`.
+
+```lua
+print(nt.Lambda(8))        -- log(2) ≈ 0.693
+```
+
+---
+
+## Examples
 
 ### Finding Perfect Numbers
 
@@ -277,7 +572,9 @@ end
 print(dirichlet_mu(2, 1000))    -- ≈ 0.608 (1/ζ(2) = 6/π² ≈ 0.608)
 ```
 
-## Algorithm Notes
+---
+
+## Performance Notes
 
 **Primality Testing**: Trial division checking factors up to √n. Efficient for n < 10^9.
 
@@ -285,27 +582,6 @@ print(dirichlet_mu(2, 1000))    -- ≈ 0.608 (1/ζ(2) = 6/π² ≈ 0.608)
 
 **Prime Factorization**: Trial division up to √n. Returns factors as {[prime]=exponent}.
 
-**Arithmetic Functions**: All computed via prime factorization using multiplicative formulas:
-- φ(n) = n × Π(1 - 1/p) for prime factors p
-- σ_k(n) = Π((p^(k(e+1)) - 1)/(p^k - 1)) for factors p^e
+**Arithmetic Functions**: All computed via prime factorization using multiplicative formulas.
 
-**Performance**: Suitable for integers up to 10^9. For larger values or cryptographic applications, consider specialized libraries.
-
-## Function Reference
-
-| Function | Description | Example |
-|----------|-------------|---------|
-| `is_prime(n)` | Test if n is prime | `is_prime(17) → true` |
-| `primes_up_to(n)` | Generate primes ≤ n | `primes_up_to(20) → {2,3,5,7,11,13,17,19}` |
-| `prime_pi(x)` / `pi(x)` | Count primes ≤ x | `pi(100) → 25` |
-| `factor(n)` | Prime factorization | `factor(12) → {["2"]=2, ["3"]=1}` |
-| `gcd(a, b)` | Greatest common divisor | `gcd(48, 18) → 6` |
-| `lcm(a, b)` | Least common multiple | `lcm(12, 18) → 36` |
-| `euler_phi(n)` / `phi(n)` | Euler's totient φ(n) | `phi(12) → 4` |
-| `divisor_sigma(n, k)` / `sigma(n, k)` | Sum of k-th powers of divisors | `sigma(12, 0) → 6` |
-| `mobius(n)` / `mu(n)` | Möbius function μ(n) | `mu(30) → -1` |
-| `liouville(n)` | Liouville function λ(n) | `liouville(8) → -1` |
-| `carmichael(n)` | Carmichael function λ(n) | `carmichael(12) → 2` |
-| `chebyshev_theta(x)` / `theta(x)` | Chebyshev θ(x) | `theta(10) → ~4.187` |
-| `chebyshev_psi(x)` / `psi(x)` | Chebyshev ψ(x) | `psi(10) → ~6.161` |
-| `mangoldt(n)` / `Lambda(n)` | Von Mangoldt Λ(n) | `Lambda(8) → log(2)` |
+**Range**: Suitable for integers up to 10^9. For larger values or cryptographic applications, consider specialized libraries.

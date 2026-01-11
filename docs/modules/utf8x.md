@@ -8,6 +8,19 @@
 
 Unicode-aware string operations including display width calculation, character-based substring extraction, reversing, case conversion, and iteration. All operations use Swift's native Unicode handling for correct behavior with multi-byte characters.
 
+## Function Reference
+
+| Function | Description |
+|----------|-------------|
+| [width(str)](#width) | Display width accounting for wide characters |
+| [sub(str, i, j?)](#sub) | Extract substring by character position |
+| [reverse(str)](#reverse) | Reverse string by character |
+| [upper(str)](#upper) | Convert to uppercase (locale-aware) |
+| [lower(str)](#lower) | Convert to lowercase (locale-aware) |
+| [len(str)](#len) | Count characters (not bytes) |
+| [chars(str)](#chars) | Return array of individual characters |
+| [import()](#import) | Extend built-in `utf8` library |
+
 ## Import to utf8
 
 Extend the built-in `utf8` library with utf8x functions:
@@ -22,9 +35,13 @@ local w = utf8.width("Hello世界")
 local s = utf8.sub("Hello世界", 6, 7)
 ```
 
-## Functions
+---
 
-### width(str)
+## width
+
+```
+utf8x.width(str) -> number
+```
 
 Calculate display width of a string, accounting for wide characters (CJK ideographs, emoji).
 
@@ -48,11 +65,22 @@ local w6 = utf8x.width("Hello 👍")  -- 8 (5 + 1 space + 2 emoji)
 - Full-width ASCII (U+FF01 to U+FF60)
 - Emoji (U+1F300 to U+1F9FF)
 
-### sub(str, i, j?)
+---
+
+## sub
+
+```
+utf8x.sub(str, i, j?) -> string
+```
 
 Extract substring by character position (not byte position).
 
-Supports negative indices (counting from end). Indices are 1-based.
+**Parameters:**
+- `str` - Input string
+- `i` - Start character position (1-based)
+- `j` (optional) - End character position (defaults to end of string)
+
+Supports negative indices (counting from end).
 
 ```lua
 -- Basic substring
@@ -73,7 +101,13 @@ local s8 = utf8x.sub("Hello", 10, 20)       -- ""
 local s9 = utf8x.sub("Hello", 5, 3)         -- "" (start > end)
 ```
 
-### reverse(str)
+---
+
+## reverse
+
+```
+utf8x.reverse(str) -> string
+```
 
 Reverse string by character (not byte).
 
@@ -87,7 +121,13 @@ local r4 = utf8x.reverse("café")       -- "éfac"
 local r5 = utf8x.reverse("Hello 👍")   -- "👍 olleH"
 ```
 
-### upper(str)
+---
+
+## upper
+
+```
+utf8x.upper(str) -> string
+```
 
 Convert to uppercase using locale-aware rules.
 
@@ -98,7 +138,13 @@ local u3 = utf8x.upper("naïve")        -- "NAÏVE"
 local u4 = utf8x.upper("straße")       -- "STRASSE" (German ß → SS)
 ```
 
-### lower(str)
+---
+
+## lower
+
+```
+utf8x.lower(str) -> string
+```
 
 Convert to lowercase using locale-aware rules.
 
@@ -108,7 +154,13 @@ local l2 = utf8x.lower("CAFÉ")         -- "café"
 local l3 = utf8x.lower("NAÏVE")        -- "naïve"
 ```
 
-### len(str)
+---
+
+## len
+
+```
+utf8x.len(str) -> number
+```
 
 Count characters (not bytes).
 
@@ -125,7 +177,13 @@ print(#"café")                         -- 5 (bytes)
 print(utf8x.len("café"))               -- 4 (characters)
 ```
 
-### chars(str)
+---
+
+## chars
+
+```
+utf8x.chars(str) -> table
+```
 
 Return array of individual characters.
 
@@ -154,6 +212,29 @@ end
 -- 6  世 2
 -- 7  界 2
 ```
+
+---
+
+## import
+
+```
+utf8x.import()
+```
+
+Extend the built-in `utf8` library with utf8x functions.
+
+After calling this function, all utf8x functions are available under the `utf8` namespace.
+
+```lua
+utf8x.import()
+
+-- Now available under utf8
+local w = utf8.width("Hello世界")
+local s = utf8.sub("Hello世界", 6, 7)
+local r = utf8.reverse("世界")
+```
+
+---
 
 ## Examples
 
@@ -233,16 +314,3 @@ end
 print(truncate_width("Hello世界", 7))   -- "Hello世" (width: 7)
 print(truncate_width("Hello世界", 6))   -- "Hello" (width: 5, can't fit 世)
 ```
-
-## Function Reference
-
-| Function | Arguments | Returns | Description |
-|----------|-----------|---------|-------------|
-| `width` | str | number | Display width (wide chars = 2) |
-| `sub` | str, i, j? | string | Substring by character position |
-| `reverse` | str | string | Reverse by character |
-| `upper` | str | string | Uppercase (locale-aware) |
-| `lower` | str | string | Lowercase (locale-aware) |
-| `len` | str | number | Character count |
-| `chars` | str | table | Array of individual characters |
-| `import` | - | - | Extend `utf8` library |

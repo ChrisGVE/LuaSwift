@@ -6,164 +6,16 @@
 
 **Namespace:** `luaswift.toml` | **Global:** `toml`
 
-The TOML module provides encoding and decoding functionality for TOML (Tom's Obvious, Minimal Language) format. It uses the TOMLKit library to parse and generate TOML documents, supporting all standard TOML data types including tables, arrays, dates, and times.
+TOML encoding and decoding with support for nested structures, dates, times, and all standard TOML data types.
 
-## Functions
+## Function Reference
 
-### toml.decode(toml_string)
+| Function | Description |
+|----------|-------------|
+| [decode(string)](#decode) | Parse TOML string to Lua table |
+| [encode(table)](#encode) | Convert Lua table to TOML string |
 
-Decode a TOML string into a Lua table.
-
-**Parameters:**
-- `toml_string` (string): TOML document as a string
-
-**Returns:** (table) Decoded Lua table
-
-**Example:**
-```lua
-local toml = require("luaswift.toml")
-
-local config = toml.decode([[
-[database]
-server = "192.168.1.1"
-ports = [8001, 8002, 8003]
-connection_max = 5000
-enabled = true
-
-[servers.alpha]
-ip = "10.0.0.1"
-dc = "eqdc10"
-
-[servers.beta]
-ip = "10.0.0.2"
-dc = "eqdc10"
-]])
-
-print(config.database.server)           -- 192.168.1.1
-print(config.database.ports[1])         -- 8001
-print(config.database.enabled)          -- true
-print(config.servers.alpha.ip)          -- 10.0.0.1
-```
-
-**Date/Time Support:**
-```lua
-local doc = toml.decode([[
-date = 1979-05-27
-time = 07:32:00
-datetime = 1979-05-27T07:32:00Z
-]])
-
--- Dates and times are converted to strings
-print(doc.date)      -- "1979-05-27"
-print(doc.time)      -- "07:32:00"
-print(doc.datetime)  -- "1979-05-27T07:32:00Z"
-```
-
-**Error Handling:**
-```lua
-local success, result = pcall(toml.decode, "invalid = [[[")
-if not success then
-    print("Parse error:", result)
-end
-```
-
-### toml.encode(table)
-
-Encode a Lua table into a TOML string.
-
-**Parameters:**
-- `table` (table): Lua table to encode (must be a table, not a primitive value)
-
-**Returns:** (string) TOML-formatted string
-
-**Example:**
-```lua
-local toml = require("luaswift.toml")
-
-local config = {
-    title = "TOML Example",
-
-    owner = {
-        name = "Tom Preston-Werner",
-        dob = "1979-05-27T07:32:00-08:00"
-    },
-
-    database = {
-        server = "192.168.1.1",
-        ports = {8001, 8002, 8003},
-        connection_max = 5000,
-        enabled = true
-    },
-
-    servers = {
-        alpha = {
-            ip = "10.0.0.1",
-            dc = "eqdc10"
-        },
-        beta = {
-            ip = "10.0.0.2",
-            dc = "eqdc10"
-        }
-    }
-}
-
-local toml_str = toml.encode(config)
-print(toml_str)
-```
-
-**Output:**
-```toml
-title = "TOML Example"
-
-[owner]
-name = "Tom Preston-Werner"
-dob = "1979-05-27T07:32:00-08:00"
-
-[database]
-server = "192.168.1.1"
-ports = [8001, 8002, 8003]
-connection_max = 5000
-enabled = true
-
-[servers.alpha]
-ip = "10.0.0.1"
-dc = "eqdc10"
-
-[servers.beta]
-ip = "10.0.0.2"
-dc = "eqdc10"
-```
-
-**Number Handling:**
-```lua
-local data = {
-    integer = 42,
-    float = 3.14159,
-    scientific = 5e+22
-}
-
-local toml_str = toml.encode(data)
--- Integers are encoded as integers, floats as floats
--- integer = 42
--- float = 3.14159
--- scientific = 5.0e+22
-```
-
-**Complex Numbers:**
-```lua
--- Complex numbers are encoded as special tables
-local data = {
-    signal = {1, 2, 3}  -- Assuming complex array
-}
-
--- Complex values become:
--- [signal]
--- __type = "complex"
--- re = 1.0
--- im = 2.0
-```
-
-## Data Type Mapping
+## Type Mapping
 
 ### Lua to TOML
 
@@ -191,6 +43,119 @@ local data = {
 | Time | `string` | HH:MM:SS format |
 | DateTime | `string` | ISO 8601 format |
 
+---
+
+## decode
+
+```
+toml.decode(string) -> table
+```
+
+Parse TOML string to Lua table.
+
+```lua
+local config = toml.decode([[
+[database]
+server = "192.168.1.1"
+ports = [8001, 8002, 8003]
+connection_max = 5000
+enabled = true
+
+[servers.alpha]
+ip = "10.0.0.1"
+dc = "eqdc10"
+]])
+
+print(config.database.server)    -- "192.168.1.1"
+print(config.database.ports[1])  -- 8001
+print(config.database.enabled)   -- true
+print(config.servers.alpha.ip)   -- "10.0.0.1"
+```
+
+**Date/Time Support:**
+
+```lua
+local doc = toml.decode([[
+date = 1979-05-27
+time = 07:32:00
+datetime = 1979-05-27T07:32:00Z
+]])
+
+-- Dates and times are converted to strings
+print(doc.date)      -- "1979-05-27"
+print(doc.time)      -- "07:32:00"
+print(doc.datetime)  -- "1979-05-27T07:32:00Z"
+```
+
+**Errors:** Throws on invalid TOML syntax.
+
+---
+
+## encode
+
+```
+toml.encode(table) -> string
+```
+
+Convert Lua table to TOML string.
+
+**Parameters:**
+- `table` - Lua table to encode (must be a table, not a primitive value)
+
+```lua
+local config = {
+    title = "TOML Example",
+
+    owner = {
+        name = "Tom Preston-Werner",
+        dob = "1979-05-27T07:32:00-08:00"
+    },
+
+    database = {
+        server = "192.168.1.1",
+        ports = {8001, 8002, 8003},
+        connection_max = 5000,
+        enabled = true
+    }
+}
+
+local toml_str = toml.encode(config)
+```
+
+**Output:**
+```toml
+title = "TOML Example"
+
+[owner]
+name = "Tom Preston-Werner"
+dob = "1979-05-27T07:32:00-08:00"
+
+[database]
+server = "192.168.1.1"
+ports = [8001, 8002, 8003]
+connection_max = 5000
+enabled = true
+```
+
+**Number Handling:**
+
+```lua
+local data = {
+    integer = 42,
+    float = 3.14159,
+    scientific = 5e+22
+}
+
+local toml_str = toml.encode(data)
+-- integer = 42
+-- float = 3.14159
+-- scientific = 5.0e+22
+```
+
+**Errors:** Throws if table contains `nil` values or if root value is not a table.
+
+---
+
 ## Limitations
 
 1. **No nil values**: TOML does not support null/nil. Attempting to encode a table containing `nil` values will throw an error.
@@ -201,13 +166,13 @@ local data = {
 
 4. **Complex number encoding**: Complex numbers are encoded as tables with `__type`, `re`, and `im` fields, not as TOML primitives.
 
-## Practical Examples
+---
+
+## Examples
 
 ### Configuration File
 
 ```lua
-local toml = require("luaswift.toml")
-
 -- Read configuration
 local config_text = [[
 [app]
@@ -230,11 +195,9 @@ print("App:", config.app.name, config.app.version)
 print("DB:", config.database.host .. ":" .. config.database.port)
 ```
 
-### Round-trip Conversion
+### Round-Trip Conversion
 
 ```lua
-local toml = require("luaswift.toml")
-
 -- Original data
 local original = {
     package = {
@@ -255,11 +218,9 @@ print(restored.package.name)  -- "example"
 print(restored.package.dependencies[1])  -- "lua >= 5.1"
 ```
 
-### Error Handling Pattern
+### Error Handling
 
 ```lua
-local toml = require("luaswift.toml")
-
 local function safe_decode(toml_string)
     local success, result = pcall(toml.decode, toml_string)
     if success then
@@ -281,10 +242,3 @@ else
     print("Using defaults")
 end
 ```
-
-## Function Reference
-
-| Function | Parameters | Returns | Description |
-|----------|-----------|---------|-------------|
-| `decode` | `toml_string: string` | `table` | Parse TOML string into Lua table |
-| `encode` | `table: table` | `string` | Convert Lua table to TOML string |

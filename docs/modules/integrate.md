@@ -8,45 +8,42 @@
 
 Numerical integration and ODE (Ordinary Differential Equation) solvers inspired by SciPy's `integrate` module. Provides adaptive quadrature, multi-dimensional integration, classical integration methods, and state-of-the-art ODE solvers.
 
-## Quick Start
+## Function Reference
 
-```lua
-luaswift.extend_stdlib()
+| Function | Description |
+|----------|-------------|
+| [quad(f, a, b, options?)](#quad) | Adaptive Gauss-Kronrod quadrature integration |
+| [dblquad(f, xa, xb, ya, yb, options?)](#dblquad) | Double integration over rectangular or curvilinear regions |
+| [tplquad(f, xa, xb, ya, yb, za, zb, options?)](#tplquad) | Triple integration over 3D regions |
+| [fixed_quad(f, a, b, n?)](#fixed_quad) | Fixed-order Gauss-Legendre quadrature |
+| [romberg(f, a, b, options?)](#romberg) | Romberg integration using Richardson extrapolation |
+| [simps(y, x?, dx?)](#simps) | Simpson's rule integration |
+| [trapz(y, x?, dx?)](#trapz) | Trapezoidal rule integration |
+| [solve_ivp(fun, t_span, y0, options?)](#solve_ivp) | Solve initial value problems for ODE systems |
+| [odeint(func, y0, t, options?)](#odeint) | Legacy ODE interface compatible with SciPy |
 
--- Integrate x^2 from 0 to 1
-local result, error = math.integrate.quad(function(x) return x^2 end, 0, 1)
-print(result)  -- 0.333... (exact: 1/3)
-print(error)   -- ~1e-14
+---
 
--- Solve dy/dt = -y with y(0) = 1
-local sol = math.integrate.solve_ivp(
-    function(t, y) return {-y[1]} end,
-    {0, 5},      -- t_span
-    {1}          -- y0
-)
-print(sol.y[#sol.y][1])  -- ~0.00674 (e^-5)
+## quad
+
 ```
-
-## Numerical Integration
-
-### Adaptive Quadrature
-
-#### quad(f, a, b, [options])
+quad(f, a, b, options?) -> result, error, neval
+```
 
 Adaptive integration using Gauss-Kronrod 15-point rule. The gold standard for single integrals.
 
-**Arguments:**
-- `f`: Function to integrate (can return real or complex values)
-- `a`, `b`: Integration limits (can be `-math.huge` or `math.huge` for infinite bounds)
-- `options`: Optional table with:
-  - `epsabs`: Absolute error tolerance (default: 1.49e-8)
-  - `epsrel`: Relative error tolerance (default: 1.49e-8)
-  - `limit`: Maximum number of subdivisions (default: 50)
+**Parameters:**
+- `f` - Function to integrate (can return real or complex values)
+- `a`, `b` - Integration limits (can be `-math.huge` or `math.huge` for infinite bounds)
+- `options` (optional) - Table with:
+  - `epsabs` (number): Absolute error tolerance (default: 1.49e-8)
+  - `epsrel` (number): Relative error tolerance (default: 1.49e-8)
+  - `limit` (number): Maximum number of subdivisions (default: 50)
 
-**Returns:** `result, error, neval`
-- `result`: Integral value (number or complex table `{re=..., im=...}`)
-- `error`: Estimated absolute error
-- `neval`: Number of function evaluations
+**Returns:**
+- `result` - Integral value (number or complex table `{re=..., im=...}`)
+- `error` - Estimated absolute error
+- `neval` - Number of function evaluations
 
 ```lua
 -- Basic integration
@@ -73,19 +70,21 @@ print(z.re, z.im)  -- 1.0, 1.0
 - `[-∞, b]`: Uses `x = b - (1-t)/t` transformation
 - `[a, ∞]`: Uses `x = a + t/(1-t)` transformation
 
-### Multiple Integration
+---
 
-#### dblquad(f, xa, xb, ya, yb, [options])
+## dblquad
+
+```
+dblquad(f, xa, xb, ya, yb, options?) -> result, error
+```
 
 Double integration over rectangular or curvilinear regions.
 
-**Arguments:**
-- `f`: Function `f(y, x)` to integrate (note order: y first, then x)
-- `xa`, `xb`: x-axis limits
-- `ya`, `yb`: y-axis limits (numbers or functions of x)
-- `options`: Passed to inner quad calls
-
-**Returns:** `result, error`
+**Parameters:**
+- `f` - Function `f(y, x)` to integrate (note order: y first, then x)
+- `xa`, `xb` - x-axis limits
+- `ya`, `yb` - y-axis limits (numbers or functions of x)
+- `options` (optional) - Passed to inner quad calls
 
 ```lua
 -- Rectangular region: ∫∫ xy dxdy over [0,1]×[0,1]
@@ -106,18 +105,22 @@ local result = math.integrate.dblquad(
 print(result)  -- 0.5 (area of triangle)
 ```
 
-#### tplquad(f, xa, xb, ya, yb, za, zb, [options])
+---
+
+## tplquad
+
+```
+tplquad(f, xa, xb, ya, yb, za, zb, options?) -> result, error
+```
 
 Triple integration over 3D regions.
 
-**Arguments:**
-- `f`: Function `f(z, y, x)` to integrate
-- `xa`, `xb`: x-axis limits
-- `ya`, `yb`: y-axis limits (numbers or functions of x)
-- `za`, `zb`: z-axis limits (numbers or functions of x, y)
-- `options`: Passed to inner quad calls
-
-**Returns:** `result, error`
+**Parameters:**
+- `f` - Function `f(z, y, x)` to integrate
+- `xa`, `xb` - x-axis limits
+- `ya`, `yb` - y-axis limits (numbers or functions of x)
+- `za`, `zb` - z-axis limits (numbers or functions of x, y)
+- `options` (optional) - Passed to inner quad calls
 
 ```lua
 -- Volume of unit cube
@@ -139,18 +142,20 @@ local result = math.integrate.tplquad(
 print(result)  -- 4.189... (4π/3)
 ```
 
-### Classical Methods
+---
 
-#### fixed_quad(f, a, b, [n])
+## fixed_quad
+
+```
+fixed_quad(f, a, b, n?) -> result
+```
 
 Fixed-order Gauss-Legendre quadrature. Fast for smooth integrands when you know the required order.
 
-**Arguments:**
-- `f`: Function to integrate
-- `a`, `b`: Integration limits
-- `n`: Number of points (1-5, default: 5)
-
-**Returns:** `result`
+**Parameters:**
+- `f` - Function to integrate
+- `a`, `b` - Integration limits
+- `n` (optional) - Number of points (1-5, default: 5)
 
 ```lua
 -- 5-point Gauss quadrature
@@ -162,18 +167,22 @@ local result = math.integrate.fixed_quad(
 print(result)  -- 0.2 (exact for polynomials up to degree 9)
 ```
 
-#### romberg(f, a, b, [options])
+---
+
+## romberg
+
+```
+romberg(f, a, b, options?) -> result, error
+```
 
 Romberg integration using Richardson extrapolation on trapezoidal rule.
 
-**Arguments:**
-- `f`: Function to integrate
-- `a`, `b`: Integration limits
-- `options`: Optional table with:
-  - `tol`: Tolerance (default: 1e-8)
-  - `divmax`: Maximum divisions (default: 10)
-
-**Returns:** `result, error`
+**Parameters:**
+- `f` - Function to integrate
+- `a`, `b` - Integration limits
+- `options` (optional) - Table with:
+  - `tol` (number): Tolerance (default: 1e-8)
+  - `divmax` (number): Maximum divisions (default: 10)
 
 ```lua
 local result, error = math.integrate.romberg(
@@ -183,16 +192,20 @@ local result, error = math.integrate.romberg(
 print(result)  -- 2.0
 ```
 
-#### simps(y, [x], [dx])
+---
+
+## simps
+
+```
+simps(y, x?, dx?) -> result
+```
 
 Simpson's rule integration. Can integrate sampled data or functions.
 
-**Arguments:**
-- `y`: Array of function values OR function
-- `x`: Array of x values OR lower limit (if y is function)
-- `dx`: Step size OR upper limit (if y is function)
-
-**Returns:** `result`
+**Parameters:**
+- `y` - Array of function values OR function
+- `x` (optional) - Array of x values OR lower limit (if y is function)
+- `dx` (optional) - Step size OR upper limit (if y is function)
 
 ```lua
 -- Integrate sampled data
@@ -209,16 +222,20 @@ local result = math.integrate.simps(
 print(result)  -- ~21.333
 ```
 
-#### trapz(y, [x], [dx])
+---
+
+## trapz
+
+```
+trapz(y, x?, dx?) -> result
+```
 
 Trapezoidal rule integration. Handles non-uniform spacing.
 
-**Arguments:**
-- `y`: Array of function values
-- `x`: Array of x values (optional)
-- `dx`: Uniform step size (optional, default: 1)
-
-**Returns:** `result`
+**Parameters:**
+- `y` - Array of function values
+- `x` (optional) - Array of x values
+- `dx` (optional) - Uniform step size (default: 1)
 
 ```lua
 -- Uniform spacing
@@ -233,32 +250,34 @@ local result = math.integrate.trapz(y, x)
 print(result)  -- 21.0
 ```
 
-## ODE Solvers
+---
 
-### Initial Value Problems
+## solve_ivp
 
-#### solve_ivp(fun, t_span, y0, [options])
+```
+solve_ivp(fun, t_span, y0, options?) -> solution
+```
 
 Solve initial value problems for ODE systems using adaptive Runge-Kutta methods. The modern interface similar to SciPy.
 
-**Arguments:**
-- `fun`: Function `f(t, y)` returning `dy/dt` (array)
-- `t_span`: `{t0, tf}` - initial and final time
-- `y0`: Initial state (array)
-- `options`: Optional table with:
-  - `method`: `'RK45'` (default), `'RK23'`, or `'RK4'`
-  - `t_eval`: Array of times at which to store solution
-  - `max_step`: Maximum step size (default: inf)
-  - `rtol`: Relative tolerance (default: 1e-3)
-  - `atol`: Absolute tolerance (default: 1e-6)
-  - `first_step`: Initial step size (default: auto)
+**Parameters:**
+- `fun` - Function `f(t, y)` returning `dy/dt` (array)
+- `t_span` - `{t0, tf}` - initial and final time
+- `y0` - Initial state (array)
+- `options` (optional) - Table with:
+  - `method` (string): `'RK45'` (default), `'RK23'`, or `'RK4'`
+  - `t_eval` (array): Times at which to store solution
+  - `max_step` (number): Maximum step size (default: inf)
+  - `rtol` (number): Relative tolerance (default: 1e-3)
+  - `atol` (number): Absolute tolerance (default: 1e-6)
+  - `first_step` (number): Initial step size (default: auto)
 
 **Returns:** Table with:
-- `t`: Array of times
-- `y`: Array of states (each element is an array of state variables)
-- `success`: Boolean indicating completion
-- `message`: Status message
-- `nfev`: Number of function evaluations
+- `t` - Array of times
+- `y` - Array of states (each element is an array of state variables)
+- `success` - Boolean indicating completion
+- `message` - Status message
+- `nfev` - Number of function evaluations
 
 ```lua
 -- Exponential decay: dy/dt = -y, y(0) = 1
@@ -295,24 +314,31 @@ end
 - `RK23`: Bogacki-Shampine 3(2) - faster for loose tolerances
 - `RK4`: Classical Runge-Kutta - fixed step, no error control
 
-#### odeint(func, y0, t, [options])
+---
+
+## odeint
+
+```
+odeint(func, y0, t, options?) -> y [, info]
+```
 
 Legacy interface compatible with SciPy's `odeint`. Integrates at specified time points.
 
-**Arguments:**
-- `func`: Function `f(y, t, ...)` returning `dy/dt` (note: y first, then t)
-- `y0`: Initial state (array)
-- `t`: Array of times at which to compute solution
-- `options`: Optional table with:
-  - `args`: Additional arguments to pass to func
-  - `rtol`: Relative tolerance (default: 1.49e-8)
-  - `atol`: Absolute tolerance (default: 1.49e-8)
-  - `h0`: Initial step size (default: auto)
-  - `hmax`: Maximum step size (default: auto)
-  - `full_output`: Return extra info (default: false)
+**Parameters:**
+- `func` - Function `f(y, t, ...)` returning `dy/dt` (note: y first, then t)
+- `y0` - Initial state (array)
+- `t` - Array of times at which to compute solution
+- `options` (optional) - Table with:
+  - `args` (table): Additional arguments to pass to func
+  - `rtol` (number): Relative tolerance (default: 1.49e-8)
+  - `atol` (number): Absolute tolerance (default: 1.49e-8)
+  - `h0` (number): Initial step size (default: auto)
+  - `hmax` (number): Maximum step size (default: auto)
+  - `full_output` (boolean): Return extra info (default: false)
 
-**Returns:** `y` (2D array: `y[time_index][component_index]`)
-- If `full_output=true`: `y, info` where info contains `nfe` and `message`
+**Returns:**
+- `y` - 2D array: `y[time_index][component_index]`
+- `info` (if `full_output=true`) - Table containing `nfe` and `message`
 
 ```lua
 -- Exponential decay at specific times
@@ -340,7 +366,9 @@ local y = math.integrate.odeint(
 )
 ```
 
-## Advanced Examples
+---
+
+## Examples
 
 ### Complex Integration
 
@@ -456,7 +484,7 @@ local volume = math.pi * math.integrate.quad(
 print("Volume:", volume)  -- π²/2
 ```
 
-## Performance Tips
+### Performance Tips
 
 1. **Choose the right method:**
    - Use `quad` for general purpose adaptive integration
@@ -479,21 +507,3 @@ print("Volume:", volume)  -- π²/2
    - Transform to finite domain when possible
    - Check that integrand decays sufficiently fast
    - Increase `limit` if convergence is slow
-
-## Function Reference
-
-| Function | Purpose | Complexity |
-|----------|---------|------------|
-| **Adaptive Integration** |||
-| `quad(f, a, b, [opts])` | Adaptive Gauss-Kronrod quadrature | O(n) subdivisions |
-| `dblquad(f, xa, xb, ya, yb, [opts])` | Double integration | O(n²) |
-| `tplquad(f, xa, xb, ya, yb, za, zb, [opts])` | Triple integration | O(n³) |
-| **Classical Methods** |||
-| `fixed_quad(f, a, b, [n])` | Fixed Gauss-Legendre (n=1-5) | O(n) evaluations |
-| `romberg(f, a, b, [opts])` | Romberg integration | O(2^k) evaluations |
-| `simps(y, [x], [dx])` | Simpson's rule | O(n) data points |
-| `trapz(y, [x], [dx])` | Trapezoidal rule | O(n) data points |
-| **ODE Solvers** |||
-| `solve_ivp(fun, t_span, y0, [opts])` | Modern ODE solver (RK45/RK23/RK4) | Adaptive steps |
-| `odeint(func, y0, t, [opts])` | Legacy ODE interface | Adaptive steps |
-

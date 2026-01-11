@@ -8,46 +8,69 @@
 
 High-performance 2D/3D geometry operations using SIMD and Accelerate framework. Provides vector types, quaternions, transformations, curve fitting, and geometric algorithms.
 
-## Quick Start
+## Function Reference
 
-```lua
-local geo = require("luaswift.geometry")
+| Function | Description |
+|----------|-------------|
+| **Vector Operations** | |
+| [vec2(x, y)](#vec2) | Create 2D vector |
+| [vec3(x, y, z)](#vec3) | Create 3D vector |
+| [distance(a, b)](#distance) | Euclidean distance |
+| [angle_between(v1, v2)](#angle_between) | Angle between vectors |
+| [angle(v1, v2)](#angle) | Alias for angle_between |
+| **Quaternions** | |
+| [quaternion(w, x, y, z)](#quaternion) | Create quaternion |
+| [quaternion.identity()](#quaternion) | Identity quaternion |
+| [quaternion.from_euler(y, p, r)](#quaternion) | From Euler angles |
+| [quaternion.from_axis_angle(axis, θ)](#quaternion) | From axis-angle |
+| **Coordinate Conversions** | |
+| [from_polar(r, θ)](#from_polar) | Polar to Cartesian (2D) |
+| [from_spherical(r, θ, φ)](#from_spherical) | Spherical to Cartesian (3D) |
+| [from_cylindrical(ρ, φ, z)](#from_cylindrical) | Cylindrical to Cartesian (3D) |
+| **Shapes** | |
+| [circle(center, r)](#circle) | Create circle |
+| [ellipse(center, a, b, θ?)](#ellipse) | Create ellipse |
+| [sphere(center, r)](#sphere) | Create sphere |
+| **Transformations** | |
+| [transform3d.identity()](#transform3d) | Identity matrix |
+| [transform3d.translate(x, y, z)](#transform3d) | Translation matrix |
+| [transform3d.rotate_x(θ)](#transform3d) | X-axis rotation |
+| [transform3d.rotate_y(θ)](#transform3d) | Y-axis rotation |
+| [transform3d.rotate_z(θ)](#transform3d) | Z-axis rotation |
+| [transform3d.rotate_axis(axis, θ)](#transform3d) | Arbitrary axis rotation |
+| [transform3d.scale(sx, sy, sz)](#transform3d) | Scale matrix |
+| **Curve Fitting** | |
+| [polyfit(pts, deg)](#polyfit) | Polynomial fitting |
+| [cubic_spline(pts, bc?)](#cubic_spline) | Cubic spline interpolation |
+| [bspline(deg, ctrl, knots)](#bspline) | B-spline curve |
+| [bspline_fit(pts, deg, n, opt?)](#bspline_fit) | Fit B-spline to points |
+| [circle_fit(pts, method?)](#circle_fit) | Fit circle |
+| [ellipse_fit(pts, method?)](#ellipse_fit) | Fit ellipse |
+| [sphere_fit(pts, method?)](#sphere_fit) | Fit sphere |
+| [fit(shape, pts, opt?)](#fit) | Unified fitting interface |
+| **Geometric Algorithms** | |
+| [convex_hull(points)](#convex_hull) | Convex hull (2D) |
+| [in_polygon(point, poly)](#in_polygon) | Point in polygon test |
+| [line_intersection(p1, p2, p3, p4)](#line_intersection) | Line segment intersection |
+| [area_triangle(p1, p2, p3)](#area_triangle) | Triangle area |
+| [centroid(points)](#centroid) | Centroid of points |
+| [circle_from_3_points(p1, p2, p3)](#circle_from_3_points) | Circle through 3 points |
+| [plane_from_3_points(p1, p2, p3)](#plane_from_3_points) | Plane through 3 points |
+| [point_plane_distance(pt, plane)](#point_plane_distance) | Point-plane distance |
+| [line_plane_intersection(p1, p2, pl)](#line_plane_intersection) | Line-plane intersection |
+| [plane_plane_intersection(pl1, pl2)](#plane_plane_intersection) | Plane-plane intersection |
+| [intersection(...)](#intersection) | Polymorphic intersection |
+| [sphere_from_4_points(...)](#sphere_from_4_points) | Sphere through 4 points |
 
--- 2D vectors
-local v = geo.vec2(3, 4)
-print(v:length())  -- 5.0
+---
 
--- 3D vectors
-local p = geo.vec3(1, 2, 3)
-local q = geo.vec3(4, 5, 6)
-print(p:dot(q))    -- 32.0
+## vec2
 
--- Quaternion rotations
-local axis = geo.vec3(0, 1, 0)  -- Y-axis
-local rot = geo.quaternion.from_axis_angle(axis, math.pi/2)
-local v3 = geo.vec3(1, 0, 0)
-local rotated = rot:rotate(v3)  -- vec3(0, 0, -1)
-
--- Circle fitting
-local points = {
-    geo.vec2(1, 0),
-    geo.vec2(0, 1),
-    geo.vec2(-1, 0)
-}
-local circle = geo.circle_fit(points)
-print(circle.radius)  -- ~1.0
 ```
-
-## Vector Types
-
-### vec2
-
-2D vector with x, y components.
-
-**Constructor:**
-```lua
 geo.vec2(x, y) -> vec2
 ```
+
+Create 2D vector with x, y components.
 
 **Properties:**
 - `x`, `y` - components
@@ -81,7 +104,6 @@ v / s     -- scalar division
 v1 == v2  -- equality
 ```
 
-**Example:**
 ```lua
 local v = geo.vec2(3, 4)
 print(v:length())              -- 5.0
@@ -90,14 +112,15 @@ local u = v:normalize()        -- vec2(0.6, 0.8)
 local w = v:rotate(math.pi/2)  -- vec2(-4, 3)
 ```
 
-### vec3
+---
 
-3D vector with x, y, z components.
+## vec3
 
-**Constructor:**
-```lua
+```
 geo.vec3(x, y, z) -> vec3
 ```
+
+Create 3D vector with x, y, z components.
 
 **Properties:**
 - `x`, `y`, `z` - components
@@ -129,7 +152,6 @@ v / s     -- scalar division
 v1 == v2  -- equality
 ```
 
-**Example:**
 ```lua
 local v1 = geo.vec3(1, 0, 0)
 local v2 = geo.vec3(0, 1, 0)
@@ -138,17 +160,18 @@ local axis = geo.vec3(0, 0, 1)
 local rotated = v1:rotate(axis, math.pi/2)  -- vec3(0, 1, 0)
 ```
 
-## Quaternions
+---
 
-Quaternions for 3D rotations. Represented as `{w, x, y, z}` (scalar-first).
+## quaternion
 
-**Constructors:**
-```lua
-geo.quaternion(w, x, y, z)
-geo.quaternion.identity()
-geo.quaternion.from_euler(yaw, pitch, roll)
-geo.quaternion.from_axis_angle(axis_vec3, angle)
 ```
+geo.quaternion(w, x, y, z) -> quaternion
+geo.quaternion.identity() -> quaternion
+geo.quaternion.from_euler(yaw, pitch, roll) -> quaternion
+geo.quaternion.from_axis_angle(axis_vec3, angle) -> quaternion
+```
+
+Create quaternions for 3D rotations. Represented as `{w, x, y, z}` (scalar-first).
 
 **Methods:**
 - `q:normalize()` - unit quaternion
@@ -169,7 +192,6 @@ q1 * q2   -- quaternion multiplication
 q1 == q2  -- equality
 ```
 
-**Example:**
 ```lua
 -- Rotate 90° around Y-axis
 local q = geo.quaternion.from_euler(math.pi/2, 0, 0)
@@ -182,35 +204,72 @@ local q2 = geo.quaternion.from_euler(0, math.pi, 0)
 local mid = q1:slerp(q2, 0.5)
 ```
 
-## Coordinate Conversions
+---
 
-**Polar (2D):**
-```lua
-geo.vec2(x, y):to_polar() -> {r, theta}
+## from_polar
+
+```
 geo.from_polar(r, theta) -> vec2
 ```
 
-**Spherical (3D):**
+Convert polar coordinates to Cartesian 2D vector.
+
+**Parameters:**
+- `r` - radius
+- `theta` - angle in radians
+
 ```lua
-geo.vec3(x, y, z):to_spherical() -> {r, theta, phi}
+local v = geo.from_polar(5, math.pi/4)  -- vec2(3.54, 3.54)
+```
+
+---
+
+## from_spherical
+
+```
 geo.from_spherical(r, theta, phi) -> vec3
 ```
 
-**Cylindrical (3D):**
+Convert spherical coordinates to Cartesian 3D vector.
+
+**Parameters:**
+- `r` - radius
+- `theta` - azimuthal angle (radians)
+- `phi` - polar angle (radians)
+
 ```lua
-geo.vec3(x, y, z):to_cylindrical() -> {rho, phi, z}
+local v = geo.from_spherical(5, math.pi/4, math.pi/3)
+```
+
+---
+
+## from_cylindrical
+
+```
 geo.from_cylindrical(rho, phi, z) -> vec3
 ```
 
-## Geometric Shapes
+Convert cylindrical coordinates to Cartesian 3D vector.
 
-### Circle
+**Parameters:**
+- `rho` - radial distance
+- `phi` - azimuthal angle (radians)
+- `z` - height
 
-**Constructors:**
 ```lua
-geo.circle(center_vec2, radius)
-geo.circle(x, y, radius)
+local v = geo.from_cylindrical(3, math.pi/2, 4)
 ```
+
+---
+
+## circle
+
+```
+geo.circle(center_vec2, radius) -> circle
+geo.circle(x, y, radius) -> circle
+```
+
+Create circle shape.
 
 **Properties:**
 - `center` - center point (vec2)
@@ -228,7 +287,6 @@ geo.circle(x, y, radius)
 - `c:scale_from(factor, origin)` - scale from origin point
 - `c:clone()` - create copy
 
-**Example:**
 ```lua
 local c = geo.circle(0, 0, 5)
 print(c:area())           -- 78.54
@@ -237,19 +295,22 @@ local p = c:point_at(0)   -- vec2(5, 0)
 local c2 = c:translate(10, 10):scale(2)  -- chainable
 ```
 
-### Ellipse
+---
 
-**Constructors:**
-```lua
-geo.ellipse(center_vec2, semi_major, semi_minor, [rotation])
-geo.ellipse(cx, cy, semi_major, semi_minor, [rotation])
+## ellipse
+
 ```
+geo.ellipse(center_vec2, semi_major, semi_minor, rotation?) -> ellipse
+geo.ellipse(cx, cy, semi_major, semi_minor, rotation?) -> ellipse
+```
+
+Create ellipse shape.
 
 **Properties:**
 - `center` - center point (vec2)
 - `semi_major` - semi-major axis
 - `semi_minor` - semi-minor axis
-- `rotation` - rotation angle (radians)
+- `rotation` - rotation angle (radians, default: 0)
 
 **Methods:**
 - `e:contains(point)` - point inside ellipse
@@ -265,7 +326,6 @@ geo.ellipse(cx, cy, semi_major, semi_minor, [rotation])
 - `e:rotate(angle)` - create rotated ellipse
 - `e:clone()` - create copy
 
-**Example:**
 ```lua
 local e = geo.ellipse(0, 0, 5, 3, math.pi/4)
 print(e:area())           -- 47.12
@@ -273,13 +333,16 @@ print(e:eccentricity())   -- 0.8
 local f1, f2 = e:foci()   -- focal points
 ```
 
-### Sphere
+---
 
-**Constructors:**
-```lua
-geo.sphere(center_vec3, radius)
-geo.sphere(cx, cy, cz, radius)
+## sphere
+
 ```
+geo.sphere(center_vec3, radius) -> sphere
+geo.sphere(cx, cy, cz, radius) -> sphere
+```
+
+Create sphere shape.
 
 **Properties:**
 - `center` - center point (vec3)
@@ -296,30 +359,28 @@ geo.sphere(cx, cy, cz, radius)
 - `s:scale(factor)` - create scaled sphere
 - `s:clone()` - create copy
 
-**Example:**
 ```lua
 local s = geo.sphere(0, 0, 0, 5)
 print(s:volume())         -- 523.6
 local p = s:point_at(0, math.pi/2)  -- point on equator
 ```
 
-## 3D Transformations
+---
 
-### Transform3D
+## transform3d
+
+```
+geo.transform3d() -> transform3d
+geo.transform3d.identity() -> transform3d
+geo.transform3d.translate(x, y, z) -> transform3d
+geo.transform3d.rotate_x(angle) -> transform3d
+geo.transform3d.rotate_y(angle) -> transform3d
+geo.transform3d.rotate_z(angle) -> transform3d
+geo.transform3d.rotate_axis(axis_vec3, angle) -> transform3d
+geo.transform3d.scale(sx, sy, sz) -> transform3d
+```
 
 4×4 transformation matrices for 3D graphics.
-
-**Constructors:**
-```lua
-geo.transform3d()           -- identity
-geo.transform3d.identity()
-geo.transform3d.translate(x, y, z)
-geo.transform3d.rotate_x(angle)
-geo.transform3d.rotate_y(angle)
-geo.transform3d.rotate_z(angle)
-geo.transform3d.rotate_axis(axis_vec3, angle)
-geo.transform3d.scale(sx, sy, sz)
-```
 
 **Methods:**
 - `t:apply(vec3)` - transform point
@@ -330,7 +391,6 @@ geo.transform3d.scale(sx, sy, sz)
 t1 * t2   -- matrix multiplication
 ```
 
-**Example:**
 ```lua
 local t = geo.transform3d.translate(10, 0, 0)
 local r = geo.transform3d.rotate_y(math.pi/2)
@@ -338,23 +398,29 @@ local combined = t * r
 local p = combined:apply(geo.vec3(1, 0, 0))
 ```
 
-## Curve Fitting
+---
 
-### Polynomial Fitting
+## polyfit
 
-```lua
+```
 geo.polyfit(points, degree) -> polynomial
 geo.polyfit(xs, ys, degree) -> polynomial
 ```
 
-Returns polynomial object with methods:
+Polynomial fitting to data points.
+
+**Parameters:**
+- `points` - array of `{x, y}` tables or vec2
+- `xs`, `ys` - separate arrays of x and y values
+- `degree` - polynomial degree
+
+**Returns:** Polynomial object with:
 - `p:evaluate(x)` - evaluate at x
 - `p:derivative()` - polynomial derivative
 - `p:roots()` - find roots
 - `p.degree` - polynomial degree
 - `p.coefficients` - coefficient array
 
-**Example:**
 ```lua
 local points = {{0, 0}, {1, 1}, {2, 4}}
 local p = geo.polyfit(points, 2)  -- quadratic fit
@@ -362,16 +428,23 @@ print(p:evaluate(3))  -- 9.0
 print(p.degree)       -- 2
 ```
 
-### Cubic Spline
+---
 
-```lua
-geo.cubic_spline(points, [bc_type]) -> spline
-geo.cubic_spline(xs, ys, [bc_type]) -> spline
+## cubic_spline
+
+```
+geo.cubic_spline(points, bc_type?) -> spline
+geo.cubic_spline(xs, ys, bc_type?) -> spline
 ```
 
-Cubic spline interpolation. `bc_type` can be `"natural"`, `"clamped"`, or `"not-a-knot"` (default: natural).
+Cubic spline interpolation.
 
-**Methods:**
+**Parameters:**
+- `points` - array of `{x, y}` tables or vec2
+- `xs`, `ys` - separate arrays of x and y values
+- `bc_type` - boundary condition: `"natural"`, `"clamped"`, or `"not-a-knot"` (default: natural)
+
+**Returns:** Spline object with:
 - `s:evaluate(x)` - evaluate at x
 - `s:evaluate_array(xs)` - batch evaluation
 - `s:derivative()` - spline derivative
@@ -380,7 +453,6 @@ Cubic spline interpolation. `bc_type` can be `"natural"`, `"clamped"`, or `"not-
 - `s.values` - knot values
 - `s.segments` - number of segments
 
-**Example:**
 ```lua
 local knots = {{0, 0}, {1, 1}, {2, 0}, {3, 1}}
 local spline = geo.cubic_spline(knots)
@@ -388,15 +460,22 @@ print(spline:evaluate(1.5))  -- smooth interpolation
 local deriv = spline:derivative()
 ```
 
-### B-Spline
+---
 
-```lua
+## bspline
+
+```
 geo.bspline(degree, control_points, knots) -> bspline
 ```
 
-B-spline curves with arbitrary control points.
+Create B-spline curve with arbitrary control points.
 
-**Methods:**
+**Parameters:**
+- `degree` - spline degree
+- `control_points` - array of vec2 or vec3 control points
+- `knots` - knot vector
+
+**Returns:** B-spline object with:
 - `b:evaluate(t)` - evaluate at parameter t
 - `b:sample(n)` - generate n points along curve
 - `b:derivative()` - B-spline derivative
@@ -404,15 +483,42 @@ B-spline curves with arbitrary control points.
 - `b.control_points` - control point array
 - `b.degree` - spline degree
 
-**Helper functions:**
+**Helper function:**
 ```lua
 geo.bspline_uniform_knots(n_control, degree) -> knots
-geo.bspline_fit(points, degree, n_control, [options]) -> bspline
 ```
 
-**Example:**
 ```lua
--- Fit cubic B-spline to data
+local ctrl = {geo.vec2(0, 0), geo.vec2(1, 2), geo.vec2(2, 0)}
+local knots = geo.bspline_uniform_knots(3, 2)
+local spline = geo.bspline(2, ctrl, knots)
+local curve = spline:sample(50)
+```
+
+---
+
+## bspline_fit
+
+```
+geo.bspline_fit(points, degree, n_control_points, options?) -> bspline
+```
+
+Fit B-spline curve to data points using least squares.
+
+**Parameters:**
+- `points` - array of vec2 or vec3 data points
+- `degree` - spline degree
+- `n_control_points` - number of control points
+- `options` (optional) - table with:
+  - `parameterization` - `"chord"` (default), `"uniform"`, or `"centripetal"`
+
+**Returns:** B-spline object with additional fit diagnostics:
+- `_residuals` - distance errors at each data point
+- `_rmse` - root mean square error
+- `_max_error` - maximum fitting error
+- `_parameters` - parameter values assigned to data points
+
+```lua
 local points = {
     geo.vec2(0, 0),
     geo.vec2(1, 2),
@@ -424,20 +530,25 @@ print("RMSE:", spline._rmse)
 local curve = spline:sample(50)  -- 50 points
 ```
 
-### Circle Fitting
+---
 
-```lua
-geo.circle_fit(points, [method]) -> circle
+## circle_fit
+
+```
+geo.circle_fit(points, method?) -> circle
 ```
 
-Fit circle to 2D points. Methods: `"algebraic"` (default) or `"taubin"`.
+Fit circle to 2D points.
 
-Returns circle with fit diagnostics:
+**Parameters:**
+- `points` - array of vec2 points
+- `method` - `"algebraic"` (default) or `"taubin"`
+
+**Returns:** Circle object with fit diagnostics:
 - `c:residuals()` - residual errors
 - `c:rmse()` - root mean square error
 - `c:fit_points()` - original points
 
-**Example:**
 ```lua
 local points = {
     geo.vec2(1, 0),
@@ -451,20 +562,25 @@ print("Radius:", c.radius)
 print("RMSE:", c:rmse())
 ```
 
-### Ellipse Fitting
+---
 
-```lua
-geo.ellipse_fit(points, [method]) -> ellipse
+## ellipse_fit
+
+```
+geo.ellipse_fit(points, method?) -> ellipse
 ```
 
-Fit ellipse to 2D points. Method: `"direct"` (Fitzgibbon's method).
+Fit ellipse to 2D points using Fitzgibbon's direct method.
 
-Returns ellipse with diagnostics:
+**Parameters:**
+- `points` - array of vec2 points
+- `method` - `"direct"` (Fitzgibbon's method)
+
+**Returns:** Ellipse object with diagnostics:
 - `e:residuals()` - residual errors
 - `e:rmse()` - root mean square error
 - `e:fit_conic()` - conic form coefficients
 
-**Example:**
 ```lua
 local pts = generate_noisy_ellipse_points()
 local e = geo.ellipse_fit(pts)
@@ -472,20 +588,25 @@ print("Semi-axes:", e.semi_major, e.semi_minor)
 print("Rotation:", e.rotation)
 ```
 
-### Sphere Fitting
+---
 
-```lua
-geo.sphere_fit(points, [method]) -> sphere
+## sphere_fit
+
+```
+geo.sphere_fit(points, method?) -> sphere
 ```
 
-Fit sphere to 3D points. Method: `"algebraic"`.
+Fit sphere to 3D points.
 
-Returns sphere with diagnostics:
+**Parameters:**
+- `points` - array of vec3 points
+- `method` - `"algebraic"`
+
+**Returns:** Sphere object with diagnostics:
 - `s:residuals()` - residual errors
 - `s:rmse()` - root mean square error
 - `s:max_error()` - maximum error
 
-**Example:**
 ```lua
 local points = generate_sphere_points()
 local s = geo.sphere_fit(points)
@@ -493,22 +614,25 @@ print("Center:", s.center)
 print("Radius:", s.radius)
 ```
 
-### Unified Fitting API
+---
 
-```lua
-geo.fit(shape, points, [options]) -> shape_object
+## fit
+
+```
+geo.fit(shape, points, options?) -> shape_object
 ```
 
-Unified interface for all curve fitting. `shape` can be:
-- `"line"` - linear polynomial
-- `"polynomial"` - polynomial (specify `degree`)
-- `"circle"` - circle
-- `"ellipse"` - ellipse
-- `"sphere"` - sphere
-- `"spline"` - cubic spline
-- `"bspline"` - B-spline (specify `degree`, `n_control`)
+Unified interface for all curve fitting.
 
-**Example:**
+**Parameters:**
+- `shape` - shape type: `"line"`, `"polynomial"`, `"circle"`, `"ellipse"`, `"sphere"`, `"spline"`, `"bspline"`
+- `points` - array of data points
+- `options` (optional) - shape-specific options:
+  - `degree` - for `"polynomial"` and `"bspline"`
+  - `n_control` - for `"bspline"`
+  - `bc_type` - for `"spline"`
+  - `method` - for `"circle"`, `"ellipse"`, `"sphere"`
+
 ```lua
 -- All equivalent to specific functions
 local circle = geo.fit("circle", points)
@@ -516,34 +640,63 @@ local poly = geo.fit("polynomial", points, {degree = 3})
 local bspl = geo.fit("bspline", points, {degree = 3, n_control = 10})
 ```
 
-## Geometric Algorithms
+---
 
-### Distance
+## distance
 
-```lua
+```
 geo.distance(obj1, obj2) -> number
 ```
 
 Euclidean distance between vec2, vec3, or quaternion objects.
 
-### Angle Between
-
 ```lua
-geo.angle_between(v1, v2) -> angle
-geo.angle(v1, v2) -> angle  -- alias
+local v1 = geo.vec2(0, 0)
+local v2 = geo.vec2(3, 4)
+print(geo.distance(v1, v2))  -- 5.0
 ```
 
-Angle between two vectors (radians).
+---
 
-### Convex Hull
+## angle_between
+
+```
+geo.angle_between(v1, v2) -> angle
+```
+
+Angle between two vectors in radians.
 
 ```lua
+local v1 = geo.vec2(1, 0)
+local v2 = geo.vec2(0, 1)
+print(geo.angle_between(v1, v2))  -- π/2
+```
+
+---
+
+## angle
+
+```
+geo.angle(v1, v2) -> angle
+```
+
+Alias for `angle_between`.
+
+---
+
+## convex_hull
+
+```
 geo.convex_hull(points) -> hull_points
 ```
 
-Compute convex hull of 2D points (Graham scan algorithm).
+Compute convex hull of 2D points using Graham scan algorithm.
 
-**Example:**
+**Parameters:**
+- `points` - array of vec2 points
+
+**Returns:** Array of vec2 points forming the convex hull (counterclockwise).
+
 ```lua
 local points = {
     geo.vec2(0, 0),
@@ -554,70 +707,219 @@ local points = {
 local hull = geo.convex_hull(points)
 ```
 
-### Point in Polygon
+---
 
-```lua
+## in_polygon
+
+```
 geo.in_polygon(point, polygon) -> boolean
-point:in_polygon(polygon) -> boolean
 ```
 
-Test if point is inside polygon (ray casting algorithm).
+Test if point is inside polygon using ray casting algorithm.
 
-### Line Intersection
+**Parameters:**
+- `point` - vec2 point
+- `polygon` - array of vec2 vertices
 
 ```lua
+local poly = {geo.vec2(0, 0), geo.vec2(2, 0), geo.vec2(1, 2)}
+local inside = geo.in_polygon(geo.vec2(1, 0.5), poly)  -- true
+```
+
+---
+
+## line_intersection
+
+```
 geo.line_intersection(p1, p2, p3, p4) -> point | nil
 ```
 
 Find intersection of line segments (p1-p2) and (p3-p4).
 
-### Triangle Area
+**Parameters:**
+- `p1`, `p2` - vec2 endpoints of first segment
+- `p3`, `p4` - vec2 endpoints of second segment
+
+**Returns:** vec2 intersection point or nil if segments don't intersect.
 
 ```lua
+local p = geo.line_intersection(
+    geo.vec2(0, 0), geo.vec2(2, 2),
+    geo.vec2(0, 2), geo.vec2(2, 0)
+)  -- vec2(1, 1)
+```
+
+---
+
+## area_triangle
+
+```
 geo.area_triangle(p1, p2, p3) -> area
 ```
 
 Signed area of triangle (positive = counterclockwise).
 
-### Centroid
+**Parameters:**
+- `p1`, `p2`, `p3` - vec2 triangle vertices
 
 ```lua
+local area = geo.area_triangle(
+    geo.vec2(0, 0),
+    geo.vec2(2, 0),
+    geo.vec2(1, 2)
+)  -- 2.0
+```
+
+---
+
+## centroid
+
+```
 geo.centroid(points) -> center
 ```
 
 Geometric centroid of points.
 
-### Circle from 3 Points
+**Parameters:**
+- `points` - array of vec2 or vec3 points
+
+**Returns:** vec2 or vec3 centroid point.
 
 ```lua
+local points = {geo.vec2(0, 0), geo.vec2(2, 0), geo.vec2(1, 2)}
+local center = geo.centroid(points)  -- vec2(1, 0.67)
+```
+
+---
+
+## circle_from_3_points
+
+```
 geo.circle_from_3_points(p1, p2, p3) -> circle | nil
 ```
 
 Exact circle through three non-collinear points.
 
-### Plane Operations
+**Parameters:**
+- `p1`, `p2`, `p3` - vec2 points
+
+**Returns:** Circle object or nil if points are collinear.
 
 ```lua
+local c = geo.circle_from_3_points(
+    geo.vec2(1, 0),
+    geo.vec2(0, 1),
+    geo.vec2(-1, 0)
+)
+print(c.center, c.radius)
+```
+
+---
+
+## plane_from_3_points
+
+```
 geo.plane_from_3_points(p1, p2, p3) -> {normal, d}
+```
+
+Plane through three non-collinear 3D points.
+
+**Parameters:**
+- `p1`, `p2`, `p3` - vec3 points
+
+**Returns:** Plane representation `{normal_vec3, d}` where `normal·x = d`.
+
+```lua
+local plane = geo.plane_from_3_points(
+    geo.vec3(1, 0, 0),
+    geo.vec3(0, 1, 0),
+    geo.vec3(0, 0, 1)
+)
+```
+
+---
+
+## point_plane_distance
+
+```
 geo.point_plane_distance(point, plane) -> distance
+```
+
+Signed distance from point to plane.
+
+**Parameters:**
+- `point` - vec3 point
+- `plane` - plane `{normal_vec3, d}`
+
+**Returns:** Signed distance (positive = same side as normal).
+
+```lua
+local plane = {geo.vec3(0, 0, 1), 0}  -- xy-plane
+local dist = geo.point_plane_distance(geo.vec3(0, 0, 5), plane)  -- 5.0
+```
+
+---
+
+## line_plane_intersection
+
+```
 geo.line_plane_intersection(p1, p2, plane) -> point | nil
+```
+
+Find intersection of line segment with plane.
+
+**Parameters:**
+- `p1`, `p2` - vec3 endpoints of line segment
+- `plane` - plane `{normal_vec3, d}`
+
+**Returns:** vec3 intersection point or nil if parallel/no intersection.
+
+```lua
+local plane = {geo.vec3(0, 0, 1), 0}
+local hit = geo.line_plane_intersection(
+    geo.vec3(0, 0, -5),
+    geo.vec3(0, 0, 5),
+    plane
+)  -- vec3(0, 0, 0)
+```
+
+---
+
+## plane_plane_intersection
+
+```
 geo.plane_plane_intersection(plane1, plane2) -> {point, direction} | nil
 ```
 
-3D plane operations. Plane is represented as `{normal_vec3, d}` where `normal·x = d`.
+Find intersection line of two planes.
 
-### Polymorphic Intersection
+**Parameters:**
+- `plane1`, `plane2` - planes `{normal_vec3, d}`
+
+**Returns:** Table `{point, direction}` where point is vec3 on the line and direction is vec3 line direction, or nil if planes are parallel.
 
 ```lua
-geo.intersection(obj1, obj2, [obj3], [obj4]) -> result | nil
+local pl1 = {geo.vec3(1, 0, 0), 0}
+local pl2 = {geo.vec3(0, 1, 0), 0}
+local line = geo.plane_plane_intersection(pl1, pl2)
+-- line.point, line.direction
 ```
 
-Intelligent intersection based on argument types:
-- 4 vec2: line-line intersection
-- 2 vec3 + plane: line-plane intersection
-- 2 planes: plane-plane intersection
+---
 
-**Example:**
+## intersection
+
+```
+geo.intersection(obj1, obj2, obj3?, obj4?) -> result | nil
+```
+
+Polymorphic intersection based on argument types.
+
+**Supported combinations:**
+- 4 vec2: line-line intersection → vec2 or nil
+- 2 vec3 + plane: line-plane intersection → vec3 or nil
+- 2 planes: plane-plane intersection → `{point, direction}` or nil
+
 ```lua
 -- Line-line
 local p = geo.intersection(
@@ -633,67 +935,61 @@ local hit = geo.intersection(line_start, line_end, plane)
 local line = geo.intersection(plane1, plane2)
 ```
 
-### Sphere from 4 Points
+---
 
-```lua
+## sphere_from_4_points
+
+```
 geo.sphere_from_4_points(p1, p2, p3, p4) -> sphere | nil
 ```
 
 Exact sphere through four non-coplanar points.
 
-## Function Reference
+**Parameters:**
+- `p1`, `p2`, `p3`, `p4` - vec3 points
 
-| Function | Description |
-|----------|-------------|
-| **Vector Operations** | |
-| `vec2(x, y)` | Create 2D vector |
-| `vec3(x, y, z)` | Create 3D vector |
-| `distance(a, b)` | Euclidean distance |
-| `angle_between(v1, v2)` | Angle between vectors |
-| `angle(v1, v2)` | Alias for angle_between |
-| **Quaternions** | |
-| `quaternion(w, x, y, z)` | Create quaternion |
-| `quaternion.identity()` | Identity quaternion |
-| `quaternion.from_euler(y, p, r)` | From Euler angles |
-| `quaternion.from_axis_angle(axis, θ)` | From axis-angle |
-| **Coordinate Conversions** | |
-| `from_polar(r, θ)` | Polar to Cartesian (2D) |
-| `from_spherical(r, θ, φ)` | Spherical to Cartesian (3D) |
-| `from_cylindrical(ρ, φ, z)` | Cylindrical to Cartesian (3D) |
-| **Shapes** | |
-| `circle(center, r)` | Create circle |
-| `circle(x, y, r)` | Create circle |
-| `ellipse(center, a, b, [θ])` | Create ellipse |
-| `ellipse(x, y, a, b, [θ])` | Create ellipse |
-| `sphere(center, r)` | Create sphere |
-| `sphere(x, y, z, r)` | Create sphere |
-| **Transformations** | |
-| `transform3d.identity()` | Identity matrix |
-| `transform3d.translate(x, y, z)` | Translation matrix |
-| `transform3d.rotate_x(θ)` | X-axis rotation |
-| `transform3d.rotate_y(θ)` | Y-axis rotation |
-| `transform3d.rotate_z(θ)` | Z-axis rotation |
-| `transform3d.rotate_axis(axis, θ)` | Arbitrary axis rotation |
-| `transform3d.scale(sx, sy, sz)` | Scale matrix |
-| **Curve Fitting** | |
-| `polyfit(pts, deg)` | Polynomial fitting |
-| `cubic_spline(pts, [bc])` | Cubic spline interpolation |
-| `bspline(deg, ctrl, knots)` | B-spline curve |
-| `bspline_fit(pts, deg, n, [opt])` | Fit B-spline to points |
-| `circle_fit(pts, [method])` | Fit circle |
-| `ellipse_fit(pts, [method])` | Fit ellipse |
-| `sphere_fit(pts, [method])` | Fit sphere |
-| `fit(shape, pts, [opt])` | Unified fitting interface |
-| **Geometric Algorithms** | |
-| `convex_hull(points)` | Convex hull (2D) |
-| `in_polygon(point, poly)` | Point in polygon test |
-| `line_intersection(p1, p2, p3, p4)` | Line segment intersection |
-| `area_triangle(p1, p2, p3)` | Triangle area |
-| `centroid(points)` | Centroid of points |
-| `circle_from_3_points(p1, p2, p3)` | Circle through 3 points |
-| `plane_from_3_points(p1, p2, p3)` | Plane through 3 points |
-| `point_plane_distance(pt, plane)` | Point-plane distance |
-| `line_plane_intersection(p1, p2, pl)` | Line-plane intersection |
-| `plane_plane_intersection(pl1, pl2)` | Plane-plane intersection |
-| `intersection(...)` | Polymorphic intersection |
-| `sphere_from_4_points(...)` | Sphere through 4 points |
+**Returns:** Sphere object or nil if points are coplanar.
+
+```lua
+local s = geo.sphere_from_4_points(
+    geo.vec3(1, 0, 0),
+    geo.vec3(0, 1, 0),
+    geo.vec3(0, 0, 1),
+    geo.vec3(-1, 0, 0)
+)
+print(s.center, s.radius)
+```
+
+---
+
+## Examples
+
+### Quick Start
+
+```lua
+local geo = require("luaswift.geometry")
+
+-- 2D vectors
+local v = geo.vec2(3, 4)
+print(v:length())  -- 5.0
+
+-- 3D vectors
+local p = geo.vec3(1, 2, 3)
+local q = geo.vec3(4, 5, 6)
+print(p:dot(q))    -- 32.0
+
+-- Quaternion rotations
+local axis = geo.vec3(0, 1, 0)  -- Y-axis
+local rot = geo.quaternion.from_axis_angle(axis, math.pi/2)
+local v3 = geo.vec3(1, 0, 0)
+local rotated = rot:rotate(v3)  -- vec3(0, 0, -1)
+
+-- Circle fitting
+local points = {
+    geo.vec2(1, 0),
+    geo.vec2(0, 1),
+    geo.vec2(-1, 0)
+}
+local circle = geo.circle_fit(points)
+print(circle.radius)  -- ~1.0
+```

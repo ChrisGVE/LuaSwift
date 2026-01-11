@@ -8,52 +8,49 @@
 
 Provides comprehensive 1D interpolation functions including linear, cubic spline, PCHIP, Akima, Lagrange, and barycentric methods. All interpolators support both real and complex-valued data, and handle scalar or array inputs seamlessly.
 
-## Quick Start
+## Function Reference
 
-```lua
-luaswift.extend_stdlib()
+| Function | Description |
+|----------|-------------|
+| [interp1d(x, y, kind?, options?)](#interp1d) | General 1D interpolation with multiple methods |
+| [CubicSpline(x, y, options?)](#cubicspline) | Cubic spline with derivatives and integration |
+| [PchipInterpolator(x, y)](#pchipinterpolator) | Monotonic piecewise cubic Hermite interpolation |
+| [Akima1DInterpolator(x, y)](#akima1dinterpolator) | Smooth Akima interpolation without overshoots |
+| [lagrange(x, y)](#lagrange) | Lagrange polynomial interpolation |
+| [BarycentricInterpolator(x, y)](#barycentricinterpolator) | Numerically stable barycentric interpolation |
 
--- Create sample data
-local x = {0, 1, 2, 3, 4}
-local y = {0, 1, 4, 9, 16}
+## Type Mapping
 
--- Linear interpolation
-local f = math.interpolate.interp1d(x, y, "linear")
-print(f(1.5))  -- 2.5
+All interpolation methods support:
+- **Real values:** Standard Lua numbers
+- **Complex values:** Tables with `{re, im}` fields
+- **Scalar input:** Single number → single result
+- **Array input:** Table of numbers → table of results
 
--- Cubic spline with derivatives and integration
-local cs = math.interpolate.CubicSpline(x, y)
-print(cs(1.5))               -- interpolated value
-print(cs.derivative(1.5))    -- first derivative
-print(cs.integrate(0, 4))    -- definite integral
+---
+
+## interp1d
+
 ```
-
-## General Purpose Interpolation
-
-### interp1d
+math.interpolate.interp1d(x, y, kind?, options?) -> function
+```
 
 Creates a 1D interpolation function with multiple interpolation kinds.
 
-```lua
-f = math.interpolate.interp1d(x, y, kind, options)
-```
-
 **Parameters:**
-- `x`: array of x coordinates (must be strictly increasing)
-- `y`: array of y values (real or complex)
-- `kind`: interpolation type (default: `"linear"`)
-  - `"linear"`: linear interpolation
-  - `"nearest"`: nearest neighbor
-  - `"cubic"`: natural cubic spline
-  - `"previous"`: previous value (step function)
-  - `"next"`: next value (step function)
-- `options`: optional table with:
-  - `fill_value`: value for extrapolation (default: NaN)
-  - `bounds_error`: if true, raises error on extrapolation (default: false)
+- `x` - Array of x coordinates (must be strictly increasing)
+- `y` - Array of y values (real or complex)
+- `kind` (optional) - Interpolation type (default: `"linear"`)
+  - `"linear"`: Linear interpolation
+  - `"nearest"`: Nearest neighbor
+  - `"cubic"`: Natural cubic spline
+  - `"previous"`: Previous value (step function)
+  - `"next"`: Next value (step function)
+- `options` (optional) - Table with:
+  - `fill_value`: Value for extrapolation (default: NaN)
+  - `bounds_error`: If true, raises error on extrapolation (default: false)
 
-**Returns:** function `f(x_new)` that accepts scalar or array input
-
-**Examples:**
+**Returns:** Function `f(x_new)` that accepts scalar or array input
 
 ```lua
 -- Linear interpolation
@@ -85,32 +82,30 @@ local f_strict = math.interpolate.interp1d(x, y, "linear", {bounds_error = true}
 -- f_strict(5)  -- raises error: outside interpolation range
 ```
 
-## Cubic Spline Interpolation
+---
 
-### CubicSpline
+## CubicSpline
+
+```
+math.interpolate.CubicSpline(x, y, options?) -> spline_object
+```
 
 Creates a cubic spline interpolator with support for derivatives and integration.
 
-```lua
-spline = math.interpolate.CubicSpline(x, y, options)
-```
-
 **Parameters:**
-- `x`: array of x coordinates (must be strictly increasing)
-- `y`: array of y values (real or complex)
-- `options`: optional table with:
-  - `bc_type`: boundary condition type (default: `"not-a-knot"`)
-    - `"natural"`: second derivative is zero at endpoints
-    - `"clamped"`: first derivative is zero at endpoints
-    - `"not-a-knot"`: third derivative continuous at second and penultimate points
-  - `extrapolate`: if true, extrapolate linearly outside bounds (default: true)
+- `x` - Array of x coordinates (must be strictly increasing)
+- `y` - Array of y values (real or complex)
+- `options` (optional) - Table with:
+  - `bc_type`: Boundary condition type (default: `"not-a-knot"`)
+    - `"natural"`: Second derivative is zero at endpoints
+    - `"clamped"`: First derivative is zero at endpoints
+    - `"not-a-knot"`: Third derivative continuous at second and penultimate points
+  - `extrapolate`: If true, extrapolate linearly outside bounds (default: true)
 
-**Returns:** spline object with methods:
-- `spline(x_new)`: evaluate at x_new (scalar or array)
-- `spline.derivative(x_new, nu)`: nu-th derivative (nu=1,2,3; default: 1)
-- `spline.integrate(a, b)`: definite integral from a to b
-
-**Examples:**
+**Returns:** Spline object with methods:
+- `spline(x_new)`: Evaluate at x_new (scalar or array)
+- `spline.derivative(x_new, nu?)`: nu-th derivative (nu=1,2,3; default: 1)
+- `spline.integrate(a, b)`: Definite integral from a to b
 
 ```lua
 -- Basic cubic spline
@@ -142,23 +137,21 @@ local deriv = cs_complex.derivative(1.5)  -- complex derivative
 local integral = cs_complex.integrate(0, 3)  -- complex integral
 ```
 
-## Monotonic Interpolation
+---
 
-### PchipInterpolator
+## PchipInterpolator
+
+```
+math.interpolate.PchipInterpolator(x, y) -> function
+```
 
 Piecewise Cubic Hermite Interpolating Polynomial. Preserves monotonicity of data and avoids overshoots.
 
-```lua
-f = math.interpolate.PchipInterpolator(x, y)
-```
-
 **Parameters:**
-- `x`: array of x coordinates (must be strictly increasing)
-- `y`: array of y values
+- `x` - Array of x coordinates (must be strictly increasing)
+- `y` - Array of y values
 
-**Returns:** interpolation function `f(x_new)` with linear extrapolation
-
-**Example:**
+**Returns:** Interpolation function `f(x_new)` with linear extrapolation
 
 ```lua
 -- Monotonic data
@@ -177,21 +170,21 @@ local cs = math.interpolate.CubicSpline(x, y)
 -- cs may produce values > 6 or < 0 in some intervals
 ```
 
-### Akima1DInterpolator
+---
+
+## Akima1DInterpolator
+
+```
+math.interpolate.Akima1DInterpolator(x, y) -> function
+```
 
 Akima interpolation. Smooth interpolation that avoids overshoots using weighted differences.
 
-```lua
-f = math.interpolate.Akima1DInterpolator(x, y)
-```
-
 **Parameters:**
-- `x`: array of x coordinates (must be strictly increasing)
-- `y`: array of y values
+- `x` - Array of x coordinates (must be strictly increasing)
+- `y` - Array of y values
 
-**Returns:** interpolation function `f(x_new)` with linear extrapolation
-
-**Example:**
+**Returns:** Interpolation function `f(x_new)` with linear extrapolation
 
 ```lua
 -- Data with sharp features
@@ -209,25 +202,23 @@ for i = 0, 50 do x_fine[i+1] = i * 0.1 end
 local y_fine = akima(x_fine)
 ```
 
-## Polynomial Interpolation
+---
 
-### lagrange
+## lagrange
+
+```
+math.interpolate.lagrange(x, y) -> function
+```
 
 Lagrange polynomial interpolation. Exact for polynomials of degree ≤ n-1.
 
-```lua
-f = math.interpolate.lagrange(x, y)
-```
-
 **Parameters:**
-- `x`: array of x coordinates
-- `y`: array of y values (real or complex)
+- `x` - Array of x coordinates
+- `y` - Array of y values (real or complex)
 
-**Returns:** polynomial interpolation function
+**Returns:** Polynomial interpolation function
 
 **Warning:** Numerically unstable for large n (>10 points). Use `BarycentricInterpolator` for better stability.
-
-**Example:**
 
 ```lua
 -- Interpolate through 4 points with a cubic polynomial
@@ -247,21 +238,21 @@ local poly_c = math.interpolate.lagrange({0, 1, 2}, y_c)
 print(poly_c(0.5).re, poly_c(0.5).im)
 ```
 
-### BarycentricInterpolator
+---
+
+## BarycentricInterpolator
+
+```
+math.interpolate.BarycentricInterpolator(x, y) -> function
+```
 
 Barycentric Lagrange interpolation. More numerically stable than standard Lagrange for large n.
 
-```lua
-f = math.interpolate.BarycentricInterpolator(x, y)
-```
-
 **Parameters:**
-- `x`: array of x coordinates
-- `y`: array of y values (real or complex)
+- `x` - Array of x coordinates
+- `y` - Array of y values (real or complex)
 
-**Returns:** interpolation function with improved numerical stability
-
-**Example:**
+**Returns:** Interpolation function with improved numerical stability
 
 ```lua
 -- Large number of points
@@ -281,7 +272,31 @@ local f_lag = math.interpolate.lagrange(x, y)
 -- f_lag(10.5) may be less accurate due to roundoff
 ```
 
-## Complex-Valued Interpolation
+---
+
+## Examples
+
+### Quick Start
+
+```lua
+luaswift.extend_stdlib()
+
+-- Create sample data
+local x = {0, 1, 2, 3, 4}
+local y = {0, 1, 4, 9, 16}
+
+-- Linear interpolation
+local f = math.interpolate.interp1d(x, y, "linear")
+print(f(1.5))  -- 2.5
+
+-- Cubic spline with derivatives and integration
+local cs = math.interpolate.CubicSpline(x, y)
+print(cs(1.5))               -- interpolated value
+print(cs.derivative(1.5))    -- first derivative
+print(cs.integrate(0, 4))    -- definite integral
+```
+
+### Complex-Valued Interpolation
 
 All interpolation methods support complex numbers:
 
@@ -313,7 +328,7 @@ local deriv = cs.derivative(1.5) -- complex derivative
 local integ = cs.integrate(0, 3) -- complex integral
 ```
 
-## Choosing an Interpolation Method
+### Choosing an Interpolation Method
 
 | Method | Best For | Smoothness | Monotonicity | Overshoot | Performance |
 |--------|----------|------------|--------------|-----------|-------------|
@@ -331,14 +346,3 @@ local integ = cs.integrate(0, 3) -- complex integral
 - **Smooth derivatives needed:** Use `CubicSpline` with appropriate boundary conditions
 - **Exact polynomial fit:** Use `BarycentricInterpolator` for better stability than `lagrange`
 - **Complex-valued functions:** All methods support complex numbers transparently
-
-## Function Reference
-
-| Function | Description |
-|----------|-------------|
-| `interp1d(x, y, kind, options)` | General 1D interpolation with multiple methods |
-| `CubicSpline(x, y, options)` | Cubic spline with derivatives and integration |
-| `PchipInterpolator(x, y)` | Monotonic piecewise cubic Hermite interpolation |
-| `Akima1DInterpolator(x, y)` | Smooth Akima interpolation without overshoots |
-| `lagrange(x, y)` | Lagrange polynomial interpolation |
-| `BarycentricInterpolator(x, y)` | Numerically stable barycentric interpolation |

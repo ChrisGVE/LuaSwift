@@ -8,7 +8,33 @@
 
 Physical constants (CODATA 2018), mathematical constants, and unit conversion factors for scientific computing.
 
+## Constants Reference
+
+| Category | Description |
+|----------|-------------|
+| [Mathematical Constants](#mathematical-constants) | π, e, τ, φ, and other mathematical values |
+| [Physical Constants](#physical-constants) | CODATA 2018 fundamental constants (SI units) |
+| [Angular Conversions](#angular-conversions) | Degree, arcminute, arcsecond to radians |
+| [Length Conversions](#length-conversions) | Imperial and metric units to meters |
+| [Mass Conversions](#mass-conversions) | Weight and mass units to kilograms |
+| [Temperature Conversions](#temperature-conversions) | Celsius/Kelvin conversion |
+| [Time Conversions](#time-conversions) | Time units to seconds |
+
+---
+
 ## Mathematical Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `pi` | 3.14159... | π (ratio of circumference to diameter) |
+| `e` | 2.71828... | Euler's number (natural logarithm base) |
+| `tau` | 6.28318... | τ (2π, ratio of circumference to radius) |
+| `phi` | 1.61803... | Golden ratio |
+| `euler_gamma` | 0.57721... | Euler-Mascheroni constant |
+| `sqrt2` | 1.41421... | √2 |
+| `sqrt3` | 1.73205... | √3 |
+| `ln2` | 0.69314... | Natural logarithm of 2 |
+| `ln10` | 2.30258... | Natural logarithm of 10 |
 
 ```lua
 luaswift.extend_stdlib()
@@ -27,9 +53,31 @@ print(math.constants.ln2)          -- 0.6931471805599453
 print(math.constants.ln10)         -- 2.302585092994046
 ```
 
+---
+
 ## Physical Constants
 
 All constants use SI units (CODATA 2018 values).
+
+| Constant | Value | Unit | Description |
+|----------|-------|------|-------------|
+| `c` | 299792458 | m/s | Speed of light in vacuum |
+| `h` | 6.626e-34 | J⋅s | Planck constant |
+| `hbar` | 1.055e-34 | J⋅s | Reduced Planck constant (ℏ = h/2π) |
+| `G` | 6.674e-11 | m³/(kg⋅s²) | Gravitational constant |
+| `e_charge` | 1.602e-19 | C | Elementary charge |
+| `m_e` | 9.109e-31 | kg | Electron mass |
+| `m_p` | 1.673e-27 | kg | Proton mass |
+| `m_n` | 1.675e-27 | kg | Neutron mass |
+| `k_B` | 1.381e-23 | J/K | Boltzmann constant |
+| `N_A` | 6.022e23 | 1/mol | Avogadro constant |
+| `R` | 8.314 | J/(mol⋅K) | Gas constant |
+| `epsilon_0` | 8.854e-12 | F/m | Vacuum permittivity |
+| `mu_0` | 1.257e-6 | H/m | Vacuum permeability |
+| `sigma` | 5.670e-8 | W/(m²⋅K⁴) | Stefan-Boltzmann constant |
+| `alpha` | 7.297e-3 | - | Fine-structure constant |
+| `Ry` | 1.097e7 | 1/m | Rydberg constant |
+| `a_0` | 5.292e-11 | m | Bohr radius |
 
 ```lua
 local c = math.constants
@@ -66,9 +114,17 @@ print(c.Ry)                        -- 10973731.568160 (1/m, Rydberg constant)
 print(c.a_0)                       -- 5.29177210903e-11 (m, Bohr radius)
 ```
 
-## Unit Conversions
+---
 
-### Angular Conversions (to radians)
+## Angular Conversions
+
+Convert angles to radians.
+
+| Constant | Value | Converts |
+|----------|-------|----------|
+| `degree` | π/180 | Degrees → radians |
+| `arcmin` | π/10800 | Arcminutes → radians |
+| `arcsec` | π/648000 | Arcseconds → radians |
 
 ```lua
 local c = math.constants
@@ -83,7 +139,19 @@ local arcmin_rad = 60 * c.arcmin   -- 1 degree in arcminutes
 local arcsec_rad = 3600 * c.arcsec -- 1 degree in arcseconds
 ```
 
-### Length Conversions (to meters)
+---
+
+## Length Conversions
+
+Convert length units to meters.
+
+| Constant | Value | Converts |
+|----------|-------|----------|
+| `inch` | 0.0254 | Inches → meters |
+| `foot` | 0.3048 | Feet → meters |
+| `yard` | 0.9144 | Yards → meters |
+| `mile` | 1609.344 | Miles → meters |
+| `nautical_mile` | 1852 | Nautical miles → meters |
 
 ```lua
 local c = math.constants
@@ -100,7 +168,18 @@ print(c.mile)                      -- 1609.344 meters
 print(c.nautical_mile)             -- 1852 meters
 ```
 
-### Mass Conversions (to kilograms)
+---
+
+## Mass Conversions
+
+Convert mass units to kilograms.
+
+| Constant | Value | Converts |
+|----------|-------|----------|
+| `gram` | 0.001 | Grams → kilograms |
+| `ounce` | 0.0283... | Ounces → kilograms |
+| `pound` | 0.4536... | Pounds → kilograms |
+| `tonne` | 1000 | Metric tons → kilograms |
 
 ```lua
 local c = math.constants
@@ -116,7 +195,15 @@ print(1000 * c.gram)               -- 1 kg
 print(c.tonne)                     -- 1000 kg
 ```
 
-### Temperature Conversions (to Kelvin)
+---
+
+## Temperature Conversions
+
+Convert temperature to Kelvin.
+
+| Constant | Value | Converts |
+|----------|-------|----------|
+| `zero_Celsius` | 273.15 | Add to °C to get K |
 
 ```lua
 local c = math.constants
@@ -132,7 +219,19 @@ local temp_c2 = temp_k2 - c.zero_Celsius
 print(temp_c2)                     -- 100 °C (boiling point of water)
 ```
 
-### Time Conversions (to seconds)
+---
+
+## Time Conversions
+
+Convert time units to seconds.
+
+| Constant | Value | Converts |
+|----------|-------|----------|
+| `minute` | 60 | Minutes → seconds |
+| `hour` | 3600 | Hours → seconds |
+| `day` | 86400 | Days → seconds |
+| `week` | 604800 | Weeks → seconds |
+| `year` | 31557600 | Julian years → seconds |
 
 ```lua
 local c = math.constants
@@ -149,9 +248,11 @@ local age_years = 30
 local age_seconds = age_years * c.year
 ```
 
-## Practical Examples
+---
 
-### Energy calculations
+## Examples
+
+### Energy Calculations
 
 ```lua
 local c = math.constants
@@ -167,7 +268,7 @@ local photon_energy = c.h * frequency_Hz
 print(photon_energy)               -- 3.31303507e-19 joules
 ```
 
-### Ideal gas law
+### Ideal Gas Law
 
 ```lua
 local c = math.constants
@@ -182,7 +283,7 @@ local pressure_Pa = (n_moles * c.R * temp_K) / volume_m3
 print(pressure_Pa)                 -- ~101325 Pa (1 atm)
 ```
 
-### Gravitational force
+### Gravitational Force
 
 ```lua
 local c = math.constants
@@ -195,86 +296,3 @@ local r = 6.371e6      -- Earth radius (m)
 local force_N = c.G * m1 * m2 / (r * r)
 print(force_N)         -- ~686 N (weight of 70 kg person)
 ```
-
-## Constants Reference
-
-### Mathematical Constants
-
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `pi` | 3.14159... | π (ratio of circumference to diameter) |
-| `e` | 2.71828... | Euler's number (natural logarithm base) |
-| `tau` | 6.28318... | τ (2π, ratio of circumference to radius) |
-| `phi` | 1.61803... | Golden ratio |
-| `euler_gamma` | 0.57721... | Euler-Mascheroni constant |
-| `sqrt2` | 1.41421... | √2 |
-| `sqrt3` | 1.73205... | √3 |
-| `ln2` | 0.69314... | Natural logarithm of 2 |
-| `ln10` | 2.30258... | Natural logarithm of 10 |
-
-### Physical Constants (SI Units, CODATA 2018)
-
-| Constant | Value | Unit | Description |
-|----------|-------|------|-------------|
-| `c` | 299792458 | m/s | Speed of light in vacuum |
-| `h` | 6.626e-34 | J⋅s | Planck constant |
-| `hbar` | 1.055e-34 | J⋅s | Reduced Planck constant (ℏ = h/2π) |
-| `G` | 6.674e-11 | m³/(kg⋅s²) | Gravitational constant |
-| `e_charge` | 1.602e-19 | C | Elementary charge |
-| `m_e` | 9.109e-31 | kg | Electron mass |
-| `m_p` | 1.673e-27 | kg | Proton mass |
-| `m_n` | 1.675e-27 | kg | Neutron mass |
-| `k_B` | 1.381e-23 | J/K | Boltzmann constant |
-| `N_A` | 6.022e23 | 1/mol | Avogadro constant |
-| `R` | 8.314 | J/(mol⋅K) | Gas constant |
-| `epsilon_0` | 8.854e-12 | F/m | Vacuum permittivity |
-| `mu_0` | 1.257e-6 | H/m | Vacuum permeability |
-| `sigma` | 5.670e-8 | W/(m²⋅K⁴) | Stefan-Boltzmann constant |
-| `alpha` | 7.297e-3 | - | Fine-structure constant |
-| `Ry` | 1.097e7 | 1/m | Rydberg constant |
-| `a_0` | 5.292e-11 | m | Bohr radius |
-
-### Conversion Factors
-
-#### Angular (to radians)
-
-| Constant | Value | Converts |
-|----------|-------|----------|
-| `degree` | π/180 | Degrees → radians |
-| `arcmin` | π/10800 | Arcminutes → radians |
-| `arcsec` | π/648000 | Arcseconds → radians |
-
-#### Length (to meters)
-
-| Constant | Value | Converts |
-|----------|-------|----------|
-| `inch` | 0.0254 | Inches → meters |
-| `foot` | 0.3048 | Feet → meters |
-| `yard` | 0.9144 | Yards → meters |
-| `mile` | 1609.344 | Miles → meters |
-| `nautical_mile` | 1852 | Nautical miles → meters |
-
-#### Mass (to kilograms)
-
-| Constant | Value | Converts |
-|----------|-------|----------|
-| `gram` | 0.001 | Grams → kilograms |
-| `ounce` | 0.0283... | Ounces → kilograms |
-| `pound` | 0.4536... | Pounds → kilograms |
-| `tonne` | 1000 | Metric tons → kilograms |
-
-#### Temperature (to Kelvin)
-
-| Constant | Value | Converts |
-|----------|-------|----------|
-| `zero_Celsius` | 273.15 | Add to °C to get K |
-
-#### Time (to seconds)
-
-| Constant | Value | Converts |
-|----------|-------|----------|
-| `minute` | 60 | Minutes → seconds |
-| `hour` | 3600 | Hours → seconds |
-| `day` | 86400 | Days → seconds |
-| `week` | 604800 | Weeks → seconds |
-| `year` | 31557600 | Julian years → seconds |

@@ -10,6 +10,28 @@ Sandboxed file system operations restricted to explicitly allowed directories.
 
 > **Note**: IOModule requires explicit installation with configured allowed directories. Lua scripts can only access files within these directories.
 
+## Function Reference
+
+| Function | Description |
+|----------|-------------|
+| [read_file(path)](#read_file) | Read entire file content |
+| [write_file(path, content)](#write_file) | Write content to file (overwrites) |
+| [append_file(path, content)](#append_file) | Append content to file |
+| [exists(path)](#exists) | Check if path exists |
+| [is_file(path)](#is_file) | Check if path is a file |
+| [is_dir(path)](#is_dir) | Check if path is a directory |
+| [list_dir(path)](#list_dir) | List directory contents |
+| [mkdir(path, options?)](#mkdir) | Create directory |
+| [remove(path)](#remove) | Remove file or empty directory |
+| [rename(old_path, new_path)](#rename) | Rename or move file/directory |
+| [stat(path)](#stat) | Get file/directory information |
+| [path.join(...)](#pathjoin) | Join path components |
+| [path.basename(path)](#pathbasename) | Extract filename from path |
+| [path.dirname(path)](#pathdirname) | Extract directory from path |
+| [path.extension(path)](#pathextension) | Extract file extension |
+| [path.absolute(path)](#pathabsolute) | Convert to absolute path |
+| [path.normalize(path)](#pathnormalize) | Normalize path |
+
 ## Swift Setup (Required)
 
 ```swift
@@ -27,91 +49,354 @@ ModuleRegistry.installIOModule(in: engine)
 // Now Lua can access files within the Documents directory
 ```
 
-## File Operations
+---
 
-```lua
-local iox = require("luaswift.iox")
+## read_file
 
--- Read entire file
-local content = iox.read_file("/path/to/file.txt")
-
--- Write file (overwrites)
-iox.write_file("/path/to/file.txt", "content")
-
--- Append to file
-iox.append_file("/path/to/log.txt", "new line\n")
+```
+iox.read_file(path) -> string
 ```
 
-## Path Checks
+Read entire file content as a string.
+
+**Parameters:**
+- `path` - Absolute path to file (must be within allowed directories)
 
 ```lua
--- Check existence (returns false for disallowed paths, no error)
+local content = iox.read_file("/path/to/file.txt")
+print(content)
+```
+
+**Errors:** Throws if path is outside allowed directories or file cannot be read.
+
+---
+
+## write_file
+
+```
+iox.write_file(path, content)
+```
+
+Write content to file, overwriting if it exists.
+
+**Parameters:**
+- `path` - Absolute path to file (must be within allowed directories)
+- `content` - String content to write
+
+```lua
+iox.write_file("/path/to/file.txt", "Hello, World!")
+```
+
+**Errors:** Throws if path is outside allowed directories or write fails.
+
+---
+
+## append_file
+
+```
+iox.append_file(path, content)
+```
+
+Append content to end of file.
+
+**Parameters:**
+- `path` - Absolute path to file (must be within allowed directories)
+- `content` - String content to append
+
+```lua
+iox.append_file("/path/to/log.txt", "New log entry\n")
+```
+
+**Errors:** Throws if path is outside allowed directories or write fails.
+
+---
+
+## exists
+
+```
+iox.exists(path) -> boolean
+```
+
+Check if path exists. Returns `false` for paths outside allowed directories (no error).
+
+**Parameters:**
+- `path` - Path to check
+
+```lua
 if iox.exists("/path/to/file") then
     print("File exists")
 end
+```
 
--- Check type
+---
+
+## is_file
+
+```
+iox.is_file(path) -> boolean
+```
+
+Check if path exists and is a file. Returns `false` for paths outside allowed directories (no error).
+
+**Parameters:**
+- `path` - Path to check
+
+```lua
 if iox.is_file(path) then
     print("It's a file")
 end
+```
 
+---
+
+## is_dir
+
+```
+iox.is_dir(path) -> boolean
+```
+
+Check if path exists and is a directory. Returns `false` for paths outside allowed directories (no error).
+
+**Parameters:**
+- `path` - Path to check
+
+```lua
 if iox.is_dir(path) then
     print("It's a directory")
 end
 ```
 
-## Directory Operations
+---
+
+## list_dir
+
+```
+iox.list_dir(path) -> table
+```
+
+List directory contents as an array of filenames.
+
+**Parameters:**
+- `path` - Directory path (must be within allowed directories)
 
 ```lua
--- List directory contents
 local files = iox.list_dir("/path/to/dir")
 for _, name in ipairs(files) do
     print(name)
 end
+```
 
--- Create directory
+**Errors:** Throws if path is outside allowed directories or not a directory.
+
+---
+
+## mkdir
+
+```
+iox.mkdir(path, options?)
+```
+
+Create directory.
+
+**Parameters:**
+- `path` - Directory path to create (must be within allowed directories)
+- `options` (optional) - Table with options:
+  - `parents` (boolean): Create parent directories if needed (default: false)
+
+```lua
+-- Create single directory
 iox.mkdir("/path/to/newdir")
 
 -- Create nested directories
 iox.mkdir("/path/to/deep/nested/dir", {parents = true})
+```
 
--- Remove file or empty directory
+**Errors:** Throws if path is outside allowed directories, parent doesn't exist (without `parents = true`), or creation fails.
+
+---
+
+## remove
+
+```
+iox.remove(path)
+```
+
+Remove file or empty directory.
+
+**Parameters:**
+- `path` - Path to remove (must be within allowed directories)
+
+```lua
 iox.remove("/path/to/file.txt")
+```
 
--- Rename/move
+**Errors:** Throws if path is outside allowed directories, directory is not empty, or removal fails.
+
+---
+
+## rename
+
+```
+iox.rename(old_path, new_path)
+```
+
+Rename or move file/directory.
+
+**Parameters:**
+- `old_path` - Current path (must be within allowed directories)
+- `new_path` - New path (must be within allowed directories)
+
+```lua
 iox.rename("/path/old.txt", "/path/new.txt")
 ```
 
-## File Information
+**Errors:** Throws if either path is outside allowed directories or operation fails.
+
+---
+
+## stat
+
+```
+iox.stat(path) -> table
+```
+
+Get file or directory information.
+
+**Parameters:**
+- `path` - Path to inspect (must be within allowed directories)
+
+**Returns:** Table with fields:
+- `size` (number): File size in bytes
+- `is_file` (boolean): True if path is a file
+- `is_dir` (boolean): True if path is a directory
+- `modified` (number): Unix timestamp of last modification
+- `created` (number): Unix timestamp of creation
 
 ```lua
 local info = iox.stat("/path/to/file.txt")
-
-print(info.size)      -- File size in bytes
-print(info.is_file)   -- true
-print(info.is_dir)    -- false
-print(info.modified)  -- Unix timestamp (last modification)
-print(info.created)   -- Unix timestamp (creation)
+print("Size:", info.size)
+print("Modified:", info.modified)
+print("Is file:", info.is_file)
 ```
 
-## Path Utilities
+**Errors:** Throws if path is outside allowed directories or doesn't exist.
 
-Path utilities have no security restrictions - they just manipulate strings:
+---
+
+## path.join
+
+```
+iox.path.join(...) -> string
+```
+
+Join path components with platform-appropriate separator.
+
+**Parameters:**
+- `...` - Variable number of path components (strings)
 
 ```lua
--- Join path components
 local full = iox.path.join("dir", "subdir", "file.txt")
--- "dir/subdir/file.txt"
-
--- Extract components
-local name = iox.path.basename("/path/to/file.txt")  -- "file.txt"
-local dir = iox.path.dirname("/path/to/file.txt")    -- "/path/to"
-local ext = iox.path.extension("/path/to/file.txt")  -- "txt" or nil
-
--- Path manipulation
-local abs = iox.path.absolute("relative/path")
-local norm = iox.path.normalize("/path/../to/./file")  -- "/to/file"
+-- "dir/subdir/file.txt" on Unix
 ```
+
+**Note:** Path utilities have no security restrictions - they only manipulate strings.
+
+---
+
+## path.basename
+
+```
+iox.path.basename(path) -> string
+```
+
+Extract filename from path.
+
+**Parameters:**
+- `path` - File path
+
+```lua
+local name = iox.path.basename("/path/to/file.txt")
+-- "file.txt"
+```
+
+---
+
+## path.dirname
+
+```
+iox.path.dirname(path) -> string
+```
+
+Extract directory path (parent directory).
+
+**Parameters:**
+- `path` - File path
+
+```lua
+local dir = iox.path.dirname("/path/to/file.txt")
+-- "/path/to"
+```
+
+---
+
+## path.extension
+
+```
+iox.path.extension(path) -> string | nil
+```
+
+Extract file extension without the dot.
+
+**Parameters:**
+- `path` - File path
+
+**Returns:** Extension string or `nil` if no extension.
+
+```lua
+local ext = iox.path.extension("/path/to/file.txt")
+-- "txt"
+
+local none = iox.path.extension("/path/to/noext")
+-- nil
+```
+
+---
+
+## path.absolute
+
+```
+iox.path.absolute(path) -> string
+```
+
+Convert relative path to absolute path.
+
+**Parameters:**
+- `path` - Relative or absolute path
+
+```lua
+local abs = iox.path.absolute("relative/path")
+-- "/current/working/dir/relative/path"
+```
+
+---
+
+## path.normalize
+
+```
+iox.path.normalize(path) -> string
+```
+
+Normalize path by resolving `.` and `..` components.
+
+**Parameters:**
+- `path` - Path to normalize
+
+```lua
+local norm = iox.path.normalize("/path/../to/./file")
+-- "/to/file"
+```
+
+---
 
 ## Security Features
 
@@ -159,7 +444,7 @@ if not ok then
 end
 ```
 
-## Query Configuration
+### Query Configuration
 
 From Swift, check what directories are allowed:
 
@@ -168,7 +453,11 @@ let dirs = IOModule.getAllowedDirectories(for: engine)
 print(dirs)  // ["/Users/.../Documents", "/tmp"]
 ```
 
-## Example: Safe File Manager
+---
+
+## Examples
+
+### Safe File Manager
 
 ```lua
 local iox = require("luaswift.iox")

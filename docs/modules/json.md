@@ -8,9 +8,32 @@
 
 JSON encoding and decoding with support for nested structures, Unicode, and pretty printing.
 
-## Functions
+## Function Reference
 
-### decode(string)
+| Function | Description |
+|----------|-------------|
+| [decode(string)](#decode) | Parse JSON string to Lua value |
+| [encode(value, options?)](#encode) | Convert Lua value to JSON string |
+| [null](#null) | Sentinel value for JSON null |
+
+## Type Mapping
+
+| JSON | Lua |
+|------|-----|
+| object | table |
+| array | table (array) |
+| string | string |
+| number | number |
+| boolean | boolean |
+| null | json.null |
+
+---
+
+## decode
+
+```
+json.decode(string) -> value
+```
 
 Parse JSON string to Lua value.
 
@@ -28,9 +51,23 @@ local complex = json.decode('{"users": [{"id": 1}, {"id": 2}]}')
 print(complex.users[1].id)  -- 1
 ```
 
-### encode(value, options?)
+**Errors:** Throws on invalid JSON syntax.
+
+---
+
+## encode
+
+```
+json.encode(value, options?) -> string
+```
 
 Convert Lua value to JSON string.
+
+**Parameters:**
+- `value` - Lua value to encode (table, string, number, boolean, or json.null)
+- `options` (optional) - Table with encoding options:
+  - `pretty` (boolean): Enable pretty printing with newlines
+  - `indent` (number): Spaces per indentation level (default: 2)
 
 ```lua
 local str = json.encode({items = {1, 2, 3}, active = true})
@@ -44,13 +81,11 @@ local pretty = json.encode({a = 1, b = 2}, {pretty = true})
 local indented = json.encode({a = 1}, {pretty = true, indent = 4})
 ```
 
-**Options:**
-- `pretty` (boolean): Enable pretty printing with newlines
-- `indent` (number): Spaces per indentation level (default: 2)
+---
 
-### null
+## null
 
-Sentinel value for JSON null.
+Sentinel value representing JSON null.
 
 ```lua
 -- Decoding null
@@ -64,16 +99,7 @@ local str = json.encode({value = json.null})
 -- '{"value":null}'
 ```
 
-## Type Mapping
-
-| JSON | Lua |
-|------|-----|
-| object | table |
-| array | table (array) |
-| string | string |
-| number | number |
-| boolean | boolean |
-| null | json.null |
+---
 
 ## Examples
 
@@ -96,7 +122,6 @@ print(decoded.values[2])  -- 2
 ### Error Handling
 
 ```lua
--- Invalid JSON throws error
 local ok, err = pcall(function()
     json.decode('not valid json')
 end)
@@ -108,7 +133,7 @@ end
 ### Unicode Support
 
 ```lua
-local data = json.encode({greeting = "Hello, \u4e16\u754c"})
+local data = json.encode({greeting = "Hello, 世界"})
 local decoded = json.decode(data)
 print(decoded.greeting)  -- "Hello, 世界"
 ```

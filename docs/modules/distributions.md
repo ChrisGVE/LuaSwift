@@ -8,18 +8,30 @@
 
 The Distributions module provides scipy.stats-compatible probability distributions and statistical functions. Each distribution implements pdf, cdf, ppf (quantile), rvs (random samples), and moment methods.
 
-## Available Distributions
+## Function Reference
 
-### Continuous Distributions
-
-- **`norm`** - Normal (Gaussian) distribution
-- **`uniform`** - Uniform distribution
-- **`expon`** - Exponential distribution
-- **`t`** - Student's t distribution
-- **`chi2`** - Chi-squared distribution
-- **`f`** - F distribution
-- **`gamma_dist`** - Gamma distribution
-- **`beta_dist`** - Beta distribution
+| Function | Description |
+|----------|-------------|
+| **Distributions** | |
+| [norm](#norm) | Normal (Gaussian) distribution |
+| [uniform](#uniform) | Uniform distribution |
+| [expon](#expon) | Exponential distribution |
+| [t](#t) | Student's t distribution |
+| [chi2](#chi2) | Chi-squared distribution |
+| [f](#f) | F distribution |
+| [gamma_dist](#gamma_dist) | Gamma distribution |
+| [beta_dist](#beta_dist) | Beta distribution |
+| **Hypothesis Tests** | |
+| [ttest_1samp(sample, popmean)](#ttest_1samp) | One-sample t-test |
+| [ttest_ind(s1, s2, equal_var)](#ttest_ind) | Independent two-sample t-test |
+| [pearsonr(x, y)](#pearsonr) | Pearson correlation coefficient |
+| [spearmanr(x, y)](#spearmanr) | Spearman rank correlation |
+| **Descriptive Statistics** | |
+| [describe(data)](#describe) | Comprehensive statistics |
+| [zscore(data, ddof)](#zscore) | Standardized z-scores |
+| [skew(data)](#skew) | Distribution skewness |
+| [kurtosis(data, fisher)](#kurtosis) | Distribution kurtosis |
+| [mode(data)](#mode) | Most frequent value |
 
 ## Distribution Methods
 
@@ -41,28 +53,11 @@ Most distributions follow the scipy convention:
 
 Default values: `loc=0`, `scale=1`
 
-## Basic Usage
+---
 
-```lua
-luaswift.extend_stdlib()
+## norm
 
--- Normal distribution N(0, 1)
-local p = math.stats.norm.pdf(0)        -- 0.3989
-local q = math.stats.norm.cdf(1.96)     -- 0.975
-local x = math.stats.norm.ppf(0.975)    -- 1.96
-local samples = math.stats.norm.rvs(100) -- 100 samples
-
--- Normal distribution N(5, 2)
-local mu, sigma = 5, 2
-local p2 = math.stats.norm.pdf(5, mu, sigma)
-local samples2 = math.stats.norm.rvs(100, mu, sigma)
 ```
-
-## Distributions Reference
-
-### Normal Distribution
-
-```lua
 math.stats.norm
 ```
 
@@ -72,9 +67,11 @@ Standard normal distribution (Gaussian).
 - `loc` - Mean (default: 0)
 - `scale` - Standard deviation (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
+luaswift.extend_stdlib()
+
 -- Standard normal N(0, 1)
 print(math.stats.norm.pdf(0))         -- 0.3989
 print(math.stats.norm.cdf(1.96))      -- 0.975
@@ -89,9 +86,11 @@ print(math.stats.norm.std(mu, sigma))   -- 15
 local samples = math.stats.norm.rvs(1000, mu, sigma)
 ```
 
-### Uniform Distribution
+---
 
-```lua
+## uniform
+
+```
 math.stats.uniform
 ```
 
@@ -101,7 +100,7 @@ Uniform distribution on interval [loc, loc + scale].
 - `loc` - Lower bound (default: 0)
 - `scale` - Width of interval (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
 -- Uniform on [0, 1]
@@ -117,9 +116,11 @@ print(math.stats.uniform.mean(a, width))     -- 15
 local samples = math.stats.uniform.rvs(100, 0, 100)
 ```
 
-### Exponential Distribution
+---
 
-```lua
+## expon
+
+```
 math.stats.expon
 ```
 
@@ -129,7 +130,7 @@ Exponential distribution (continuous analog of geometric).
 - `loc` - Location shift (default: 0)
 - `scale` - 1/lambda, where lambda is rate parameter (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
 -- Standard exponential (rate=1)
@@ -146,9 +147,11 @@ print(math.stats.expon.std(0, scale))   -- 2.0
 local wait_times = math.stats.expon.rvs(100, 0, 5)
 ```
 
-### Student's t Distribution
+---
 
-```lua
+## t
+
+```
 math.stats.t
 ```
 
@@ -159,7 +162,7 @@ Student's t distribution (heavy-tailed, used in t-tests).
 - `loc` - Location (default: 0)
 - `scale` - Scale (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
 -- t distribution with 10 degrees of freedom
@@ -177,9 +180,11 @@ print(math.stats.t.var(2))            -- inf
 print(math.stats.t.var(3))            -- 3.0
 ```
 
-### Chi-squared Distribution
+---
 
-```lua
+## chi2
+
+```
 math.stats.chi2
 ```
 
@@ -190,7 +195,7 @@ Chi-squared distribution (sum of squared normals).
 - `loc` - Location shift (default: 0)
 - `scale` - Scale factor (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
 -- Chi-squared with 5 degrees of freedom
@@ -207,9 +212,11 @@ print(math.stats.chi2.var(df))        -- 10
 local samples = math.stats.chi2.rvs(1000, df)
 ```
 
-### F Distribution
+---
 
-```lua
+## f
+
+```
 math.stats.f
 ```
 
@@ -221,7 +228,7 @@ F distribution (ratio of chi-squared distributions).
 - `loc` - Location shift (default: 0)
 - `scale` - Scale factor (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
 -- F distribution with (5, 10) degrees of freedom
@@ -239,9 +246,11 @@ print(math.stats.f.var(dfn, dfd))         -- 1.354
 local f_stats = math.stats.f.rvs(100, dfn, dfd)
 ```
 
-### Gamma Distribution
+---
 
-```lua
+## gamma_dist
+
+```
 math.stats.gamma_dist
 ```
 
@@ -252,7 +261,7 @@ Gamma distribution (generalization of chi-squared and exponential).
 - `loc` - Location shift (default: 0)
 - `scale` - Scale factor (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
 -- Gamma(2, 1) distribution
@@ -271,9 +280,11 @@ print(math.stats.gamma_dist.pdf(1, 1))        -- 0.3679
 print(math.stats.expon.pdf(1))                -- 0.3679
 ```
 
-### Beta Distribution
+---
 
-```lua
+## beta_dist
+
+```
 math.stats.beta_dist
 ```
 
@@ -285,7 +296,7 @@ Beta distribution on [0, 1] (useful for probabilities).
 - `loc` - Location shift (default: 0)
 - `scale` - Scale factor (default: 1)
 
-**Examples:**
+**Methods:** `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`
 
 ```lua
 -- Symmetric Beta(2, 2)
@@ -304,21 +315,21 @@ print(math.stats.beta_dist.pdf(0.7, 1, 1))    -- 1.0
 print(math.stats.uniform.pdf(0.7))            -- 1.0
 ```
 
-## Statistical Functions
+---
 
-### Hypothesis Tests
+## ttest_1samp
 
-#### One-Sample t-test
-
-```lua
-math.stats.ttest_1samp(sample, popmean)
+```
+math.stats.ttest_1samp(sample, popmean) -> statistic, pvalue
 ```
 
 Test if sample mean differs from population mean.
 
-**Returns:** `statistic, pvalue`
+**Parameters:**
+- `sample` - Array of observed values
+- `popmean` - Hypothesized population mean
 
-**Example:**
+**Returns:** `statistic, pvalue`
 
 ```lua
 local data = {5.1, 4.9, 5.0, 5.2, 4.8}
@@ -326,22 +337,22 @@ local t, p = math.stats.ttest_1samp(data, 5.0)
 print(string.format("t=%.3f, p=%.3f", t, p))  -- t=0.000, p=1.000
 ```
 
-#### Two-Sample t-test
+---
 
-```lua
-math.stats.ttest_ind(sample1, sample2, equal_var)
+## ttest_ind
+
+```
+math.stats.ttest_ind(sample1, sample2, equal_var) -> statistic, pvalue
 ```
 
 Compare means of two independent samples.
 
 **Parameters:**
-- `sample1` - First sample
-- `sample2` - Second sample
-- `equal_var` - Assume equal variance (default: true)
+- `sample1` - First sample array
+- `sample2` - Second sample array
+- `equal_var` - Assume equal variance (default: true). If false, uses Welch's t-test.
 
 **Returns:** `statistic, pvalue`
-
-**Example:**
 
 ```lua
 local group1 = {5.1, 4.9, 5.0, 5.2}
@@ -356,17 +367,21 @@ local t2, p2 = math.stats.ttest_ind(group1, group2, false)
 print(string.format("t=%.3f, p=%.3f", t2, p2))
 ```
 
-#### Pearson Correlation
+---
 
-```lua
-math.stats.pearsonr(x, y)
+## pearsonr
+
+```
+math.stats.pearsonr(x, y) -> correlation, pvalue
 ```
 
 Compute Pearson correlation coefficient and p-value.
 
-**Returns:** `correlation, pvalue`
+**Parameters:**
+- `x` - First data array
+- `y` - Second data array (must be same length as x)
 
-**Example:**
+**Returns:** `correlation, pvalue`
 
 ```lua
 local x = {1, 2, 3, 4, 5}
@@ -375,17 +390,21 @@ local r, p = math.stats.pearsonr(x, y)
 print(string.format("r=%.3f, p=%.3f", r, p))  -- r=0.832, p=0.080
 ```
 
-#### Spearman Correlation
+---
 
-```lua
-math.stats.spearmanr(x, y)
+## spearmanr
+
+```
+math.stats.spearmanr(x, y) -> correlation, pvalue
 ```
 
 Compute Spearman rank correlation coefficient (non-parametric).
 
-**Returns:** `correlation, pvalue`
+**Parameters:**
+- `x` - First data array
+- `y` - Second data array (must be same length as x)
 
-**Example:**
+**Returns:** `correlation, pvalue`
 
 ```lua
 local x = {1, 2, 3, 4, 5}
@@ -394,19 +413,20 @@ local rho, p = math.stats.spearmanr(x, y)
 print(string.format("rho=%.3f, p=%.3f", rho, p))  -- rho=0.821, p=0.089
 ```
 
-### Descriptive Statistics
+---
 
-#### Comprehensive Description
+## describe
 
-```lua
-math.stats.describe(data)
+```
+math.stats.describe(data) -> table
 ```
 
 Compute comprehensive descriptive statistics.
 
-**Returns:** Table with keys: `nobs`, `min`, `max`, `mean`, `variance`, `skewness`, `kurtosis`
+**Parameters:**
+- `data` - Array of values
 
-**Example:**
+**Returns:** Table with keys: `nobs`, `min`, `max`, `mean`, `variance`, `skewness`, `kurtosis`
 
 ```lua
 local data = {1, 2, 3, 4, 5, 6, 7, 8, 9}
@@ -420,10 +440,12 @@ print("Skewness:", desc.skewness)      -- 0.0
 print("Kurtosis:", desc.kurtosis)      -- -1.2
 ```
 
-#### Z-scores
+---
 
-```lua
-math.stats.zscore(data, ddof)
+## zscore
+
+```
+math.stats.zscore(data, ddof) -> array
 ```
 
 Compute standardized z-scores.
@@ -433,8 +455,6 @@ Compute standardized z-scores.
 - `ddof` - Delta degrees of freedom (default: 0)
 
 **Returns:** Array of z-scores
-
-**Example:**
 
 ```lua
 local data = {1, 2, 3, 4, 5}
@@ -447,17 +467,20 @@ end
 -- z[4] = 0.632, z[5] = 1.265
 ```
 
-#### Skewness
+---
 
-```lua
-math.stats.skew(data)
+## skew
+
+```
+math.stats.skew(data) -> number
 ```
 
 Compute Fisher's skewness (asymmetry measure).
 
-**Returns:** Skewness value
+**Parameters:**
+- `data` - Array of values
 
-**Example:**
+**Returns:** Skewness value (0 = symmetric, positive = right skew, negative = left skew)
 
 ```lua
 local symmetric = {1, 2, 3, 4, 5}
@@ -467,10 +490,12 @@ print(math.stats.skew(symmetric))      -- ~0.0
 print(math.stats.skew(right_skewed))   -- ~1.3 (positive)
 ```
 
-#### Kurtosis
+---
 
-```lua
-math.stats.kurtosis(data, fisher)
+## kurtosis
+
+```
+math.stats.kurtosis(data, fisher) -> number
 ```
 
 Compute kurtosis (tail weight measure).
@@ -480,8 +505,6 @@ Compute kurtosis (tail weight measure).
 - `fisher` - Use Fisher's definition (excess kurtosis, default: true)
 
 **Returns:** Kurtosis value
-
-**Example:**
 
 ```lua
 local data = {1, 2, 3, 4, 5}
@@ -493,17 +516,20 @@ print(math.stats.kurtosis(data, true))   -- -1.3
 print(math.stats.kurtosis(data, false))  -- 1.7
 ```
 
-#### Mode
+---
 
-```lua
-math.stats.mode(data)
+## mode
+
+```
+math.stats.mode(data) -> table
 ```
 
 Find the most frequent value.
 
-**Returns:** Table with keys: `mode`, `count`
+**Parameters:**
+- `data` - Array of values
 
-**Example:**
+**Returns:** Table with keys: `mode`, `count`
 
 ```lua
 local data = {1, 2, 2, 3, 3, 3, 4}
@@ -513,7 +539,26 @@ print("Mode:", result.mode)      -- 3
 print("Count:", result.count)    -- 3
 ```
 
-## Advanced Examples
+---
+
+## Examples
+
+### Basic Usage
+
+```lua
+luaswift.extend_stdlib()
+
+-- Normal distribution N(0, 1)
+local p = math.stats.norm.pdf(0)        -- 0.3989
+local q = math.stats.norm.cdf(1.96)     -- 0.975
+local x = math.stats.norm.ppf(0.975)    -- 1.96
+local samples = math.stats.norm.rvs(100) -- 100 samples
+
+-- Normal distribution N(5, 2)
+local mu, sigma = 5, 2
+local p2 = math.stats.norm.pdf(5, mu, sigma)
+local samples2 = math.stats.norm.rvs(100, mu, sigma)
+```
 
 ### Monte Carlo Simulation
 
@@ -611,30 +656,7 @@ end
 print(string.format("KS statistic: %.4f", max_diff))
 ```
 
-## Function Reference
-
-| Function | Description |
-|----------|-------------|
-| **Distributions** | |
-| `norm.pdf/cdf/ppf/rvs/mean/var/std` | Normal distribution |
-| `uniform.pdf/cdf/ppf/rvs/mean/var/std` | Uniform distribution |
-| `expon.pdf/cdf/ppf/rvs/mean/var/std` | Exponential distribution |
-| `t.pdf/cdf/ppf/rvs/mean/var/std` | Student's t distribution |
-| `chi2.pdf/cdf/ppf/rvs/mean/var/std` | Chi-squared distribution |
-| `f.pdf/cdf/ppf/rvs/mean/var/std` | F distribution |
-| `gamma_dist.pdf/cdf/ppf/rvs/mean/var/std` | Gamma distribution |
-| `beta_dist.pdf/cdf/ppf/rvs/mean/var/std` | Beta distribution |
-| **Hypothesis Tests** | |
-| `ttest_1samp(sample, popmean)` | One-sample t-test |
-| `ttest_ind(s1, s2, equal_var)` | Independent two-sample t-test |
-| `pearsonr(x, y)` | Pearson correlation coefficient |
-| `spearmanr(x, y)` | Spearman rank correlation |
-| **Descriptive Statistics** | |
-| `describe(data)` | Comprehensive statistics |
-| `zscore(data, ddof)` | Standardized z-scores |
-| `skew(data)` | Distribution skewness |
-| `kurtosis(data, fisher)` | Distribution kurtosis |
-| `mode(data)` | Most frequent value |
+---
 
 ## Implementation Notes
 

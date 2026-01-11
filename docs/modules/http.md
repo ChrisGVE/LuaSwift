@@ -24,66 +24,69 @@ ModuleRegistry.installHTTPModule(in: engine)
 ModuleRegistry.installJSONModule(in: engine)
 ```
 
-## HTTP Methods
+## Function Reference
+
+| Function | Description |
+|----------|-------------|
+| [get(url, options?)](#get) | HTTP GET request |
+| [post(url, options?)](#post) | HTTP POST request |
+| [put(url, options?)](#put) | HTTP PUT request |
+| [patch(url, options?)](#patch) | HTTP PATCH request |
+| [delete(url, options?)](#delete) | HTTP DELETE request |
+| [head(url, options?)](#head) | HTTP HEAD request (headers only) |
+| [options(url, options?)](#options) | HTTP OPTIONS request |
+| [request(method, url, options?)](#request) | Generic request with any method |
+
+## Response Object
+
+All HTTP functions return a response object with the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | number | HTTP status code (200, 404, 500, etc.) |
+| `ok` | boolean | true if status is 200-299 |
+| `headers` | table | Response headers |
+| `body` | string | Response body |
+| `url` | string | Final URL after redirects |
+
+## Request Options
+
+All HTTP functions accept an optional options table:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `headers` | table | {} | Request headers |
+| `body` | string | nil | Raw body content |
+| `json` | table | nil | Table auto-encoded as JSON |
+| `timeout` | number | 30 | Timeout in seconds |
+| `follow_redirects` | boolean | true | Follow HTTP redirects |
+
+---
+
+## get
+
+```
+http.get(url, options?) -> response
+```
+
+Perform an HTTP GET request.
+
+**Parameters:**
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, `body`, and `url` fields.
 
 ```lua
 local http = require("luaswift.http")
 
--- GET request
-local resp = http.get("https://api.example.com/data")
-
--- POST request
-local resp = http.post("https://api.example.com/users", options)
-
--- Other methods
-http.put(url, options)
-http.patch(url, options)
-http.delete(url, options)
-http.head(url, options)    -- Returns headers only, empty body
-http.options(url, options)
-
--- Generic request function
-http.request("GET", url, options)
-```
-
-## Response Object
-
-```lua
-local resp = http.get("https://api.example.com/data")
-
-resp.status   -- HTTP status code (number): 200, 404, 500, etc.
-resp.ok       -- true if status is 200-299 (boolean)
-resp.headers  -- Response headers (table)
-resp.body     -- Response body (string)
-resp.url      -- Final URL after redirects (string)
-```
-
-## Request Options
-
-```lua
-{
-    headers = {},            -- Table of request headers
-    body = "string",         -- Raw body content
-    json = {},               -- Table auto-encoded as JSON
-    timeout = 30,            -- Timeout in seconds (default: 30)
-    follow_redirects = true  -- Follow HTTP redirects (default: true)
-}
-```
-
-## Examples
-
-### Simple GET
-
-```lua
+-- Simple GET
 local resp = http.get("https://api.github.com/users/octocat")
 print(resp.status)  -- 200
 print(resp.ok)      -- true
 print(resp.body)    -- JSON string
-```
 
-### GET with Headers
-
-```lua
+-- GET with headers
 local resp = http.get("https://api.example.com/data", {
     headers = {
         ["Authorization"] = "Bearer token123",
@@ -92,23 +95,188 @@ local resp = http.get("https://api.example.com/data", {
 })
 ```
 
-### POST with JSON
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## post
+
+```
+http.post(url, options?) -> response
+```
+
+Perform an HTTP POST request.
+
+**Parameters:**
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, `body`, and `url` fields.
 
 ```lua
--- Auto-sets Content-Type: application/json
+-- POST with JSON (auto-sets Content-Type: application/json)
 local resp = http.post("https://api.example.com/users", {
     json = {name = "John", email = "john@example.com"}
 })
-```
 
-### POST with Raw Body
-
-```lua
+-- POST with raw body
 local resp = http.post("https://api.example.com/data", {
     headers = {["Content-Type"] = "text/plain"},
     body = "Raw content here"
 })
 ```
+
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## put
+
+```
+http.put(url, options?) -> response
+```
+
+Perform an HTTP PUT request.
+
+**Parameters:**
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, `body`, and `url` fields.
+
+```lua
+local resp = http.put("https://api.example.com/users/123", {
+    json = {name = "Jane", email = "jane@example.com"}
+})
+```
+
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## patch
+
+```
+http.patch(url, options?) -> response
+```
+
+Perform an HTTP PATCH request.
+
+**Parameters:**
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, `body`, and `url` fields.
+
+```lua
+local resp = http.patch("https://api.example.com/users/123", {
+    json = {email = "newemail@example.com"}
+})
+```
+
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## delete
+
+```
+http.delete(url, options?) -> response
+```
+
+Perform an HTTP DELETE request.
+
+**Parameters:**
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, `body`, and `url` fields.
+
+```lua
+local resp = http.delete("https://api.example.com/users/123", {
+    headers = {["Authorization"] = "Bearer token123"}
+})
+```
+
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## head
+
+```
+http.head(url, options?) -> response
+```
+
+Perform an HTTP HEAD request. Returns only headers, with an empty body.
+
+**Parameters:**
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, empty `body`, and `url` fields.
+
+```lua
+local resp = http.head("https://api.example.com/large-file")
+print(resp.headers["Content-Length"])
+print(resp.body)  -- "" (empty)
+```
+
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## options
+
+```
+http.options(url, options?) -> response
+```
+
+Perform an HTTP OPTIONS request.
+
+**Parameters:**
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, `body`, and `url` fields.
+
+```lua
+local resp = http.options("https://api.example.com/endpoint")
+print(resp.headers["Allow"])  -- "GET, POST, PUT, DELETE"
+```
+
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## request
+
+```
+http.request(method, url, options?) -> response
+```
+
+Generic request function supporting any HTTP method.
+
+**Parameters:**
+- `method` (string) - HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, etc.)
+- `url` (string) - The URL to request
+- `options` (table, optional) - Request options (see Request Options above)
+
+**Returns:** Response object with `status`, `ok`, `headers`, `body`, and `url` fields.
+
+```lua
+-- Custom method
+local resp = http.request("PROPFIND", "https://webdav.example.com/files")
+
+-- Equivalent to http.get()
+local resp = http.request("GET", "https://api.example.com/data")
+```
+
+**Errors:** Throws on invalid URL, network errors, or timeout.
+
+---
+
+## Examples
 
 ### Fetching and Parsing JSON
 
@@ -144,7 +312,7 @@ local resp = http.get("https://example.com/redirect", {
 -- resp.headers["Location"] contains redirect URL
 ```
 
-## Error Handling
+### Error Handling
 
 ```lua
 -- Invalid URLs throw errors
@@ -172,6 +340,8 @@ if not ok then
 end
 ```
 
+---
+
 ## Security Considerations
 
 - HTTPModule is **not** included in `ModuleRegistry.installModules()` by default
@@ -179,16 +349,3 @@ end
 - This allows apps to control whether Lua scripts can make network requests
 - Consider your app's security requirements before enabling
 - All requests go through URLSession with standard iOS/macOS security
-
-## Function Reference
-
-| Function | Description |
-|----------|-------------|
-| `get(url, options?)` | HTTP GET request |
-| `post(url, options?)` | HTTP POST request |
-| `put(url, options?)` | HTTP PUT request |
-| `patch(url, options?)` | HTTP PATCH request |
-| `delete(url, options?)` | HTTP DELETE request |
-| `head(url, options?)` | HTTP HEAD request (headers only) |
-| `options(url, options?)` | HTTP OPTIONS request |
-| `request(method, url, options?)` | Generic request with any method |

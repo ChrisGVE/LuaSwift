@@ -8,103 +8,52 @@
 
 YAML encoding and decoding for Lua tables. Powered by the Yams library, this module enables seamless conversion between Lua data structures and YAML format, including support for multi-document YAML files.
 
-## Basic Usage
+## Function Reference
 
-```lua
-local yaml = require("luaswift.yaml")
+| Function | Description |
+|----------|-------------|
+| [decode(yaml_string)](#decode) | Parse YAML string to Lua value |
+| [encode(value)](#encode) | Convert Lua value to YAML string |
+| [decode_all(yaml_string)](#decode_all) | Parse multi-document YAML to array of values |
+| [encode_all(documents)](#encode_all) | Convert array of values to multi-document YAML |
 
--- Decode YAML to Lua table
-local config = yaml.decode([[
-name: LuaSwift
-version: 1.0
-features:
-  - YAML support
-  - JSON support
-  - Multi-document parsing
-]])
+## Type Mapping
 
-print(config.name)  -- "LuaSwift"
-print(config.version)  -- 1.0
-print(config.features[1])  -- "YAML support"
+### Lua to YAML
 
--- Encode Lua table to YAML
-local data = {
-    name = "John Doe",
-    age = 30,
-    languages = {"Lua", "Swift", "Python"}
-}
+| Lua Type | YAML Type | Notes |
+|----------|-----------|-------|
+| `nil` | `null` | Empty or tilde notation |
+| `boolean` | `true`/`false` | Boolean literals |
+| `number` (integer) | Integer | When no fractional part |
+| `number` (float) | Float | When fractional part present |
+| `string` | String | Quoted or unquoted as needed |
+| `table` (dict) | Mapping | Key-value pairs |
+| `array` | Sequence | Array elements with `-` markers |
+| `complex` | Mapping | Special structure: `{__type: "complex", re: x, im: y}` |
 
-local yaml_str = yaml.encode(data)
-print(yaml_str)
--- Output:
--- age: 30
--- languages:
--- - Lua
--- - Swift
--- - Python
--- name: John Doe
+### YAML to Lua
+
+| YAML Type | Lua Type | Notes |
+|-----------|----------|-------|
+| `null`, `~`, empty | `nil` | All null variants |
+| `true`/`false` | `boolean` | Boolean values |
+| Integer literal | `number` | Converted to double |
+| Float literal | `number` | Native double |
+| String | `string` | Unescaped |
+| Mapping | `table` | Dictionary with string keys |
+| Sequence | `array` | Numeric-indexed table |
+| Alias | Resolved | Anchors resolved during parsing |
+
+---
+
+## decode
+
+```
+yaml.decode(yaml_string) -> value
 ```
 
-## Functions
-
-### encode(value)
-
-Converts a Lua value to a YAML string.
-
-**Parameters:**
-- `value` - Any Lua value (table, array, string, number, boolean, nil)
-
-**Returns:**
-- String containing YAML representation
-
-**Example:**
-
-```lua
-local yaml = require("luaswift.yaml")
-
--- Simple types
-print(yaml.encode(42))  -- "42\n"
-print(yaml.encode("hello"))  -- "hello\n"
-print(yaml.encode(true))  -- "true\n"
-
--- Tables
-local person = {
-    name = "Alice",
-    age = 28,
-    active = true
-}
-print(yaml.encode(person))
--- age: 28
--- active: true
--- name: Alice
-
--- Arrays
-local colors = {"red", "green", "blue"}
-print(yaml.encode(colors))
--- - red
--- - green
--- - blue
-
--- Nested structures
-local project = {
-    name = "MyApp",
-    dependencies = {
-        {name = "LuaSwift", version = "1.0"},
-        {name = "OtherLib", version = "2.1"}
-    }
-}
-print(yaml.encode(project))
--- dependencies:
--- - name: LuaSwift
---   version: '1.0'
--- - name: OtherLib
---   version: '2.1'
--- name: MyApp
-```
-
-### decode(yaml_string)
-
-Parses a YAML string and returns a Lua value.
+Parse YAML string to Lua value.
 
 **Parameters:**
 - `yaml_string` - String containing YAML data
@@ -112,11 +61,7 @@ Parses a YAML string and returns a Lua value.
 **Returns:**
 - Lua value (table, array, string, number, boolean, or nil)
 
-**Example:**
-
 ```lua
-local yaml = require("luaswift.yaml")
-
 -- Decode simple YAML
 local num = yaml.decode("42")
 print(num)  -- 42
@@ -162,21 +107,125 @@ print(data.value2)  -- nil
 print(data.value3)  -- nil
 ```
 
-### encode_all(documents)
+---
 
-Encodes multiple Lua values as a multi-document YAML string. Documents are separated by `---` markers.
+## encode
+
+```
+yaml.encode(value) -> string
+```
+
+Convert Lua value to YAML string.
+
+**Parameters:**
+- `value` - Any Lua value (table, array, string, number, boolean, nil)
+
+**Returns:**
+- String containing YAML representation
+
+```lua
+-- Simple types
+print(yaml.encode(42))  -- "42\n"
+print(yaml.encode("hello"))  -- "hello\n"
+print(yaml.encode(true))  -- "true\n"
+
+-- Tables
+local person = {
+    name = "Alice",
+    age = 28,
+    active = true
+}
+print(yaml.encode(person))
+-- age: 28
+-- active: true
+-- name: Alice
+
+-- Arrays
+local colors = {"red", "green", "blue"}
+print(yaml.encode(colors))
+-- - red
+-- - green
+-- - blue
+
+-- Nested structures
+local project = {
+    name = "MyApp",
+    dependencies = {
+        {name = "LuaSwift", version = "1.0"},
+        {name = "OtherLib", version = "2.1"}
+    }
+}
+print(yaml.encode(project))
+-- dependencies:
+-- - name: LuaSwift
+--   version: '1.0'
+-- - name: OtherLib
+--   version: '2.1'
+-- name: MyApp
+```
+
+---
+
+## decode_all
+
+```
+yaml.decode_all(yaml_string) -> array
+```
+
+Parse multi-document YAML string to array of Lua values.
+
+**Parameters:**
+- `yaml_string` - String containing multi-document YAML (with `---` separators)
+
+**Returns:**
+- Array of Lua values
+
+```lua
+local yaml_str = [[
+---
+name: Config 1
+enabled: true
+---
+name: Config 2
+enabled: false
+---
+name: Config 3
+enabled: true
+]]
+
+local docs = yaml.decode_all(yaml_str)
+print(#docs)  -- 3
+print(docs[1].name)  -- "Config 1"
+print(docs[1].enabled)  -- true
+print(docs[2].enabled)  -- false
+
+-- Process all documents
+for i, doc in ipairs(docs) do
+    print(string.format("Document %d: %s (enabled=%s)",
+        i, doc.name, tostring(doc.enabled)))
+end
+-- Document 1: Config 1 (enabled=true)
+-- Document 2: Config 2 (enabled=false)
+-- Document 3: Config 3 (enabled=true)
+```
+
+---
+
+## encode_all
+
+```
+yaml.encode_all(documents) -> string
+```
+
+Encode multiple Lua values as multi-document YAML string.
 
 **Parameters:**
 - `documents` - Array of Lua values
 
 **Returns:**
-- String containing multi-document YAML
-
-**Example:**
+- String containing multi-document YAML (documents separated by `---`)
 
 ```lua
-local yaml = require("luaswift.yaml")
-
 local docs = {
     {name = "Document 1", type = "config"},
     {name = "Document 2", type = "data"},
@@ -215,84 +264,13 @@ print(yaml.encode_all(mixed))
 -- 42
 ```
 
-### decode_all(yaml_string)
-
-Parses a multi-document YAML string and returns an array of Lua values.
-
-**Parameters:**
-- `yaml_string` - String containing multi-document YAML (with `---` separators)
-
-**Returns:**
-- Array of Lua values
-
-**Example:**
-
-```lua
-local yaml = require("luaswift.yaml")
-
-local yaml_str = [[
 ---
-name: Config 1
-enabled: true
----
-name: Config 2
-enabled: false
----
-name: Config 3
-enabled: true
-]]
 
-local docs = yaml.decode_all(yaml_str)
-print(#docs)  -- 3
-print(docs[1].name)  -- "Config 1"
-print(docs[1].enabled)  -- true
-print(docs[2].enabled)  -- false
-
--- Process all documents
-for i, doc in ipairs(docs) do
-    print(string.format("Document %d: %s (enabled=%s)",
-        i, doc.name, tostring(doc.enabled)))
-end
--- Document 1: Config 1 (enabled=true)
--- Document 2: Config 2 (enabled=false)
--- Document 3: Config 3 (enabled=true)
-```
-
-## Type Mapping
-
-### Lua to YAML
-
-| Lua Type | YAML Type | Notes |
-|----------|-----------|-------|
-| `nil` | `null` | Empty or tilde notation |
-| `boolean` | `true`/`false` | Boolean literals |
-| `number` (integer) | Integer | When no fractional part |
-| `number` (float) | Float | When fractional part present |
-| `string` | String | Quoted or unquoted as needed |
-| `table` (dict) | Mapping | Key-value pairs |
-| `array` | Sequence | Array elements with `-` markers |
-| `complex` | Mapping | Special structure: `{__type: "complex", re: x, im: y}` |
-
-### YAML to Lua
-
-| YAML Type | Lua Type | Notes |
-|-----------|----------|-------|
-| `null`, `~`, empty | `nil` | All null variants |
-| `true`/`false` | `boolean` | Boolean values |
-| Integer literal | `number` | Converted to double |
-| Float literal | `number` | Native double |
-| String | `string` | Unescaped |
-| Mapping | `table` | Dictionary with string keys |
-| Sequence | `array` | Numeric-indexed table |
-| Alias | Resolved | Anchors resolved during parsing |
-
-## Practical Examples
+## Examples
 
 ### Configuration Files
 
 ```lua
-local yaml = require("luaswift.yaml")
-
 -- Write configuration
 local config = {
     app = {
@@ -322,8 +300,6 @@ print(loaded_config.server.port)  -- 8080
 ### Data Serialization
 
 ```lua
-local yaml = require("luaswift.yaml")
-
 -- Serialize game state
 local save_data = {
     player = {
@@ -348,8 +324,6 @@ print(restored.player.inventory[1])  -- "sword"
 ### Multi-Document Processing
 
 ```lua
-local yaml = require("luaswift.yaml")
-
 -- Process multiple API responses
 local api_responses = yaml.decode_all([[
 ---
@@ -381,8 +355,6 @@ print(successful[1].username)  -- "alice"
 ### Complex Numbers
 
 ```lua
-local yaml = require("luaswift.yaml")
-
 -- YAML doesn't natively support complex numbers,
 -- so they're encoded as special dictionaries
 local data = {
@@ -402,11 +374,9 @@ print(decoded.result.re)  -- 3.0
 print(decoded.result.im)  -- 4.0
 ```
 
-## Error Handling
+### Error Handling
 
 ```lua
-local yaml = require("luaswift.yaml")
-
 -- Wrap operations in pcall for error handling
 local success, result = pcall(yaml.decode, "invalid: yaml: content:")
 if not success then
@@ -421,12 +391,3 @@ else
     print("Encoding failed:", yaml_str)
 end
 ```
-
-## Function Reference
-
-| Function | Parameters | Returns | Description |
-|----------|------------|---------|-------------|
-| `encode` | `value` | `string` | Encode Lua value to YAML string |
-| `decode` | `yaml_string` | `any` | Decode YAML string to Lua value |
-| `encode_all` | `documents` (array) | `string` | Encode multiple documents to multi-document YAML |
-| `decode_all` | `yaml_string` | `array` | Decode multi-document YAML to array of values |

@@ -8,10 +8,58 @@
 
 High-performance complex number arithmetic using Swift's native math library (Darwin). Provides comprehensive support for complex operations including trigonometric, hyperbolic, exponential, and logarithmic functions.
 
-## Creating Complex Numbers
+## Function Reference
 
-### `complex.new(re, im)`
+| Function | Description |
+|----------|-------------|
+| [new(re, im)](#new) | Create from Cartesian coordinates |
+| [from_polar(r, theta)](#from_polar) | Create from polar coordinates |
+| [abs()](#abs) | Magnitude/absolute value |
+| [arg()](#arg) | Argument/phase angle |
+| [conj()](#conj) | Complex conjugate |
+| [polar()](#polar) | Convert to polar form |
+| [pow(n)](#pow) | Raise to power |
+| [sqrt()](#sqrt) | Principal square root |
+| [exp()](#exp) | Exponential e^z |
+| [log()](#log) | Natural logarithm |
+| [sin()](#sin) | Sine |
+| [cos()](#cos) | Cosine |
+| [tan()](#tan) | Tangent |
+| [asin()](#asin) | Arcsine |
+| [acos()](#acos) | Arccosine |
+| [atan()](#atan) | Arctangent |
+| [sinh()](#sinh) | Hyperbolic sine |
+| [cosh()](#cosh) | Hyperbolic cosine |
+| [tanh()](#tanh) | Hyperbolic tangent |
+| [clone()](#clone) | Create copy |
+| [i](#i) | Imaginary unit constant (0+1i) |
+
+## Type System
+
+Complex numbers support standard arithmetic operators with automatic type conversion for real numbers:
+
+| Operator | Description |
+|----------|-------------|
+| `z1 + z2` | Addition |
+| `z1 - z2` | Subtraction |
+| `z1 * z2` | Multiplication |
+| `z1 / z2` | Division |
+| `-z` | Negation |
+| `z1 == z2` | Equality test |
+
+---
+
+## new
+
+```
+complex.new(re, im?) -> complex
+```
+
 Create a complex number from real and imaginary parts.
+
+**Parameters:**
+- `re` (number) - Real part
+- `im` (number, optional) - Imaginary part (default: 0)
 
 ```lua
 local complex = require("luaswift.complex")
@@ -21,8 +69,19 @@ local z2 = complex.new(5, -2)       -- 5-2i
 local z3 = complex.new(7)           -- 7+0i (real number)
 ```
 
-### `complex.from_polar(r, theta)`
+---
+
+## from_polar
+
+```
+complex.from_polar(r, theta) -> complex
+```
+
 Create a complex number from polar coordinates (magnitude and angle).
+
+**Parameters:**
+- `r` (number) - Magnitude
+- `theta` (number) - Angle in radians
 
 ```lua
 local z1 = complex.from_polar(5, math.pi/4)    -- 5∠45° = 3.5355+3.5355i
@@ -30,11 +89,305 @@ local z2 = complex.from_polar(1, math.pi)      -- 1∠180° = -1+0i
 local z3 = complex.from_polar(2, 0)            -- 2∠0° = 2+0i
 ```
 
-### Constants
+---
+
+## abs
+
+```
+z:abs() -> number
+```
+
+Calculate the magnitude (absolute value) of a complex number.
 
 ```lua
-complex.i  -- The imaginary unit (0+1i)
+local z = complex.new(3, 4)
+print(z:abs())                   -- 5.0
 ```
+
+---
+
+## arg
+
+```
+z:arg() -> number
+```
+
+Calculate the argument (phase angle) in radians.
+
+```lua
+local z = complex.new(1, 1)
+print(z:arg())                   -- 0.7854 (π/4 radians = 45°)
+```
+
+---
+
+## conj
+
+```
+z:conj() -> complex
+```
+
+Return the complex conjugate.
+
+```lua
+local z = complex.new(3, 4)
+local conj = z:conj()            -- 3-4i
+```
+
+---
+
+## polar
+
+```
+z:polar() -> {magnitude, angle}
+```
+
+Convert to polar form, returning a table with magnitude and angle.
+
+```lua
+local z = complex.new(3, 4)
+local r, theta = table.unpack(z:polar())
+print(r, theta)                  -- 5.0, 0.9273 (radians)
+```
+
+---
+
+## pow
+
+```
+z:pow(n) -> complex
+```
+
+Raise complex number to a power using De Moivre's formula.
+
+**Parameters:**
+- `n` (number) - Exponent (can be fractional)
+
+```lua
+local z = complex.new(1, 1)
+local z2 = z:pow(2)              -- (1+1i)² = 0+2i
+local z3 = z:pow(3)              -- (1+1i)³ = -2+2i
+
+-- Fractional powers
+local root = z:pow(0.5)          -- Square root via z^0.5
+```
+
+---
+
+## sqrt
+
+```
+z:sqrt() -> complex
+```
+
+Calculate the principal square root.
+
+```lua
+local z = complex.new(-1, 0)
+local sqrt = z:sqrt()            -- √(-1) = 0+1i
+
+local z2 = complex.new(3, 4)
+print(z2:sqrt())                 -- 2.0000+1.0000i
+```
+
+---
+
+## exp
+
+```
+z:exp() -> complex
+```
+
+Calculate e raised to the complex power.
+
+```lua
+local z = complex.new(0, math.pi)
+local result = z:exp()           -- e^(iπ) = -1+0i (Euler's identity)
+
+local z2 = complex.new(1, 1)
+print(z2:exp())                  -- e^(1+i) = 1.4687+2.2874i
+```
+
+---
+
+## log
+
+```
+z:log() -> complex
+```
+
+Calculate the natural logarithm (principal branch).
+
+```lua
+local z = complex.new(-1, 0)
+local result = z:log()           -- ln(-1) = 0+πi
+
+local z2 = complex.new(1, 1)
+print(z2:log())                  -- 0.3466+0.7854i
+```
+
+---
+
+## sin
+
+```
+z:sin() -> complex
+```
+
+Sine extended to complex domain.
+
+```lua
+local z = complex.new(1, 1)
+local sin_z = z:sin()            -- sin(1+i) = 1.2985+0.6350i
+```
+
+---
+
+## cos
+
+```
+z:cos() -> complex
+```
+
+Cosine extended to complex domain.
+
+```lua
+local z = complex.new(1, 1)
+local cos_z = z:cos()            -- cos(1+i) = 0.8337-0.9889i
+```
+
+---
+
+## tan
+
+```
+z:tan() -> complex
+```
+
+Tangent extended to complex domain.
+
+```lua
+local z = complex.new(1, 1)
+local tan_z = z:tan()            -- tan(1+i) = 0.2718+1.0840i
+```
+
+---
+
+## asin
+
+```
+z:asin() -> complex
+```
+
+Inverse sine (arcsine).
+
+```lua
+local z = complex.new(2, 0)
+local asin_z = z:asin()          -- arcsin(2) = 1.5708-1.3170i
+```
+
+---
+
+## acos
+
+```
+z:acos() -> complex
+```
+
+Inverse cosine (arccosine).
+
+```lua
+local z = complex.new(2, 0)
+local acos_z = z:acos()          -- arccos(2) = 0.0000+1.3170i
+```
+
+---
+
+## atan
+
+```
+z:atan() -> complex
+```
+
+Inverse tangent (arctangent).
+
+```lua
+local z = complex.new(2, 0)
+local atan_z = z:atan()          -- arctan(2) = 1.1071+0.0000i
+```
+
+---
+
+## sinh
+
+```
+z:sinh() -> complex
+```
+
+Hyperbolic sine extended to complex domain.
+
+```lua
+local z = complex.new(1, 1)
+local sinh_z = z:sinh()          -- sinh(1+i) = 0.6350+1.2985i
+```
+
+---
+
+## cosh
+
+```
+z:cosh() -> complex
+```
+
+Hyperbolic cosine extended to complex domain.
+
+```lua
+local z = complex.new(1, 1)
+local cosh_z = z:cosh()          -- cosh(1+i) = 0.8337+0.9889i
+```
+
+---
+
+## tanh
+
+```
+z:tanh() -> complex
+```
+
+Hyperbolic tangent extended to complex domain.
+
+```lua
+local z = complex.new(1, 1)
+local tanh_z = z:tanh()          -- tanh(1+i) = 1.0840+0.2718i
+```
+
+---
+
+## clone
+
+```
+z:clone() -> complex
+```
+
+Create a copy of a complex number.
+
+```lua
+local z1 = complex.new(3, 4)
+local z2 = z1:clone()            -- Independent copy
+```
+
+---
+
+## i
+
+Constant representing the imaginary unit (0+1i).
+
+```lua
+local z = complex.i              -- 0+1i
+local z2 = 3 * complex.i         -- 0+3i
+```
+
+---
 
 ## Arithmetic Operations
 
@@ -64,138 +417,9 @@ local quot2 = z1 / 2             -- (3+4i) / 2 = 1.5+2i
 local neg = -z1                  -- -(3+4i) = -3-4i
 ```
 
-## Properties and Conversions
+---
 
-### `z:abs()`
-Calculate the magnitude (absolute value) of a complex number.
-
-```lua
-local z = complex.new(3, 4)
-print(z:abs())                   -- 5.0
-```
-
-### `z:arg()`
-Calculate the argument (phase angle) in radians.
-
-```lua
-local z = complex.new(1, 1)
-print(z:arg())                   -- 0.7854 (π/4 radians = 45°)
-```
-
-### `z:conj()`
-Return the complex conjugate.
-
-```lua
-local z = complex.new(3, 4)
-local conj = z:conj()            -- 3-4i
-```
-
-### `z:polar()`
-Convert to polar form, returning `{magnitude, angle}`.
-
-```lua
-local z = complex.new(3, 4)
-local r, theta = table.unpack(z:polar())
-print(r, theta)                  -- 5.0, 0.9273 (radians)
-```
-
-## Powers and Roots
-
-### `z:pow(n)`
-Raise complex number to a power using De Moivre's formula.
-
-```lua
-local z = complex.new(1, 1)
-local z2 = z:pow(2)              -- (1+1i)² = 0+2i
-local z3 = z:pow(3)              -- (1+1i)³ = -2+2i
-
--- Fractional powers
-local root = z:pow(0.5)          -- Square root via z^0.5
-```
-
-### `z:sqrt()`
-Calculate the principal square root.
-
-```lua
-local z = complex.new(-1, 0)
-local sqrt = z:sqrt()            -- √(-1) = 0+1i
-
-local z2 = complex.new(3, 4)
-print(z2:sqrt())                 -- 2.0000+1.0000i
-```
-
-## Exponential and Logarithmic
-
-### `z:exp()`
-Calculate e raised to the complex power.
-
-```lua
-local z = complex.new(0, math.pi)
-local result = z:exp()           -- e^(iπ) = -1+0i (Euler's identity)
-
-local z2 = complex.new(1, 1)
-print(z2:exp())                  -- e^(1+i) = 1.4687+2.2874i
-```
-
-### `z:log()`
-Calculate the natural logarithm (principal branch).
-
-```lua
-local z = complex.new(-1, 0)
-local result = z:log()           -- ln(-1) = 0+πi
-
-local z2 = complex.new(1, 1)
-print(z2:log())                  -- 0.3466+0.7854i
-```
-
-## Trigonometric Functions
-
-### `z:sin()`, `z:cos()`, `z:tan()`
-Standard trigonometric functions extended to complex domain.
-
-```lua
-local z = complex.new(1, 1)
-
-local sin_z = z:sin()            -- sin(1+i) = 1.2985+0.6350i
-local cos_z = z:cos()            -- cos(1+i) = 0.8337-0.9889i
-local tan_z = z:tan()            -- tan(1+i) = 0.2718+1.0840i
-```
-
-### `z:asin()`, `z:acos()`, `z:atan()`
-Inverse trigonometric functions.
-
-```lua
-local z = complex.new(2, 0)
-
-local asin_z = z:asin()          -- arcsin(2) = 1.5708-1.3170i
-local acos_z = z:acos()          -- arccos(2) = 0.0000+1.3170i
-local atan_z = z:atan()          -- arctan(2) = 1.1071+0.0000i
-```
-
-## Hyperbolic Functions
-
-### `z:sinh()`, `z:cosh()`, `z:tanh()`
-Hyperbolic functions extended to complex domain.
-
-```lua
-local z = complex.new(1, 1)
-
-local sinh_z = z:sinh()          -- sinh(1+i) = 0.6350+1.2985i
-local cosh_z = z:cosh()          -- cosh(1+i) = 0.8337+0.9889i
-local tanh_z = z:tanh()          -- tanh(1+i) = 1.0840+0.2718i
-```
-
-## Utilities
-
-### `z:clone()`
-Create a copy of a complex number.
-
-```lua
-local z1 = complex.new(3, 4)
-local z2 = z1:clone()            -- Independent copy
-```
-
-### String Representation
+## String Representation
 
 Complex numbers automatically format for display.
 
@@ -206,6 +430,8 @@ print(z1)                        -- "3.0000+4.0000i"
 local z2 = complex.new(5, -2)
 print(z2)                        -- "5.0000-2.0000i"
 ```
+
+---
 
 ## Comparison
 
@@ -220,6 +446,8 @@ print(z1 == z2)                  -- true
 print(z1 == z3)                  -- false
 print(z3 == 3)                   -- true (compares with real number)
 ```
+
+---
 
 ## Examples
 
@@ -291,35 +519,3 @@ print(signal)
 print("Magnitude:", signal:abs())
 print("Phase:", signal:arg())
 ```
-
-## Function Reference
-
-| Category | Function | Description |
-|----------|----------|-------------|
-| **Creation** | `new(re, im)` | Create from Cartesian coordinates |
-| | `from_polar(r, theta)` | Create from polar coordinates |
-| **Arithmetic** | `z1 + z2` | Addition |
-| | `z1 - z2` | Subtraction |
-| | `z1 * z2` | Multiplication |
-| | `z1 / z2` | Division |
-| | `-z` | Negation |
-| **Properties** | `abs()` | Magnitude/absolute value |
-| | `arg()` | Argument/phase angle |
-| | `conj()` | Complex conjugate |
-| | `polar()` | Convert to polar form |
-| **Powers** | `pow(n)` | Raise to power |
-| | `sqrt()` | Principal square root |
-| **Exponential** | `exp()` | Exponential e^z |
-| | `log()` | Natural logarithm |
-| **Trigonometric** | `sin()` | Sine |
-| | `cos()` | Cosine |
-| | `tan()` | Tangent |
-| | `asin()` | Arcsine |
-| | `acos()` | Arccosine |
-| | `atan()` | Arctangent |
-| **Hyperbolic** | `sinh()` | Hyperbolic sine |
-| | `cosh()` | Hyperbolic cosine |
-| | `tanh()` | Hyperbolic tangent |
-| **Utilities** | `clone()` | Create copy |
-| **Comparison** | `z1 == z2` | Equality test |
-| **Constants** | `i` | Imaginary unit (0+1i) |

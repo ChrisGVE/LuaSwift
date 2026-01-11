@@ -8,9 +8,40 @@
 
 High-performance clustering algorithms including k-means, hierarchical clustering, and DBSCAN. All implementations use BLAS/vDSP acceleration for optimal performance.
 
-## K-Means Clustering
+## Function Reference
+
+| Function | Description |
+|----------|-------------|
+| [kmeans(data, k, options?)](#kmeans) | K-means clustering with k-means++ initialization |
+| [hierarchical(data, options?)](#hierarchical) | Agglomerative hierarchical clustering |
+| [dbscan(data, options?)](#dbscan) | Density-based clustering |
+| [silhouette_score(data, labels)](#silhouette_score) | Cluster quality metric (-1 to 1) |
+| [elbow_method(data, max_k?)](#elbow_method) | Find optimal number of clusters |
+
+---
+
+## kmeans
+
+```
+math.cluster.kmeans(data, k, options?) -> {labels, centroids, inertia, n_iter}
+```
 
 Partition data into k clusters by minimizing within-cluster variance. Uses k-means++ initialization by default for better convergence.
+
+**Parameters:**
+- `data` - Array of points (each point is a table of numbers)
+- `k` - Number of clusters
+- `options` (optional) - Table with clustering options:
+  - `init` (string): initialization method (`"k-means++"` default, `"random"`)
+  - `max_iter` (number): maximum iterations (default: 300)
+  - `tol` (number): convergence tolerance (default: 1e-4)
+  - `n_init` (number): number of runs with different seeds (default: 10, returns best)
+
+**Returns:**
+- `labels` - Cluster assignments (1-indexed)
+- `centroids` - Cluster centers
+- `inertia` - Sum of squared distances
+- `n_iter` - Number of iterations
 
 ```lua
 local data = {{1,1}, {1.5,2}, {3,4}, {5,7}, {3.5,5}, {4.5,5}, {3.5,4.5}}
@@ -20,15 +51,7 @@ print(result.labels)     -- {1, 1, 2, 2, 2, 2, 2}
 print(result.centroids)  -- {{1.25, 1.5}, {4.125, 5.125}}
 print(result.inertia)    -- sum of squared distances
 print(result.n_iter)     -- number of iterations
-```
 
-**Options:**
-- `init`: initialization method (`"k-means++"` default, `"random"`)
-- `max_iter`: maximum iterations (default: 300)
-- `tol`: convergence tolerance (default: 1e-4)
-- `n_init`: number of runs with different seeds (default: 10, returns best)
-
-```lua
 -- Custom options
 local result = math.cluster.kmeans(data, 3, {
     init = "random",
@@ -38,9 +61,33 @@ local result = math.cluster.kmeans(data, 3, {
 })
 ```
 
-## Hierarchical Clustering
+---
+
+## hierarchical
+
+```
+math.cluster.hierarchical(data, options?) -> {linkage_matrix, labels?, n_leaves}
+```
 
 Agglomerative hierarchical clustering with multiple linkage methods. Returns linkage matrix compatible with dendrogram visualization.
+
+**Parameters:**
+- `data` - Array of points (each point is a table of numbers)
+- `options` (optional) - Table with clustering options:
+  - `linkage` (string): linkage method (`"ward"` default, `"single"`, `"complete"`, `"average"`)
+  - `n_clusters` (number): cut dendrogram to get this many clusters
+  - `distance_threshold` (number): cut dendrogram at this distance
+
+**Linkage methods:**
+- `ward`: minimize variance increase (default)
+- `single`: minimum distance between clusters
+- `complete`: maximum distance between clusters
+- `average`: average distance between clusters
+
+**Returns:**
+- `linkage_matrix` - Merge history: `{cluster1_id, cluster2_id, distance, size}`
+- `labels` - Cluster assignments (only if `n_clusters` or `distance_threshold` specified)
+- `n_leaves` - Number of original points
 
 ```lua
 local data = {{1,1}, {1.5,2}, {3,4}, {5,7}}
@@ -49,17 +96,7 @@ local result = math.cluster.hierarchical(data, {linkage = "ward"})
 -- Linkage matrix format: {cluster1_id, cluster2_id, distance, size}
 print(result.linkage_matrix)  -- Merge history
 print(result.n_leaves)        -- Number of original points
-```
 
-**Linkage methods:**
-- `ward`: minimize variance increase (default)
-- `single`: minimum distance between clusters
-- `complete`: maximum distance between clusters
-- `average`: average distance between clusters
-
-**Cutting the dendrogram:**
-
-```lua
 -- Cut to 2 clusters
 local result = math.cluster.hierarchical(data, {
     linkage = "ward",
@@ -75,9 +112,26 @@ local result = math.cluster.hierarchical(data, {
 print(result.labels)  -- Cluster assignments
 ```
 
-## DBSCAN
+---
+
+## dbscan
+
+```
+math.cluster.dbscan(data, options?) -> {labels, core_samples, n_clusters}
+```
 
 Density-based clustering that identifies clusters of arbitrary shape and marks outliers as noise.
+
+**Parameters:**
+- `data` - Array of points (each point is a table of numbers)
+- `options` (optional) - Table with DBSCAN parameters:
+  - `eps` (number): maximum distance between neighbors (default: 0.5)
+  - `min_samples` (number): minimum points to form dense region (default: 5)
+
+**Returns:**
+- `labels` - Cluster assignments (positive integers for clusters, -1 for noise/outliers)
+- `core_samples` - Indices of core points
+- `n_clusters` - Number of clusters found
 
 ```lua
 local data = {
@@ -96,19 +150,27 @@ print(result.core_samples)  -- Indices of core points
 print(result.n_clusters)    -- 2
 ```
 
-**Parameters:**
-- `eps`: maximum distance between neighbors (default: 0.5)
-- `min_samples`: minimum points to form dense region (default: 5)
+---
 
-**Label interpretation:**
-- Positive integers: cluster assignment (1, 2, 3, ...)
-- `-1`: noise/outlier points
+## silhouette_score
 
-## Cluster Quality Metrics
-
-### Silhouette Score
+```
+math.cluster.silhouette_score(data, labels) -> number
+```
 
 Measure cluster cohesion and separation. Values range from -1 (poor) to 1 (excellent).
+
+**Parameters:**
+- `data` - Array of points (each point is a table of numbers)
+- `labels` - Cluster assignments
+
+**Returns:** Silhouette score (-1 to 1)
+
+**Interpretation:**
+- `0.7 - 1.0`: strong structure
+- `0.5 - 0.7`: reasonable structure
+- `0.25 - 0.5`: weak structure
+- `< 0.25`: no substantial structure
 
 ```lua
 local data = {{1,1}, {2,2}, {10,10}, {11,11}}
@@ -118,15 +180,23 @@ local score = math.cluster.silhouette_score(data, labels)
 print(score)  -- ~0.8 (good clustering)
 ```
 
-**Interpretation:**
-- `0.7 - 1.0`: strong structure
-- `0.5 - 0.7`: reasonable structure
-- `0.25 - 0.5`: weak structure
-- `< 0.25`: no substantial structure
+---
 
-### Elbow Method
+## elbow_method
+
+```
+math.cluster.elbow_method(data, max_k?) -> {inertias, suggested_k}
+```
 
 Find optimal number of clusters by analyzing inertia curve.
+
+**Parameters:**
+- `data` - Array of points (each point is a table of numbers)
+- `max_k` (optional) - Maximum k to test (default: 10)
+
+**Returns:**
+- `inertias` - Inertia values for k=1 to max_k
+- `suggested_k` - Suggested optimal number of clusters
 
 ```lua
 local data = {{1,1}, {2,2}, {3,3}, {10,10}, {11,11}, {12,12}}
@@ -134,19 +204,16 @@ local data = {{1,1}, {2,2}, {3,3}, {10,10}, {11,11}, {12,12}}
 local result = math.cluster.elbow_method(data, 6)
 print(result.inertias)     -- {82.5, 24.0, 2.0, 0.67, 0.33, 0.0}
 print(result.suggested_k)  -- 2
-```
 
-**Usage pattern:**
-```lua
--- Find optimal k
+-- Usage pattern: find optimal k then cluster
 local elbow = math.cluster.elbow_method(data)
 local k = elbow.suggested_k
-
--- Cluster with optimal k
 local result = math.cluster.kmeans(data, k)
 ```
 
-## Practical Examples
+---
+
+## Examples
 
 ### Customer Segmentation
 
@@ -253,6 +320,8 @@ print("Hierarchical silhouette:", hc_score)
 print("DBSCAN silhouette:", db_score)
 ```
 
+---
+
 ## Implementation Notes
 
 **BLAS/vDSP Acceleration:**
@@ -274,13 +343,3 @@ print("DBSCAN silhouette:", db_score)
 - All cluster labels are 1-indexed for Lua consistency
 - DBSCAN uses -1 for noise (not 0)
 - Empty clusters maintain their indices (no gaps)
-
-## Function Reference
-
-| Function | Parameters | Returns | Description |
-|----------|-----------|---------|-------------|
-| `kmeans(data, k, options)` | `data`: array of points<br>`k`: number of clusters<br>`options`: configuration table | `{labels, centroids, inertia, n_iter}` | K-means clustering with k-means++ initialization |
-| `hierarchical(data, options)` | `data`: array of points<br>`options`: linkage method and cut parameters | `{linkage_matrix, labels, n_leaves}` | Agglomerative hierarchical clustering |
-| `dbscan(data, options)` | `data`: array of points<br>`options`: eps and min_samples | `{labels, core_samples, n_clusters}` | Density-based clustering |
-| `silhouette_score(data, labels)` | `data`: array of points<br>`labels`: cluster assignments | `number` | Cluster quality metric (-1 to 1) |
-| `elbow_method(data, max_k)` | `data`: array of points<br>`max_k`: maximum k to test (default: 10) | `{inertias, suggested_k}` | Find optimal number of clusters |

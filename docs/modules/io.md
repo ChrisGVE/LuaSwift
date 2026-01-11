@@ -8,7 +8,7 @@
 
 Sandboxed file system operations restricted to explicitly allowed directories.
 
-> **Security Module**: IOModule is NOT installed by default. It requires explicit configuration of allowed directories before use.
+> **Note**: IOModule requires explicit installation with configured allowed directories. Lua scripts can only access files within these directories.
 
 ## Swift Setup (Required)
 

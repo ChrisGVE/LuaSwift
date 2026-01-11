@@ -20,10 +20,10 @@ The Plot module uses a retained vector graphics architecture where all drawing c
 ## Quick Start
 
 ```lua
-local plt = require("luaswift.plot")
+-- plot is available as a global after ModuleRegistry.installModules()
 
 -- Create figure and axes
-local fig, ax = plt.subplots()
+local fig, ax = plot.subplots()
 
 -- Plot data
 ax:plot({1, 2, 3, 4}, {1, 4, 2, 3}, {color='blue', linestyle='--', marker='o'})
@@ -43,13 +43,13 @@ fig:savefig("output.svg")
 
 ```lua
 -- Create a single figure with one axes
-local fig, ax = plt.subplots()
+local fig, ax = plot.subplots()
 
 -- Create with specific size and DPI
-local fig, ax = plt.subplots({figsize={8, 6}, dpi=100})
+local fig, ax = plot.subplots({figsize={8, 6}, dpi=100})
 
 -- Create multiple subplots
-local fig, axes = plt.subplots(2, 2)  -- 2x2 grid
+local fig, axes = plot.subplots(2, 2)  -- 2x2 grid
 ```
 
 ### Figure Methods
@@ -211,7 +211,7 @@ The `plot.stat` namespace provides seaborn-compatible statistical visualizations
 ### Histogram with KDE
 
 ```lua
-plt.stat.histplot(ax, data, {
+plot.stat.histplot(ax, data, {
     bins = 30,
     kde = true,          -- Overlay kernel density estimate
     color = "blue",
@@ -222,7 +222,7 @@ plt.stat.histplot(ax, data, {
 ### Kernel Density Plot
 
 ```lua
-plt.stat.kdeplot(ax, data, {
+plot.stat.kdeplot(ax, data, {
     bandwidth = nil,     -- Auto-detect using Scott's rule
     color = "blue",
     fill = true,         -- Fill area under curve
@@ -233,7 +233,7 @@ plt.stat.kdeplot(ax, data, {
 ### Rug Plot
 
 ```lua
-plt.stat.rugplot(ax, data, {
+plot.stat.rugplot(ax, data, {
     height = 0.05,
     color = "black",
     alpha = 0.5
@@ -243,7 +243,7 @@ plt.stat.rugplot(ax, data, {
 ### Violin Plot
 
 ```lua
-plt.stat.violinplot(ax, data, {
+plot.stat.violinplot(ax, data, {
     positions = {1, 2, 3},
     widths = 0.7,
     showmeans = true,
@@ -254,7 +254,7 @@ plt.stat.violinplot(ax, data, {
 ### Strip Plot
 
 ```lua
-plt.stat.stripplot(ax, data, {
+plot.stat.stripplot(ax, data, {
     jitter = 0.2,        -- Add horizontal jitter
     alpha = 0.5,
     color = "blue"
@@ -264,7 +264,7 @@ plt.stat.stripplot(ax, data, {
 ### Swarm Plot
 
 ```lua
-plt.stat.swarmplot(ax, data, {
+plot.stat.swarmplot(ax, data, {
     size = 5,
     alpha = 0.7,
     color = "blue"
@@ -274,7 +274,7 @@ plt.stat.swarmplot(ax, data, {
 ### Regression Plot
 
 ```lua
-plt.stat.regplot(ax, x_data, y_data, {
+plot.stat.regplot(ax, x_data, y_data, {
     order = 1,           -- Polynomial order (1=linear)
     ci = 95,             -- Confidence interval
     scatter = true,      -- Show scatter points
@@ -285,7 +285,7 @@ plt.stat.regplot(ax, x_data, y_data, {
 ### Heatmap
 
 ```lua
-plt.stat.heatmap(ax, data, {
+plot.stat.heatmap(ax, data, {
     cmap = "viridis",
     annot = true,        -- Annotate cells with values
     fmt = "%.2f",
@@ -467,10 +467,10 @@ PDF files preserve vector quality and are suitable for publication.
 ## Complete Example
 
 ```lua
-local plt = require("luaswift.plot")
+-- plot is available as a global after ModuleRegistry.installModules()
 
 -- Create figure
-local fig, ax = plt.subplots({figsize={10, 6}, dpi=100})
+local fig, ax = plot.subplots({figsize={10, 6}, dpi=100})
 
 -- Generate sample data
 local x = {}

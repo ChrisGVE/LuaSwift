@@ -8,7 +8,7 @@
 
 HTTP client using URLSession for making network requests.
 
-> **Security Module**: HTTPModule is NOT installed by default. Apps must explicitly opt-in to enable network access from Lua scripts.
+> **Note**: HTTPModule requires explicit installation. The host application controls whether Lua scripts can make network requests.
 
 ## Swift Setup (Required)
 

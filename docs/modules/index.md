@@ -92,23 +92,25 @@ ax:plot({1, 2, 3}, {1, 4, 9})
 local svg_string = fig:render()
 ```
 
-## External Access (Opt-In)
+## File and Network Access
 
-These modules access resources outside the Lua sandbox and require explicit installation.
+These modules require explicit installation and configuration.
 
-| Module | Require | Description |
-|--------|---------|-------------|
-| [iox](io.md) | `luaswift.iox` | Sandboxed file I/O |
-| [http](http.md) | `luaswift.http` | HTTP client |
+| Module | Global | Description |
+|--------|--------|-------------|
+| [iox](io.md) | `iox` | Sandboxed file I/O within configured directories |
+| [http](http.md) | `http` | HTTP client for network requests |
 
 ```swift
-// File I/O requires allowed directories
-IOModule.setAllowedDirectories([path], for: engine)
+// File I/O: Configure which directories Lua can access
+IOModule.setAllowedDirectories([documentsPath, cachePath], for: engine)
 ModuleRegistry.installIOModule(in: engine)
 
-// HTTP is opt-in
+// HTTP: Enable network requests
 ModuleRegistry.installHTTPModule(in: engine)
 ```
+
+The `iox` module restricts file operations to explicitly allowed directories only.
 
 ## Installation Options
 

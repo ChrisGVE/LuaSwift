@@ -6,6 +6,7 @@ A lightweight Swift wrapper for Lua with an optional powerpack of advanced modul
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FChrisGVE%2FLuaSwift%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/ChrisGVE/LuaSwift)
 [![Lua](https://img.shields.io/badge/Lua-5.1--5.5-2C2D72?logo=lua&logoColor=white)](https://www.lua.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-API%20Reference-blue)](docs/index.md)
 
 ## Overview
 
@@ -28,6 +29,12 @@ dependencies: [
 ```
 
 Or in Xcode: File → Add Package Dependencies → Enter the repository URL.
+
+## Documentation
+
+Full API reference and module documentation: **[docs/index.md](docs/index.md)**
+
+Quick links: [Core API](docs/core-api.md) · [Value Servers](docs/value-servers.md) · [Callbacks](docs/callbacks.md) · [Modules](docs/modules/index.md)
 
 ## Quick Start
 
@@ -198,25 +205,25 @@ local svg_string = fig:render()
 |--------|--------|-------------|
 | regex | `regex` | ICU regular expressions (also extends `string` after extend_stdlib) |
 
-### External Access (Opt-In)
+### File and Network Access
 
-These modules are **not** included in `installModules()` and require explicit installation because they access resources outside the Lua sandbox.
+These modules require explicit installation and configuration.
 
-| Module | Require | Why Separate |
-|--------|---------|--------------|
-| iox | `luaswift.iox` | File system access requires allowed directory configuration |
-| http | `luaswift.http` | Network access may not be desired in all environments |
+| Module | Global | Description |
+|--------|--------|-------------|
+| iox | `iox` | Sandboxed file I/O within configured directories |
+| http | `http` | HTTP client for network requests |
 
 ```swift
-// File I/O: Configure allowed directories first
-IOModule.setAllowedDirectories([documentsPath], for: engine)
+// File I/O: Configure which directories Lua can access
+IOModule.setAllowedDirectories([documentsPath, cachePath], for: engine)
 ModuleRegistry.installIOModule(in: engine)
 
-// HTTP: Explicit opt-in for network access
+// HTTP: Enable network requests
 ModuleRegistry.installHTTPModule(in: engine)
 ```
 
-The `iox` module provides sandboxed file operations restricted to configured directories. It does not replace Lua's standard `io` library (which is removed in sandboxed mode).
+The `iox` module restricts file operations to explicitly allowed directories—Lua scripts cannot access files outside these paths. This replaces Lua's standard `io` library (which is removed in sandboxed mode) with a secure alternative.
 
 ## Module Selection
 
@@ -274,18 +281,6 @@ let engine = try LuaEngine(configuration: .unrestricted)
 ```
 
 **Sandboxing removes:** `os.execute`, `os.exit`, `io.*`, `debug.*`, `loadfile`, `dofile`, `load`
-
-## Documentation
-
-For detailed API documentation, see [docs/index.md](docs/index.md):
-
-- [Core API](docs/core-api.md) - LuaEngine, LuaValue, LuaValueServer
-- [Value Servers](docs/value-servers.md) - Exposing Swift data to Lua
-- [Callbacks](docs/callbacks.md) - Registering Swift functions
-- [Coroutines](docs/coroutines.md) - Creating and managing coroutines
-- [Threading](docs/threading.md) - Thread safety and engine pools
-- [Engine Reuse](docs/engine-reuse.md) - Patterns for long-running engines
-- [Modules](docs/modules/index.md) - Detailed module documentation
 
 ## App Store Compliance
 

@@ -107,7 +107,7 @@ LuaSwift
     ├── Visualization (plot)
     │   └── plot         - plotting with SVG output
     │
-    └── External Access (iox, http)
+    └── File and Network (iox, http)
         ├── iox          - sandboxed file I/O
         └── http         - HTTP client
 ```

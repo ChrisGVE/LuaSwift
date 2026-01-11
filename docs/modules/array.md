@@ -11,32 +11,32 @@ N-dimensional arrays with broadcasting and element-wise operations.
 ## Creating Arrays
 
 ```lua
-local np = require("luaswift.array")
+local arr = require("luaswift.array")
 
 -- From nested tables
-local a = np.array({1, 2, 3, 4, 5, 6})        -- 1D
-local b = np.array({{1, 2, 3}, {4, 5, 6}})    -- 2D (2x3)
+local a = arr.array({1, 2, 3, 4, 5, 6})        -- 1D
+local b = arr.array({{1, 2, 3}, {4, 5, 6}})    -- 2D (2x3)
 
 -- Special constructors
-local c = np.zeros({2, 3, 4})     -- 3D zeros
-local d = np.ones({3, 3})         -- 3x3 ones
-local e = np.full({2, 2}, 7)      -- 2x2 filled with 7
-local I = np.eye(3)               -- 3x3 identity
+local c = arr.zeros({2, 3, 4})     -- 3D zeros
+local d = arr.ones({3, 3})         -- 3x3 ones
+local e = arr.full({2, 2}, 7)      -- 2x2 filled with 7
+local I = arr.eye(3)               -- 3x3 identity
 
 -- Ranges
-local r = np.arange(0, 10, 2)     -- {0, 2, 4, 6, 8}
-local l = np.linspace(0, 1, 5)    -- {0, 0.25, 0.5, 0.75, 1}
+local r = arr.arange(0, 10, 2)     -- {0, 2, 4, 6, 8}
+local l = arr.linspace(0, 1, 5)    -- {0, 0.25, 0.5, 0.75, 1}
 
 -- Random arrays
-local uniform = np.random.rand({3, 3})   -- uniform [0, 1)
-local normal = np.random.randn({3, 3})   -- normal distribution
-local integers = np.random.randint(0, 10, {5, 5})  -- random integers
+local uniform = arr.random.rand({3, 3})   -- uniform [0, 1)
+local normal = arr.random.randn({3, 3})   -- normal distribution
+local integers = arr.random.randint(0, 10, {5, 5})  -- random integers
 ```
 
 ## Array Properties
 
 ```lua
-local b = np.array({{1, 2, 3}, {4, 5, 6}})
+local b = arr.array({{1, 2, 3}, {4, 5, 6}})
 
 print(b:shape())  -- {2, 3}
 print(b:ndim())   -- 2
@@ -51,7 +51,7 @@ b:set(1, 2, 10)
 ## Reshaping
 
 ```lua
-local a = np.array({1, 2, 3, 4, 5, 6})
+local a = arr.array({1, 2, 3, 4, 5, 6})
 
 local reshaped = a:reshape({2, 3})     -- 2x3
 local flat = reshaped:flatten()         -- back to 1D
@@ -65,8 +65,8 @@ local copied = a:copy()                 -- deep copy
 
 ```lua
 -- Arrays broadcast to compatible shapes
-local x = np.array({{1}, {2}, {3}})  -- 3x1
-local y = np.array({10, 20, 30})      -- 1x3
+local x = arr.array({{1}, {2}, {3}})  -- 3x1
+local y = arr.array({10, 20, 30})      -- 1x3
 local z = x + y  -- broadcasts to 3x3:
 -- {{11, 21, 31},
 --  {12, 22, 32},
@@ -92,21 +92,21 @@ local power = x ^ 2
 ## Element-wise Math
 
 ```lua
-local a = np.array({1, 4, 9, 16})
+local a = arr.array({1, 4, 9, 16})
 
-local sq = np.sqrt(a)      -- {1, 2, 3, 4}
-local ex = np.exp(a)
-local logs = np.log(a)
-local sines = np.sin(a)
-local cosines = np.cos(a)
-local absolute = np.abs(a)
-local negated = np.negative(a)
+local sq = arr.sqrt(a)      -- {1, 2, 3, 4}
+local ex = arr.exp(a)
+local logs = arr.log(a)
+local sines = arr.sin(a)
+local cosines = arr.cos(a)
+local absolute = arr.abs(a)
+local negated = arr.negative(a)
 ```
 
 ## Reductions
 
 ```lua
-local b = np.array({{1, 2, 3}, {4, 5, 6}})
+local b = arr.array({{1, 2, 3}, {4, 5, 6}})
 
 -- Global reductions
 print(b:sum())   -- 21
@@ -129,58 +129,58 @@ print(b:argmin())  -- index of minimum (1-based)
 ## Comparisons
 
 ```lua
-local a = np.array({1, 2, 3, 4, 5})
+local a = arr.array({1, 2, 3, 4, 5})
 
 -- Returns boolean arrays
-local mask = np.greater(a, 3)     -- {false, false, false, true, true}
-local eq = np.equal(a, 3)         -- {false, false, true, false, false}
-local lt = np.less(a, 3)          -- {true, true, false, false, false}
+local mask = arr.greater(a, 3)     -- {false, false, false, true, true}
+local eq = arr.equal(a, 3)         -- {false, false, true, false, false}
+local lt = arr.less(a, 3)          -- {true, true, false, false, false}
 
 -- Conditional selection
-local result = np.where(mask, a, np.zeros({5}))
+local result = arr.where(mask, a, arr.zeros({5}))
 -- {0, 0, 0, 4, 5}
 ```
 
 ## Matrix Operations
 
 ```lua
-local m1 = np.array({{1, 2}, {3, 4}})
-local m2 = np.array({{5, 6}, {7, 8}})
+local m1 = arr.array({{1, 2}, {3, 4}})
+local m2 = arr.array({{5, 6}, {7, 8}})
 
 -- Matrix multiplication
-local prod = np.dot(m1, m2)
--- or: np.matmul(m1, m2)
+local prod = arr.dot(m1, m2)
+-- or: arr.matmul(m1, m2)
 
 -- Vector dot product
-local v1 = np.array({1, 2, 3})
-local v2 = np.array({4, 5, 6})
-print(np.dot(v1, v2))  -- 32 (scalar)
+local v1 = arr.array({1, 2, 3})
+local v2 = arr.array({4, 5, 6})
+print(arr.dot(v1, v2))  -- 32 (scalar)
 
 -- Outer product
-local outer = np.outer(v1, v2)
+local outer = arr.outer(v1, v2)
 ```
 
 ## Stacking and Splitting
 
 ```lua
-local a = np.array({1, 2, 3})
-local b = np.array({4, 5, 6})
+local a = arr.array({1, 2, 3})
+local b = arr.array({4, 5, 6})
 
 -- Concatenate
-local h = np.hstack({a, b})  -- {1, 2, 3, 4, 5, 6}
-local v = np.vstack({a, b})  -- {{1, 2, 3}, {4, 5, 6}}
+local h = arr.hstack({a, b})  -- {1, 2, 3, 4, 5, 6}
+local v = arr.vstack({a, b})  -- {{1, 2, 3}, {4, 5, 6}}
 
 -- Stack along new axis
-local stacked = np.stack({a, b}, 1)  -- 2x3
+local stacked = arr.stack({a, b}, 1)  -- 2x3
 
 -- Split
-local parts = np.split(h, 2)  -- split into 2 equal parts
+local parts = arr.split(h, 2)  -- split into 2 equal parts
 ```
 
 ## Conversion
 
 ```lua
-local a = np.array({{1, 2}, {3, 4}})
+local a = arr.array({{1, 2}, {3, 4}})
 
 -- To nested Lua tables
 local tbl = a:tolist()  -- {{1, 2}, {3, 4}}
@@ -190,18 +190,18 @@ local tbl = a:tolist()  -- {{1, 2}, {3, 4}}
 
 ```lua
 -- Create complex array
-local c = np.array({1, 2, 3}, {dtype = "complex128"})
+local c = arr.array({1, 2, 3}, {dtype = "complex128"})
 
 -- Or from real + imaginary
-local re = np.array({1, 2, 3})
-local im = np.array({4, 5, 6})
-local complex = np.complex(re, im)
+local re = arr.array({1, 2, 3})
+local im = arr.array({4, 5, 6})
+local complex = arr.complex(re, im)
 
 -- Extract components
 local real_part = complex:real()
 local imag_part = complex:imag()
-local magnitude = np.abs(complex)
-local phase = np.angle(complex)
+local magnitude = arr.abs(complex)
+local phase = arr.angle(complex)
 ```
 
 ## Function Reference

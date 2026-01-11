@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-01-11
+
+### Added
+- **Comprehensive API Documentation** for all 28 modules:
+  - Standard Library Extensions: stringx, tablex, utf8x, regex, compat
+  - Data Formats: json, yaml, toml
+  - Math Namespace: linalg, complex, geo, special, stats, distributions, optimize, integrate, interpolate, cluster, spatial, regress, series, eval, constants, numtheory
+  - Visualization: plot
+  - File and Network: iox, http
+- **docs/ folder** with full API reference and usage guides
+- **Documentation badge** in README
+
+### Changed
+- README restructured with documentation link before examples
+- All module docs now use "Function Reference at top" pattern with anchor links
+- "External Access" renamed to "File and Network Access" for clarity
+- Clarified iox operates within sandbox (not outside)
+- Replaced Python-style variable names (np, plt) with descriptive names
+
 ## [1.4.0] - 2026-01-11
 
 ### Added

@@ -16,11 +16,11 @@ These modules extend Lua's built-in libraries.
 
 | Module | Extends | Description |
 |--------|---------|-------------|
-| stringx | `string` | String manipulation: trim, split, join, replace |
-| tablex | `table` | Functional operations: map, filter, reduce, merge |
-| utf8x | `utf8` | Unicode-aware: sub, reverse, width (CJK) |
-| regex | `string` | ICU regular expressions |
-| compat | - | Lua version compatibility layer |
+| [stringx](stringx.md) | `string` | String manipulation: trim, split, join, replace |
+| [tablex](tablex.md) | `table` | Functional operations: map, filter, reduce, merge |
+| [utf8x](utf8x.md) | `utf8` | Unicode-aware: sub, reverse, width (CJK) |
+| [regex](regex.md) | `string` | ICU regular expressions |
+| [compat](compat.md) | - | Lua version compatibility layer |
 
 ```lua
 luaswift.extend_stdlib()
@@ -33,8 +33,8 @@ table.keys({a=1, b=2})    -- {"a", "b"}
 | Module | Global | Description |
 |--------|--------|-------------|
 | [json](json.md) | `json` | JSON encode/decode |
-| yaml | `yaml` | YAML with multi-document |
-| toml | `toml` | TOML configuration |
+| [yaml](yaml.md) | `yaml` | YAML with multi-document |
+| [toml](toml.md) | `toml` | TOML configuration |
 
 ## Math Namespace
 
@@ -44,21 +44,21 @@ After `extend_stdlib()`, these are available under `math.*`:
 |--------|--------|-------------|
 | Base | `math.*` | sign, round, factorial, gamma |
 | [linalg](linalg.md) | `math.linalg` | Linear algebra (BLAS/LAPACK) |
-| complex | `math.complex` | Complex numbers |
-| geo | `math.geo` | 2D/3D geometry |
-| special | `math.special` | Special functions |
-| stats | `math.stats` | Statistics |
-| distributions | `math.distributions` | Probability distributions |
-| optimize | `math.optimize` | Optimization |
-| integrate | `math.integrate` | Integration, ODEs |
-| interpolate | `math.interpolate` | Interpolation |
-| cluster | `math.cluster` | Clustering |
-| spatial | `math.spatial` | Spatial algorithms |
-| regress | `math.regress` | Regression models |
-| series | `math.series` | Series evaluation |
-| eval | `math.eval` | Expression parsing |
-| constants | `math.constants` | Physical constants, units |
-| numtheory | `math.numtheory` | Number theory |
+| [complex](complex.md) | `math.complex` | Complex numbers |
+| [geo](geo.md) | `math.geo` | 2D/3D geometry |
+| [special](special.md) | `math.special` | Special functions |
+| [stats](stats.md) | `math.stats` | Statistics |
+| [distributions](distributions.md) | `math.distributions` | Probability distributions |
+| [optimize](optimize.md) | `math.optimize` | Optimization |
+| [integrate](integrate.md) | `math.integrate` | Integration, ODEs |
+| [interpolate](interpolate.md) | `math.interpolate` | Interpolation |
+| [cluster](cluster.md) | `math.cluster` | Clustering |
+| [spatial](spatial.md) | `math.spatial` | Spatial algorithms |
+| [regress](regress.md) | `math.regress` | Regression models |
+| [series](series.md) | `math.series` | Series evaluation |
+| [eval](eval.md) | `math.eval` | Expression parsing |
+| [constants](constants.md) | `math.constants` | Physical constants, units |
+| [numtheory](numtheory.md) | `math.numtheory` | Number theory |
 
 ```lua
 luaswift.extend_stdlib()
@@ -83,7 +83,7 @@ local b = a + 1  -- broadcasting
 
 | Module | Global | Description |
 |--------|--------|-------------|
-| plot | `plot` | Retained-mode plotting (includes SVG generation) |
+| [plot](plot.md) | `plot` | Retained-mode plotting (includes SVG generation) |
 
 ```lua
 local fig = plot.figure()

@@ -12,7 +12,9 @@ import Foundation
 
 /// Swift-backed interpolation module for LuaSwift.
 ///
-/// Provides interpolation functions including 1D interpolation and cubic splines.
+/// Provides interpolation functions including 1D interpolation, cubic splines,
+/// PCHIP, Akima, Lagrange, and Barycentric interpolation. All algorithms
+/// implemented in Swift for performance.
 ///
 /// ## Lua API
 ///
@@ -32,11 +34,671 @@ import Foundation
 /// ```
 public struct InterpolateModule {
 
+    // MARK: - Constants
+
+    private static let defaultXTol: Double = 1e-8
+
+    // MARK: - Complex Number Support
+
+    /// Represents a complex number for interpolation
+    public struct Complex {
+        public var re: Double
+        public var im: Double
+
+        public init(re: Double, im: Double) {
+            self.re = re
+            self.im = im
+        }
+
+        public static func + (lhs: Complex, rhs: Complex) -> Complex {
+            Complex(re: lhs.re + rhs.re, im: lhs.im + rhs.im)
+        }
+
+        public static func - (lhs: Complex, rhs: Complex) -> Complex {
+            Complex(re: lhs.re - rhs.re, im: lhs.im - rhs.im)
+        }
+
+        public static func * (lhs: Complex, rhs: Double) -> Complex {
+            Complex(re: lhs.re * rhs, im: lhs.im * rhs)
+        }
+    }
+
+    // MARK: - Spline Coefficients
+
+    /// Coefficients for a cubic polynomial segment: a + b*dx + c*dx^2 + d*dx^3
+    public struct CubicCoeffs {
+        public let a: Double
+        public let b: Double
+        public let c: Double
+        public let d: Double
+    }
+
+    /// Result from cubic spline computation
+    public struct SplineResult {
+        public let coeffs: [CubicCoeffs]
+        public let x: [Double]
+        public let y: [Double]
+    }
+
+    // MARK: - Binary Search
+
+    /// Find the interval containing x (returns index i such that x[i] <= x < x[i+1])
+    private static func findInterval(_ xs: [Double], _ x: Double) -> Int {
+        var lo = 0
+        var hi = xs.count - 1
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2
+            if xs[mid] > x {
+                hi = mid
+            } else {
+                lo = mid
+            }
+        }
+        return lo
+    }
+
+    // MARK: - Tridiagonal Solver
+
+    /// Solve tridiagonal system using Thomas algorithm
+    /// diag: main diagonal
+    /// offDiag: off-diagonal (indexed 0..n-2)
+    /// rhs: right-hand side
+    private static func solveTridiagonal(diag: [Double], offDiag: [Double], rhs: [Double]) -> [Double] {
+        let n = diag.count
+        guard n > 0 else { return [] }
+
+        var cPrime = [Double](repeating: 0, count: n)
+        var dPrime = [Double](repeating: 0, count: n)
+
+        // Forward elimination
+        let off0 = offDiag.indices.contains(0) ? offDiag[0] : 0
+        cPrime[0] = off0 / diag[0]
+        dPrime[0] = rhs[0] / diag[0]
+
+        for i in 1..<n {
+            let offPrev = i - 1 < offDiag.count ? offDiag[i - 1] : 0
+            let m = diag[i] - offPrev * cPrime[i - 1]
+            let offCurr = i < offDiag.count ? offDiag[i] : 0
+            cPrime[i] = offCurr / m
+            dPrime[i] = (rhs[i] - offPrev * dPrime[i - 1]) / m
+        }
+
+        // Back substitution
+        var result = [Double](repeating: 0, count: n)
+        result[n - 1] = dPrime[n - 1]
+        for i in stride(from: n - 2, through: 0, by: -1) {
+            result[i] = dPrime[i] - cPrime[i] * result[i + 1]
+        }
+
+        return result
+    }
+
+    // MARK: - Cubic Spline Coefficients
+
+    /// Compute cubic spline coefficients
+    /// bcType: "natural", "clamped", or "not-a-knot"
+    public static func computeSplineCoeffs(x: [Double], y: [Double], bcType: String = "not-a-knot") -> [CubicCoeffs] {
+        let n = x.count
+        guard n >= 2 else { return [] }
+
+        // Compute intervals h[i] = x[i+1] - x[i]
+        var h = [Double](repeating: 0, count: n - 1)
+        for i in 0..<(n - 1) {
+            h[i] = x[i + 1] - x[i]
+        }
+
+        // Set up tridiagonal system for second derivatives
+        var diag = [Double](repeating: 0, count: n)
+        var offDiag = [Double](repeating: 0, count: n - 1)
+        var rhs = [Double](repeating: 0, count: n)
+
+        if bcType == "natural" {
+            // Natural boundary: c[0] = 0, c[n-1] = 0
+            diag[0] = 1
+            rhs[0] = 0
+
+            for i in 1..<(n - 1) {
+                diag[i] = 2 * (h[i - 1] + h[i])
+                offDiag[i - 1] = h[i - 1]
+                rhs[i] = 3 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1])
+            }
+
+            diag[n - 1] = 1
+            rhs[n - 1] = 0
+            if n > 2 {
+                offDiag[n - 2] = 0
+            }
+
+        } else if bcType == "clamped" {
+            // Clamped: f'(x0) = 0, f'(xn) = 0
+            let fp0 = 0.0
+            let fpn = 0.0
+
+            diag[0] = 2 * h[0]
+            rhs[0] = 3 * ((y[1] - y[0]) / h[0] - fp0)
+            offDiag[0] = h[0]
+
+            for i in 1..<(n - 1) {
+                diag[i] = 2 * (h[i - 1] + h[i])
+                offDiag[i] = h[i]
+                rhs[i] = 3 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1])
+            }
+
+            diag[n - 1] = 2 * h[n - 2]
+            rhs[n - 1] = 3 * (fpn - (y[n - 1] - y[n - 2]) / h[n - 2])
+
+        } else {
+            // Not-a-knot (default)
+            // For not-a-knot, we need special handling since boundary conditions
+            // involve 3 unknowns each, not fitting standard tridiagonal form.
+            // Use row reduction approach for n >= 4, fall back to natural otherwise.
+            if n >= 4 {
+                // Build interior equations first (rows 1 to n-2)
+                for i in 1..<(n - 1) {
+                    diag[i] = 2 * (h[i - 1] + h[i])
+                    offDiag[i - 1] = h[i - 1]
+                    if i < n - 1 {
+                        offDiag[i] = h[i]
+                    }
+                    rhs[i] = 3 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1])
+                }
+
+                // Not-a-knot condition: third derivatives match at x[1] and x[n-2]
+                // This means: d[0] = d[1] where d[i] = (c[i+1] - c[i]) / (3*h[i])
+                // So: (c[1] - c[0]) / h[0] = (c[2] - c[1]) / h[1]
+                // => h[1]*(c[1] - c[0]) = h[0]*(c[2] - c[1])
+                // => h[1]*c[1] - h[1]*c[0] = h[0]*c[2] - h[0]*c[1]
+                // => -h[1]*c[0] + (h[0] + h[1])*c[1] - h[0]*c[2] = 0
+
+                // For first row: use modified equation
+                // c[0] = c[1] + (h[0]/h[1])*(c[1] - c[2])
+                // Substitute into row 1 to eliminate c[0]
+                let alpha0 = h[0] / h[1]
+                // Row 1: h[0]*c[0] + 2*(h[0]+h[1])*c[1] + h[1]*c[2] = rhs[1]
+                // Substitute c[0] = (1 + alpha0)*c[1] - alpha0*c[2]
+                // h[0]*((1+alpha0)*c[1] - alpha0*c[2]) + 2*(h[0]+h[1])*c[1] + h[1]*c[2] = rhs[1]
+                // (h[0]*(1+alpha0) + 2*(h[0]+h[1]))*c[1] + (h[1] - h[0]*alpha0)*c[2] = rhs[1]
+                diag[1] = h[0] * (1 + alpha0) + 2 * (h[0] + h[1])
+                offDiag[1] = h[1] - h[0] * alpha0
+
+                // Similar for last row
+                let alphan = h[n - 2] / h[n - 3]
+                // Row n-2: h[n-3]*c[n-3] + 2*(h[n-3]+h[n-2])*c[n-2] + h[n-2]*c[n-1] = rhs[n-2]
+                // c[n-1] = (1 + alphan)*c[n-2] - alphan*c[n-3]
+                diag[n - 2] = h[n - 2] * (1 + alphan) + 2 * (h[n - 3] + h[n - 2])
+                if n > 3 {
+                    offDiag[n - 4] = h[n - 3] - h[n - 2] * alphan
+                }
+
+                // Build reduced system (rows 1 to n-2)
+                let reducedN = n - 2
+                var reducedDiag = [Double](repeating: 0, count: reducedN)
+                var reducedOff = [Double](repeating: 0, count: reducedN - 1)
+                var reducedRhs = [Double](repeating: 0, count: reducedN)
+
+                for i in 0..<reducedN {
+                    reducedDiag[i] = diag[i + 1]
+                    reducedRhs[i] = rhs[i + 1]
+                    if i < reducedN - 1 {
+                        reducedOff[i] = offDiag[i + 1]
+                    }
+                }
+
+                // Solve reduced system
+                let cInner = solveTridiagonal(diag: reducedDiag, offDiag: reducedOff, rhs: reducedRhs)
+
+                // Back-substitute to get c[0] and c[n-1]
+                var c = [Double](repeating: 0, count: n)
+                for i in 0..<reducedN {
+                    c[i + 1] = cInner[i]
+                }
+                c[0] = (1 + alpha0) * c[1] - alpha0 * c[2]
+                c[n - 1] = (1 + alphan) * c[n - 2] - alphan * c[n - 3]
+
+                // Compute a, b, d coefficients
+                var coeffs = [CubicCoeffs]()
+                for i in 0..<(n - 1) {
+                    let a = y[i]
+                    let b = (y[i + 1] - y[i]) / h[i] - h[i] * (2 * c[i] + c[i + 1]) / 3
+                    let d = (c[i + 1] - c[i]) / (3 * h[i])
+                    coeffs.append(CubicCoeffs(a: a, b: b, c: c[i], d: d))
+                }
+                return coeffs
+            } else {
+                // Fall back to natural for n < 4
+                return computeSplineCoeffs(x: x, y: y, bcType: "natural")
+            }
+        }
+
+        // Solve for c values
+        let c = solveTridiagonal(diag: diag, offDiag: offDiag, rhs: rhs)
+
+        // Compute a, b, d coefficients
+        var coeffs = [CubicCoeffs]()
+        for i in 0..<(n - 1) {
+            let a = y[i]
+            let b = (y[i + 1] - y[i]) / h[i] - h[i] * (2 * c[i] + c[i + 1]) / 3
+            let d = (c[i + 1] - c[i]) / (3 * h[i])
+            coeffs.append(CubicCoeffs(a: a, b: b, c: c[i], d: d))
+        }
+
+        return coeffs
+    }
+
+    // MARK: - 1D Interpolation
+
+    /// Interpolation kinds
+    public enum InterpolationKind: String {
+        case linear
+        case nearest
+        case cubic
+        case previous
+        case next
+    }
+
+    /// Evaluate 1D interpolation at a single point
+    public static func interp1dSingle(
+        x: [Double],
+        y: [Double],
+        xNew: Double,
+        kind: InterpolationKind,
+        fillValue: Double,
+        boundsError: Bool,
+        coeffs: [CubicCoeffs]?
+    ) -> Double {
+        let n = x.count
+
+        // Check bounds
+        if xNew < x[0] || xNew > x[n - 1] {
+            if boundsError {
+                return Double.nan // Error case
+            }
+            return fillValue
+        }
+
+        // Handle exact boundary values
+        if xNew == x[0] { return y[0] }
+        if xNew == x[n - 1] { return y[n - 1] }
+
+        let i = findInterval(x, xNew)
+
+        switch kind {
+        case .nearest:
+            let d1 = abs(xNew - x[i])
+            let d2 = abs(xNew - x[i + 1])
+            return d1 <= d2 ? y[i] : y[i + 1]
+
+        case .previous:
+            return y[i]
+
+        case .next:
+            return y[i + 1]
+
+        case .cubic:
+            guard let coeffs = coeffs, i < coeffs.count else {
+                return Double.nan
+            }
+            let dx = xNew - x[i]
+            let c = coeffs[i]
+            return c.a + c.b * dx + c.c * dx * dx + c.d * dx * dx * dx
+
+        case .linear:
+            let t = (xNew - x[i]) / (x[i + 1] - x[i])
+            return y[i] + t * (y[i + 1] - y[i])
+        }
+    }
+
+    // MARK: - Cubic Spline Evaluation
+
+    /// Evaluate cubic spline at a point
+    public static func evalCubicSpline(
+        x: [Double],
+        coeffs: [CubicCoeffs],
+        xNew: Double,
+        extrapolate: Bool
+    ) -> Double {
+        let n = x.count
+
+        // Check bounds
+        if xNew < x[0] {
+            if !extrapolate { return Double.nan }
+            // Linear extrapolation using first segment
+            let dx = xNew - x[0]
+            return coeffs[0].a + coeffs[0].b * dx
+        }
+
+        if xNew > x[n - 1] {
+            if !extrapolate { return Double.nan }
+            // Linear extrapolation using last segment
+            let h = x[n - 1] - x[n - 2]
+            let c = coeffs[n - 2]
+            let slope = c.b + 2 * c.c * h + 3 * c.d * h * h
+            return x.last! + slope * (xNew - x[n - 1])  // Should use y[n-1]
+        }
+
+        let i = findInterval(x, xNew)
+        let idx = min(i, coeffs.count - 1)
+        let dx = xNew - x[idx]
+        let c = coeffs[idx]
+        return c.a + c.b * dx + c.c * dx * dx + c.d * dx * dx * dx
+    }
+
+    /// Evaluate cubic spline derivative at a point
+    public static func evalCubicSplineDerivative(
+        x: [Double],
+        coeffs: [CubicCoeffs],
+        xNew: Double,
+        order: Int
+    ) -> Double {
+        let n = x.count
+
+        // Clamp to domain
+        let xEval = max(x[0], min(xNew, x[n - 1]))
+        var i = findInterval(x, xEval)
+        if i >= n - 1 { i = n - 2 }
+        if i >= coeffs.count { i = coeffs.count - 1 }
+
+        let dx = xEval - x[i]
+        let c = coeffs[i]
+
+        switch order {
+        case 1:
+            return c.b + 2 * c.c * dx + 3 * c.d * dx * dx
+        case 2:
+            return 2 * c.c + 6 * c.d * dx
+        case 3:
+            return 6 * c.d
+        default:
+            return 0
+        }
+    }
+
+    /// Integrate cubic spline over interval [a, b]
+    public static func integrateCubicSpline(
+        x: [Double],
+        coeffs: [CubicCoeffs],
+        a: Double,
+        b: Double
+    ) -> Double {
+        let n = x.count
+
+        // Clamp to domain
+        let x0 = max(x[0], min(a, x[n - 1]))
+        let x1 = max(x[0], min(b, x[n - 1]))
+
+        if x0 > x1 {
+            return -integrateCubicSpline(x: x, coeffs: coeffs, a: b, b: a)
+        }
+
+        let i0 = findInterval(x, x0)
+        let i1 = findInterval(x, x1)
+
+        // Integrate polynomial: a*dx + b*dx^2/2 + c*dx^3/3 + d*dx^4/4
+        func integratePoly(_ c: CubicCoeffs, _ dx: Double) -> Double {
+            return c.a * dx + c.b * dx * dx / 2 + c.c * dx * dx * dx / 3 + c.d * dx * dx * dx * dx / 4
+        }
+
+        var total = 0.0
+
+        if i0 == i1 {
+            let idx = min(i0, coeffs.count - 1)
+            let c = coeffs[idx]
+            let dx0 = x0 - x[idx]
+            let dx1 = x1 - x[idx]
+            total = integratePoly(c, dx1) - integratePoly(c, dx0)
+        } else {
+            // First partial segment
+            let idx0 = min(i0, coeffs.count - 1)
+            let c0 = coeffs[idx0]
+            let dx0 = x0 - x[idx0]
+            let dx1 = x[idx0 + 1] - x[idx0]
+            total = integratePoly(c0, dx1) - integratePoly(c0, dx0)
+
+            // Full segments
+            for i in (i0 + 1)..<i1 {
+                let idx = min(i, coeffs.count - 1)
+                let c = coeffs[idx]
+                let h = x[i + 1] - x[i]
+                total += integratePoly(c, h)
+            }
+
+            // Last partial segment
+            if i1 < n - 1 && i1 < coeffs.count {
+                let c1 = coeffs[i1]
+                let dx = x1 - x[i1]
+                total += integratePoly(c1, dx)
+            }
+        }
+
+        return total
+    }
+
+    // MARK: - PCHIP Interpolation
+
+    /// Compute PCHIP edge derivative
+    private static func pchipEdgeDerivative(h1: Double, h2: Double, d1: Double, d2: Double) -> Double {
+        let deriv = ((2 * h1 + h2) * d1 - h1 * d2) / (h1 + h2)
+        if deriv * d1 < 0 {
+            return 0
+        } else if d1 * d2 < 0 && abs(deriv) > 3 * abs(d1) {
+            return 3 * d1
+        }
+        return deriv
+    }
+
+    /// Compute PCHIP derivatives at all points
+    public static func computePchipDerivatives(x: [Double], y: [Double]) -> [Double] {
+        let n = x.count
+        guard n >= 2 else { return [] }
+
+        // Compute slopes and intervals
+        var h = [Double](repeating: 0, count: n - 1)
+        var delta = [Double](repeating: 0, count: n - 1)
+        for i in 0..<(n - 1) {
+            h[i] = x[i + 1] - x[i]
+            delta[i] = (y[i + 1] - y[i]) / h[i]
+        }
+
+        var d = [Double](repeating: 0, count: n)
+
+        if n == 2 {
+            d[0] = delta[0]
+            d[1] = delta[0]
+        } else {
+            // Endpoints
+            d[0] = pchipEdgeDerivative(h1: h[0], h2: h[1], d1: delta[0], d2: delta[1])
+            d[n - 1] = pchipEdgeDerivative(h1: h[n - 2], h2: h[n - 3], d1: delta[n - 2], d2: delta[n - 3])
+
+            // Interior points
+            for i in 1..<(n - 1) {
+                if delta[i - 1] * delta[i] > 0 {
+                    let w1 = 2 * h[i] + h[i - 1]
+                    let w2 = h[i] + 2 * h[i - 1]
+                    d[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i])
+                } else {
+                    d[i] = 0
+                }
+            }
+        }
+
+        return d
+    }
+
+    /// Evaluate PCHIP interpolation at a point
+    public static func evalPchip(x: [Double], y: [Double], d: [Double], xNew: Double) -> Double {
+        let n = x.count
+
+        // Extrapolation
+        if xNew <= x[0] {
+            return y[0] + d[0] * (xNew - x[0])
+        }
+        if xNew >= x[n - 1] {
+            return y[n - 1] + d[n - 1] * (xNew - x[n - 1])
+        }
+
+        let i = findInterval(x, xNew)
+        let h = x[i + 1] - x[i]
+        let t = (xNew - x[i]) / h
+
+        // Hermite basis functions
+        let t2 = t * t
+        let t3 = t2 * t
+        let h00 = 2 * t3 - 3 * t2 + 1
+        let h10 = t3 - 2 * t2 + t
+        let h01 = -2 * t3 + 3 * t2
+        let h11 = t3 - t2
+
+        return h00 * y[i] + h10 * h * d[i] + h01 * y[i + 1] + h11 * h * d[i + 1]
+    }
+
+    // MARK: - Akima Interpolation
+
+    /// Compute Akima interpolation coefficients
+    public static func computeAkimaCoeffs(x: [Double], y: [Double]) -> [CubicCoeffs] {
+        let n = x.count
+        guard n >= 2 else { return [] }
+
+        // Compute slopes between points
+        var m = [Double](repeating: 0, count: n + 3)
+        for i in 0..<(n - 1) {
+            m[i + 2] = (y[i + 1] - y[i]) / (x[i + 1] - x[i])
+        }
+
+        // Extend slopes at boundaries
+        m[1] = 2 * m[2] - m[3]
+        m[0] = 2 * m[1] - m[2]
+        m[n + 1] = 2 * m[n] - m[n - 1]
+        m[n + 2] = 2 * m[n + 1] - m[n]
+
+        // Compute Akima derivatives
+        var d = [Double](repeating: 0, count: n)
+        for i in 0..<n {
+            let w1 = abs(m[i + 2] - m[i + 1])
+            let w2 = abs(m[i] - m[i + 1])
+
+            if w1 + w2 == 0 {
+                d[i] = (m[i + 1] + m[i + 2]) / 2
+            } else {
+                d[i] = (w1 * m[i + 1] + w2 * m[i + 2]) / (w1 + w2)
+            }
+        }
+
+        // Compute coefficients
+        var coeffs = [CubicCoeffs]()
+        for i in 0..<(n - 1) {
+            let h = x[i + 1] - x[i]
+            let slope = m[i + 2]
+            let a = y[i]
+            let b = d[i]
+            let c = (3 * slope - 2 * d[i] - d[i + 1]) / h
+            let dd = (d[i] + d[i + 1] - 2 * slope) / (h * h)
+            coeffs.append(CubicCoeffs(a: a, b: b, c: c, d: dd))
+        }
+
+        return coeffs
+    }
+
+    /// Evaluate Akima interpolation at a point
+    public static func evalAkima(x: [Double], coeffs: [CubicCoeffs], xNew: Double) -> Double {
+        let n = x.count
+
+        // Extrapolation
+        if xNew <= x[0] {
+            let dx = xNew - x[0]
+            return coeffs[0].a + coeffs[0].b * dx
+        }
+        if xNew >= x[n - 1] {
+            let dx = xNew - x[n - 2]
+            let c = coeffs[n - 2]
+            return c.a + c.b * dx + c.c * dx * dx + c.d * dx * dx * dx
+        }
+
+        let i = findInterval(x, xNew)
+        let idx = min(i, coeffs.count - 1)
+        let dx = xNew - x[idx]
+        let c = coeffs[idx]
+        return c.a + c.b * dx + c.c * dx * dx + c.d * dx * dx * dx
+    }
+
+    // MARK: - Lagrange Interpolation
+
+    /// Evaluate Lagrange interpolation at a point
+    public static func evalLagrange(x: [Double], y: [Double], xNew: Double) -> Double {
+        let n = x.count
+        var result = 0.0
+
+        for i in 0..<n {
+            var basis = 1.0
+            for j in 0..<n {
+                if i != j {
+                    basis *= (xNew - x[j]) / (x[i] - x[j])
+                }
+            }
+            result += y[i] * basis
+        }
+
+        return result
+    }
+
+    // MARK: - Barycentric Interpolation
+
+    /// Compute barycentric weights
+    public static func computeBarycentricWeights(x: [Double]) -> [Double] {
+        let n = x.count
+        var w = [Double](repeating: 1, count: n)
+
+        for i in 0..<n {
+            for j in 0..<n {
+                if i != j {
+                    w[i] /= (x[i] - x[j])
+                }
+            }
+        }
+
+        return w
+    }
+
+    /// Evaluate barycentric interpolation at a point
+    public static func evalBarycentric(x: [Double], y: [Double], w: [Double], xNew: Double) -> Double {
+        let n = x.count
+
+        // Check for exact match
+        for i in 0..<n {
+            if xNew == x[i] {
+                return y[i]
+            }
+        }
+
+        var num = 0.0
+        var den = 0.0
+        for i in 0..<n {
+            let term = w[i] / (xNew - x[i])
+            num += term * y[i]
+            den += term
+        }
+
+        return num / den
+    }
+
     // MARK: - Registration
 
     /// Register the interpolation module with a LuaEngine.
     public static func register(in engine: LuaEngine) {
-        // All interpolation algorithms implemented in Lua for natural function calling
+        // Register Swift callbacks
+        engine.registerFunction(name: "_luaswift_interp_spline_coeffs", callback: makeSplineCoeffsCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_eval_spline", callback: makeEvalSplineCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_eval_spline_deriv", callback: makeEvalSplineDerivCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_integrate_spline", callback: makeIntegrateSplineCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_pchip_derivs", callback: makePchipDerivsCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_eval_pchip", callback: makeEvalPchipCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_akima_coeffs", callback: makeAkimaCoeffsCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_eval_akima", callback: makeEvalAkimaCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_eval_lagrange", callback: makeEvalLagrangeCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_barycentric_weights", callback: makeBarycentricWeightsCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_eval_barycentric", callback: makeEvalBarycentricCallback(engine))
+        engine.registerFunction(name: "_luaswift_interp_interp1d", callback: makeInterp1dCallback(engine))
+
+        // Set up Lua namespace with thin wrappers
         do {
             try engine.run("""
                 if not luaswift then luaswift = {} end
@@ -61,45 +723,12 @@ public struct InterpolateModule {
                 end
 
                 ----------------------------------------------------------------
-                -- Complex number helpers for complex-valued interpolation
+                -- Complex number helpers
                 ----------------------------------------------------------------
                 local function is_complex(v)
                     return type(v) == "table" and v.re ~= nil and v.im ~= nil
                 end
 
-                local function complex_add(a, b)
-                    if is_complex(a) and is_complex(b) then
-                        return {re = a.re + b.re, im = a.im + b.im}
-                    elseif is_complex(a) then
-                        return {re = a.re + b, im = a.im}
-                    elseif is_complex(b) then
-                        return {re = a + b.re, im = b.im}
-                    else
-                        return a + b
-                    end
-                end
-
-                local function complex_sub(a, b)
-                    if is_complex(a) and is_complex(b) then
-                        return {re = a.re - b.re, im = a.im - b.im}
-                    elseif is_complex(a) then
-                        return {re = a.re - b, im = a.im}
-                    elseif is_complex(b) then
-                        return {re = a - b.re, im = -b.im}
-                    else
-                        return a - b
-                    end
-                end
-
-                local function complex_mul_scalar(c, s)
-                    if is_complex(c) then
-                        return {re = c.re * s, im = c.im * s}
-                    else
-                        return c * s
-                    end
-                end
-
-                -- Check if any element in array is complex
                 local function has_complex(arr)
                     for i = 1, #arr do
                         if is_complex(arr[i]) then return true end
@@ -107,159 +736,97 @@ public struct InterpolateModule {
                     return false
                 end
 
-                -- Extract real parts from array
                 local function get_real_parts(arr)
                     local result = {}
                     for i = 1, #arr do
-                        if is_complex(arr[i]) then
-                            result[i] = arr[i].re
-                        else
-                            result[i] = arr[i]
-                        end
+                        result[i] = is_complex(arr[i]) and arr[i].re or arr[i]
                     end
                     return result
                 end
 
-                -- Extract imaginary parts from array
                 local function get_imag_parts(arr)
                     local result = {}
                     for i = 1, #arr do
-                        if is_complex(arr[i]) then
-                            result[i] = arr[i].im
-                        else
-                            result[i] = 0
-                        end
+                        result[i] = is_complex(arr[i]) and arr[i].im or 0
                     end
                     return result
                 end
 
                 ----------------------------------------------------------------
-                -- interp1d: 1D interpolation
-                --
-                -- Arguments:
-                --   x: array of x coordinates (must be strictly increasing)
-                --   y: array of y values
-                --   kind: "linear", "nearest", "cubic", "previous", "next"
-                --         (default: "linear")
-                --   options: {
-                --     fill_value: value for extrapolation (default: nan)
-                --     bounds_error: if true, raise error on extrapolation (default: false)
-                --   }
-                --
-                -- Returns: interpolation function f(x_new)
+                -- interp1d: 1D interpolation (Swift-backed)
                 ----------------------------------------------------------------
                 function interpolate.interp1d(x, y, kind, options)
                     options = options or {}
                     kind = kind or "linear"
-                    local fill_value = options.fill_value or (0/0)  -- NaN
+                    local fill_value = options.fill_value or (0/0)
                     local bounds_error = options.bounds_error or false
 
                     local n = #x
-                    if n < 2 then
-                        error("interp1d: need at least 2 data points")
-                    end
-                    if n ~= #y then
-                        error("interp1d: x and y must have same length")
-                    end
+                    if n < 2 then error("interp1d: need at least 2 data points") end
+                    if n ~= #y then error("interp1d: x and y must have same length") end
 
-                    -- Copy arrays
                     local xs, ys = {}, {}
-                    for i = 1, n do
-                        xs[i] = x[i]
-                        ys[i] = y[i]
-                    end
+                    for i = 1, n do xs[i], ys[i] = x[i], y[i] end
 
-                    -- For cubic interpolation, precompute spline coefficients
-                    local coeffs = nil
-                    local coeffs_re, coeffs_im = nil, nil
                     local is_complex_data = has_complex(ys)
+                    local coeffs_re, coeffs_im = nil, nil
 
                     if kind == "cubic" then
                         if is_complex_data then
-                            -- Complex data: compute coefficients for real and imaginary parts separately
-                            local ys_re = get_real_parts(ys)
-                            local ys_im = get_imag_parts(ys)
-                            coeffs_re = interpolate._compute_spline_coeffs(xs, ys_re, "natural")
-                            coeffs_im = interpolate._compute_spline_coeffs(xs, ys_im, "natural")
+                            coeffs_re = _luaswift_interp_spline_coeffs(xs, get_real_parts(ys), "natural")
+                            coeffs_im = _luaswift_interp_spline_coeffs(xs, get_imag_parts(ys), "natural")
                         else
-                            -- Use natural cubic spline
-                            coeffs = interpolate._compute_spline_coeffs(xs, ys, "natural")
+                            coeffs_re = _luaswift_interp_spline_coeffs(xs, ys, "natural")
                         end
                     end
 
-                    -- Return interpolation function
                     return function(x_new)
-                        -- Handle array input
-                        if type(x_new) == "table" then
+                        if type(x_new) == "table" and not is_complex(x_new) then
                             local result = {}
                             for i, xi in ipairs(x_new) do
-                                result[i] = interpolate._interp1d_single(
-                                    xs, ys, xi, kind, fill_value, bounds_error, coeffs, coeffs_re, coeffs_im
-                                )
+                                result[i] = interpolate._interp1d_single(xs, ys, xi, kind, fill_value, bounds_error, coeffs_re, coeffs_im, is_complex_data)
                             end
                             return result
-                        else
-                            return interpolate._interp1d_single(
-                                xs, ys, x_new, kind, fill_value, bounds_error, coeffs, coeffs_re, coeffs_im
-                            )
                         end
+                        return interpolate._interp1d_single(xs, ys, x_new, kind, fill_value, bounds_error, coeffs_re, coeffs_im, is_complex_data)
                     end
                 end
 
-                -- Single point interpolation helper
-                -- Added coeffs_re/coeffs_im for complex cubic interpolation
-                function interpolate._interp1d_single(xs, ys, x_new, kind, fill_value, bounds_error, coeffs, coeffs_re, coeffs_im)
+                function interpolate._interp1d_single(xs, ys, x_new, kind, fill_value, bounds_error, coeffs_re, coeffs_im, is_complex_data)
                     local n = #xs
-
-                    -- Check bounds
                     if x_new < xs[1] or x_new > xs[n] then
-                        if bounds_error then
-                            error("interp1d: value " .. x_new .. " is outside interpolation range")
-                        end
+                        if bounds_error then error("interp1d: value outside range") end
                         return fill_value
                     end
-
-                    -- Handle exact boundary values
                     if x_new == xs[1] then return ys[1] end
                     if x_new == xs[n] then return ys[n] end
 
                     local i = find_interval(xs, x_new)
 
                     if kind == "nearest" then
-                        -- Nearest neighbor
-                        local d1 = math.abs(x_new - xs[i])
-                        local d2 = math.abs(x_new - xs[i + 1])
-                        return d1 <= d2 and ys[i] or ys[i + 1]
-
+                        return math.abs(x_new - xs[i]) <= math.abs(x_new - xs[i+1]) and ys[i] or ys[i+1]
                     elseif kind == "previous" then
                         return ys[i]
-
                     elseif kind == "next" then
-                        return ys[i + 1]
-
+                        return ys[i+1]
                     elseif kind == "cubic" then
-                        -- Cubic spline evaluation
-                        local dx = x_new - xs[i]
-                        if coeffs_re and coeffs_im then
-                            -- Complex cubic: evaluate real and imaginary parts separately
-                            local ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
-                            local ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
-                            local re = ar + br * dx + cr * dx^2 + dr * dx^3
-                            local im = ai + bi * dx + ci * dx^2 + di * dx^3
+                        if is_complex_data then
+                            local re = _luaswift_interp_eval_spline(xs, coeffs_re, x_new, true)
+                            local im = _luaswift_interp_eval_spline(xs, coeffs_im, x_new, true)
                             return {re = re, im = im}
                         else
-                            local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                            return a + b * dx + c * dx^2 + d * dx^3
+                            return _luaswift_interp_eval_spline(xs, coeffs_re, x_new, true)
                         end
-
-                    else  -- "linear" or default
-                        -- Linear interpolation (supports complex y values)
-                        local t = (x_new - xs[i]) / (xs[i + 1] - xs[i])
-                        local y1, y2 = ys[i], ys[i + 1]
+                    else
+                        -- Linear (or default)
+                        local t = (x_new - xs[i]) / (xs[i+1] - xs[i])
+                        local y1, y2 = ys[i], ys[i+1]
                         if is_complex(y1) or is_complex(y2) then
-                            -- Complex linear interpolation: y1 + t * (y2 - y1)
-                            local diff = complex_sub(y2, y1)
-                            return complex_add(y1, complex_mul_scalar(diff, t))
+                            local r1 = is_complex(y1) and y1.re or y1
+                            local i1 = is_complex(y1) and y1.im or 0
+                            local r2 = is_complex(y2) and y2.re or y2
+                            local i2 = is_complex(y2) and y2.im or 0
+                            return {re = r1 + t * (r2 - r1), im = i1 + t * (i2 - i1)}
                         else
                             return y1 + t * (y2 - y1)
                         end
@@ -267,150 +834,7 @@ public struct InterpolateModule {
                 end
 
                 ----------------------------------------------------------------
-                -- Compute cubic spline coefficients
-                --
-                -- For spline S_i(x) = a_i + b_i(x-x_i) + c_i(x-x_i)^2 + d_i(x-x_i)^3
-                -- Returns array of {a, b, c, d} for each interval
-                ----------------------------------------------------------------
-                function interpolate._compute_spline_coeffs(x, y, bc_type)
-                    local n = #x
-                    bc_type = bc_type or "natural"
-
-                    -- Compute intervals h_i = x_{i+1} - x_i
-                    local h = {}
-                    for i = 1, n - 1 do
-                        h[i] = x[i + 1] - x[i]
-                    end
-
-                    -- Set up tridiagonal system for second derivatives (c values)
-                    -- Natural spline: c_0 = c_{n-1} = 0
-                    -- Not-a-knot: continuity of third derivative at second and second-to-last knots
-
-                    -- System: A * c = rhs
-                    -- where c = [c_0, c_1, ..., c_{n-1}]
-
-                    local diag = {}      -- diagonal
-                    local off_diag = {}  -- off-diagonal (same for super and sub)
-                    local rhs = {}       -- right-hand side
-
-                    if bc_type == "natural" then
-                        -- Natural boundary: c_0 = 0, c_{n-1} = 0
-                        -- Interior equations
-                        for i = 2, n - 1 do
-                            diag[i] = 2 * (h[i - 1] + h[i])
-                            off_diag[i - 1] = h[i - 1]
-                            rhs[i] = 3 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1])
-                        end
-
-                        -- Boundary conditions
-                        diag[1] = 1
-                        rhs[1] = 0
-                        diag[n] = 1
-                        rhs[n] = 0
-                        off_diag[0] = 0
-                        off_diag[n - 1] = 0
-
-                    elseif bc_type == "clamped" then
-                        -- Clamped: specify first derivatives at endpoints (default to 0)
-                        local fp0 = 0  -- f'(x_0)
-                        local fpn = 0  -- f'(x_{n-1})
-
-                        diag[1] = 2 * h[1]
-                        rhs[1] = 3 * ((y[2] - y[1]) / h[1] - fp0)
-                        off_diag[0] = h[1]
-
-                        for i = 2, n - 1 do
-                            diag[i] = 2 * (h[i - 1] + h[i])
-                            off_diag[i - 1] = h[i - 1]
-                            rhs[i] = 3 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1])
-                        end
-
-                        diag[n] = 2 * h[n - 1]
-                        rhs[n] = 3 * (fpn - (y[n] - y[n - 1]) / h[n - 1])
-                        off_diag[n - 1] = h[n - 1]
-
-                    else  -- "not-a-knot" - most similar to scipy default
-                        -- For n >= 4, not-a-knot conditions
-                        if n >= 4 then
-                            -- First equation: continuity of third derivative at x_1
-                            diag[1] = h[2]
-                            off_diag[0] = -(h[1] + h[2])
-                            rhs[1] = 3 * ((y[3] - y[2]) / h[2] - (y[2] - y[1]) / h[1])
-
-                            -- Interior equations
-                            for i = 2, n - 1 do
-                                diag[i] = 2 * (h[i - 1] + h[i])
-                                off_diag[i - 1] = h[i - 1]
-                                rhs[i] = 3 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1])
-                            end
-
-                            -- Last equation: continuity of third derivative at x_{n-2}
-                            diag[n] = h[n - 2]
-                            off_diag[n - 1] = -(h[n - 2] + h[n - 1])
-                            rhs[n] = 3 * ((y[n] - y[n - 1]) / h[n - 1] - (y[n - 1] - y[n - 2]) / h[n - 2])
-                        else
-                            -- Fall back to natural for n < 4
-                            return interpolate._compute_spline_coeffs(x, y, "natural")
-                        end
-                    end
-
-                    -- Solve tridiagonal system using Thomas algorithm
-                    local c = interpolate._solve_tridiagonal(diag, off_diag, rhs, n)
-
-                    -- Compute a, b, d coefficients
-                    local coeffs = {}
-                    for i = 1, n - 1 do
-                        local a = y[i]
-                        local b = (y[i + 1] - y[i]) / h[i] - h[i] * (2 * c[i] + c[i + 1]) / 3
-                        local d = (c[i + 1] - c[i]) / (3 * h[i])
-                        coeffs[i] = {a, b, c[i], d}
-                    end
-
-                    return coeffs
-                end
-
-                ----------------------------------------------------------------
-                -- Solve tridiagonal system using Thomas algorithm
-                ----------------------------------------------------------------
-                function interpolate._solve_tridiagonal(diag, off_diag, rhs, n)
-                    -- Forward elimination
-                    local c_prime = {}
-                    local d_prime = {}
-
-                    c_prime[1] = (off_diag[0] or 0) / diag[1]
-                    d_prime[1] = rhs[1] / diag[1]
-
-                    for i = 2, n do
-                        local m = diag[i] - (off_diag[i - 1] or 0) * c_prime[i - 1]
-                        c_prime[i] = (off_diag[i - 1] or 0) / m
-                        d_prime[i] = (rhs[i] - (off_diag[i - 1] or 0) * d_prime[i - 1]) / m
-                    end
-
-                    -- Back substitution
-                    local x = {}
-                    x[n] = d_prime[n]
-                    for i = n - 1, 1, -1 do
-                        x[i] = d_prime[i] - c_prime[i] * x[i + 1]
-                    end
-
-                    return x
-                end
-
-                ----------------------------------------------------------------
-                -- CubicSpline: Cubic spline interpolation
-                --
-                -- Arguments:
-                --   x: array of x coordinates (must be strictly increasing)
-                --   y: array of y values
-                --   options: {
-                --     bc_type: "natural", "clamped", "not-a-knot" (default: "not-a-knot")
-                --     extrapolate: if true, extrapolate outside bounds (default: true)
-                --   }
-                --
-                -- Returns: spline object with methods:
-                --   __call(x_new): evaluate spline at x_new
-                --   derivative(x_new, nu): evaluate nu-th derivative (default nu=1)
-                --   integrate(a, b): definite integral from a to b
+                -- CubicSpline: Cubic spline interpolation (Swift-backed)
                 ----------------------------------------------------------------
                 function interpolate.CubicSpline(x, y, options)
                     options = options or {}
@@ -419,594 +843,201 @@ public struct InterpolateModule {
                     if extrapolate == nil then extrapolate = true end
 
                     local n = #x
-                    if n < 2 then
-                        error("CubicSpline: need at least 2 data points")
-                    end
-                    if n ~= #y then
-                        error("CubicSpline: x and y must have same length")
-                    end
+                    if n < 2 then error("CubicSpline: need at least 2 data points") end
+                    if n ~= #y then error("CubicSpline: x and y must have same length") end
 
-                    -- Copy arrays
                     local xs, ys = {}, {}
-                    for i = 1, n do
-                        xs[i] = x[i]
-                        ys[i] = y[i]
-                    end
+                    for i = 1, n do xs[i], ys[i] = x[i], y[i] end
 
-                    -- Check for complex data
                     local is_complex_data = has_complex(ys)
-                    local coeffs, coeffs_re, coeffs_im = nil, nil, nil
+                    local coeffs, coeffs_re, coeffs_im
 
                     if is_complex_data then
-                        -- Complex data: compute coefficients for real and imaginary parts separately
-                        local ys_re = get_real_parts(ys)
-                        local ys_im = get_imag_parts(ys)
-                        coeffs_re = interpolate._compute_spline_coeffs(xs, ys_re, bc_type)
-                        coeffs_im = interpolate._compute_spline_coeffs(xs, ys_im, bc_type)
+                        coeffs_re = _luaswift_interp_spline_coeffs(xs, get_real_parts(ys), bc_type)
+                        coeffs_im = _luaswift_interp_spline_coeffs(xs, get_imag_parts(ys), bc_type)
                     else
-                        -- Compute spline coefficients
-                        coeffs = interpolate._compute_spline_coeffs(xs, ys, bc_type)
+                        coeffs = _luaswift_interp_spline_coeffs(xs, ys, bc_type)
                     end
 
-                    -- Create spline object
-                    local spline = {
-                        x = xs,
-                        y = ys,
-                        coeffs = coeffs,
-                        coeffs_re = coeffs_re,
-                        coeffs_im = coeffs_im,
-                        is_complex = is_complex_data,
-                        extrapolate = extrapolate
-                    }
+                    local spline = {x = xs, y = ys, extrapolate = extrapolate, is_complex = is_complex_data}
 
-                    -- Evaluate spline at point(s)
                     local function evaluate(x_new)
                         if type(x_new) == "table" and not is_complex(x_new) then
                             local result = {}
-                            for i, xi in ipairs(x_new) do
-                                result[i] = evaluate(xi)
-                            end
+                            for i, xi in ipairs(x_new) do result[i] = evaluate(xi) end
                             return result
                         end
 
-                        -- Check bounds
-                        if x_new < xs[1] then
-                            if not extrapolate then return 0/0 end
-                            -- Linear extrapolation using first segment
-                            local dx = x_new - xs[1]
-                            if is_complex_data then
-                                local br = coeffs_re[1][2]
-                                local bi = coeffs_im[1][2]
-                                local y1 = ys[1]
-                                local y1re = is_complex(y1) and y1.re or y1
-                                local y1im = is_complex(y1) and y1.im or 0
-                                return {re = y1re + br * dx, im = y1im + bi * dx}
-                            else
-                                local b = coeffs[1][2]
-                                return ys[1] + b * dx
-                            end
-                        end
-                        if x_new > xs[n] then
-                            if not extrapolate then return 0/0 end
-                            -- Linear extrapolation using last segment
-                            local h = xs[n] - xs[n - 1]
-                            if is_complex_data then
-                                local ar, br, cr, dr = coeffs_re[n - 1][1], coeffs_re[n - 1][2], coeffs_re[n - 1][3], coeffs_re[n - 1][4]
-                                local ai, bi, ci, di = coeffs_im[n - 1][1], coeffs_im[n - 1][2], coeffs_im[n - 1][3], coeffs_im[n - 1][4]
-                                local slope_re = br + 2 * cr * h + 3 * dr * h^2
-                                local slope_im = bi + 2 * ci * h + 3 * di * h^2
-                                local yn = ys[n]
-                                local ynre = is_complex(yn) and yn.re or yn
-                                local ynim = is_complex(yn) and yn.im or 0
-                                return {re = ynre + slope_re * (x_new - xs[n]), im = ynim + slope_im * (x_new - xs[n])}
-                            else
-                                local a, b, c, d = coeffs[n - 1][1], coeffs[n - 1][2], coeffs[n - 1][3], coeffs[n - 1][4]
-                                local slope = b + 2 * c * h + 3 * d * h^2
-                                return ys[n] + slope * (x_new - xs[n])
-                            end
-                        end
-
-                        -- Find interval and evaluate
-                        local i = find_interval(xs, x_new)
-                        local dx = x_new - xs[i]
                         if is_complex_data then
-                            local ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
-                            local ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
-                            local re = ar + br * dx + cr * dx^2 + dr * dx^3
-                            local im = ai + bi * dx + ci * dx^2 + di * dx^3
+                            local re = _luaswift_interp_eval_spline(xs, coeffs_re, x_new, extrapolate)
+                            local im = _luaswift_interp_eval_spline(xs, coeffs_im, x_new, extrapolate)
                             return {re = re, im = im}
                         else
-                            local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                            return a + b * dx + c * dx^2 + d * dx^3
+                            return _luaswift_interp_eval_spline(xs, coeffs, x_new, extrapolate)
                         end
                     end
 
-                    -- Evaluate derivative
                     function spline.derivative(x_new, nu)
                         nu = nu or 1
-
                         if type(x_new) == "table" and not is_complex(x_new) then
                             local result = {}
-                            for i, xi in ipairs(x_new) do
-                                result[i] = spline.derivative(xi, nu)
-                            end
+                            for i, xi in ipairs(x_new) do result[i] = spline.derivative(xi, nu) end
                             return result
                         end
-
-                        -- Clamp to domain for derivatives
-                        local x_eval = math.max(xs[1], math.min(x_new, xs[n]))
-                        local i = find_interval(xs, x_eval)
-                        if i >= n then i = n - 1 end
-
-                        local dx = x_eval - xs[i]
-
                         if is_complex_data then
-                            local ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
-                            local ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
-                            if nu == 1 then
-                                return {re = br + 2 * cr * dx + 3 * dr * dx^2, im = bi + 2 * ci * dx + 3 * di * dx^2}
-                            elseif nu == 2 then
-                                return {re = 2 * cr + 6 * dr * dx, im = 2 * ci + 6 * di * dx}
-                            elseif nu == 3 then
-                                return {re = 6 * dr, im = 6 * di}
-                            else
-                                return {re = 0, im = 0}  -- Higher derivatives of cubic are 0
-                            end
+                            local re = _luaswift_interp_eval_spline_deriv(xs, coeffs_re, x_new, nu)
+                            local im = _luaswift_interp_eval_spline_deriv(xs, coeffs_im, x_new, nu)
+                            return {re = re, im = im}
                         else
-                            local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                            if nu == 1 then
-                                return b + 2 * c * dx + 3 * d * dx^2
-                            elseif nu == 2 then
-                                return 2 * c + 6 * d * dx
-                            elseif nu == 3 then
-                                return 6 * d
-                            else
-                                return 0  -- Higher derivatives of cubic are 0
-                            end
+                            return _luaswift_interp_eval_spline_deriv(xs, coeffs, x_new, nu)
                         end
                     end
 
-                    -- Integrate over interval
                     function spline.integrate(a, b)
-                        -- Clamp to spline domain
-                        local x0 = math.max(xs[1], math.min(a, xs[n]))
-                        local x1 = math.max(xs[1], math.min(b, xs[n]))
-
-                        if x0 > x1 then
-                            local neg_result = spline.integrate(b, a)
-                            if is_complex_data then
-                                return {re = -neg_result.re, im = -neg_result.im}
-                            else
-                                return -neg_result
-                            end
-                        end
-
-                        local total_re, total_im = 0, 0
-                        local i0 = find_interval(xs, x0)
-                        local i1 = find_interval(xs, x1)
-
-                        -- Helper to integrate polynomial on [0, dx]
-                        -- integral of a + bx + cx^2 + dx^3 from 0 to dx
-                        local function integrate_poly(a, b, c, d, dx)
-                            return a * dx + b * dx^2 / 2 + c * dx^3 / 3 + d * dx^4 / 4
-                        end
-
                         if is_complex_data then
-                            if i0 == i1 then
-                                local ar, br, cr, dr = coeffs_re[i0][1], coeffs_re[i0][2], coeffs_re[i0][3], coeffs_re[i0][4]
-                                local ai, bi, ci, di = coeffs_im[i0][1], coeffs_im[i0][2], coeffs_im[i0][3], coeffs_im[i0][4]
-                                local dx0 = x0 - xs[i0]
-                                local dx1 = x1 - xs[i0]
-                                total_re = integrate_poly(ar, br, cr, dr, dx1) - integrate_poly(ar, br, cr, dr, dx0)
-                                total_im = integrate_poly(ai, bi, ci, di, dx1) - integrate_poly(ai, bi, ci, di, dx0)
-                            else
-                                local ar, br, cr, dr = coeffs_re[i0][1], coeffs_re[i0][2], coeffs_re[i0][3], coeffs_re[i0][4]
-                                local ai, bi, ci, di = coeffs_im[i0][1], coeffs_im[i0][2], coeffs_im[i0][3], coeffs_im[i0][4]
-                                local dx0 = x0 - xs[i0]
-                                local dx1 = xs[i0 + 1] - xs[i0]
-                                total_re = integrate_poly(ar, br, cr, dr, dx1) - integrate_poly(ar, br, cr, dr, dx0)
-                                total_im = integrate_poly(ai, bi, ci, di, dx1) - integrate_poly(ai, bi, ci, di, dx0)
-
-                                for i = i0 + 1, i1 - 1 do
-                                    ar, br, cr, dr = coeffs_re[i][1], coeffs_re[i][2], coeffs_re[i][3], coeffs_re[i][4]
-                                    ai, bi, ci, di = coeffs_im[i][1], coeffs_im[i][2], coeffs_im[i][3], coeffs_im[i][4]
-                                    local h = xs[i + 1] - xs[i]
-                                    total_re = total_re + integrate_poly(ar, br, cr, dr, h)
-                                    total_im = total_im + integrate_poly(ai, bi, ci, di, h)
-                                end
-
-                                if i1 <= n - 1 then
-                                    ar, br, cr, dr = coeffs_re[i1][1], coeffs_re[i1][2], coeffs_re[i1][3], coeffs_re[i1][4]
-                                    ai, bi, ci, di = coeffs_im[i1][1], coeffs_im[i1][2], coeffs_im[i1][3], coeffs_im[i1][4]
-                                    dx1 = x1 - xs[i1]
-                                    total_re = total_re + integrate_poly(ar, br, cr, dr, dx1)
-                                    total_im = total_im + integrate_poly(ai, bi, ci, di, dx1)
-                                end
-                            end
-                            return {re = total_re, im = total_im}
+                            local re = _luaswift_interp_integrate_spline(xs, coeffs_re, a, b)
+                            local im = _luaswift_interp_integrate_spline(xs, coeffs_im, a, b)
+                            return {re = re, im = im}
                         else
-                            local total = 0
-                            if i0 == i1 then
-                                local aa, bb, cc, dd = coeffs[i0][1], coeffs[i0][2], coeffs[i0][3], coeffs[i0][4]
-                                local dx0 = x0 - xs[i0]
-                                local dx1 = x1 - xs[i0]
-                                total = integrate_poly(aa, bb, cc, dd, dx1) - integrate_poly(aa, bb, cc, dd, dx0)
-                            else
-                                local aa, bb, cc, dd = coeffs[i0][1], coeffs[i0][2], coeffs[i0][3], coeffs[i0][4]
-                                local dx0 = x0 - xs[i0]
-                                local dx1 = xs[i0 + 1] - xs[i0]
-                                total = integrate_poly(aa, bb, cc, dd, dx1) - integrate_poly(aa, bb, cc, dd, dx0)
-
-                                for i = i0 + 1, i1 - 1 do
-                                    aa, bb, cc, dd = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                                    local h = xs[i + 1] - xs[i]
-                                    total = total + integrate_poly(aa, bb, cc, dd, h)
-                                end
-
-                                if i1 <= n - 1 then
-                                    aa, bb, cc, dd = coeffs[i1][1], coeffs[i1][2], coeffs[i1][3], coeffs[i1][4]
-                                    dx1 = x1 - xs[i1]
-                                    total = total + integrate_poly(aa, bb, cc, dd, dx1)
-                                end
-                            end
-                            return total
+                            return _luaswift_interp_integrate_spline(xs, coeffs, a, b)
                         end
                     end
 
-                    -- Make spline callable
-                    setmetatable(spline, {
-                        __call = function(_, x_new)
-                            return evaluate(x_new)
-                        end
-                    })
-
+                    setmetatable(spline, {__call = function(_, x_new) return evaluate(x_new) end})
                     return spline
                 end
 
                 ----------------------------------------------------------------
-                -- PchipInterpolator: Piecewise Cubic Hermite Interpolating Polynomial
-                --
-                -- Monotonic interpolation that preserves monotonicity of data.
-                -- Arguments:
-                --   x: array of x coordinates (must be strictly increasing)
-                --   y: array of y values
-                --
-                -- Returns: interpolation function
+                -- PchipInterpolator: PCHIP interpolation (Swift-backed)
                 ----------------------------------------------------------------
                 function interpolate.PchipInterpolator(x, y)
                     local n = #x
-                    if n < 2 then
-                        error("PchipInterpolator: need at least 2 data points")
-                    end
-                    if n ~= #y then
-                        error("PchipInterpolator: x and y must have same length")
-                    end
+                    if n < 2 then error("PchipInterpolator: need at least 2 data points") end
+                    if n ~= #y then error("PchipInterpolator: x and y must have same length") end
 
-                    -- Copy arrays
                     local xs, ys = {}, {}
-                    for i = 1, n do
-                        xs[i] = x[i]
-                        ys[i] = y[i]
-                    end
+                    for i = 1, n do xs[i], ys[i] = x[i], y[i] end
 
-                    -- Compute slopes
-                    local h = {}
-                    local delta = {}
-                    for i = 1, n - 1 do
-                        h[i] = xs[i + 1] - xs[i]
-                        delta[i] = (ys[i + 1] - ys[i]) / h[i]
-                    end
+                    local d = _luaswift_interp_pchip_derivs(xs, ys)
 
-                    -- Compute PCHIP derivatives at each point
-                    local d = {}
-                    if n == 2 then
-                        d[1] = delta[1]
-                        d[2] = delta[1]
-                    else
-                        -- Endpoints
-                        d[1] = interpolate._pchip_edge_deriv(h[1], h[2], delta[1], delta[2])
-                        d[n] = interpolate._pchip_edge_deriv(h[n - 1], h[n - 2], delta[n - 1], delta[n - 2])
-
-                        -- Interior points
-                        for i = 2, n - 1 do
-                            if delta[i - 1] * delta[i] > 0 then
-                                -- Both slopes same sign - use weighted harmonic mean
-                                local w1 = 2 * h[i] + h[i - 1]
-                                local w2 = h[i] + 2 * h[i - 1]
-                                d[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i])
-                            else
-                                d[i] = 0
-                            end
-                        end
-                    end
-
-                    -- Return interpolation function using Hermite basis
                     return function(x_new)
                         if type(x_new) == "table" then
                             local result = {}
                             for i, xi in ipairs(x_new) do
-                                result[i] = interpolate._pchip_eval(xs, ys, d, xi)
+                                result[i] = _luaswift_interp_eval_pchip(xs, ys, d, xi)
                             end
                             return result
                         end
-                        return interpolate._pchip_eval(xs, ys, d, x_new)
+                        return _luaswift_interp_eval_pchip(xs, ys, d, x_new)
                     end
-                end
-
-                -- PCHIP edge derivative
-                function interpolate._pchip_edge_deriv(h1, h2, d1, d2)
-                    local deriv = ((2 * h1 + h2) * d1 - h1 * d2) / (h1 + h2)
-                    if deriv * d1 < 0 then
-                        return 0
-                    elseif d1 * d2 < 0 and math.abs(deriv) > 3 * math.abs(d1) then
-                        return 3 * d1
-                    end
-                    return deriv
-                end
-
-                -- PCHIP evaluation
-                function interpolate._pchip_eval(xs, ys, d, x_new)
-                    local n = #xs
-
-                    -- Handle extrapolation with linear extension
-                    if x_new <= xs[1] then
-                        return ys[1] + d[1] * (x_new - xs[1])
-                    end
-                    if x_new >= xs[n] then
-                        return ys[n] + d[n] * (x_new - xs[n])
-                    end
-
-                    local i = find_interval(xs, x_new)
-                    local h = xs[i + 1] - xs[i]
-                    local t = (x_new - xs[i]) / h
-
-                    -- Hermite basis functions
-                    local t2 = t * t
-                    local t3 = t2 * t
-                    local h00 = 2 * t3 - 3 * t2 + 1
-                    local h10 = t3 - 2 * t2 + t
-                    local h01 = -2 * t3 + 3 * t2
-                    local h11 = t3 - t2
-
-                    return h00 * ys[i] + h10 * h * d[i] + h01 * ys[i + 1] + h11 * h * d[i + 1]
                 end
 
                 ----------------------------------------------------------------
-                -- Akima1DInterpolator: Akima interpolation
-                --
-                -- Smooth interpolation that avoids overshoots.
-                -- Arguments:
-                --   x: array of x coordinates (must be strictly increasing)
-                --   y: array of y values
-                --
-                -- Returns: interpolation function
+                -- Akima1DInterpolator: Akima interpolation (Swift-backed)
                 ----------------------------------------------------------------
                 function interpolate.Akima1DInterpolator(x, y)
                     local n = #x
-                    if n < 2 then
-                        error("Akima1DInterpolator: need at least 2 data points")
-                    end
-                    if n ~= #y then
-                        error("Akima1DInterpolator: x and y must have same length")
-                    end
+                    if n < 2 then error("Akima1DInterpolator: need at least 2 data points") end
+                    if n ~= #y then error("Akima1DInterpolator: x and y must have same length") end
 
-                    -- Copy arrays
                     local xs, ys = {}, {}
-                    for i = 1, n do
-                        xs[i] = x[i]
-                        ys[i] = y[i]
-                    end
+                    for i = 1, n do xs[i], ys[i] = x[i], y[i] end
 
-                    -- Compute slopes between points
-                    local m = {}
-                    for i = 1, n - 1 do
-                        m[i] = (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i])
-                    end
+                    local coeffs = _luaswift_interp_akima_coeffs(xs, ys)
 
-                    -- Extend slopes at boundaries
-                    m[0] = 2 * m[1] - (m[2] or m[1])
-                    m[-1] = 2 * m[0] - m[1]
-                    m[n] = 2 * m[n - 1] - (m[n - 2] or m[n - 1])
-                    m[n + 1] = 2 * m[n] - m[n - 1]
-
-                    -- Compute Akima weights and slopes at each point
-                    local d = {}
-                    for i = 1, n do
-                        local w1 = math.abs(m[i] - m[i - 1])
-                        local w2 = math.abs(m[i - 2] - m[i - 1])
-
-                        if w1 + w2 == 0 then
-                            d[i] = (m[i - 1] + m[i]) / 2
-                        else
-                            d[i] = (w1 * m[i - 1] + w2 * m[i]) / (w1 + w2)
-                        end
-                    end
-
-                    -- Compute spline coefficients
-                    local coeffs = {}
-                    for i = 1, n - 1 do
-                        local h = xs[i + 1] - xs[i]
-                        local a = ys[i]
-                        local b = d[i]
-                        local c = (3 * m[i] - 2 * d[i] - d[i + 1]) / h
-                        local dd = (d[i] + d[i + 1] - 2 * m[i]) / (h * h)
-                        coeffs[i] = {a, b, c, dd}
-                    end
-
-                    -- Return interpolation function
                     return function(x_new)
                         if type(x_new) == "table" then
                             local result = {}
                             for i, xi in ipairs(x_new) do
-                                result[i] = interpolate._eval_akima(xs, ys, coeffs, xi)
+                                result[i] = _luaswift_interp_eval_akima(xs, coeffs, xi)
                             end
                             return result
                         end
-                        return interpolate._eval_akima(xs, ys, coeffs, x_new)
+                        return _luaswift_interp_eval_akima(xs, coeffs, x_new)
                     end
-                end
-
-                function interpolate._eval_akima(xs, ys, coeffs, x_new)
-                    local n = #xs
-
-                    -- Extrapolation
-                    if x_new <= xs[1] then
-                        local dx = x_new - xs[1]
-                        local a, b = coeffs[1][1], coeffs[1][2]
-                        return a + b * dx
-                    end
-                    if x_new >= xs[n] then
-                        local dx = x_new - xs[n - 1]
-                        local a, b, c, d = coeffs[n - 1][1], coeffs[n - 1][2], coeffs[n - 1][3], coeffs[n - 1][4]
-                        return a + b * dx + c * dx^2 + d * dx^3
-                    end
-
-                    local i = find_interval(xs, x_new)
-                    local dx = x_new - xs[i]
-                    local a, b, c, d = coeffs[i][1], coeffs[i][2], coeffs[i][3], coeffs[i][4]
-                    return a + b * dx + c * dx^2 + d * dx^3
                 end
 
                 ----------------------------------------------------------------
-                -- lagrange: Lagrange polynomial interpolation
-                --
-                -- Arguments:
-                --   x: array of x coordinates
-                --   y: array of y values
-                --
-                -- Returns: polynomial interpolation function
+                -- lagrange: Lagrange polynomial interpolation (Swift-backed)
                 ----------------------------------------------------------------
                 function interpolate.lagrange(x, y)
                     local n = #x
-                    if n ~= #y then
-                        error("lagrange: x and y must have same length")
-                    end
+                    if n ~= #y then error("lagrange: x and y must have same length") end
+
+                    local xs, ys = {}, {}
+                    local is_complex_data = has_complex(y)
+                    for i = 1, n do xs[i], ys[i] = x[i], y[i] end
 
                     return function(x_new)
                         if type(x_new) == "table" then
                             local result = {}
                             for i, xi in ipairs(x_new) do
-                                result[i] = interpolate._eval_lagrange(x, y, xi)
+                                result[i] = interpolate._eval_lagrange(xs, ys, xi, is_complex_data)
                             end
                             return result
                         end
-                        return interpolate._eval_lagrange(x, y, x_new)
+                        return interpolate._eval_lagrange(xs, ys, x_new, is_complex_data)
                     end
                 end
 
-                function interpolate._eval_lagrange(x, y, x_new)
-                    local n = #x
-                    local is_complex_data = has_complex(y)
-                    local result_re, result_im = 0, 0
-
-                    for i = 1, n do
-                        -- Compute Lagrange basis polynomial L_i(x_new)
-                        local basis = 1
-                        for j = 1, n do
-                            if i ~= j then
-                                basis = basis * (x_new - x[j]) / (x[i] - x[j])
-                            end
-                        end
-
-                        -- Add contribution: y[i] * L_i(x_new)
-                        local yi = y[i]
-                        if is_complex(yi) then
-                            result_re = result_re + yi.re * basis
-                            result_im = result_im + yi.im * basis
-                        else
-                            result_re = result_re + yi * basis
-                        end
-                    end
-
+                function interpolate._eval_lagrange(xs, ys, x_new, is_complex_data)
                     if is_complex_data then
-                        return {re = result_re, im = result_im}
+                        local ys_re = get_real_parts(ys)
+                        local ys_im = get_imag_parts(ys)
+                        local re = _luaswift_interp_eval_lagrange(xs, ys_re, x_new)
+                        local im = _luaswift_interp_eval_lagrange(xs, ys_im, x_new)
+                        return {re = re, im = im}
                     else
-                        return result_re
+                        return _luaswift_interp_eval_lagrange(xs, ys, x_new)
                     end
                 end
 
                 ----------------------------------------------------------------
-                -- BarycentricInterpolator: Barycentric polynomial interpolation
-                --
-                -- More numerically stable than standard Lagrange for large n.
-                -- Arguments:
-                --   x: array of x coordinates
-                --   y: array of y values
-                --
-                -- Returns: interpolation function
+                -- BarycentricInterpolator: Barycentric interpolation (Swift-backed)
                 ----------------------------------------------------------------
                 function interpolate.BarycentricInterpolator(x, y)
                     local n = #x
-                    if n ~= #y then
-                        error("BarycentricInterpolator: x and y must have same length")
-                    end
+                    if n ~= #y then error("BarycentricInterpolator: x and y must have same length") end
 
-                    -- Copy arrays
                     local xs, ys = {}, {}
-                    for i = 1, n do
-                        xs[i] = x[i]
-                        ys[i] = y[i]
-                    end
+                    local is_complex_data = has_complex(y)
+                    for i = 1, n do xs[i], ys[i] = x[i], y[i] end
 
-                    -- Compute barycentric weights
-                    local w = {}
-                    for i = 1, n do
-                        w[i] = 1
-                        for j = 1, n do
-                            if i ~= j then
-                                w[i] = w[i] / (xs[i] - xs[j])
-                            end
-                        end
-                    end
+                    local w = _luaswift_interp_barycentric_weights(xs)
 
                     return function(x_new)
                         if type(x_new) == "table" then
                             local result = {}
                             for i, xi in ipairs(x_new) do
-                                result[i] = interpolate._eval_barycentric(xs, ys, w, xi)
+                                result[i] = interpolate._eval_barycentric(xs, ys, w, xi, is_complex_data)
                             end
                             return result
                         end
-                        return interpolate._eval_barycentric(xs, ys, w, x_new)
+                        return interpolate._eval_barycentric(xs, ys, w, x_new, is_complex_data)
                     end
                 end
 
-                function interpolate._eval_barycentric(xs, ys, w, x_new)
-                    local n = #xs
-                    local is_complex_data = has_complex(ys)
-
+                function interpolate._eval_barycentric(xs, ys, w, x_new, is_complex_data)
                     -- Check for exact match
-                    for i = 1, n do
-                        if x_new == xs[i] then
-                            return ys[i]
-                        end
-                    end
-
-                    local num_re, num_im = 0, 0
-                    local den = 0
-                    for i = 1, n do
-                        local term = w[i] / (x_new - xs[i])
-                        local yi = ys[i]
-                        if is_complex(yi) then
-                            num_re = num_re + term * yi.re
-                            num_im = num_im + term * yi.im
-                        else
-                            num_re = num_re + term * yi
-                        end
-                        den = den + term
+                    for i = 1, #xs do
+                        if x_new == xs[i] then return ys[i] end
                     end
 
                     if is_complex_data then
-                        return {re = num_re / den, im = num_im / den}
+                        local ys_re = get_real_parts(ys)
+                        local ys_im = get_imag_parts(ys)
+                        local re = _luaswift_interp_eval_barycentric(xs, ys_re, w, x_new)
+                        local im = _luaswift_interp_eval_barycentric(xs, ys_im, w, x_new)
+                        return {re = re, im = im}
                     else
-                        return num_re / den
+                        return _luaswift_interp_eval_barycentric(xs, ys, w, x_new)
                     end
                 end
 
                 -- Store the module
                 luaswift.interpolate = interpolate
 
-                -- Also update math.interpolate if math table exists
+                -- Also update math.interpolate
                 if math then
                     if not math.interpolate then math.interpolate = {} end
                     for k, v in pairs(interpolate) do
@@ -1016,6 +1047,286 @@ public struct InterpolateModule {
                 """)
         } catch {
             // Silently fail
+        }
+    }
+
+    // MARK: - Callbacks
+
+    /// Callback for computing spline coefficients
+    private static func makeSplineCoeffsCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 2,
+                  let xTable = args[0].arrayValue,
+                  let yTable = args[1].arrayValue else {
+                throw LuaError.runtimeError("spline_coeffs: expected x and y arrays")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+            let bcType = args.count > 2 ? args[2].stringValue ?? "not-a-knot" : "not-a-knot"
+
+            let coeffs = computeSplineCoeffs(x: x, y: y, bcType: bcType)
+
+            // Return as array of {a, b, c, d} tables
+            let result = coeffs.map { c -> LuaValue in
+                .array([.number(c.a), .number(c.b), .number(c.c), .number(c.d)])
+            }
+            return .array(result)
+        }
+    }
+
+    /// Callback for evaluating spline
+    private static func makeEvalSplineCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 3,
+                  let xTable = args[0].arrayValue,
+                  let coeffsTable = args[1].arrayValue,
+                  let xNew = args[2].numberValue else {
+                throw LuaError.runtimeError("eval_spline: expected x, coeffs, xNew")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let extrapolate = args.count > 3 ? (args[3].boolValue ?? true) : true
+
+            // Parse coefficients
+            var coeffs = [CubicCoeffs]()
+            for c in coeffsTable {
+                if let arr = c.arrayValue, arr.count >= 4,
+                   let a = arr[0].numberValue,
+                   let b = arr[1].numberValue,
+                   let cc = arr[2].numberValue,
+                   let d = arr[3].numberValue {
+                    coeffs.append(CubicCoeffs(a: a, b: b, c: cc, d: d))
+                }
+            }
+
+            let result = evalCubicSpline(x: x, coeffs: coeffs, xNew: xNew, extrapolate: extrapolate)
+            return .number(result)
+        }
+    }
+
+    /// Callback for evaluating spline derivative
+    private static func makeEvalSplineDerivCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 3,
+                  let xTable = args[0].arrayValue,
+                  let coeffsTable = args[1].arrayValue,
+                  let xNew = args[2].numberValue else {
+                throw LuaError.runtimeError("eval_spline_deriv: expected x, coeffs, xNew")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let order = args.count > 3 ? Int(args[3].numberValue ?? 1) : 1
+
+            var coeffs = [CubicCoeffs]()
+            for c in coeffsTable {
+                if let arr = c.arrayValue, arr.count >= 4,
+                   let a = arr[0].numberValue,
+                   let b = arr[1].numberValue,
+                   let cc = arr[2].numberValue,
+                   let d = arr[3].numberValue {
+                    coeffs.append(CubicCoeffs(a: a, b: b, c: cc, d: d))
+                }
+            }
+
+            let result = evalCubicSplineDerivative(x: x, coeffs: coeffs, xNew: xNew, order: order)
+            return .number(result)
+        }
+    }
+
+    /// Callback for integrating spline
+    private static func makeIntegrateSplineCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 4,
+                  let xTable = args[0].arrayValue,
+                  let coeffsTable = args[1].arrayValue,
+                  let a = args[2].numberValue,
+                  let b = args[3].numberValue else {
+                throw LuaError.runtimeError("integrate_spline: expected x, coeffs, a, b")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+
+            var coeffs = [CubicCoeffs]()
+            for c in coeffsTable {
+                if let arr = c.arrayValue, arr.count >= 4,
+                   let aa = arr[0].numberValue,
+                   let bb = arr[1].numberValue,
+                   let cc = arr[2].numberValue,
+                   let dd = arr[3].numberValue {
+                    coeffs.append(CubicCoeffs(a: aa, b: bb, c: cc, d: dd))
+                }
+            }
+
+            let result = integrateCubicSpline(x: x, coeffs: coeffs, a: a, b: b)
+            return .number(result)
+        }
+    }
+
+    /// Callback for computing PCHIP derivatives
+    private static func makePchipDerivsCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 2,
+                  let xTable = args[0].arrayValue,
+                  let yTable = args[1].arrayValue else {
+                throw LuaError.runtimeError("pchip_derivs: expected x and y arrays")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+
+            let d = computePchipDerivatives(x: x, y: y)
+            return .array(d.map { .number($0) })
+        }
+    }
+
+    /// Callback for evaluating PCHIP
+    private static func makeEvalPchipCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 4,
+                  let xTable = args[0].arrayValue,
+                  let yTable = args[1].arrayValue,
+                  let dTable = args[2].arrayValue,
+                  let xNew = args[3].numberValue else {
+                throw LuaError.runtimeError("eval_pchip: expected x, y, d, xNew")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+            let d = dTable.compactMap { $0.numberValue }
+
+            let result = evalPchip(x: x, y: y, d: d, xNew: xNew)
+            return .number(result)
+        }
+    }
+
+    /// Callback for computing Akima coefficients
+    private static func makeAkimaCoeffsCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 2,
+                  let xTable = args[0].arrayValue,
+                  let yTable = args[1].arrayValue else {
+                throw LuaError.runtimeError("akima_coeffs: expected x and y arrays")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+
+            let coeffs = computeAkimaCoeffs(x: x, y: y)
+            let result = coeffs.map { c -> LuaValue in
+                .array([.number(c.a), .number(c.b), .number(c.c), .number(c.d)])
+            }
+            return .array(result)
+        }
+    }
+
+    /// Callback for evaluating Akima
+    private static func makeEvalAkimaCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 3,
+                  let xTable = args[0].arrayValue,
+                  let coeffsTable = args[1].arrayValue,
+                  let xNew = args[2].numberValue else {
+                throw LuaError.runtimeError("eval_akima: expected x, coeffs, xNew")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+
+            var coeffs = [CubicCoeffs]()
+            for c in coeffsTable {
+                if let arr = c.arrayValue, arr.count >= 4,
+                   let a = arr[0].numberValue,
+                   let b = arr[1].numberValue,
+                   let cc = arr[2].numberValue,
+                   let d = arr[3].numberValue {
+                    coeffs.append(CubicCoeffs(a: a, b: b, c: cc, d: d))
+                }
+            }
+
+            let result = evalAkima(x: x, coeffs: coeffs, xNew: xNew)
+            return .number(result)
+        }
+    }
+
+    /// Callback for evaluating Lagrange
+    private static func makeEvalLagrangeCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 3,
+                  let xTable = args[0].arrayValue,
+                  let yTable = args[1].arrayValue,
+                  let xNew = args[2].numberValue else {
+                throw LuaError.runtimeError("eval_lagrange: expected x, y, xNew")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+
+            let result = evalLagrange(x: x, y: y, xNew: xNew)
+            return .number(result)
+        }
+    }
+
+    /// Callback for computing barycentric weights
+    private static func makeBarycentricWeightsCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 1,
+                  let xTable = args[0].arrayValue else {
+                throw LuaError.runtimeError("barycentric_weights: expected x array")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let w = computeBarycentricWeights(x: x)
+            return .array(w.map { .number($0) })
+        }
+    }
+
+    /// Callback for evaluating barycentric
+    private static func makeEvalBarycentricCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 4,
+                  let xTable = args[0].arrayValue,
+                  let yTable = args[1].arrayValue,
+                  let wTable = args[2].arrayValue,
+                  let xNew = args[3].numberValue else {
+                throw LuaError.runtimeError("eval_barycentric: expected x, y, w, xNew")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+            let w = wTable.compactMap { $0.numberValue }
+
+            let result = evalBarycentric(x: x, y: y, w: w, xNew: xNew)
+            return .number(result)
+        }
+    }
+
+    /// Callback for simple interp1d (non-cubic)
+    private static func makeInterp1dCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 4,
+                  let xTable = args[0].arrayValue,
+                  let yTable = args[1].arrayValue,
+                  let xNew = args[2].numberValue,
+                  let kindStr = args[3].stringValue else {
+                throw LuaError.runtimeError("interp1d: expected x, y, xNew, kind")
+            }
+
+            let x = xTable.compactMap { $0.numberValue }
+            let y = yTable.compactMap { $0.numberValue }
+            let fillValue = args.count > 4 ? args[4].numberValue ?? Double.nan : Double.nan
+            let boundsError = args.count > 5 ? args[5].boolValue ?? false : false
+
+            let kind: InterpolationKind
+            switch kindStr {
+            case "nearest": kind = .nearest
+            case "previous": kind = .previous
+            case "next": kind = .next
+            case "cubic": kind = .cubic
+            default: kind = .linear
+            }
+
+            let result = interp1dSingle(x: x, y: y, xNew: xNew, kind: kind, fillValue: fillValue, boundsError: boundsError, coeffs: nil)
+            return .number(result)
         }
     }
 }

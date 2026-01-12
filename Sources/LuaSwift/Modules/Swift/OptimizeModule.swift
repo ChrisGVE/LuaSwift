@@ -9,13 +9,13 @@
 //
 
 import Foundation
+import Accelerate
 
 /// Swift-backed optimization module for LuaSwift.
 ///
 /// Provides numerical optimization functions including scalar minimization,
-/// root finding, and multivariate optimization. Since these algorithms need
-/// to call user-provided Lua functions, the algorithms are implemented in Lua
-/// for natural function calling.
+/// root finding, and multivariate optimization. All algorithms implemented
+/// in Swift for performance, with thin Lua bindings.
 ///
 /// ## Lua API
 ///
@@ -36,1361 +36,1058 @@ import Foundation
 ///     {0, 0}
 /// )
 /// print(result.x[1], result.x[2], result.fun)
-///
-/// -- Root finding for systems (Newton's method)
-/// local result = math.optimize.root(
-///     function(x) return {x[1]^2 + x[2] - 1, x[1] - x[2]^2 + 1} end,
-///     {0.5, 0.5}
-/// )
-/// print(result.x[1], result.x[2])
 /// ```
 public struct OptimizeModule {
+
+    // MARK: - Constants
+
+    /// Default tolerance for convergence in x
+    public static let defaultXTol: Double = 1e-8
+
+    /// Default tolerance for convergence in f(x)
+    public static let defaultFTol: Double = 1e-8
+
+    /// Default maximum iterations
+    public static let defaultMaxIter: Int = 500
+
+    /// Golden ratio
+    private static let phi: Double = (1 + sqrt(5)) / 2
+    private static let resphi: Double = 2 - phi  // ≈ 0.382
+
+    // MARK: - Result Types
+
+    /// Result from scalar minimization
+    public struct MinimizeScalarResult {
+        public let x: Double
+        public let fun: Double
+        public let nfev: Int
+        public let nit: Int
+        public let success: Bool
+        public let message: String
+    }
+
+    /// Result from scalar root finding
+    public struct RootScalarResult {
+        public let root: Double
+        public let iterations: Int
+        public let functionCalls: Int
+        public let converged: Bool
+        public let flag: String
+    }
+
+    /// Result from multivariate minimization
+    public struct MinimizeResult {
+        public let x: [Double]
+        public let fun: Double
+        public let nfev: Int
+        public let nit: Int
+        public let success: Bool
+        public let message: String
+    }
+
+    /// Result from multivariate root finding
+    public struct RootResult {
+        public let x: [Double]
+        public let fun: [Double]
+        public let success: Bool
+        public let message: String
+        public let nfev: Int
+        public let nit: Int
+    }
+
+    /// Result from least squares optimization
+    public struct LeastSquaresResult {
+        public let x: [Double]
+        public let cost: Double
+        public let fun: [Double]
+        public let nfev: Int
+        public let njev: Int
+        public let success: Bool
+        public let message: String
+    }
+
+    // MARK: - Scalar Minimization
+
+    /// Golden section search for scalar minimization.
+    ///
+    /// Finds the minimum of a unimodal function in the interval [a, b].
+    ///
+    /// - Parameters:
+    ///   - f: Function to minimize
+    ///   - a: Left bound
+    ///   - b: Right bound
+    ///   - xtol: Tolerance
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Optimization result
+    public static func goldenSection(
+        _ f: (Double) -> Double,
+        a: Double,
+        b: Double,
+        xtol: Double = defaultXTol,
+        maxiter: Int = defaultMaxIter
+    ) -> MinimizeScalarResult {
+        var a = a, b = b
+        var nfev = 0
+        var nit = 0
+
+        // Internal points: c < d (c is left, d is right)
+        // Using golden ratio: c = a + (1-phi)/phi * (b-a) = a + resphi * (b-a)
+        //                     d = a + (b-a)/phi = b - resphi * (b-a)
+        var c = a + resphi * (b - a)  // left internal point
+        var d = b - resphi * (b - a)  // right internal point
+        var fc = f(c); nfev += 1
+        var fd = f(d); nfev += 1
+
+        while abs(b - a) > xtol && nit < maxiter {
+            nit += 1
+            if fc < fd {
+                // Minimum is in [a, d], narrow to [a, d]
+                b = d
+                d = c
+                fd = fc
+                c = a + resphi * (b - a)
+                fc = f(c); nfev += 1
+            } else {
+                // Minimum is in [c, b], narrow to [c, b]
+                a = c
+                c = d
+                fc = fd
+                d = b - resphi * (b - a)
+                fd = f(d); nfev += 1
+            }
+        }
+
+        let x = (a + b) / 2
+        let fval = f(x); nfev += 1
+
+        return MinimizeScalarResult(
+            x: x,
+            fun: fval,
+            nfev: nfev,
+            nit: nit,
+            success: abs(b - a) <= xtol,
+            message: abs(b - a) <= xtol ? "Optimization terminated successfully." : "Maximum iterations reached."
+        )
+    }
+
+    /// Brent's method for scalar minimization.
+    ///
+    /// Combines parabolic interpolation with golden section for faster convergence.
+    ///
+    /// - Parameters:
+    ///   - f: Function to minimize
+    ///   - a: Left bound
+    ///   - b: Right bound
+    ///   - xtol: Tolerance
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Optimization result
+    public static func brent(
+        _ f: (Double) -> Double,
+        a: Double,
+        b: Double,
+        xtol: Double = defaultXTol,
+        maxiter: Int = defaultMaxIter
+    ) -> MinimizeScalarResult {
+        let goldenMean: Double = 0.5 * (3.0 - sqrt(5.0))
+        let sqrtEps = sqrt(Double.ulpOfOne)
+
+        var a = a, b = b
+        if a > b { swap(&a, &b) }
+
+        var nfev = 0
+        var nit = 0
+
+        var x = a + goldenMean * (b - a)
+        var w = x, v = x
+        var fx = f(x); nfev += 1
+        var fw = fx, fv = fx
+
+        var d: Double = 0, e: Double = 0
+
+        while nit < maxiter {
+            nit += 1
+            let midpoint = 0.5 * (a + b)
+            let tol1 = sqrtEps * abs(x) + xtol / 3.0
+            let tol2 = 2.0 * tol1
+
+            // Check for convergence
+            if abs(x - midpoint) <= (tol2 - 0.5 * (b - a)) {
+                return MinimizeScalarResult(
+                    x: x, fun: fx, nfev: nfev, nit: nit,
+                    success: true, message: "Optimization terminated successfully."
+                )
+            }
+
+            var useParabolic = false
+            var p: Double = 0, q: Double = 0, r: Double = 0
+
+            if abs(e) > tol1 {
+                // Fit parabola
+                r = (x - w) * (fx - fv)
+                q = (x - v) * (fx - fw)
+                p = (x - v) * q - (x - w) * r
+                q = 2.0 * (q - r)
+                if q > 0 { p = -p } else { q = -q }
+                r = e
+                e = d
+
+                if abs(p) < abs(0.5 * q * r) && p > q * (a - x) && p < q * (b - x) {
+                    // Parabolic step accepted
+                    d = p / q
+                    let u = x + d
+                    // Don't evaluate too close to bounds
+                    if (u - a) < tol2 || (b - u) < tol2 {
+                        d = x < midpoint ? tol1 : -tol1
+                    }
+                    useParabolic = true
+                }
+            }
+
+            if !useParabolic {
+                // Golden section step
+                e = (x < midpoint) ? (b - x) : (a - x)
+                d = goldenMean * e
+            }
+
+            // Don't evaluate too close to current point
+            let u: Double
+            if abs(d) >= tol1 {
+                u = x + d
+            } else {
+                u = x + (d >= 0 ? tol1 : -tol1)
+            }
+
+            let fu = f(u); nfev += 1
+
+            // Update interval
+            if fu <= fx {
+                if u < x { b = x } else { a = x }
+                v = w; fv = fw
+                w = x; fw = fx
+                x = u; fx = fu
+            } else {
+                if u < x { a = u } else { b = u }
+                if fu <= fw || w == x {
+                    v = w; fv = fw
+                    w = u; fw = fu
+                } else if fu <= fv || v == x || v == w {
+                    v = u; fv = fu
+                }
+            }
+        }
+
+        return MinimizeScalarResult(
+            x: x, fun: fx, nfev: nfev, nit: nit,
+            success: false, message: "Maximum iterations reached."
+        )
+    }
+
+    // MARK: - Scalar Root Finding
+
+    /// Bisection method for root finding.
+    ///
+    /// - Parameters:
+    ///   - f: Function to find root of
+    ///   - a: Left bound
+    ///   - b: Right bound
+    ///   - xtol: Tolerance
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Root finding result
+    public static func bisect(
+        _ f: (Double) -> Double,
+        a: Double,
+        b: Double,
+        xtol: Double = defaultXTol,
+        maxiter: Int = defaultMaxIter
+    ) -> RootScalarResult {
+        var a = a, b = b
+        var nfev = 0
+        var nit = 0
+
+        var fa = f(a); nfev += 1
+        var fb = f(b); nfev += 1
+
+        // Check for sign change
+        if fa * fb > 0 {
+            return RootScalarResult(
+                root: .nan, iterations: 0, functionCalls: nfev,
+                converged: false, flag: "f(a) and f(b) must have different signs"
+            )
+        }
+
+        // Handle exact roots at boundaries
+        if fa == 0 {
+            return RootScalarResult(root: a, iterations: 0, functionCalls: nfev, converged: true, flag: "converged")
+        }
+        if fb == 0 {
+            return RootScalarResult(root: b, iterations: 0, functionCalls: nfev, converged: true, flag: "converged")
+        }
+
+        while abs(b - a) > xtol && nit < maxiter {
+            nit += 1
+            let c = (a + b) / 2
+            let fc = f(c); nfev += 1
+
+            if fc == 0 {
+                return RootScalarResult(root: c, iterations: nit, functionCalls: nfev, converged: true, flag: "converged")
+            }
+
+            if fa * fc < 0 {
+                b = c
+                fb = fc
+            } else {
+                a = c
+                fa = fc
+            }
+        }
+
+        let root = (a + b) / 2
+        return RootScalarResult(
+            root: root, iterations: nit, functionCalls: nfev,
+            converged: abs(b - a) <= xtol, flag: abs(b - a) <= xtol ? "converged" : "maxiter reached"
+        )
+    }
+
+    /// Newton's method for scalar root finding.
+    ///
+    /// - Parameters:
+    ///   - f: Function to find root of
+    ///   - fprime: Derivative of f (optional, uses numerical diff if nil)
+    ///   - x0: Initial guess
+    ///   - xtol: Tolerance
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Root finding result
+    public static func newton(
+        _ f: (Double) -> Double,
+        fprime: ((Double) -> Double)? = nil,
+        x0: Double,
+        xtol: Double = defaultXTol,
+        maxiter: Int = defaultMaxIter
+    ) -> RootScalarResult {
+        var x = x0
+        var nfev = 0
+        var nit = 0
+
+        for _ in 0..<maxiter {
+            nit += 1
+            let fx = f(x); nfev += 1
+
+            // Calculate derivative (use provided or numerical)
+            let fp: Double
+            if let fprime = fprime {
+                fp = fprime(x)
+            } else {
+                let h = sqrt(Double.ulpOfOne) * max(abs(x), 1.0)
+                let fplus = f(x + h); nfev += 1
+                let fminus = f(x - h); nfev += 1
+                fp = (fplus - fminus) / (2 * h)
+            }
+
+            if abs(fp) < 1e-14 {
+                return RootScalarResult(
+                    root: x, iterations: nit, functionCalls: nfev,
+                    converged: false, flag: "derivative is zero"
+                )
+            }
+
+            let dx = fx / fp
+            x = x - dx
+
+            if abs(dx) < xtol || abs(fx) < xtol {
+                return RootScalarResult(
+                    root: x, iterations: nit, functionCalls: nfev,
+                    converged: true, flag: "converged"
+                )
+            }
+        }
+
+        return RootScalarResult(
+            root: x, iterations: nit, functionCalls: nfev,
+            converged: false, flag: "maxiter reached"
+        )
+    }
+
+    /// Secant method for scalar root finding.
+    ///
+    /// - Parameters:
+    ///   - f: Function to find root of
+    ///   - x0: First initial guess
+    ///   - x1: Second initial guess (optional)
+    ///   - xtol: Tolerance
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Root finding result
+    public static func secant(
+        _ f: (Double) -> Double,
+        x0: Double,
+        x1: Double? = nil,
+        xtol: Double = defaultXTol,
+        maxiter: Int = defaultMaxIter
+    ) -> RootScalarResult {
+        var x0 = x0
+        var x1 = x1 ?? (x0 + 0.001 * max(abs(x0), 1.0))
+        var nfev = 0
+        var nit = 0
+
+        var f0 = f(x0); nfev += 1
+        var f1 = f(x1); nfev += 1
+
+        for _ in 0..<maxiter {
+            nit += 1
+
+            if abs(f1 - f0) < 1e-14 {
+                return RootScalarResult(
+                    root: x1, iterations: nit, functionCalls: nfev,
+                    converged: false, flag: "denominator too small"
+                )
+            }
+
+            let x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
+            x0 = x1; f0 = f1
+            x1 = x2
+            f1 = f(x1); nfev += 1
+
+            if abs(x1 - x0) < xtol || abs(f1) < xtol {
+                return RootScalarResult(
+                    root: x1, iterations: nit, functionCalls: nfev,
+                    converged: true, flag: "converged"
+                )
+            }
+        }
+
+        return RootScalarResult(
+            root: x1, iterations: nit, functionCalls: nfev,
+            converged: false, flag: "maxiter reached"
+        )
+    }
+
+    // MARK: - Multivariate Minimization
+
+    /// Nelder-Mead simplex method for multivariate minimization.
+    ///
+    /// - Parameters:
+    ///   - f: Function to minimize
+    ///   - x0: Initial guess
+    ///   - xtol: Tolerance in x
+    ///   - ftol: Tolerance in f(x)
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Optimization result
+    public static func nelderMead(
+        _ f: @escaping ([Double]) -> Double,
+        x0: [Double],
+        xtol: Double = defaultXTol,
+        ftol: Double = defaultFTol,
+        maxiter: Int? = nil
+    ) -> MinimizeResult {
+        let n = x0.count
+        let maxIterations = maxiter ?? 200 * n
+        var nfev = 0
+        var nit = 0
+
+        // Nelder-Mead coefficients
+        let alpha: Double = 1.0   // Reflection
+        let gamma: Double = 2.0   // Expansion
+        let rho: Double = 0.5     // Contraction
+        let sigma: Double = 0.5   // Shrink
+
+        // Initialize simplex
+        var simplex: [[Double]] = [x0]
+        var fvalues: [Double] = [f(x0)]; nfev += 1
+
+        for i in 0..<n {
+            var point = x0
+            let delta = abs(x0[i]) > 0.00025 ? 0.05 : 0.00025
+            point[i] += delta
+            simplex.append(point)
+            fvalues.append(f(point)); nfev += 1
+        }
+
+        while nit < maxIterations {
+            nit += 1
+
+            // Sort simplex by function values
+            let sorted = zip(simplex.indices, fvalues).sorted { $0.1 < $1.1 }
+            simplex = sorted.map { simplex[$0.0] }
+            fvalues = sorted.map { $0.1 }
+
+            // Check convergence
+            let frange = fvalues.last! - fvalues.first!
+            var xrange: Double = 0
+            for i in 1...n {
+                for j in 0..<n {
+                    xrange = max(xrange, abs(simplex[i][j] - simplex[0][j]))
+                }
+            }
+
+            if frange < ftol && xrange < xtol {
+                return MinimizeResult(
+                    x: simplex[0], fun: fvalues[0], nfev: nfev, nit: nit,
+                    success: true, message: "Optimization terminated successfully."
+                )
+            }
+
+            // Calculate centroid (excluding worst point)
+            var centroid = [Double](repeating: 0, count: n)
+            for i in 0..<n {
+                for j in 0..<n {
+                    centroid[j] += simplex[i][j]
+                }
+            }
+            centroid = centroid.map { $0 / Double(n) }
+
+            // Reflection
+            var reflected = [Double](repeating: 0, count: n)
+            for j in 0..<n {
+                reflected[j] = centroid[j] + alpha * (centroid[j] - simplex[n][j])
+            }
+            let fReflected = f(reflected); nfev += 1
+
+            if fReflected < fvalues[0] {
+                // Expansion
+                var expanded = [Double](repeating: 0, count: n)
+                for j in 0..<n {
+                    expanded[j] = centroid[j] + gamma * (reflected[j] - centroid[j])
+                }
+                let fExpanded = f(expanded); nfev += 1
+
+                if fExpanded < fReflected {
+                    simplex[n] = expanded
+                    fvalues[n] = fExpanded
+                } else {
+                    simplex[n] = reflected
+                    fvalues[n] = fReflected
+                }
+            } else if fReflected < fvalues[n-1] {
+                simplex[n] = reflected
+                fvalues[n] = fReflected
+            } else {
+                // Contraction
+                let useOutside = fReflected < fvalues[n]
+                var contracted = [Double](repeating: 0, count: n)
+                for j in 0..<n {
+                    if useOutside {
+                        contracted[j] = centroid[j] + rho * (reflected[j] - centroid[j])
+                    } else {
+                        contracted[j] = centroid[j] + rho * (simplex[n][j] - centroid[j])
+                    }
+                }
+                let fContracted = f(contracted); nfev += 1
+
+                if fContracted < (useOutside ? fReflected : fvalues[n]) {
+                    simplex[n] = contracted
+                    fvalues[n] = fContracted
+                } else {
+                    // Shrink
+                    for i in 1...n {
+                        for j in 0..<n {
+                            simplex[i][j] = simplex[0][j] + sigma * (simplex[i][j] - simplex[0][j])
+                        }
+                        fvalues[i] = f(simplex[i]); nfev += 1
+                    }
+                }
+            }
+        }
+
+        // Sort one final time
+        let sorted = zip(simplex.indices, fvalues).sorted { $0.1 < $1.1 }
+        let bestX = simplex[sorted[0].0]
+        let bestF = sorted[0].1
+
+        return MinimizeResult(
+            x: bestX, fun: bestF, nfev: nfev, nit: nit,
+            success: false, message: "Maximum iterations reached."
+        )
+    }
+
+    // MARK: - Multivariate Root Finding
+
+    /// Newton's method for systems of equations.
+    ///
+    /// - Parameters:
+    ///   - f: Function returning vector of residuals
+    ///   - x0: Initial guess
+    ///   - tol: Tolerance
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Root finding result
+    public static func newtonMulti(
+        _ f: @escaping ([Double]) -> [Double],
+        x0: [Double],
+        tol: Double = defaultXTol,
+        maxiter: Int = defaultMaxIter
+    ) -> RootResult {
+        let n = x0.count
+        var x = x0
+        var nfev = 0
+        var nit = 0
+
+        for _ in 0..<maxiter {
+            nit += 1
+            let fx = f(x); nfev += 1
+
+            // Check convergence
+            let norm = sqrt(fx.reduce(0) { $0 + $1 * $1 })
+            if norm < tol {
+                return RootResult(
+                    x: x, fun: fx, success: true,
+                    message: "Root found.", nfev: nfev, nit: nit
+                )
+            }
+
+            // Compute Jacobian numerically
+            var jacobian = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
+            let h = sqrt(Double.ulpOfOne)
+            for j in 0..<n {
+                var xp = x
+                xp[j] += h
+                let fxp = f(xp); nfev += 1
+                for i in 0..<n {
+                    jacobian[i][j] = (fxp[i] - fx[i]) / h
+                }
+            }
+
+            // Solve J * dx = -f using Gaussian elimination
+            var A = jacobian
+            var b = fx.map { -$0 }
+
+            for col in 0..<n {
+                // Find pivot
+                var maxRow = col
+                for row in (col+1)..<n {
+                    if abs(A[row][col]) > abs(A[maxRow][col]) {
+                        maxRow = row
+                    }
+                }
+                A.swapAt(col, maxRow)
+                b.swapAt(col, maxRow)
+
+                if abs(A[col][col]) < 1e-14 {
+                    return RootResult(
+                        x: x, fun: fx, success: false,
+                        message: "Singular Jacobian.", nfev: nfev, nit: nit
+                    )
+                }
+
+                // Eliminate
+                for row in (col+1)..<n {
+                    let factor = A[row][col] / A[col][col]
+                    for k in col..<n {
+                        A[row][k] -= factor * A[col][k]
+                    }
+                    b[row] -= factor * b[col]
+                }
+            }
+
+            // Back substitution
+            var dx = [Double](repeating: 0, count: n)
+            for i in stride(from: n-1, through: 0, by: -1) {
+                var sum = b[i]
+                for j in (i+1)..<n {
+                    sum -= A[i][j] * dx[j]
+                }
+                dx[i] = sum / A[i][i]
+            }
+
+            // Update x
+            for i in 0..<n {
+                x[i] += dx[i]
+            }
+
+            // Check for small step
+            let dxNorm = sqrt(dx.reduce(0) { $0 + $1 * $1 })
+            if dxNorm < tol {
+                return RootResult(
+                    x: x, fun: f(x), success: true,
+                    message: "Root found.", nfev: nfev + 1, nit: nit
+                )
+            }
+        }
+
+        return RootResult(
+            x: x, fun: f(x), success: false,
+            message: "Maximum iterations reached.", nfev: nfev + 1, nit: nit
+        )
+    }
+
+    // MARK: - Least Squares
+
+    /// Levenberg-Marquardt algorithm for nonlinear least squares.
+    ///
+    /// Minimizes sum(residuals(x)^2) using the Levenberg-Marquardt method.
+    ///
+    /// - Parameters:
+    ///   - residuals: Function returning residuals vector
+    ///   - x0: Initial guess
+    ///   - ftol: Relative tolerance for cost function
+    ///   - xtol: Relative tolerance for parameters
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Least squares result
+    public static func leastSquares(
+        _ residuals: @escaping ([Double]) -> [Double],
+        x0: [Double],
+        ftol: Double = 1e-8,
+        xtol: Double = 1e-8,
+        maxiter: Int = 100
+    ) -> LeastSquaresResult {
+        let n = x0.count
+        var x = x0
+        var nfev = 0
+        var njev = 0
+
+        // Initial residual evaluation
+        var r = residuals(x); nfev += 1
+        let m = r.count
+
+        // Compute initial cost
+        var cost = 0.5 * r.reduce(0) { $0 + $1 * $1 }
+
+        // Levenberg-Marquardt parameters
+        var lambda = 0.001
+        let lambdaUp = 10.0
+        let lambdaDown = 0.1
+
+        for _ in 0..<maxiter {
+            // Compute Jacobian numerically (m x n matrix)
+            var J = [[Double]](repeating: [Double](repeating: 0, count: n), count: m)
+            let h = sqrt(Double.ulpOfOne) * max(1.0, x.map { abs($0) }.max() ?? 1.0)
+            for j in 0..<n {
+                var xp = x
+                xp[j] += h
+                let rp = residuals(xp); nfev += 1
+                for i in 0..<m {
+                    J[i][j] = (rp[i] - r[i]) / h
+                }
+            }
+            njev += 1
+
+            // Compute J^T * J (n x n)
+            var JTJ = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
+            for i in 0..<n {
+                for j in 0..<n {
+                    var sum = 0.0
+                    for k in 0..<m {
+                        sum += J[k][i] * J[k][j]
+                    }
+                    JTJ[i][j] = sum
+                }
+            }
+
+            // Compute J^T * r (n x 1)
+            var JTr = [Double](repeating: 0, count: n)
+            for i in 0..<n {
+                var sum = 0.0
+                for k in 0..<m {
+                    sum += J[k][i] * r[k]
+                }
+                JTr[i] = sum
+            }
+
+            // Solve (J^T*J + lambda*diag(J^T*J)) * dx = -J^T*r
+            var A = JTJ
+            for i in 0..<n {
+                A[i][i] += lambda * max(JTJ[i][i], 1e-10)
+            }
+            var b = JTr.map { -$0 }
+
+            // Gaussian elimination with partial pivoting
+            for col in 0..<n {
+                var maxRow = col
+                for row in (col+1)..<n {
+                    if abs(A[row][col]) > abs(A[maxRow][col]) {
+                        maxRow = row
+                    }
+                }
+                A.swapAt(col, maxRow)
+                b.swapAt(col, maxRow)
+
+                guard abs(A[col][col]) > 1e-14 else {
+                    return LeastSquaresResult(
+                        x: x, cost: cost, fun: r, nfev: nfev, njev: njev,
+                        success: false, message: "Singular matrix in LM step."
+                    )
+                }
+
+                for row in (col+1)..<n {
+                    let factor = A[row][col] / A[col][col]
+                    for k in col..<n {
+                        A[row][k] -= factor * A[col][k]
+                    }
+                    b[row] -= factor * b[col]
+                }
+            }
+
+            // Back substitution
+            var dx = [Double](repeating: 0, count: n)
+            for i in stride(from: n-1, through: 0, by: -1) {
+                var sum = b[i]
+                for j in (i+1)..<n {
+                    sum -= A[i][j] * dx[j]
+                }
+                dx[i] = sum / A[i][i]
+            }
+
+            // Trial step
+            var xNew = x
+            for i in 0..<n {
+                xNew[i] += dx[i]
+            }
+
+            let rNew = residuals(xNew); nfev += 1
+            let costNew = 0.5 * rNew.reduce(0) { $0 + $1 * $1 }
+
+            // Check if step is accepted
+            if costNew < cost {
+                // Accept step
+                let costRatio = abs(cost - costNew) / max(cost, 1e-14)
+                let xNorm = sqrt(dx.reduce(0) { $0 + $1 * $1 })
+                let paramNorm = sqrt(x.reduce(0) { $0 + $1 * $1 })
+
+                x = xNew
+                r = rNew
+                cost = costNew
+                lambda *= lambdaDown
+
+                // Check convergence
+                if costRatio < ftol {
+                    return LeastSquaresResult(
+                        x: x, cost: cost, fun: r, nfev: nfev, njev: njev,
+                        success: true, message: "Both `ftol` and `xtol` termination conditions are satisfied."
+                    )
+                }
+                if xNorm < xtol * (1 + paramNorm) {
+                    return LeastSquaresResult(
+                        x: x, cost: cost, fun: r, nfev: nfev, njev: njev,
+                        success: true, message: "Both `ftol` and `xtol` termination conditions are satisfied."
+                    )
+                }
+            } else {
+                // Reject step, increase damping
+                lambda *= lambdaUp
+            }
+        }
+
+        return LeastSquaresResult(
+            x: x, cost: cost, fun: r, nfev: nfev, njev: njev,
+            success: false, message: "Maximum iterations reached."
+        )
+    }
+
+    /// Curve fitting using nonlinear least squares.
+    ///
+    /// Fits a model function to data points using Levenberg-Marquardt.
+    ///
+    /// - Parameters:
+    ///   - f: Model function (params, x) -> y
+    ///   - xdata: X data points
+    ///   - ydata: Y data points
+    ///   - p0: Initial parameter guess
+    ///   - ftol: Relative tolerance for cost function
+    ///   - xtol: Relative tolerance for parameters
+    ///   - maxiter: Maximum iterations
+    /// - Returns: Tuple of (optimal params, covariance matrix, info)
+    public static func curveFit(
+        _ f: @escaping ([Double], Double) -> Double,
+        xdata: [Double],
+        ydata: [Double],
+        p0: [Double],
+        ftol: Double = 1e-8,
+        xtol: Double = 1e-8,
+        maxiter: Int = 100
+    ) -> (popt: [Double], pcov: [[Double]], info: LeastSquaresResult) {
+        let n = p0.count
+        let m = xdata.count
+
+        // Create residuals function
+        let residuals: ([Double]) -> [Double] = { params in
+            var r = [Double](repeating: 0, count: m)
+            for i in 0..<m {
+                r[i] = ydata[i] - f(params, xdata[i])
+            }
+            return r
+        }
+
+        // Run least squares
+        let result = leastSquares(residuals, x0: p0, ftol: ftol, xtol: xtol, maxiter: maxiter)
+
+        // Estimate covariance matrix
+        // pcov = (J^T * J)^(-1) * s^2, where s^2 = cost / (m - n)
+        let h = sqrt(Double.ulpOfOne) * max(1.0, result.x.map { abs($0) }.max() ?? 1.0)
+        var J = [[Double]](repeating: [Double](repeating: 0, count: n), count: m)
+
+        for j in 0..<n {
+            var pp = result.x
+            var pm = result.x
+            pp[j] += h
+            pm[j] -= h
+
+            for i in 0..<m {
+                let fp = f(pp, xdata[i])
+                let fm = f(pm, xdata[i])
+                J[i][j] = (fp - fm) / (2 * h)
+            }
+        }
+
+        // Compute J^T * J
+        var JTJ = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
+        for i in 0..<n {
+            for j in 0..<n {
+                var sum = 0.0
+                for k in 0..<m {
+                    sum += J[k][i] * J[k][j]
+                }
+                JTJ[i][j] = sum
+            }
+        }
+
+        // Invert JTJ to get pcov (simple Gaussian elimination for small matrices)
+        var pcov = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
+        var A = JTJ
+        // Initialize identity
+        for i in 0..<n {
+            pcov[i][i] = 1.0
+        }
+
+        // Forward elimination
+        for col in 0..<n {
+            var maxRow = col
+            for row in (col+1)..<n {
+                if abs(A[row][col]) > abs(A[maxRow][col]) {
+                    maxRow = row
+                }
+            }
+            A.swapAt(col, maxRow)
+            pcov.swapAt(col, maxRow)
+
+            let pivot = A[col][col]
+            if abs(pivot) > 1e-14 {
+                for j in 0..<n {
+                    A[col][j] /= pivot
+                    pcov[col][j] /= pivot
+                }
+                for row in 0..<n where row != col {
+                    let factor = A[row][col]
+                    for j in 0..<n {
+                        A[row][j] -= factor * A[col][j]
+                        pcov[row][j] -= factor * pcov[col][j]
+                    }
+                }
+            }
+        }
+
+        // Scale by variance estimate
+        let dof = max(1, m - n)
+        let s2 = result.cost * 2 / Double(dof)
+        for i in 0..<n {
+            for j in 0..<n {
+                pcov[i][j] *= s2
+            }
+        }
+
+        return (result.x, pcov, result)
+    }
 
     // MARK: - Registration
 
     /// Register the optimization module with a LuaEngine.
     public static func register(in engine: LuaEngine) {
-        // All optimization algorithms implemented in Lua for natural function calling
+        // Register Swift callbacks
+        engine.registerFunction(name: "_luaswift_optimize_minimize_scalar", callback: makeMinimizeScalarCallback(engine))
+        engine.registerFunction(name: "_luaswift_optimize_root_scalar", callback: makeRootScalarCallback(engine))
+        engine.registerFunction(name: "_luaswift_optimize_minimize", callback: makeMinimizeCallback(engine))
+        engine.registerFunction(name: "_luaswift_optimize_root", callback: makeRootCallback(engine))
+        engine.registerFunction(name: "_luaswift_optimize_least_squares", callback: makeLeastSquaresCallback(engine))
+        engine.registerFunction(name: "_luaswift_optimize_curve_fit", callback: makeCurveFitCallback(engine))
+
+        // Set up Lua namespace
         do {
             try engine.run("""
                 if not luaswift then luaswift = {} end
                 if not luaswift.optimize then luaswift.optimize = {} end
 
-                local optimize = {}
+                local optimize = luaswift.optimize
 
-                -- Default tolerances
-                local DEFAULT_XTOL = 1e-8
-                local DEFAULT_FTOL = 1e-8
-                local DEFAULT_MAXITER = 500
-
-                -- Golden ratio for golden section search
-                local PHI = (1 + math.sqrt(5)) / 2
-                local RESPHI = 2 - PHI  -- ≈ 0.382
-
-                ----------------------------------------------------------------
                 -- minimize_scalar: Scalar function minimization
-                -- Methods: "golden" (golden section), "brent" (Brent's method)
-                ----------------------------------------------------------------
                 function optimize.minimize_scalar(func, options)
                     options = options or {}
-                    local method = (options.method or "brent"):lower()
-                    local bracket = options.bracket
-                    local bounds = options.bounds
-                    local xtol = options.xtol or DEFAULT_XTOL
-                    local maxiter = options.maxiter or DEFAULT_MAXITER
-
-                    -- Default bracket if not provided
-                    if not bracket and not bounds then
-                        bracket = {-10, 10}
-                    end
-
-                    local a, b
-                    if bracket then
-                        a, b = bracket[1], bracket[2]
-                        if #bracket >= 3 then
-                            -- 3-point bracket: (a, mid, b) where f(mid) < f(a) and f(mid) < f(b)
-                            a, b = bracket[1], bracket[3]
-                        end
-                    elseif bounds then
-                        a, b = bounds[1], bounds[2]
-                    end
-
-                    local nfev = 0
-                    local nit = 0
-
-                    local function f(x)
-                        nfev = nfev + 1
-                        return func(x)
-                    end
-
-                    local x_min, f_min, success, message
-
-                    if method == "golden" then
-                        -- Golden section search
-                        local c = b - (b - a) / PHI
-                        local d = a + (b - a) / PHI
-                        local fc, fd = f(c), f(d)
-
-                        while math.abs(b - a) > xtol and nit < maxiter do
-                            nit = nit + 1
-                            if fc < fd then
-                                b = d
-                                d = c
-                                fd = fc
-                                c = b - (b - a) / PHI
-                                fc = f(c)
-                            else
-                                a = c
-                                c = d
-                                fc = fd
-                                d = a + (b - a) / PHI
-                                fd = f(d)
-                            end
-                        end
-
-                        x_min = (a + b) / 2
-                        f_min = f(x_min)
-                        success = math.abs(b - a) <= xtol
-                        message = success and "Optimization converged" or "Maximum iterations reached"
-
-                    elseif method == "brent" then
-                        -- Brent's method (parabolic interpolation with golden section fallback)
-                        local CGOLD = 0.3819660  -- Golden ratio complement
-                        local ZEPS = 1e-10
-
-                        local x = a + CGOLD * (b - a)  -- Initial guess
-                        local w, v = x, x
-                        local fx = f(x)
-                        local fw, fv = fx, fx
-                        local e = 0  -- Distance moved on step before last
-
-                        for iter = 1, maxiter do
-                            nit = iter
-                            local xm = 0.5 * (a + b)
-                            local tol1 = xtol * math.abs(x) + ZEPS
-                            local tol2 = 2 * tol1
-
-                            -- Check convergence
-                            if math.abs(x - xm) <= (tol2 - 0.5 * (b - a)) then
-                                x_min = x
-                                f_min = fx
-                                success = true
-                                message = "Optimization converged"
-                                break
-                            end
-
-                            local d_step
-                            if math.abs(e) > tol1 then
-                                -- Try parabolic interpolation
-                                local r = (x - w) * (fx - fv)
-                                local q = (x - v) * (fx - fw)
-                                local p = (x - v) * q - (x - w) * r
-                                q = 2 * (q - r)
-                                if q > 0 then p = -p else q = -q end
-
-                                local etemp = e
-                                e = d_step or 0
-
-                                -- Check if parabolic step is acceptable
-                                if math.abs(p) < math.abs(0.5 * q * etemp) and
-                                   p > q * (a - x) and p < q * (b - x) then
-                                    d_step = p / q
-                                    local u = x + d_step
-                                    if (u - a) < tol2 or (b - u) < tol2 then
-                                        d_step = (xm >= x) and tol1 or -tol1
-                                    end
-                                else
-                                    -- Golden section step
-                                    e = (x >= xm) and (a - x) or (b - x)
-                                    d_step = CGOLD * e
-                                end
-                            else
-                                -- Golden section step
-                                e = (x >= xm) and (a - x) or (b - x)
-                                d_step = CGOLD * e
-                            end
-
-                            -- Ensure step is at least tol1
-                            local u
-                            if math.abs(d_step) >= tol1 then
-                                u = x + d_step
-                            else
-                                u = x + ((d_step >= 0) and tol1 or -tol1)
-                            end
-
-                            local fu = f(u)
-
-                            -- Update interval
-                            if fu <= fx then
-                                if u >= x then a = x else b = x end
-                                v, w, x = w, x, u
-                                fv, fw, fx = fw, fx, fu
-                            else
-                                if u < x then a = u else b = u end
-                                if fu <= fw or w == x then
-                                    v, w = w, u
-                                    fv, fw = fw, fu
-                                elseif fu <= fv or v == x or v == w then
-                                    v = u
-                                    fv = fu
-                                end
-                            end
-                        end
-
-                        if not success then
-                            x_min = x
-                            f_min = fx
-                            success = false
-                            message = "Maximum iterations reached"
-                        end
-                    else
-                        return {
-                            x = 0, fun = 0, success = false,
-                            message = "Unknown method: " .. method,
-                            nfev = nfev, nit = nit
-                        }
-                    end
-
-                    return {
-                        x = x_min,
-                        fun = f_min,
-                        success = success,
-                        message = message,
-                        nfev = nfev,
-                        nit = nit
-                    }
+                    local result = _luaswift_optimize_minimize_scalar(func,
+                        options.method or "brent",
+                        options.bracket and options.bracket[1],
+                        options.bracket and options.bracket[2],
+                        options.xtol or 1e-8,
+                        options.maxiter or 500)
+                    return result
                 end
 
-                ----------------------------------------------------------------
                 -- root_scalar: Scalar root finding
-                -- Methods: "bisect", "newton", "secant", "brentq"
-                ----------------------------------------------------------------
                 function optimize.root_scalar(func, options)
                     options = options or {}
-                    local method = (options.method or "brentq"):lower()
-                    local bracket = options.bracket
-                    local x0 = options.x0
-                    local x1 = options.x1
-                    local fprime = options.fprime  -- Derivative for Newton's method
-                    local xtol = options.xtol or DEFAULT_XTOL
-                    local ftol = options.ftol or DEFAULT_FTOL
-                    local maxiter = options.maxiter or DEFAULT_MAXITER
-
-                    local nfev = 0
-                    local nit = 0
-
-                    local function f(x)
-                        nfev = nfev + 1
-                        return func(x)
-                    end
-
-                    local root, converged, message
-
-                    if method == "bisect" then
-                        -- Bisection method
-                        if not bracket or #bracket < 2 then
-                            return {
-                                root = nil, converged = false,
-                                message = "Bisection requires bracket=[a,b]",
-                                iterations = 0, function_calls = 0
-                            }
-                        end
-
-                        local a, b = bracket[1], bracket[2]
-                        local fa, fb = f(a), f(b)
-
-                        if fa * fb > 0 then
-                            return {
-                                root = nil, converged = false,
-                                message = "f(a) and f(b) must have opposite signs",
-                                iterations = 0, function_calls = nfev
-                            }
-                        end
-
-                        for iter = 1, maxiter do
-                            nit = iter
-                            local c = (a + b) / 2
-                            local fc = f(c)
-
-                            if math.abs(fc) < ftol or (b - a) / 2 < xtol then
-                                root = c
-                                converged = true
-                                message = "Root found"
-                                break
-                            end
-
-                            if fa * fc < 0 then
-                                b, fb = c, fc
-                            else
-                                a, fa = c, fc
-                            end
-                        end
-
-                        if not converged then
-                            root = (a + b) / 2
-                            converged = false
-                            message = "Maximum iterations reached"
-                        end
-
-                    elseif method == "newton" then
-                        -- Newton-Raphson method
-                        if not x0 then
-                            return {
-                                root = nil, converged = false,
-                                message = "Newton's method requires x0 (initial guess)",
-                                iterations = 0, function_calls = 0
-                            }
-                        end
-                        if not fprime then
-                            -- Use numerical derivative
-                            local h = 1e-8
-                            fprime = function(x)
-                                return (f(x + h) - f(x - h)) / (2 * h)
-                            end
-                        end
-
-                        local x = x0
-                        for iter = 1, maxiter do
-                            nit = iter
-                            local fx = f(x)
-                            if math.abs(fx) < ftol then
-                                root = x
-                                converged = true
-                                message = "Root found"
-                                break
-                            end
-
-                            local dfx = fprime(x)
-                            if math.abs(dfx) < 1e-15 then
-                                root = x
-                                converged = false
-                                message = "Derivative too small"
-                                break
-                            end
-
-                            local x_new = x - fx / dfx
-                            if math.abs(x_new - x) < xtol then
-                                root = x_new
-                                converged = true
-                                message = "Root found"
-                                break
-                            end
-                            x = x_new
-                        end
-
-                        if not converged and not root then
-                            root = x
-                            converged = false
-                            message = "Maximum iterations reached"
-                        end
-
-                    elseif method == "secant" then
-                        -- Secant method
-                        if not x0 then x0 = 0 end
-                        if not x1 then x1 = x0 + 0.1 end
-
-                        local x_prev, x_curr = x0, x1
-                        local f_prev = f(x_prev)
-
-                        for iter = 1, maxiter do
-                            nit = iter
-                            local f_curr = f(x_curr)
-
-                            if math.abs(f_curr) < ftol then
-                                root = x_curr
-                                converged = true
-                                message = "Root found"
-                                break
-                            end
-
-                            if math.abs(f_curr - f_prev) < 1e-15 then
-                                root = x_curr
-                                converged = false
-                                message = "Division by zero in secant"
-                                break
-                            end
-
-                            local x_new = x_curr - f_curr * (x_curr - x_prev) / (f_curr - f_prev)
-
-                            if math.abs(x_new - x_curr) < xtol then
-                                root = x_new
-                                converged = true
-                                message = "Root found"
-                                break
-                            end
-
-                            x_prev, f_prev = x_curr, f_curr
-                            x_curr = x_new
-                        end
-
-                        if not converged and not root then
-                            root = x_curr
-                            converged = false
-                            message = "Maximum iterations reached"
-                        end
-
-                    elseif method == "brentq" then
-                        -- Brent's method for root finding
-                        if not bracket or #bracket < 2 then
-                            return {
-                                root = nil, converged = false,
-                                message = "Brent's method requires bracket=[a,b]",
-                                iterations = 0, function_calls = 0
-                            }
-                        end
-
-                        local a, b = bracket[1], bracket[2]
-                        local fa, fb = f(a), f(b)
-
-                        if fa * fb > 0 then
-                            return {
-                                root = nil, converged = false,
-                                message = "f(a) and f(b) must have opposite signs",
-                                iterations = 0, function_calls = nfev
-                            }
-                        end
-
-                        -- Ensure |f(a)| >= |f(b)|
-                        if math.abs(fa) < math.abs(fb) then
-                            a, b = b, a
-                            fa, fb = fb, fa
-                        end
-
-                        local c, fc = a, fa
-                        local mflag = true
-                        local d = 0
-
-                        for iter = 1, maxiter do
-                            nit = iter
-
-                            if math.abs(fb) < ftol or math.abs(b - a) < xtol then
-                                root = b
-                                converged = true
-                                message = "Root found"
-                                break
-                            end
-
-                            local s
-                            if fa ~= fc and fb ~= fc then
-                                -- Inverse quadratic interpolation
-                                s = a * fb * fc / ((fa - fb) * (fa - fc)) +
-                                    b * fa * fc / ((fb - fa) * (fb - fc)) +
-                                    c * fa * fb / ((fc - fa) * (fc - fb))
-                            else
-                                -- Secant method
-                                s = b - fb * (b - a) / (fb - fa)
-                            end
-
-                            -- Conditions for bisection
-                            local cond1 = s < (3 * a + b) / 4 or s > b
-                            local cond2 = mflag and math.abs(s - b) >= math.abs(b - c) / 2
-                            local cond3 = not mflag and math.abs(s - b) >= math.abs(c - d) / 2
-                            local cond4 = mflag and math.abs(b - c) < xtol
-                            local cond5 = not mflag and math.abs(c - d) < xtol
-
-                            if cond1 or cond2 or cond3 or cond4 or cond5 then
-                                s = (a + b) / 2
-                                mflag = true
-                            else
-                                mflag = false
-                            end
-
-                            local fs = f(s)
-                            d = c
-                            c, fc = b, fb
-
-                            if fa * fs < 0 then
-                                b, fb = s, fs
-                            else
-                                a, fa = s, fs
-                            end
-
-                            -- Ensure |f(a)| >= |f(b)|
-                            if math.abs(fa) < math.abs(fb) then
-                                a, b = b, a
-                                fa, fb = fb, fa
-                            end
-                        end
-
-                        if not converged then
-                            root = b
-                            converged = false
-                            message = "Maximum iterations reached"
-                        end
-                    else
-                        return {
-                            root = nil, converged = false,
-                            message = "Unknown method: " .. method,
-                            iterations = 0, function_calls = 0
-                        }
-                    end
-
-                    return {
-                        root = root,
-                        converged = converged,
-                        message = message,
-                        iterations = nit,
-                        function_calls = nfev
-                    }
+                    local result = _luaswift_optimize_root_scalar(func,
+                        options.method or "bisect",
+                        options.bracket and options.bracket[1],
+                        options.bracket and options.bracket[2],
+                        options.x0,
+                        options.x1,
+                        options.xtol or 1e-8,
+                        options.maxiter or 100)
+                    return result
                 end
 
-                ----------------------------------------------------------------
                 -- minimize: Multivariate minimization
-                -- Method: "nelder-mead" (Nelder-Mead simplex algorithm)
-                ----------------------------------------------------------------
                 function optimize.minimize(func, x0, options)
                     options = options or {}
-                    local method = (options.method or "nelder-mead"):lower()
-                    local xtol = options.xtol or DEFAULT_XTOL
-                    local ftol = options.ftol or DEFAULT_FTOL
-                    local maxiter = options.maxiter or DEFAULT_MAXITER * #x0
-
-                    local nfev = 0
-                    local nit = 0
-
-                    local function f(x)
-                        nfev = nfev + 1
-                        return func(x)
-                    end
-
-                    if method ~= "nelder-mead" then
-                        return {
-                            x = x0, fun = 0, success = false,
-                            message = "Only nelder-mead method is currently supported",
-                            nfev = 0, nit = 0
-                        }
-                    end
-
-                    -- Nelder-Mead simplex algorithm
-                    local n = #x0
-                    local alpha = 1.0   -- Reflection coefficient
-                    local gamma = 2.0   -- Expansion coefficient
-                    local rho = 0.5     -- Contraction coefficient
-                    local sigma = 0.5   -- Shrink coefficient
-
-                    -- Initialize simplex with n+1 vertices
-                    local simplex = {}
-                    local fvals = {}
-
-                    -- First vertex is initial guess
-                    simplex[1] = {}
-                    for i = 1, n do simplex[1][i] = x0[i] end
-                    fvals[1] = f(simplex[1])
-
-                    -- Other vertices: perturb each dimension
-                    for i = 1, n do
-                        simplex[i + 1] = {}
-                        for j = 1, n do
-                            if j == i then
-                                local step = (x0[j] ~= 0) and (x0[j] * 0.05) or 0.00025
-                                simplex[i + 1][j] = x0[j] + step
-                            else
-                                simplex[i + 1][j] = x0[j]
-                            end
-                        end
-                        fvals[i + 1] = f(simplex[i + 1])
-                    end
-
-                    -- Helper functions
-                    local function centroid(exclude_idx)
-                        local c = {}
-                        for j = 1, n do c[j] = 0 end
-                        local count = 0
-                        for i = 1, n + 1 do
-                            if i ~= exclude_idx then
-                                count = count + 1
-                                for j = 1, n do
-                                    c[j] = c[j] + simplex[i][j]
-                                end
-                            end
-                        end
-                        for j = 1, n do c[j] = c[j] / count end
-                        return c
-                    end
-
-                    local function add_scaled(a, b, scale)
-                        local result = {}
-                        for j = 1, n do
-                            result[j] = a[j] + scale * (a[j] - b[j])
-                        end
-                        return result
-                    end
-
-                    local function sort_simplex()
-                        -- Bubble sort by function value
-                        for i = 1, n + 1 do
-                            for j = i + 1, n + 1 do
-                                if fvals[j] < fvals[i] then
-                                    simplex[i], simplex[j] = simplex[j], simplex[i]
-                                    fvals[i], fvals[j] = fvals[j], fvals[i]
-                                end
-                            end
-                        end
-                    end
-
-                    local function converged_check()
-                        -- Check if simplex has converged
-                        local fmax, fmin = fvals[1], fvals[1]
-                        for i = 2, n + 1 do
-                            if fvals[i] > fmax then fmax = fvals[i] end
-                            if fvals[i] < fmin then fmin = fvals[i] end
-                        end
-                        if math.abs(fmax - fmin) < ftol then return true end
-
-                        -- Check vertex spread
-                        local spread = 0
-                        for i = 2, n + 1 do
-                            for j = 1, n do
-                                spread = spread + math.abs(simplex[i][j] - simplex[1][j])
-                            end
-                        end
-                        return spread < xtol * n
-                    end
-
-                    -- Main iteration
-                    for iter = 1, maxiter do
-                        nit = iter
-                        sort_simplex()
-
-                        if converged_check() then
-                            return {
-                                x = simplex[1],
-                                fun = fvals[1],
-                                success = true,
-                                message = "Optimization converged",
-                                nfev = nfev,
-                                nit = nit
-                            }
-                        end
-
-                        local c = centroid(n + 1)  -- Centroid excluding worst point
-
-                        -- Reflection
-                        local xr = {}
-                        for j = 1, n do
-                            xr[j] = c[j] + alpha * (c[j] - simplex[n + 1][j])
-                        end
-                        local fr = f(xr)
-
-                        if fr < fvals[n] and fr >= fvals[1] then
-                            -- Accept reflection
-                            simplex[n + 1] = xr
-                            fvals[n + 1] = fr
-                        elseif fr < fvals[1] then
-                            -- Try expansion
-                            local xe = {}
-                            for j = 1, n do
-                                xe[j] = c[j] + gamma * (xr[j] - c[j])
-                            end
-                            local fe = f(xe)
-                            if fe < fr then
-                                simplex[n + 1] = xe
-                                fvals[n + 1] = fe
-                            else
-                                simplex[n + 1] = xr
-                                fvals[n + 1] = fr
-                            end
-                        else
-                            -- Contraction
-                            local xc = {}
-                            if fr < fvals[n + 1] then
-                                -- Outside contraction
-                                for j = 1, n do
-                                    xc[j] = c[j] + rho * (xr[j] - c[j])
-                                end
-                            else
-                                -- Inside contraction
-                                for j = 1, n do
-                                    xc[j] = c[j] + rho * (simplex[n + 1][j] - c[j])
-                                end
-                            end
-                            local fc = f(xc)
-
-                            if fc < fvals[n + 1] and fc < fr then
-                                simplex[n + 1] = xc
-                                fvals[n + 1] = fc
-                            else
-                                -- Shrink
-                                for i = 2, n + 1 do
-                                    for j = 1, n do
-                                        simplex[i][j] = simplex[1][j] + sigma * (simplex[i][j] - simplex[1][j])
-                                    end
-                                    fvals[i] = f(simplex[i])
-                                end
-                            end
-                        end
-                    end
-
-                    sort_simplex()
-                    return {
-                        x = simplex[1],
-                        fun = fvals[1],
-                        success = false,
-                        message = "Maximum iterations reached",
-                        nfev = nfev,
-                        nit = nit
-                    }
+                    local result = _luaswift_optimize_minimize(func, x0,
+                        options.method or "Nelder-Mead",
+                        options.xtol or 1e-8,
+                        options.ftol or 1e-8,
+                        options.maxiter)
+                    return result
                 end
 
-                ----------------------------------------------------------------
-                -- root: Root finding for systems of equations
-                -- Method: "hybr" (Newton with line search fallback)
-                ----------------------------------------------------------------
+                -- root: Multivariate root finding
                 function optimize.root(func, x0, options)
                     options = options or {}
-                    local xtol = options.xtol or DEFAULT_XTOL
-                    local ftol = options.ftol or DEFAULT_FTOL
-                    local maxiter = options.maxiter or DEFAULT_MAXITER
-                    local jac = options.jac  -- Optional Jacobian function
-
-                    local nfev = 0
-                    local nit = 0
-                    local n = #x0
-
-                    local function f(x)
-                        nfev = nfev + 1
-                        return func(x)
-                    end
-
-                    -- Compute numerical Jacobian if not provided
-                    local function compute_jacobian(x)
-                        local h = 1e-8
-                        local fx = f(x)
-                        local m = #fx
-                        local J = {}
-                        for i = 1, m do
-                            J[i] = {}
-                            for j = 1, n do J[i][j] = 0 end
-                        end
-
-                        for j = 1, n do
-                            local x_plus = {}
-                            for k = 1, n do x_plus[k] = x[k] end
-                            x_plus[j] = x_plus[j] + h
-                            local fx_plus = f(x_plus)
-                            for i = 1, m do
-                                J[i][j] = (fx_plus[i] - fx[i]) / h
-                            end
-                        end
-                        return J, fx
-                    end
-
-                    -- Solve Jx = b using Gaussian elimination (for small systems)
-                    local function solve_linear(J, b)
-                        local m = #J
-                        -- Augmented matrix
-                        local A = {}
-                        for i = 1, m do
-                            A[i] = {}
-                            for j = 1, m do A[i][j] = J[i][j] end
-                            A[i][m + 1] = b[i]
-                        end
-
-                        -- Forward elimination with partial pivoting
-                        for k = 1, m do
-                            -- Find pivot
-                            local max_val, max_idx = math.abs(A[k][k]), k
-                            for i = k + 1, m do
-                                if math.abs(A[i][k]) > max_val then
-                                    max_val = math.abs(A[i][k])
-                                    max_idx = i
-                                end
-                            end
-                            if max_val < 1e-15 then
-                                return nil  -- Singular matrix
-                            end
-                            if max_idx ~= k then
-                                A[k], A[max_idx] = A[max_idx], A[k]
-                            end
-
-                            -- Eliminate
-                            for i = k + 1, m do
-                                local factor = A[i][k] / A[k][k]
-                                for j = k, m + 1 do
-                                    A[i][j] = A[i][j] - factor * A[k][j]
-                                end
-                            end
-                        end
-
-                        -- Back substitution
-                        local x = {}
-                        for i = m, 1, -1 do
-                            x[i] = A[i][m + 1]
-                            for j = i + 1, m do
-                                x[i] = x[i] - A[i][j] * x[j]
-                            end
-                            x[i] = x[i] / A[i][i]
-                        end
-                        return x
-                    end
-
-                    -- Vector norm
-                    local function norm(v)
-                        local s = 0
-                        for i = 1, #v do s = s + v[i] * v[i] end
-                        return math.sqrt(s)
-                    end
-
-                    -- Newton iteration
-                    local x = {}
-                    for i = 1, n do x[i] = x0[i] end
-
-                    for iter = 1, maxiter do
-                        nit = iter
-                        local J, fx
-                        if jac then
-                            J = jac(x)
-                            fx = f(x)
-                        else
-                            J, fx = compute_jacobian(x)
-                        end
-
-                        local fn = norm(fx)
-                        if fn < ftol then
-                            return {
-                                x = x,
-                                fun = fx,
-                                success = true,
-                                message = "Root found",
-                                nfev = nfev,
-                                nit = nit
-                            }
-                        end
-
-                        -- Solve J * dx = -fx
-                        local neg_fx = {}
-                        for i = 1, #fx do neg_fx[i] = -fx[i] end
-                        local dx = solve_linear(J, neg_fx)
-
-                        if not dx then
-                            return {
-                                x = x,
-                                fun = fx,
-                                success = false,
-                                message = "Jacobian is singular",
-                                nfev = nfev,
-                                nit = nit
-                            }
-                        end
-
-                        -- Line search (simple backtracking)
-                        local alpha_ls = 1.0
-                        local x_new = {}
-                        for trial = 1, 10 do
-                            for i = 1, n do
-                                x_new[i] = x[i] + alpha_ls * dx[i]
-                            end
-                            local fx_new = f(x_new)
-                            local fn_new = norm(fx_new)
-                            if fn_new < fn then
-                                break
-                            end
-                            alpha_ls = alpha_ls * 0.5
-                        end
-
-                        -- Check convergence by step size
-                        local dx_norm = 0
-                        for i = 1, n do
-                            dx_norm = dx_norm + (x_new[i] - x[i])^2
-                        end
-                        dx_norm = math.sqrt(dx_norm)
-
-                        x = x_new
-                        if dx_norm < xtol then
-                            local fx_final = f(x)
-                            return {
-                                x = x,
-                                fun = fx_final,
-                                success = norm(fx_final) < ftol,
-                                message = "Step size below tolerance",
-                                nfev = nfev,
-                                nit = nit
-                            }
-                        end
-                    end
-
-                    local fx_final = f(x)
-                    return {
-                        x = x,
-                        fun = fx_final,
-                        success = false,
-                        message = "Maximum iterations reached",
-                        nfev = nfev,
-                        nit = nit
-                    }
+                    local result = _luaswift_optimize_root(func, x0,
+                        options.method or "hybr",
+                        options.tol or 1e-8,
+                        options.maxiter or 100)
+                    return result
                 end
 
-                ----------------------------------------------------------------
-                -- least_squares: Nonlinear least squares optimization
-                -- Method: Levenberg-Marquardt algorithm
-                --
-                -- Arguments:
-                --   fun: residual function f(x) -> array of residuals
-                --   x0: initial guess for parameters
-                --   options: {
-                --     jac: Jacobian function (optional, computed numerically if not provided)
-                --     ftol: function tolerance (default: 1e-8)
-                --     xtol: parameter tolerance (default: 1e-8)
-                --     gtol: gradient tolerance (default: 1e-8)
-                --     max_nfev: max function evaluations (default: 100 * len(x0))
-                --     bounds: {lower, upper} bounds for parameters
-                --   }
-                --
-                -- Returns:
-                --   x: optimal parameters
-                --   cost: final ||residuals||^2 / 2
-                --   fun: residuals at x
-                --   jac: Jacobian at x
-                --   success: boolean
-                --   message: status message
-                --   nfev: number of function evaluations
-                --   njev: number of Jacobian evaluations
-                ----------------------------------------------------------------
-                function optimize.least_squares(fun, x0, options)
+                -- least_squares: Nonlinear least squares
+                function optimize.least_squares(residuals, x0, options)
                     options = options or {}
-                    local ftol = options.ftol or 1e-8
-                    local xtol = options.xtol or 1e-8
-                    local gtol = options.gtol or 1e-8
-                    local max_nfev = options.max_nfev or 100 * #x0
-                    local jac_func = options.jac
-                    local bounds = options.bounds
-                    local verbose = options.verbose or 0
-
-                    local n = #x0  -- Number of parameters
-                    local nfev = 0
-                    local njev = 0
-
-                    -- Current parameter values
-                    local x = {}
-                    for i = 1, n do x[i] = x0[i] end
-
-                    -- Apply bounds if provided
-                    local function apply_bounds(params)
-                        if not bounds then return params end
-                        local result = {}
-                        for i = 1, n do
-                            local val = params[i]
-                            if bounds.lower and bounds.lower[i] then
-                                val = math.max(val, bounds.lower[i])
-                            end
-                            if bounds.upper and bounds.upper[i] then
-                                val = math.min(val, bounds.upper[i])
-                            end
-                            result[i] = val
-                        end
-                        return result
-                    end
-
-                    x = apply_bounds(x)
-
-                    -- Evaluate residuals
-                    local function f(params)
-                        nfev = nfev + 1
-                        return fun(params)
-                    end
-
-                    -- Compute numerical Jacobian (m x n matrix)
-                    local function compute_jacobian(params)
-                        local h = 1e-8
-                        local r0 = f(params)
-                        local m = #r0
-                        njev = njev + 1
-
-                        local J = {}
-                        for i = 1, m do
-                            J[i] = {}
-                            for j = 1, n do J[i][j] = 0 end
-                        end
-
-                        for j = 1, n do
-                            local params_plus = {}
-                            for k = 1, n do params_plus[k] = params[k] end
-                            local step = h * math.max(1, math.abs(params[j]))
-                            params_plus[j] = params_plus[j] + step
-                            params_plus = apply_bounds(params_plus)
-                            local r_plus = f(params_plus)
-
-                            for i = 1, m do
-                                J[i][j] = (r_plus[i] - r0[i]) / step
-                            end
-                        end
-                        return J, r0
-                    end
-
-                    -- Vector and matrix operations
-                    local function vec_dot(a, b)
-                        local s = 0
-                        for i = 1, #a do s = s + a[i] * b[i] end
-                        return s
-                    end
-
-                    local function vec_norm(v)
-                        return math.sqrt(vec_dot(v, v))
-                    end
-
-                    local function mat_transpose_vec(A, v)
-                        -- A^T * v where A is m x n, v is m -> result is n
-                        local n_cols = #A[1]
-                        local result = {}
-                        for j = 1, n_cols do
-                            result[j] = 0
-                            for i = 1, #A do
-                                result[j] = result[j] + A[i][j] * v[i]
-                            end
-                        end
-                        return result
-                    end
-
-                    local function mat_vec(A, v)
-                        -- A * v where A is m x n, v is n -> result is m
-                        local result = {}
-                        for i = 1, #A do
-                            result[i] = 0
-                            for j = 1, #v do
-                                result[i] = result[i] + A[i][j] * v[j]
-                            end
-                        end
-                        return result
-                    end
-
-                    local function mat_transpose_mat(A)
-                        -- A^T * A where A is m x n -> result is n x n
-                        local n_cols = #A[1]
-                        local result = {}
-                        for i = 1, n_cols do
-                            result[i] = {}
-                            for j = 1, n_cols do
-                                result[i][j] = 0
-                                for k = 1, #A do
-                                    result[i][j] = result[i][j] + A[k][i] * A[k][j]
-                                end
-                            end
-                        end
-                        return result
-                    end
-
-                    -- Solve (J^T J + lambda * I) * delta = J^T * r using Cholesky-like method
-                    local function solve_normal_equations(JtJ, Jtr, lambda)
-                        local nn = #JtJ
-                        -- Add lambda to diagonal
-                        local A = {}
-                        for i = 1, nn do
-                            A[i] = {}
-                            for j = 1, nn do
-                                A[i][j] = JtJ[i][j]
-                            end
-                            A[i][i] = A[i][i] + lambda
-                        end
-
-                        -- Solve A * x = b using Gaussian elimination
-                        local b = {}
-                        for i = 1, nn do b[i] = -Jtr[i] end
-
-                        -- Augmented matrix
-                        for i = 1, nn do
-                            A[i][nn + 1] = b[i]
-                        end
-
-                        -- Forward elimination with partial pivoting
-                        for k = 1, nn do
-                            local max_val, max_idx = math.abs(A[k][k]), k
-                            for i = k + 1, nn do
-                                if math.abs(A[i][k]) > max_val then
-                                    max_val = math.abs(A[i][k])
-                                    max_idx = i
-                                end
-                            end
-                            if max_val < 1e-15 then
-                                return nil  -- Singular
-                            end
-                            if max_idx ~= k then
-                                A[k], A[max_idx] = A[max_idx], A[k]
-                            end
-                            for i = k + 1, nn do
-                                local factor = A[i][k] / A[k][k]
-                                for j = k, nn + 1 do
-                                    A[i][j] = A[i][j] - factor * A[k][j]
-                                end
-                            end
-                        end
-
-                        -- Back substitution
-                        local delta = {}
-                        for i = nn, 1, -1 do
-                            delta[i] = A[i][nn + 1]
-                            for j = i + 1, nn do
-                                delta[i] = delta[i] - A[i][j] * delta[j]
-                            end
-                            delta[i] = delta[i] / A[i][i]
-                        end
-                        return delta
-                    end
-
-                    -- Levenberg-Marquardt main loop
-                    local lambda = 0.001  -- Initial damping parameter
-                    local nu = 2
-
-                    local r = f(x)
-                    local m = #r
-                    local cost = vec_dot(r, r) / 2
-
-                    local J, _ = compute_jacobian(x)
-                    local JtJ = mat_transpose_mat(J)
-                    local Jtr = mat_transpose_vec(J, r)
-                    local g_norm = vec_norm(Jtr)
-
-                    local success = false
-                    local message = "Maximum iterations reached"
-                    local max_iter = math.ceil(max_nfev / (n + 1))
-
-                    for iter = 1, max_iter do
-                        if g_norm < gtol then
-                            success = true
-                            message = "Gradient tolerance reached"
-                            break
-                        end
-
-                        -- Solve for step
-                        local delta = solve_normal_equations(JtJ, Jtr, lambda)
-                        if not delta then
-                            message = "Singular matrix in normal equations"
-                            break
-                        end
-
-                        local delta_norm = vec_norm(delta)
-                        if delta_norm < xtol * (vec_norm(x) + xtol) then
-                            success = true
-                            message = "Parameter tolerance reached"
-                            break
-                        end
-
-                        -- Try the step
-                        local x_new = {}
-                        for i = 1, n do x_new[i] = x[i] + delta[i] end
-                        x_new = apply_bounds(x_new)
-
-                        local r_new = f(x_new)
-                        local cost_new = vec_dot(r_new, r_new) / 2
-
-                        -- Compute gain ratio
-                        local predicted_reduction = vec_dot(delta, Jtr) + 0.5 * lambda * vec_dot(delta, delta)
-                        local actual_reduction = cost - cost_new
-                        local rho = actual_reduction / (-predicted_reduction + 1e-15)
-
-                        if rho > 0 then
-                            -- Accept step
-                            x = x_new
-                            r = r_new
-                            cost = cost_new
-
-                            J, _ = compute_jacobian(x)
-                            JtJ = mat_transpose_mat(J)
-                            Jtr = mat_transpose_vec(J, r)
-                            g_norm = vec_norm(Jtr)
-
-                            -- Decrease lambda
-                            lambda = lambda * math.max(1/3, 1 - (2 * rho - 1)^3)
-                            nu = 2
-                        else
-                            -- Reject step, increase lambda
-                            lambda = lambda * nu
-                            nu = nu * 2
-                        end
-
-                        -- Check function tolerance
-                        if actual_reduction > 0 and actual_reduction < ftol * cost then
-                            success = true
-                            message = "Function tolerance reached"
-                            break
-                        end
-
-                        if nfev >= max_nfev then
-                            message = "Maximum function evaluations reached"
-                            break
-                        end
-                    end
-
-                    return {
-                        x = x,
-                        cost = cost,
-                        fun = r,
-                        jac = J,
-                        success = success,
-                        message = message,
-                        nfev = nfev,
-                        njev = njev
-                    }
+                    local result = _luaswift_optimize_least_squares(residuals, x0,
+                        options.ftol or 1e-8,
+                        options.xtol or 1e-8,
+                        options.maxiter or 100)
+                    return result
                 end
 
-                ----------------------------------------------------------------
-                -- curve_fit: Fit a function to data
-                --
-                -- Arguments:
-                --   f: model function f(x, p1, p2, ...) or f(x, params)
-                --   xdata: array of x values
-                --   ydata: array of y values
-                --   p0: initial guess for parameters
-                --   options: {
-                --     sigma: uncertainties in ydata (optional)
-                --     absolute_sigma: if true, sigma is absolute (default: false)
-                --     bounds: {lower, upper} bounds for parameters
-                --     method: optimization method (default: "lm")
-                --     maxfev: max function evaluations
-                --   }
-                --
-                -- Returns:
-                --   popt: optimal parameters (array)
-                --   pcov: covariance matrix (approximate)
-                --   info: additional information (nfev, success, message)
-                ----------------------------------------------------------------
-                function optimize.curve_fit(f, xdata, ydata, p0, options)
+                -- curve_fit: Fit function to data
+                -- Supports both f(x, params) and f(x, a, b, c, ...) calling conventions
+                function optimize.curve_fit(func, xdata, ydata, p0, options)
                     options = options or {}
-                    local sigma = options.sigma
-                    local absolute_sigma = options.absolute_sigma or false
-                    local bounds = options.bounds
-                    local maxfev = options.maxfev or 1000
-
-                    local n_data = #xdata
-                    local n_params = #p0
-
-                    -- Determine how to call f: f(x, p1, p2, ...) or f(x, params)
-                    -- Try both calling conventions
-                    local function model(x, params)
-                        -- Try array form first
-                        local ok, result = pcall(function()
-                            return f(x, params)
+                    -- Wrap function to support expanded form: f(x, a, b, c) -> f(x, params)
+                    local wrapped_func = function(x, params)
+                        -- Try expanded form first (f(x, a, b, c, ...))
+                        local success, result = pcall(function()
+                            return func(x, table.unpack(params))
                         end)
-                        if ok and type(result) == "number" then
+                        if success then
                             return result
                         end
-
-                        -- Try expanded form: f(x, p1, p2, ...)
-                        ok, result = pcall(function()
-                            return f(x, table.unpack(params))
-                        end)
-                        if ok and type(result) == "number" then
-                            return result
-                        end
-
-                        error("curve_fit: model function must return a number")
+                        -- Fall back to array form (f(x, params))
+                        return func(x, params)
                     end
-
-                    -- Create residual function
-                    local function residuals(params)
-                        local r = {}
-                        for i = 1, n_data do
-                            local y_pred = model(xdata[i], params)
-                            if sigma then
-                                r[i] = (ydata[i] - y_pred) / sigma[i]
-                            else
-                                r[i] = ydata[i] - y_pred
-                            end
-                        end
-                        return r
-                    end
-
-                    -- Call least_squares
-                    local ls_options = {
-                        ftol = options.ftol or 1e-8,
-                        xtol = options.xtol or 1e-8,
-                        max_nfev = maxfev,
-                        bounds = bounds
-                    }
-
-                    local result = optimize.least_squares(residuals, p0, ls_options)
-
-                    -- Compute approximate covariance matrix
-                    -- pcov ≈ (J^T J)^{-1} * s^2 where s^2 is the residual variance
-                    local popt = result.x
-                    local J = result.jac
-                    local r = result.fun
-
-                    -- Compute residual variance (s^2)
-                    local ss_res = 0
-                    for i = 1, #r do
-                        ss_res = ss_res + r[i] * r[i]
-                    end
-                    local dof = n_data - n_params
-                    local s2 = (dof > 0) and (ss_res / dof) or 1
-
-                    -- Compute J^T J
-                    local JtJ = {}
-                    for i = 1, n_params do
-                        JtJ[i] = {}
-                        for j = 1, n_params do
-                            JtJ[i][j] = 0
-                            for k = 1, #J do
-                                JtJ[i][j] = JtJ[i][j] + J[k][i] * J[k][j]
-                            end
-                        end
-                    end
-
-                    -- Invert JtJ to get covariance (simple Gaussian elimination for small matrices)
-                    local pcov = {}
-                    local nn = n_params
-
-                    -- Create augmented matrix [JtJ | I]
-                    local aug = {}
-                    for i = 1, nn do
-                        aug[i] = {}
-                        for j = 1, nn do aug[i][j] = JtJ[i][j] end
-                        for j = 1, nn do aug[i][nn + j] = (i == j) and 1 or 0 end
-                    end
-
-                    -- Gauss-Jordan elimination
-                    for k = 1, nn do
-                        -- Find pivot
-                        local max_val, max_idx = math.abs(aug[k][k]), k
-                        for i = k + 1, nn do
-                            if math.abs(aug[i][k]) > max_val then
-                                max_val = math.abs(aug[i][k])
-                                max_idx = i
-                            end
-                        end
-                        if max_val < 1e-15 then
-                            -- Singular, return infinite covariance
-                            for i = 1, nn do
-                                pcov[i] = {}
-                                for j = 1, nn do pcov[i][j] = math.huge end
-                            end
-                            return popt, pcov, {
-                                success = result.success,
-                                message = result.message,
-                                nfev = result.nfev
-                            }
-                        end
-                        if max_idx ~= k then
-                            aug[k], aug[max_idx] = aug[max_idx], aug[k]
-                        end
-
-                        -- Scale row k
-                        local pivot = aug[k][k]
-                        for j = 1, 2 * nn do
-                            aug[k][j] = aug[k][j] / pivot
-                        end
-
-                        -- Eliminate column k
-                        for i = 1, nn do
-                            if i ~= k then
-                                local factor = aug[i][k]
-                                for j = 1, 2 * nn do
-                                    aug[i][j] = aug[i][j] - factor * aug[k][j]
-                                end
-                            end
-                        end
-                    end
-
-                    -- Extract inverse and scale by s^2
-                    for i = 1, nn do
-                        pcov[i] = {}
-                        for j = 1, nn do
-                            pcov[i][j] = aug[i][nn + j] * s2
-                        end
-                    end
-
-                    -- If not absolute_sigma, scale appropriately
-                    if sigma and not absolute_sigma then
-                        local scale = ss_res / dof
-                        for i = 1, nn do
-                            for j = 1, nn do
-                                pcov[i][j] = pcov[i][j] * scale
-                            end
-                        end
-                    end
-
-                    return popt, pcov, {
-                        success = result.success,
-                        message = result.message,
-                        nfev = result.nfev,
-                        cost = result.cost
-                    }
+                    local result = _luaswift_optimize_curve_fit(wrapped_func, xdata, ydata, p0,
+                        options.ftol or 1e-8,
+                        options.xtol or 1e-8,
+                        options.maxiter or 100)
+                    -- Unpack array: [popt, pcov, info]
+                    return result[1], result[2], result[3]
                 end
 
-                -- Store the module
-                luaswift.optimize = optimize
-
-                -- Also update math.optimize if math table exists
-                if math and type(math.optimize) == "table" then
+                -- Also update math.optimize if it exists
+                if math then
+                    if not math.optimize then math.optimize = {} end
                     for k, v in pairs(optimize) do
                         math.optimize[k] = v
                     end
@@ -1398,6 +1095,298 @@ public struct OptimizeModule {
                 """)
         } catch {
             // Silently fail
+        }
+    }
+
+    // MARK: - Lua Callbacks
+
+    /// Helper to create a Swift closure from a Lua function reference (1D)
+    private static func makeLuaFunction1D(_ engine: LuaEngine, _ funcRef: Int32) -> (Double) -> Double {
+        return { x in
+            do {
+                let result = try engine.callLuaFunction(ref: funcRef, args: [.number(x)])
+                return result.numberValue ?? 0
+            } catch {
+                return 0
+            }
+        }
+    }
+
+    /// Helper to create a Swift closure from a Lua function reference (nD)
+    private static func makeLuaFunctionND(_ engine: LuaEngine, _ funcRef: Int32) -> ([Double]) -> Double {
+        return { x in
+            do {
+                let xLua = LuaValue.array(x.map { .number($0) })
+                let result = try engine.callLuaFunction(ref: funcRef, args: [xLua])
+                return result.numberValue ?? 0
+            } catch {
+                return 0
+            }
+        }
+    }
+
+    /// Helper to create a Swift closure from a Lua function reference (vector-valued)
+    private static func makeLuaFunctionVector(_ engine: LuaEngine, _ funcRef: Int32) -> ([Double]) -> [Double] {
+        return { x in
+            do {
+                let xLua = LuaValue.array(x.map { .number($0) })
+                let result = try engine.callLuaFunction(ref: funcRef, args: [xLua])
+                if let arr = result.arrayValue {
+                    return arr.compactMap { $0.numberValue }
+                }
+                return x
+            } catch {
+                return x
+            }
+        }
+    }
+
+    /// Factory function for minimize_scalar callback
+    private static func makeMinimizeScalarCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 1,
+                  case .luaFunction(let funcRef) = args[0] else {
+                throw LuaError.runtimeError("minimize_scalar: expected function")
+            }
+
+            let method = args.count > 1 ? args[1].stringValue ?? "brent" : "brent"
+            let a = args.count > 2 ? args[2].numberValue ?? -10 : -10
+            let b = args.count > 3 ? args[3].numberValue ?? 10 : 10
+            let xtol = args.count > 4 ? args[4].numberValue ?? defaultXTol : defaultXTol
+            let maxiter = args.count > 5 ? Int(args[5].numberValue ?? Double(defaultMaxIter)) : defaultMaxIter
+
+            let f = makeLuaFunction1D(engine, funcRef)
+            let result: MinimizeScalarResult
+
+            if method.lowercased() == "golden" {
+                result = goldenSection(f, a: a, b: b, xtol: xtol, maxiter: maxiter)
+            } else {
+                result = brent(f, a: a, b: b, xtol: xtol, maxiter: maxiter)
+            }
+
+            return .table([
+                "x": .number(result.x),
+                "fun": .number(result.fun),
+                "nfev": .number(Double(result.nfev)),
+                "nit": .number(Double(result.nit)),
+                "success": .bool(result.success),
+                "message": .string(result.message)
+            ])
+        }
+    }
+
+    /// Factory function for root_scalar callback
+    private static func makeRootScalarCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 1,
+                  case .luaFunction(let funcRef) = args[0] else {
+                throw LuaError.runtimeError("root_scalar: expected function")
+            }
+
+            let method = args.count > 1 ? args[1].stringValue ?? "bisect" : "bisect"
+            let a = args.count > 2 ? args[2].numberValue : nil
+            let b = args.count > 3 ? args[3].numberValue : nil
+            let x0 = args.count > 4 ? args[4].numberValue : nil
+            let x1 = args.count > 5 ? args[5].numberValue : nil
+            let xtol = args.count > 6 ? args[6].numberValue ?? defaultXTol : defaultXTol
+            let maxiter = args.count > 7 ? Int(args[7].numberValue ?? 100) : 100
+
+            let f = makeLuaFunction1D(engine, funcRef)
+            let result: RootScalarResult
+
+            switch method.lowercased() {
+            case "bisect", "brentq":
+                guard let aVal = a, let bVal = b else {
+                    throw LuaError.runtimeError("bisect requires bracket=[a,b]")
+                }
+                result = bisect(f, a: aVal, b: bVal, xtol: xtol, maxiter: maxiter)
+            case "newton":
+                guard let x0Val = x0 else {
+                    throw LuaError.runtimeError("newton requires x0")
+                }
+                result = newton(f, x0: x0Val, xtol: xtol, maxiter: maxiter)
+            case "secant":
+                guard let x0Val = x0 else {
+                    throw LuaError.runtimeError("secant requires x0")
+                }
+                result = secant(f, x0: x0Val, x1: x1, xtol: xtol, maxiter: maxiter)
+            default:
+                // Default to bisect if bracket provided, newton if x0 provided
+                if let aVal = a, let bVal = b {
+                    result = bisect(f, a: aVal, b: bVal, xtol: xtol, maxiter: maxiter)
+                } else if let x0Val = x0 {
+                    result = newton(f, x0: x0Val, xtol: xtol, maxiter: maxiter)
+                } else {
+                    throw LuaError.runtimeError("root_scalar requires either bracket or x0")
+                }
+            }
+
+            return .table([
+                "root": .number(result.root),
+                "iterations": .number(Double(result.iterations)),
+                "function_calls": .number(Double(result.functionCalls)),
+                "converged": .bool(result.converged),
+                "message": .string(result.flag),
+                "flag": .string(result.flag)  // Keep for compatibility
+            ])
+        }
+    }
+
+    /// Factory function for minimize callback
+    private static func makeMinimizeCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 2,
+                  case .luaFunction(let funcRef) = args[0],
+                  let x0Table = args[1].arrayValue else {
+                throw LuaError.runtimeError("minimize: expected function and x0 array")
+            }
+
+            let x0 = x0Table.compactMap { $0.numberValue }
+            guard !x0.isEmpty else {
+                throw LuaError.runtimeError("minimize: x0 must be non-empty")
+            }
+
+            let xtol = args.count > 3 ? args[3].numberValue ?? defaultXTol : defaultXTol
+            let ftol = args.count > 4 ? args[4].numberValue ?? defaultFTol : defaultFTol
+            let maxiter = args.count > 5 ? (args[5].isNil ? nil : Int(args[5].numberValue ?? 0)) : nil
+
+            let f = makeLuaFunctionND(engine, funcRef)
+            let result = nelderMead(f, x0: x0, xtol: xtol, ftol: ftol, maxiter: maxiter)
+
+            return .table([
+                "x": .array(result.x.map { .number($0) }),
+                "fun": .number(result.fun),
+                "nfev": .number(Double(result.nfev)),
+                "nit": .number(Double(result.nit)),
+                "success": .bool(result.success),
+                "message": .string(result.message)
+            ])
+        }
+    }
+
+    /// Factory function for root callback
+    private static func makeRootCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 2,
+                  case .luaFunction(let funcRef) = args[0],
+                  let x0Table = args[1].arrayValue else {
+                throw LuaError.runtimeError("root: expected function and x0 array")
+            }
+
+            let x0 = x0Table.compactMap { $0.numberValue }
+            guard !x0.isEmpty else {
+                throw LuaError.runtimeError("root: x0 must be non-empty")
+            }
+
+            let tol = args.count > 3 ? args[3].numberValue ?? defaultXTol : defaultXTol
+            let maxiter = args.count > 4 ? Int(args[4].numberValue ?? Double(defaultMaxIter)) : defaultMaxIter
+
+            let f = makeLuaFunctionVector(engine, funcRef)
+            let result = newtonMulti(f, x0: x0, tol: tol, maxiter: maxiter)
+
+            return .table([
+                "x": .array(result.x.map { .number($0) }),
+                "fun": .array(result.fun.map { .number($0) }),
+                "success": .bool(result.success),
+                "message": .string(result.message),
+                "nfev": .number(Double(result.nfev)),
+                "nit": .number(Double(result.nit))
+            ])
+        }
+    }
+
+    /// Factory function for least_squares callback
+    private static func makeLeastSquaresCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 2,
+                  case .luaFunction(let funcRef) = args[0],
+                  let x0Table = args[1].arrayValue else {
+                throw LuaError.runtimeError("least_squares: expected residuals function and x0 array")
+            }
+
+            let x0 = x0Table.compactMap { $0.numberValue }
+            guard !x0.isEmpty else {
+                throw LuaError.runtimeError("least_squares: x0 must be non-empty")
+            }
+
+            let ftol = args.count > 2 ? args[2].numberValue ?? 1e-8 : 1e-8
+            let xtol = args.count > 3 ? args[3].numberValue ?? 1e-8 : 1e-8
+            let maxiter = args.count > 4 ? Int(args[4].numberValue ?? 100) : 100
+
+            let residuals = makeLuaFunctionVector(engine, funcRef)
+            let result = leastSquares(residuals, x0: x0, ftol: ftol, xtol: xtol, maxiter: maxiter)
+
+            return .table([
+                "x": .array(result.x.map { .number($0) }),
+                "cost": .number(result.cost),
+                "fun": .array(result.fun.map { .number($0) }),
+                "jac": .array([]),  // Jacobian placeholder (not computed by this implementation)
+                "nfev": .number(Double(result.nfev)),
+                "njev": .number(Double(result.njev)),
+                "success": .bool(result.success),
+                "message": .string(result.message)
+            ])
+        }
+    }
+
+    /// Factory function for curve_fit callback
+    private static func makeCurveFitCallback(_ engine: LuaEngine) -> ([LuaValue]) throws -> LuaValue {
+        return { args in
+            guard args.count >= 4,
+                  case .luaFunction(let funcRef) = args[0],
+                  let xdataTable = args[1].arrayValue,
+                  let ydataTable = args[2].arrayValue,
+                  let p0Table = args[3].arrayValue else {
+                throw LuaError.runtimeError("curve_fit: expected func, xdata, ydata, p0")
+            }
+
+            let xdata = xdataTable.compactMap { $0.numberValue }
+            let ydata = ydataTable.compactMap { $0.numberValue }
+            let p0 = p0Table.compactMap { $0.numberValue }
+
+            guard !xdata.isEmpty, !ydata.isEmpty, !p0.isEmpty else {
+                throw LuaError.runtimeError("curve_fit: arrays must be non-empty")
+            }
+            guard xdata.count == ydata.count else {
+                throw LuaError.runtimeError("curve_fit: xdata and ydata must have same length")
+            }
+
+            let ftol = args.count > 4 ? args[4].numberValue ?? 1e-8 : 1e-8
+            let xtol = args.count > 5 ? args[5].numberValue ?? 1e-8 : 1e-8
+            let maxiter = args.count > 6 ? Int(args[6].numberValue ?? 100) : 100
+
+            // Create model function that calls Lua: f(x, params) -> y
+            // Note: scipy convention is f(x, *params) where x is first
+            let modelFunc: ([Double], Double) -> Double = { params, x in
+                do {
+                    let paramsLua = LuaValue.array(params.map { .number($0) })
+                    // Lua function expects (x, params) - x first, then params array
+                    let result = try engine.callLuaFunction(ref: funcRef, args: [.number(x), paramsLua])
+                    return result.numberValue ?? 0
+                } catch {
+                    return 0
+                }
+            }
+
+            let (popt, pcov, info) = curveFit(modelFunc, xdata: xdata, ydata: ydata, p0: p0, ftol: ftol, xtol: xtol, maxiter: maxiter)
+
+            // Return as multiple values: popt, pcov, info
+            let poptLua = LuaValue.array(popt.map { .number($0) })
+            let pcovLua = LuaValue.array(pcov.map { row in
+                LuaValue.array(row.map { .number($0) })
+            })
+            let infoLua = LuaValue.table([
+                "x": .array(info.x.map { .number($0) }),
+                "cost": .number(info.cost),
+                "fun": .array(info.fun.map { .number($0) }),
+                "nfev": .number(Double(info.nfev)),
+                "njev": .number(Double(info.njev)),
+                "success": .bool(info.success),
+                "message": .string(info.message)
+            ])
+
+            // Return as table with multiple values for Lua to unpack
+            return .array([poptLua, pcovLua, infoLua])
         }
     }
 }

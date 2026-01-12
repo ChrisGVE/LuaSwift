@@ -227,7 +227,7 @@ public final class LuaEngine {
     public let configuration: LuaEngineConfiguration
 
     /// Lock for thread safety
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
 
     /// Separate lock for memory tracking to avoid deadlock with main lock.
     /// The main lock is held during Lua execution, and callbacks during execution
@@ -499,6 +499,87 @@ public final class LuaEngine {
         return result
     }
 
+    // MARK: - Lua Function Calls
+
+    /// Call a Lua function by its registry reference.
+    ///
+    /// This allows Swift code to call Lua functions that were passed as arguments
+    /// to Swift callbacks. The function reference comes from a `LuaValue.luaFunction`
+    /// case created when receiving function arguments.
+    ///
+    /// - Parameters:
+    ///   - ref: The registry reference from `LuaValue.luaFunction`
+    ///   - args: Arguments to pass to the Lua function
+    /// - Returns: The return value from the Lua function
+    /// - Throws: `LuaError` if the call fails
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// engine.registerFunction(name: "map") { args in
+    ///     guard case .luaFunction(let funcRef) = args[0],
+    ///           let arr = args[1].arrayValue else {
+    ///         throw LuaError.callbackError("Expected function and array")
+    ///     }
+    ///     var result: [LuaValue] = []
+    ///     for item in arr {
+    ///         let mapped = try engine.callLuaFunction(ref: funcRef, args: [item])
+    ///         result.append(mapped)
+    ///     }
+    ///     return .array(result)
+    /// }
+    /// ```
+    public func callLuaFunction(ref: Int32, args: [LuaValue]) throws -> LuaValue {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let L = L else {
+            throw LuaError.initializationFailed
+        }
+
+        // Push the function from the registry
+        _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
+
+        // Verify it's a function
+        if lua_type(L, -1) != LUA_TFUNCTION {
+            lua_pop(L, 1)
+            throw LuaError.runtimeError("Invalid function reference")
+        }
+
+        // Push arguments
+        for arg in args {
+            pushSimpleValue(L, arg)
+        }
+
+        // Call the function
+        let callResult = lua_pcall(L, Int32(args.count), 1, 0)
+        if callResult != LUA_OK {
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(L, 1)
+            throw LuaError.runtimeError(message)
+        }
+
+        // Get the result
+        let result = valueFromStack(at: -1)
+        lua_pop(L, 1)
+        return result
+    }
+
+    /// Release a Lua function reference.
+    ///
+    /// Call this when you're done with a function reference to allow
+    /// the Lua garbage collector to reclaim the function. This is important
+    /// to prevent memory leaks when storing function references long-term.
+    ///
+    /// - Parameter ref: The registry reference to release
+    public func releaseLuaFunction(ref: Int32) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let L = L else { return }
+        luaL_unref(L, LUA_REGISTRYINDEX, ref)
+    }
+
     // MARK: - Random Seeding
 
     /// Set the random seed for math.random().
@@ -713,6 +794,9 @@ public final class LuaEngine {
                 pushValueOnThread(thread, v)
                 lua_rawseti(thread, -2, lua_Integer(i + 1))
             }
+        case .luaFunction(let ref):
+            // Push the function from the registry
+            _ = lua_rawgeti(thread, LUA_REGISTRYINDEX, lua_Integer(ref))
         }
     }
 
@@ -958,6 +1042,12 @@ public final class LuaEngine {
 
         case LUA_TTABLE:
             return tableFromStack(at: index)
+
+        case LUA_TFUNCTION:
+            // Store function in registry and return reference
+            lua_pushvalue(L, index)  // Push copy of function
+            let ref = luaL_ref(L, LUA_REGISTRYINDEX)
+            return .luaFunction(ref)
 
         default:
             return .nil
@@ -1268,6 +1358,10 @@ private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String,
             pushSimpleValue(L, v)
             lua_rawseti(L, -2, lua_Integer(i + 1))
         }
+
+    case .luaFunction(let ref):
+        // Push the function from the registry
+        _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
     }
 }
 
@@ -1291,6 +1385,12 @@ private func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
 
     case LUA_TTABLE:
         return tableFromLuaStack(L, at: index)
+
+    case LUA_TFUNCTION:
+        // Store function in registry and return reference
+        lua_pushvalue(L, index)  // Push copy of function
+        let ref = luaL_ref(L, LUA_REGISTRYINDEX)
+        return .luaFunction(ref)
 
     default:
         return .nil
@@ -1384,6 +1484,9 @@ private func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
             pushSimpleValue(L, v)
             lua_rawseti(L, -2, lua_Integer(i + 1))
         }
+    case .luaFunction(let ref):
+        // Push the function from the registry
+        _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
     }
 }
 

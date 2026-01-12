@@ -168,6 +168,9 @@ public struct TOMLModule {
             complexTable["re"] = re
             complexTable["im"] = im
             return complexTable
+
+        case .luaFunction:
+            throw TOMLError.encodingFailed("TOML does not support function values")
         }
     }
 

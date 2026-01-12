@@ -178,6 +178,10 @@ public struct YAMLModule {
         case .complex(let re, let im):
             // YAML doesn't have native complex support, encode as dict with type marker
             return ["__type": "complex", "re": re, "im": im] as [String: Any]
+
+        case .luaFunction:
+            // Functions cannot be serialized to YAML, skip them
+            return nil
         }
     }
 

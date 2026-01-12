@@ -235,6 +235,9 @@ public struct JSONModule {
                 jsonDict[key] = try convertLuaToJSON(val)
             }
             return jsonDict
+
+        case .luaFunction:
+            throw LuaError.runtimeError("Cannot serialize function to JSON")
         }
     }
 

@@ -357,6 +357,8 @@ public struct DebugModule {
             } else {
                 return "\(re)\(im)i"
             }
+        case .luaFunction(let ref):
+            return "[function:\(ref)]"
         }
     }
 
@@ -409,6 +411,8 @@ public struct DebugModule {
             } else {
                 return "\(re)\(im)i"
             }
+        case .luaFunction(let ref):
+            return "[function:\(ref)]"
         }
     }
 }

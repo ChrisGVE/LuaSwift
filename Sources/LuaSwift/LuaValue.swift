@@ -142,6 +142,16 @@ public enum LuaValue: Equatable, Sendable {
     /// Variables set to `nil` are effectively deleted from tables.
     case `nil`
 
+    /// A Lua function reference.
+    ///
+    /// Stores a reference to a Lua function in the registry. This allows
+    /// Swift callbacks to receive and call Lua functions passed as arguments.
+    /// The reference is an index in the Lua registry.
+    ///
+    /// Note: This case should only be created by LuaEngine when converting
+    /// from the Lua stack. Use `LuaEngine.callLuaFunction(ref:args:)` to call it.
+    case luaFunction(Int32)
+
     // MARK: - Convenience Accessors
 
     /// Returns the string value if this is a string, nil otherwise.
@@ -241,6 +251,8 @@ public enum LuaValue: Equatable, Sendable {
             return "[array]"
         case .nil:
             return ""
+        case .luaFunction(let ref):
+            return "[function:\(ref)]"
         }
     }
 
@@ -321,6 +333,8 @@ extension LuaValue: CustomStringConvertible {
             return "[\(items)]"
         case .nil:
             return "nil"
+        case .luaFunction(let ref):
+            return "function:\(ref)"
         }
     }
 }

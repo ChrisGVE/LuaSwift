@@ -11,6 +11,7 @@
 import Foundation
 import Accelerate
 import simd
+import NumericSwift
 
 /// Optimized geometry module for LuaSwift.
 ///
@@ -530,11 +531,11 @@ public struct GeometryModule {
         guard let q = extractQuat(args[0]) else { return .nil }
 
         // Convert quaternion to Euler angles (yaw, pitch, roll)
-        let sinr_cosp = 2 * (q.real * q.imag.x + q.imag.y * q.imag.z)
-        let cosr_cosp = 1 - 2 * (q.imag.x * q.imag.x + q.imag.y * q.imag.y)
+        let sinr_cosp: Double = 2.0 * (q.real * q.imag.x + q.imag.y * q.imag.z)
+        let cosr_cosp: Double = 1.0 - 2.0 * (q.imag.x * q.imag.x + q.imag.y * q.imag.y)
         let roll = atan2(sinr_cosp, cosr_cosp)
 
-        let sinp = 2 * (q.real * q.imag.y - q.imag.z * q.imag.x)
+        let sinp: Double = 2.0 * (q.real * q.imag.y - q.imag.z * q.imag.x)
         let pitch: Double
         if abs(sinp) >= 1 {
             pitch = copysign(Double.pi / 2, sinp)
@@ -542,8 +543,8 @@ public struct GeometryModule {
             pitch = asin(sinp)
         }
 
-        let siny_cosp = 2 * (q.real * q.imag.z + q.imag.x * q.imag.y)
-        let cosy_cosp = 1 - 2 * (q.imag.y * q.imag.y + q.imag.z * q.imag.z)
+        let siny_cosp: Double = 2.0 * (q.real * q.imag.z + q.imag.x * q.imag.y)
+        let cosy_cosp: Double = 1.0 - 2.0 * (q.imag.y * q.imag.y + q.imag.z * q.imag.z)
         let yaw = atan2(siny_cosp, cosy_cosp)
 
         return .array([.number(yaw), .number(pitch), .number(roll)])
@@ -551,8 +552,8 @@ public struct GeometryModule {
 
     private static let quatToAxisAngleCallback: ([LuaValue]) -> LuaValue = { args in
         guard let q = extractQuat(args[0]) else { return .nil }
-        let angle = 2 * acos(q.real)
-        let s = sqrt(1 - q.real * q.real)
+        let angle: Double = 2.0 * acos(q.real)
+        let s: Double = sqrt(1.0 - q.real * q.real)
         let axis: simd_double3
         if s < 0.001 {
             axis = simd_double3(1, 0, 0)
@@ -915,7 +916,7 @@ public struct GeometryModule {
         let bx = p2.x, by = p2.y
         let cx = p3.x, cy = p3.y
 
-        let d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+        let d: Double = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
         if abs(d) < 1e-10 { return .nil } // Collinear
 
         let ux = ((ax*ax + ay*ay) * (by - cy) + (bx*bx + by*by) * (cy - ay) + (cx*cx + cy*cy) * (ay - by)) / d
@@ -1272,9 +1273,9 @@ public struct GeometryModule {
             let mi1 = M[i + 1]
 
             let a = yi
-            let bi = (yi1 - yi) / hi - hi * (2 * mi + mi1) / 6
-            let c = mi / 2
-            let di = (mi1 - mi) / (6 * hi)
+            let bi = (yi1 - yi) / hi - hi * (2.0 * mi + mi1) / 6.0
+            let c = mi / 2.0
+            let di = (mi1 - mi) / (6.0 * hi)
 
             coeffsArray.append(.table([
                 "a": .number(a),
@@ -2385,7 +2386,7 @@ public struct GeometryModule {
 
         // Depressed cubic: t³ + pt + q = 0 via substitution x = t - p/3
         let p1 = q - p * p / 3
-        let q1 = 2 * p * p * p / 27 - p * q / 3 + r
+        let q1: Double = 2.0 * p * p * p / 27 - p * q / 3 + r
 
         // Discriminant
         let discriminant = q1 * q1 / 4 + p1 * p1 * p1 / 27
@@ -2403,7 +2404,7 @@ public struct GeometryModule {
             let rho = sqrt(-p1 * p1 * p1 / 27)
             let theta = acos(-q1 / 2 / rho)
 
-            let m = 2 * cbrt(rho)
+            let m: Double = 2.0 * cbrt(rho)
             roots.append(m * cos(theta / 3) - p / 3)
             roots.append(m * cos((theta + 2 * Double.pi) / 3) - p / 3)
             roots.append(m * cos((theta + 4 * Double.pi) / 3) - p / 3)

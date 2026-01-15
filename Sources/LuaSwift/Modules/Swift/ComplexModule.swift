@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import NumericSwift
 
 /// Optimized complex number module for LuaSwift.
 ///
@@ -110,9 +111,8 @@ public struct ComplexModule {
               let theta = args.count > 1 ? args[1].numberValue : nil else {
             return .nil
         }
-        let re = r * cos(theta)
-        let im = r * sin(theta)
-        return complexToLua(re, im)
+        let result = Complex.polar(r: r, theta: theta)
+        return complexToLua(result.re, result.im)
     }
 
     // MARK: - Arithmetic Callbacks
@@ -121,65 +121,64 @@ public struct ComplexModule {
         guard args.count >= 2,
               let z1 = extractComplex(args[0]),
               let z2 = extractComplex(args[1]) else { return .nil }
-        return complexToLua(z1.re + z2.re, z1.im + z2.im)
+        let result = Complex(re: z1.re, im: z1.im) + Complex(re: z2.re, im: z2.im)
+        return complexToLua(result.re, result.im)
     }
 
     private static let subCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let z1 = extractComplex(args[0]),
               let z2 = extractComplex(args[1]) else { return .nil }
-        return complexToLua(z1.re - z2.re, z1.im - z2.im)
+        let result = Complex(re: z1.re, im: z1.im) - Complex(re: z2.re, im: z2.im)
+        return complexToLua(result.re, result.im)
     }
 
     private static let mulCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let z1 = extractComplex(args[0]),
               let z2 = extractComplex(args[1]) else { return .nil }
-        // (a + bi)(c + di) = (ac - bd) + (ad + bc)i
-        let re = z1.re * z2.re - z1.im * z2.im
-        let im = z1.re * z2.im + z1.im * z2.re
-        return complexToLua(re, im)
+        let result = Complex(re: z1.re, im: z1.im) * Complex(re: z2.re, im: z2.im)
+        return complexToLua(result.re, result.im)
     }
 
     private static let divCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let z1 = extractComplex(args[0]),
               let z2 = extractComplex(args[1]) else { return .nil }
-        // (a + bi)/(c + di) = [(ac + bd) + (bc - ad)i] / (c² + d²)
         let denom = z2.re * z2.re + z2.im * z2.im
         guard denom != 0 else { return .nil }
-        let re = (z1.re * z2.re + z1.im * z2.im) / denom
-        let im = (z1.im * z2.re - z1.re * z2.im) / denom
-        return complexToLua(re, im)
+        let result = Complex(re: z1.re, im: z1.im) / Complex(re: z2.re, im: z2.im)
+        return complexToLua(result.re, result.im)
     }
 
     private static let negCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        return complexToLua(-z.re, -z.im)
+        let result = -Complex(re: z.re, im: z.im)
+        return complexToLua(result.re, result.im)
     }
 
     // MARK: - Properties Callbacks
 
     private static let absCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        return .number(hypot(z.re, z.im))
+        return .number(Complex(re: z.re, im: z.im).abs)
     }
 
     private static let argCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        return .number(atan2(z.im, z.re))
+        return .number(Complex(re: z.re, im: z.im).arg)
     }
 
     private static let conjCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        return complexToLua(z.re, -z.im)
+        let result = Complex(re: z.re, im: z.im).conj
+        return complexToLua(result.re, result.im)
     }
 
     private static let polarCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        let r = hypot(z.re, z.im)
-        let theta = atan2(z.im, z.re)
-        return .array([.number(r), .number(theta)])
+        let c = Complex(re: z.re, im: z.im)
+        return .array([.number(c.abs), .number(c.arg)])
     }
 
     // MARK: - Powers Callbacks
@@ -188,217 +187,100 @@ public struct ComplexModule {
         guard args.count >= 2,
               let z = extractComplex(args[0]),
               let n = args[1].numberValue else { return .nil }
-
-        // Use De Moivre's formula: z^n = r^n * (cos(nθ) + i*sin(nθ))
-        let r = hypot(z.re, z.im)
-        let theta = atan2(z.im, z.re)
-        let rn = pow(r, n)
-        let ntheta = n * theta
-        return complexToLua(rn * cos(ntheta), rn * sin(ntheta))
+        let result = Complex(re: z.re, im: z.im).pow(n)
+        return complexToLua(result.re, result.im)
     }
 
     private static let sqrtCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-
-        // Principal square root
-        let r = hypot(z.re, z.im)
-        let theta = atan2(z.im, z.re)
-        let sqrtR = sqrt(r)
-        let halfTheta = theta / 2
-        return complexToLua(sqrtR * cos(halfTheta), sqrtR * sin(halfTheta))
+        let result = Complex(re: z.re, im: z.im).sqrt
+        return complexToLua(result.re, result.im)
     }
 
     // MARK: - Exponential and Logarithmic Callbacks
 
     private static let expCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // e^(a+bi) = e^a * (cos(b) + i*sin(b))
-        let expRe = exp(z.re)
-        return complexToLua(expRe * cos(z.im), expRe * sin(z.im))
+        let result = Complex(re: z.re, im: z.im).exp
+        return complexToLua(result.re, result.im)
     }
 
     private static let logCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // log(a+bi) = log(|z|) + i*arg(z)
-        let r = hypot(z.re, z.im)
-        guard r > 0 else { return .nil }
-        let theta = atan2(z.im, z.re)
-        return complexToLua(log(r), theta)
+        let c = Complex(re: z.re, im: z.im)
+        guard c.abs > 0 else { return .nil }
+        let result = c.log
+        return complexToLua(result.re, result.im)
     }
 
     // MARK: - Trigonometric Callbacks
 
     private static let sinCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // sin(a+bi) = sin(a)cosh(b) + i*cos(a)sinh(b)
-        let re = sin(z.re) * cosh(z.im)
-        let im = cos(z.re) * sinh(z.im)
-        return complexToLua(re, im)
+        let result = Complex(re: z.re, im: z.im).sin
+        return complexToLua(result.re, result.im)
     }
 
     private static let cosCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // cos(a+bi) = cos(a)cosh(b) - i*sin(a)sinh(b)
-        let re = cos(z.re) * cosh(z.im)
-        let im = -sin(z.re) * sinh(z.im)
-        return complexToLua(re, im)
+        let result = Complex(re: z.re, im: z.im).cos
+        return complexToLua(result.re, result.im)
     }
 
     private static let tanCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // tan(z) = sin(z) / cos(z)
-        let sinRe = sin(z.re) * cosh(z.im)
-        let sinIm = cos(z.re) * sinh(z.im)
-        let cosRe = cos(z.re) * cosh(z.im)
-        let cosIm = -sin(z.re) * sinh(z.im)
-
-        let denom = cosRe * cosRe + cosIm * cosIm
-        guard denom != 0 else { return .nil }
-
-        let re = (sinRe * cosRe + sinIm * cosIm) / denom
-        let im = (sinIm * cosRe - sinRe * cosIm) / denom
-        return complexToLua(re, im)
+        let c = Complex(re: z.re, im: z.im)
+        // Check for division by zero in tan
+        let cosVal = c.cos
+        guard cosVal.abs > 1e-15 else { return .nil }
+        let result = c.tan
+        return complexToLua(result.re, result.im)
     }
 
     private static let asinCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // asin(z) = -i * log(iz + sqrt(1 - z²))
-
-        // Compute z²
-        let z2Re = z.re * z.re - z.im * z.im
-        let z2Im = 2 * z.re * z.im
-
-        // Compute 1 - z²
-        let oneMinusZ2Re = 1 - z2Re
-        let oneMinusZ2Im = -z2Im
-
-        // Compute sqrt(1 - z²)
-        let r = hypot(oneMinusZ2Re, oneMinusZ2Im)
-        let theta = atan2(oneMinusZ2Im, oneMinusZ2Re)
-        let sqrtRe = sqrt(r) * cos(theta / 2)
-        let sqrtIm = sqrt(r) * sin(theta / 2)
-
-        // Compute iz
-        let izRe = -z.im
-        let izIm = z.re
-
-        // Compute iz + sqrt(1 - z²)
-        let sumRe = izRe + sqrtRe
-        let sumIm = izIm + sqrtIm
-
-        // Compute log(iz + sqrt(1 - z²))
-        let logR = hypot(sumRe, sumIm)
-        guard logR > 0 else { return .nil }
-        let logRe = log(logR)
-        let logIm = atan2(sumIm, sumRe)
-
-        // Compute -i * log
-        let re = logIm
-        let im = -logRe
-        return complexToLua(re, im)
+        let result = Complex(re: z.re, im: z.im).asin
+        // Check for NaN (shouldn't happen but guard just in case)
+        guard !result.re.isNaN && !result.im.isNaN else { return .nil }
+        return complexToLua(result.re, result.im)
     }
 
     private static let acosCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // acos(z) = -i * log(z + i*sqrt(1 - z²))
-
-        // Compute z²
-        let z2Re = z.re * z.re - z.im * z.im
-        let z2Im = 2 * z.re * z.im
-
-        // Compute 1 - z²
-        let oneMinusZ2Re = 1 - z2Re
-        let oneMinusZ2Im = -z2Im
-
-        // Compute sqrt(1 - z²)
-        let r = hypot(oneMinusZ2Re, oneMinusZ2Im)
-        let theta = atan2(oneMinusZ2Im, oneMinusZ2Re)
-        let sqrtRe = sqrt(r) * cos(theta / 2)
-        let sqrtIm = sqrt(r) * sin(theta / 2)
-
-        // Compute i*sqrt(1 - z²)
-        let iSqrtRe = -sqrtIm
-        let iSqrtIm = sqrtRe
-
-        // Compute z + i*sqrt(1 - z²)
-        let sumRe = z.re + iSqrtRe
-        let sumIm = z.im + iSqrtIm
-
-        // Compute log(z + i*sqrt(1 - z²))
-        let logR = hypot(sumRe, sumIm)
-        guard logR > 0 else { return .nil }
-        let logRe = log(logR)
-        let logIm = atan2(sumIm, sumRe)
-
-        // Compute -i * log
-        let re = logIm
-        let im = -logRe
-        return complexToLua(re, im)
+        let result = Complex(re: z.re, im: z.im).acos
+        guard !result.re.isNaN && !result.im.isNaN else { return .nil }
+        return complexToLua(result.re, result.im)
     }
 
     private static let atanCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // atan(z) = (i/2) * log((i+z)/(i-z))
-        // where i = (0, 1)
-
-        // Compute i + z = (0, 1) + (z.re, z.im) = (z.re, 1 + z.im)
-        let iPlusZRe = z.re
-        let iPlusZIm = 1 + z.im
-
-        // Compute i - z = (0, 1) - (z.re, z.im) = (-z.re, 1 - z.im)
-        let iMinusZRe = -z.re
-        let iMinusZIm = 1 - z.im
-
-        // Compute (i+z)/(i-z)
-        let denom = iMinusZRe * iMinusZRe + iMinusZIm * iMinusZIm
-        guard denom != 0 else { return .nil }
-        let divRe = (iPlusZRe * iMinusZRe + iPlusZIm * iMinusZIm) / denom
-        let divIm = (iPlusZIm * iMinusZRe - iPlusZRe * iMinusZIm) / denom
-
-        // Compute log((i+z)/(i-z))
-        let logR = hypot(divRe, divIm)
-        guard logR > 0 else { return .nil }
-        let logRe = log(logR)
-        let logIm = atan2(divIm, divRe)
-
-        // Compute (i/2) * log = i/2 * (logRe + i*logIm)
-        let re = -logIm / 2
-        let im = logRe / 2
-        return complexToLua(re, im)
+        let result = Complex(re: z.re, im: z.im).atan
+        guard !result.re.isNaN && !result.im.isNaN else { return .nil }
+        return complexToLua(result.re, result.im)
     }
 
     // MARK: - Hyperbolic Callbacks
 
     private static let sinhCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // sinh(a+bi) = sinh(a)cos(b) + i*cosh(a)sin(b)
-        let re = sinh(z.re) * cos(z.im)
-        let im = cosh(z.re) * sin(z.im)
-        return complexToLua(re, im)
+        let result = Complex(re: z.re, im: z.im).sinh
+        return complexToLua(result.re, result.im)
     }
 
     private static let coshCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // cosh(a+bi) = cosh(a)cos(b) + i*sinh(a)sin(b)
-        let re = cosh(z.re) * cos(z.im)
-        let im = sinh(z.re) * sin(z.im)
-        return complexToLua(re, im)
+        let result = Complex(re: z.re, im: z.im).cosh
+        return complexToLua(result.re, result.im)
     }
 
     private static let tanhCallback: ([LuaValue]) -> LuaValue = { args in
         guard let z = extractComplex(args[0]) else { return .nil }
-        // tanh(z) = sinh(z) / cosh(z)
-        let sinhRe = sinh(z.re) * cos(z.im)
-        let sinhIm = cosh(z.re) * sin(z.im)
-        let coshRe = cosh(z.re) * cos(z.im)
-        let coshIm = sinh(z.re) * sin(z.im)
-
-        let denom = coshRe * coshRe + coshIm * coshIm
-        guard denom != 0 else { return .nil }
-
-        let re = (sinhRe * coshRe + sinhIm * coshIm) / denom
-        let im = (sinhIm * coshRe - sinhRe * coshIm) / denom
-        return complexToLua(re, im)
+        let c = Complex(re: z.re, im: z.im)
+        // Check for division by zero in tanh
+        let coshVal = c.cosh
+        guard coshVal.abs > 1e-15 else { return .nil }
+        let result = c.tanh
+        return complexToLua(result.re, result.im)
     }
 
     // MARK: - Lua Wrapper Code

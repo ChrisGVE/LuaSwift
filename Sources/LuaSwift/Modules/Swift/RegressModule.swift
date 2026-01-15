@@ -10,6 +10,7 @@
 
 import Foundation
 import Accelerate
+import NumericSwift
 
 /// Swift-backed regression modeling module for LuaSwift.
 ///
@@ -997,7 +998,7 @@ public struct RegressModule {
             }
 
             // Compute statistics
-            let yMean = endog.reduce(0, +) / Double(n)
+            let yMean = endog.reduce(0.0, +) / Double(n)
 
             // Sum of squares
             var ssr = 0.0  // Sum of squared residuals
@@ -1646,7 +1647,7 @@ public struct RegressModule {
             }
 
             // Compute statistics using original data
-            let yMean = endog.reduce(0, +) / Double(n)
+            let yMean = endog.reduce(0.0, +) / Double(n)
 
             var ssr = 0.0
             var ess = 0.0
@@ -2126,7 +2127,7 @@ public struct RegressModule {
             // Compute deviance
             var deviance = 0.0
             var nullDeviance = 0.0
-            let yMean = endog.reduce(0, +) / Double(n)
+            let yMean = endog.reduce(0.0, +) / Double(n)
 
             for i in 0..<n {
                 deviance += unitDeviance(y: endog[i], mu: mu[i], family: family)
@@ -2231,7 +2232,8 @@ public struct RegressModule {
         case "inverse":
             mu = 1.0 / eta
         case "probit":
-            mu = 0.5 * (1.0 + erf(eta / sqrt(2.0)))
+            let erfVal: Double = Foundation.erf(eta / sqrt(2.0))
+            mu = 0.5 * (1.0 + erfVal)
         default:
             mu = eta
         }
@@ -2491,7 +2493,8 @@ public struct RegressModule {
 
     /// Standard normal CDF
     private static func standardNormalCDF(_ x: Double) -> Double {
-        return 0.5 * (1.0 + erf(x / sqrt(2.0)))
+        let erfVal: Double = Foundation.erf(x / sqrt(2.0))
+        return 0.5 * (1.0 + erfVal)
     }
 
     // MARK: - ARIMA Callbacks

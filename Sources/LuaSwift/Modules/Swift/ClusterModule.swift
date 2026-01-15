@@ -10,6 +10,7 @@
 
 import Foundation
 import Accelerate
+import NumericSwift
 
 /// Swift-backed clustering module for LuaSwift.
 ///

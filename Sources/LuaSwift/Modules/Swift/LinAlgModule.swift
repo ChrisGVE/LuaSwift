@@ -9,10 +9,11 @@
 //
 
 import Foundation
-import Accelerate
+import NumericSwift
 
 /// Swift-backed linear algebra module for LuaSwift.
 ///
+/// This is a thin shim that delegates to NumericSwift.LinAlg for all computations.
 /// Provides matrix and vector operations using the Accelerate framework
 /// for hardware-accelerated computation.
 ///
@@ -502,10 +503,6 @@ public struct LinAlgModule {
     // MARK: - Memory Tracking
 
     /// Track memory allocation for matrix/vector data.
-    ///
-    /// Call this before creating large matrices/vectors to respect memory limits.
-    /// - Parameter count: Number of Double elements to allocate
-    /// - Throws: `LuaError.memoryError` if the allocation would exceed limits
     private static func trackMatrixAllocation(count: Int) throws {
         let bytes = count * MemoryLayout<Double>.size
         if let engine = LuaEngine.currentEngine {
@@ -513,18 +510,7 @@ public struct LinAlgModule {
         }
     }
 
-    /// Track memory deallocation for matrix/vector data.
-    ///
-    /// Call this when matrix/vector data is being released.
-    /// - Parameter count: Number of Double elements being freed
-    private static func trackMatrixDeallocation(count: Int) {
-        let bytes = count * MemoryLayout<Double>.size
-        if let engine = LuaEngine.currentEngine {
-            engine.trackDeallocation(bytes: bytes)
-        }
-    }
-
-    // MARK: - Data Structures
+    // MARK: - LuaValue <-> LinAlg.Matrix Conversion
 
     private static func createMatrixTable(rows: Int, cols: Int, data: [Double]) -> LuaValue {
         return .table([
@@ -535,7 +521,10 @@ public struct LinAlgModule {
         ])
     }
 
-    /// Create a complex matrix/vector table with real and imaginary parts
+    private static func createMatrixTableFrom(_ m: LinAlg.Matrix) -> LuaValue {
+        return createMatrixTable(rows: m.rows, cols: m.cols, data: m.data)
+    }
+
     private static func createComplexMatrixTable(rows: Int, cols: Int, real: [Double], imag: [Double]) -> LuaValue {
         return .table([
             "type": .string(cols == 1 ? "complex_vector" : "complex_matrix"),
@@ -547,7 +536,7 @@ public struct LinAlgModule {
         ])
     }
 
-    private static func extractMatrixData(_ value: LuaValue) throws -> (rows: Int, cols: Int, data: [Double]) {
+    private static func extractMatrix(_ value: LuaValue) throws -> LinAlg.Matrix {
         guard case .table(let dict) = value else {
             throw LuaError.callbackError("linalg: expected matrix/vector table")
         }
@@ -570,7 +559,105 @@ public struct LinAlgModule {
             data.append(num)
         }
 
-        return (rows, cols, data)
+        return LinAlg.Matrix(rows: rows, cols: cols, data: data)
+    }
+
+    private static func extractComplexMatrix(_ value: LuaValue) throws -> LinAlg.ComplexMatrix {
+        guard case .table(let dict) = value else {
+            throw LuaError.callbackError("linalg: expected complex matrix table")
+        }
+
+        // Try format 1: {rows=, cols=, real=[], imag=[]}
+        if let rowsVal = dict["rows"]?.numberValue,
+           let colsVal = dict["cols"]?.numberValue,
+           let realArr = dict["real"]?.arrayValue,
+           let imagArr = dict["imag"]?.arrayValue {
+            let rows = Int(rowsVal)
+            let cols = Int(colsVal)
+            var real: [Double] = []
+            var imag: [Double] = []
+            real.reserveCapacity(realArr.count)
+            imag.reserveCapacity(imagArr.count)
+
+            for val in realArr {
+                guard let num = val.numberValue else {
+                    throw LuaError.callbackError("linalg: complex matrix real data must be numeric")
+                }
+                real.append(num)
+            }
+            for val in imagArr {
+                guard let num = val.numberValue else {
+                    throw LuaError.callbackError("linalg: complex matrix imag data must be numeric")
+                }
+                imag.append(num)
+            }
+
+            return LinAlg.ComplexMatrix(rows: rows, cols: cols, real: real, imag: imag)
+        }
+
+        // Try format 2: nested array of {re=, im=}
+        guard let rowsVal = dict["rows"]?.numberValue,
+              let colsVal = dict["cols"]?.numberValue,
+              let dataArr = dict["data"]?.arrayValue else {
+            throw LuaError.callbackError("linalg: invalid complex matrix structure")
+        }
+
+        let rows = Int(rowsVal)
+        let cols = Int(colsVal)
+        var real: [Double] = []
+        var imag: [Double] = []
+        real.reserveCapacity(dataArr.count)
+        imag.reserveCapacity(dataArr.count)
+
+        for val in dataArr {
+            if let table = val.tableValue,
+               let re = table["re"]?.numberValue,
+               let im = table["im"]?.numberValue {
+                real.append(re)
+                imag.append(im)
+            } else if let num = val.numberValue {
+                real.append(num)
+                imag.append(0)
+            } else {
+                throw LuaError.callbackError("linalg: complex matrix elements must be {re=, im=} tables or numbers")
+            }
+        }
+
+        return LinAlg.ComplexMatrix(rows: rows, cols: cols, real: real, imag: imag)
+    }
+
+    private static func extractComplexMatrixForCeig(_ value: LuaValue) throws -> LinAlg.ComplexMatrix {
+        guard let table = value.tableValue,
+              let shapeVal = table["shape"]?.arrayValue,
+              shapeVal.count == 2,
+              let rows = shapeVal[0].intValue,
+              let cols = shapeVal[1].intValue,
+              let realVals = table["real"]?.arrayValue,
+              let imagVals = table["imag"]?.arrayValue else {
+            throw LuaError.callbackError("linalg: requires a complex matrix")
+        }
+
+        guard rows == cols else {
+            throw LuaError.callbackError("linalg: matrix must be square")
+        }
+
+        var real: [Double] = []
+        var imag: [Double] = []
+        real.reserveCapacity(rows * cols)
+        imag.reserveCapacity(rows * cols)
+
+        for i in 0..<rows {
+            guard let rowReal = realVals[i].arrayValue,
+                  let rowImag = imagVals[i].arrayValue else {
+                throw LuaError.callbackError("linalg: invalid matrix format")
+            }
+            for j in 0..<cols {
+                real.append(rowReal[j].numberValue ?? 0)
+                imag.append(rowImag[j].numberValue ?? 0)
+            }
+        }
+
+        return LinAlg.ComplexMatrix(rows: rows, cols: cols, real: real, imag: imag)
     }
 
     // MARK: - Creation Functions
@@ -643,10 +730,9 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.zeros: dimensions must be positive")
         }
 
-        let size = rows * cols
-        try trackMatrixAllocation(count: size)
-        let data = [Double](repeating: 0.0, count: size)
-        return createMatrixTable(rows: rows, cols: cols, data: data)
+        try trackMatrixAllocation(count: rows * cols)
+        let m = LinAlg.zeros(rows, cols)
+        return createMatrixTableFrom(m)
     }
 
     private static func onesCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -660,10 +746,9 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.ones: dimensions must be positive")
         }
 
-        let size = rows * cols
-        try trackMatrixAllocation(count: size)
-        let data = [Double](repeating: 1.0, count: size)
-        return createMatrixTable(rows: rows, cols: cols, data: data)
+        try trackMatrixAllocation(count: rows * cols)
+        let m = LinAlg.ones(rows, cols)
+        return createMatrixTableFrom(m)
     }
 
     private static func eyeCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -675,14 +760,9 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.eye: size must be positive")
         }
 
-        let size = n * n
-        try trackMatrixAllocation(count: size)
-        var data = [Double](repeating: 0.0, count: size)
-        for i in 0..<n {
-            data[i * n + i] = 1.0
-        }
-
-        return createMatrixTable(rows: n, cols: n, data: data)
+        try trackMatrixAllocation(count: n * n)
+        let m = LinAlg.eye(n)
+        return createMatrixTableFrom(m)
     }
 
     private static func diagCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -701,14 +781,9 @@ public struct LinAlgModule {
         }
 
         let n = diagVals.count
-        let size = n * n
-        try trackMatrixAllocation(count: size)
-        var data = [Double](repeating: 0.0, count: size)
-        for i in 0..<n {
-            data[i * n + i] = diagVals[i]
-        }
-
-        return createMatrixTable(rows: n, cols: n, data: data)
+        try trackMatrixAllocation(count: n * n)
+        let m = LinAlg.diag(diagVals)
+        return createMatrixTableFrom(m)
     }
 
     private static func rangeCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -724,27 +799,8 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.range: step cannot be zero")
         }
 
-        // Estimate size for memory tracking
-        let estimatedSize = max(0, Int(ceil(abs(stop - start) / abs(step))))
-        try trackMatrixAllocation(count: estimatedSize)
-
-        var data: [Double] = []
-        data.reserveCapacity(estimatedSize)
-        var current = start
-
-        if step > 0 {
-            while current < stop {
-                data.append(current)
-                current += step
-            }
-        } else {
-            while current > stop {
-                data.append(current)
-                current += step
-            }
-        }
-
-        return createMatrixTable(rows: data.count, cols: 1, data: data)
+        let m = LinAlg.arange(start, stop, step)
+        return createMatrixTableFrom(m)
     }
 
     private static func linspaceCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -760,15 +816,8 @@ public struct LinAlgModule {
         }
 
         try trackMatrixAllocation(count: n)
-        var data: [Double] = []
-        data.reserveCapacity(n)
-
-        let step = (stop - start) / Double(n - 1)
-        for i in 0..<n {
-            data.append(start + Double(i) * step)
-        }
-
-        return createMatrixTable(rows: n, cols: 1, data: data)
+        let m = LinAlg.linspace(start, stop, n)
+        return createMatrixTableFrom(m)
     }
 
     // MARK: - Property Functions
@@ -777,35 +826,35 @@ public struct LinAlgModule {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.rows: missing argument")
         }
-        let (rows, _, _) = try extractMatrixData(arg)
-        return .number(Double(rows))
+        let m = try extractMatrix(arg)
+        return .number(Double(m.rows))
     }
 
     private static func colsCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.cols: missing argument")
         }
-        let (_, cols, _) = try extractMatrixData(arg)
-        return .number(Double(cols))
+        let m = try extractMatrix(arg)
+        return .number(Double(m.cols))
     }
 
     private static func shapeCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.shape: missing argument")
         }
-        let (rows, cols, _) = try extractMatrixData(arg)
-        if cols == 1 {
-            return .array([.number(Double(rows))])
+        let m = try extractMatrix(arg)
+        if m.cols == 1 {
+            return .array([.number(Double(m.rows))])
         }
-        return .array([.number(Double(rows)), .number(Double(cols))])
+        return .array([.number(Double(m.rows)), .number(Double(m.cols))])
     }
 
     private static func sizeCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.size: missing argument")
         }
-        let (rows, cols, _) = try extractMatrixData(arg)
-        return .number(Double(rows * cols))
+        let m = try extractMatrix(arg)
+        return .number(Double(m.size))
     }
 
     private static func getCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -814,24 +863,22 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.get: requires matrix and index")
         }
 
-        let (rows, cols, data) = try extractMatrixData(args[0])
+        let m = try extractMatrix(args[0])
 
-        if cols == 1 {
-            // Vector: single index
-            guard i >= 1 && i <= rows else {
+        if m.cols == 1 {
+            guard i >= 1 && i <= m.rows else {
                 throw LuaError.callbackError("linalg.get: index out of bounds")
             }
-            return .number(data[i - 1])
+            return .number(m[i - 1])
         } else {
-            // Matrix: two indices
             guard args.count >= 3,
                   let j = args[2].intValue else {
                 throw LuaError.callbackError("linalg.get: matrix requires two indices")
             }
-            guard i >= 1 && i <= rows && j >= 1 && j <= cols else {
+            guard i >= 1 && i <= m.rows && j >= 1 && j <= m.cols else {
                 throw LuaError.callbackError("linalg.get: indices out of bounds")
             }
-            return .number(data[(i - 1) * cols + (j - 1)])
+            return .number(m[i - 1, j - 1])
         }
     }
 
@@ -840,33 +887,31 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.set: requires matrix, index, and value")
         }
 
-        var (rows, cols, data) = try extractMatrixData(args[0])
+        var m = try extractMatrix(args[0])
 
-        if cols == 1 {
-            // Vector: single index
+        if m.cols == 1 {
             guard let i = args[1].intValue,
                   let value = args[2].numberValue else {
                 throw LuaError.callbackError("linalg.set: requires numeric index and value")
             }
-            guard i >= 1 && i <= rows else {
+            guard i >= 1 && i <= m.rows else {
                 throw LuaError.callbackError("linalg.set: index out of bounds")
             }
-            data[i - 1] = value
+            m[i - 1] = value
         } else {
-            // Matrix: two indices
             guard args.count >= 4,
                   let i = args[1].intValue,
                   let j = args[2].intValue,
                   let value = args[3].numberValue else {
                 throw LuaError.callbackError("linalg.set: matrix requires two indices and value")
             }
-            guard i >= 1 && i <= rows && j >= 1 && j <= cols else {
+            guard i >= 1 && i <= m.rows && j >= 1 && j <= m.cols else {
                 throw LuaError.callbackError("linalg.set: indices out of bounds")
             }
-            data[(i - 1) * cols + (j - 1)] = value
+            m[i - 1, j - 1] = value
         }
 
-        return createMatrixTable(rows: rows, cols: cols, data: data)
+        return createMatrixTableFrom(m)
     }
 
     private static func rowCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -875,16 +920,14 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.row: requires matrix and row index")
         }
 
-        let (rows, cols, data) = try extractMatrixData(args[0])
+        let m = try extractMatrix(args[0])
 
-        guard i >= 1 && i <= rows else {
+        guard i >= 1 && i <= m.rows else {
             throw LuaError.callbackError("linalg.row: index out of bounds")
         }
 
-        let start = (i - 1) * cols
-        let rowData = Array(data[start..<(start + cols)])
-
-        return createMatrixTable(rows: 1, cols: cols, data: rowData)
+        let row = m.row(i - 1)
+        return createMatrixTableFrom(row)
     }
 
     private static func colCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -893,19 +936,14 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.col: requires matrix and column index")
         }
 
-        let (rows, cols, data) = try extractMatrixData(args[0])
+        let m = try extractMatrix(args[0])
 
-        guard j >= 1 && j <= cols else {
+        guard j >= 1 && j <= m.cols else {
             throw LuaError.callbackError("linalg.col: index out of bounds")
         }
 
-        var colData: [Double] = []
-        colData.reserveCapacity(rows)
-        for i in 0..<rows {
-            colData.append(data[i * cols + (j - 1)])
-        }
-
-        return createMatrixTable(rows: rows, cols: 1, data: colData)
+        let col = m.col(j - 1)
+        return createMatrixTableFrom(col)
     }
 
     private static func transposeCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -913,16 +951,8 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.transpose: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
-
-        var transposed = [Double](repeating: 0.0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                transposed[j * rows + i] = data[i * cols + j]
-            }
-        }
-
-        return createMatrixTable(rows: cols, cols: rows, data: transposed)
+        let m = try extractMatrix(arg)
+        return createMatrixTableFrom(m.T)
     }
 
     private static func toArrayCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -930,22 +960,15 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.toarray: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        if cols == 1 {
-            // Vector: return 1D array
-            return .array(data.map { .number($0) })
+        if m.cols == 1 {
+            return .array(m.data.map { .number($0) })
         } else {
-            // Matrix: return 2D array
-            var result: [LuaValue] = []
-            for i in 0..<rows {
-                var row: [LuaValue] = []
-                for j in 0..<cols {
-                    row.append(.number(data[i * cols + j]))
-                }
-                result.append(.array(row))
-            }
-            return .array(result)
+            let arr2d = m.toArray()
+            return .array(arr2d.map { row in
+                .array(row.map { .number($0) })
+            })
         }
     }
 
@@ -956,17 +979,14 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.add: requires two arguments")
         }
 
-        let (rows1, cols1, data1) = try extractMatrixData(args[0])
-        let (rows2, cols2, data2) = try extractMatrixData(args[1])
+        let m1 = try extractMatrix(args[0])
+        let m2 = try extractMatrix(args[1])
 
-        guard rows1 == rows2 && cols1 == cols2 else {
+        guard m1.rows == m2.rows && m1.cols == m2.cols else {
             throw LuaError.callbackError("linalg.add: matrices must have same dimensions")
         }
 
-        var result = [Double](repeating: 0.0, count: data1.count)
-        vDSP_vaddD(data1, 1, data2, 1, &result, 1, vDSP_Length(data1.count))
-
-        return createMatrixTable(rows: rows1, cols: cols1, data: result)
+        return createMatrixTableFrom(LinAlg.add(m1, m2))
     }
 
     private static func subCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -974,17 +994,14 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.sub: requires two arguments")
         }
 
-        let (rows1, cols1, data1) = try extractMatrixData(args[0])
-        let (rows2, cols2, data2) = try extractMatrixData(args[1])
+        let m1 = try extractMatrix(args[0])
+        let m2 = try extractMatrix(args[1])
 
-        guard rows1 == rows2 && cols1 == cols2 else {
+        guard m1.rows == m2.rows && m1.cols == m2.cols else {
             throw LuaError.callbackError("linalg.sub: matrices must have same dimensions")
         }
 
-        var result = [Double](repeating: 0.0, count: data1.count)
-        vDSP_vsubD(data2, 1, data1, 1, &result, 1, vDSP_Length(data1.count))
-
-        return createMatrixTable(rows: rows1, cols: cols1, data: result)
+        return createMatrixTableFrom(LinAlg.sub(m1, m2))
     }
 
     private static func mulCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -994,20 +1011,14 @@ public struct LinAlgModule {
 
         // Check if second argument is a scalar
         if let scalar = args[1].numberValue {
-            let (rows, cols, data) = try extractMatrixData(args[0])
-            var result = [Double](repeating: 0.0, count: data.count)
-            var scalarVal = scalar
-            vDSP_vsmulD(data, 1, &scalarVal, &result, 1, vDSP_Length(data.count))
-            return createMatrixTable(rows: rows, cols: cols, data: result)
+            let m = try extractMatrix(args[0])
+            return createMatrixTableFrom(LinAlg.mul(m, scalar))
         }
 
         // Check if first argument is a scalar
         if let scalar = args[0].numberValue {
-            let (rows, cols, data) = try extractMatrixData(args[1])
-            var result = [Double](repeating: 0.0, count: data.count)
-            var scalarVal = scalar
-            vDSP_vsmulD(data, 1, &scalarVal, &result, 1, vDSP_Length(data.count))
-            return createMatrixTable(rows: rows, cols: cols, data: result)
+            let m = try extractMatrix(args[1])
+            return createMatrixTableFrom(LinAlg.mul(scalar, m))
         }
 
         // Matrix multiplication
@@ -1019,7 +1030,6 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.div: requires two arguments")
         }
 
-        // Only support division by scalar
         guard let scalar = args[1].numberValue else {
             throw LuaError.callbackError("linalg.div: second argument must be a scalar")
         }
@@ -1028,12 +1038,8 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.div: division by zero")
         }
 
-        let (rows, cols, data) = try extractMatrixData(args[0])
-        var result = [Double](repeating: 0.0, count: data.count)
-        var divisor = scalar
-        vDSP_vsdivD(data, 1, &divisor, &result, 1, vDSP_Length(data.count))
-
-        return createMatrixTable(rows: rows, cols: cols, data: result)
+        let m = try extractMatrix(args[0])
+        return createMatrixTableFrom(LinAlg.div(m, scalar))
     }
 
     private static func dotCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1041,46 +1047,28 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.dot: requires two arguments")
         }
 
-        let (rows1, cols1, data1) = try extractMatrixData(args[0])
-        let (rows2, cols2, data2) = try extractMatrixData(args[1])
+        let m1 = try extractMatrix(args[0])
+        let m2 = try extractMatrix(args[1])
 
-        // Vector dot product
-        if cols1 == 1 && cols2 == 1 {
-            guard rows1 == rows2 else {
+        // Vector dot product returns scalar
+        if m1.cols == 1 && m2.cols == 1 {
+            guard m1.rows == m2.rows else {
                 throw LuaError.callbackError("linalg.dot: vectors must have same length")
             }
-            var result: Double = 0
-            vDSP_dotprD(data1, 1, data2, 1, &result, vDSP_Length(rows1))
-            return .number(result)
-        }
-
-        // Matrix-vector multiplication
-        if cols2 == 1 {
-            guard cols1 == rows2 else {
-                throw LuaError.callbackError("linalg.dot: incompatible dimensions for matrix-vector multiplication")
+            // Compute scalar dot product
+            var sum = 0.0
+            for i in 0..<m1.rows {
+                sum += m1[i] * m2[i]
             }
-            var result = [Double](repeating: 0.0, count: rows1)
-            cblas_dgemv(CblasRowMajor, CblasNoTrans,
-                        Int32(rows1), Int32(cols1),
-                        1.0, data1, Int32(cols1),
-                        data2, 1,
-                        0.0, &result, 1)
-            return createMatrixTable(rows: rows1, cols: 1, data: result)
+            return .number(sum)
         }
 
-        // Matrix multiplication
-        guard cols1 == rows2 else {
-            throw LuaError.callbackError("linalg.dot: incompatible dimensions for matrix multiplication")
+        // Matrix/vector multiplication
+        guard m1.cols == m2.rows else {
+            throw LuaError.callbackError("linalg.dot: incompatible dimensions")
         }
 
-        var result = [Double](repeating: 0.0, count: rows1 * cols2)
-        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                    Int32(rows1), Int32(cols2), Int32(cols1),
-                    1.0, data1, Int32(cols1),
-                    data2, Int32(cols2),
-                    0.0, &result, Int32(cols2))
-
-        return createMatrixTable(rows: rows1, cols: cols2, data: result)
+        return createMatrixTableFrom(LinAlg.dot(m1, m2))
     }
 
     private static func hadamardCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1088,17 +1076,14 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.hadamard: requires two arguments")
         }
 
-        let (rows1, cols1, data1) = try extractMatrixData(args[0])
-        let (rows2, cols2, data2) = try extractMatrixData(args[1])
+        let m1 = try extractMatrix(args[0])
+        let m2 = try extractMatrix(args[1])
 
-        guard rows1 == rows2 && cols1 == cols2 else {
+        guard m1.rows == m2.rows && m1.cols == m2.cols else {
             throw LuaError.callbackError("linalg.hadamard: matrices must have same dimensions")
         }
 
-        var result = [Double](repeating: 0.0, count: data1.count)
-        vDSP_vmulD(data1, 1, data2, 1, &result, 1, vDSP_Length(data1.count))
-
-        return createMatrixTable(rows: rows1, cols: cols1, data: result)
+        return createMatrixTableFrom(LinAlg.hadamard(m1, m2))
     }
 
     // MARK: - Linear Algebra Operations
@@ -1108,37 +1093,13 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.det: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.det: matrix must be square")
         }
 
-        // Use LU decomposition to compute determinant
-        var a = data
-        var n1 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(rows)
-        var lda = __CLPK_integer(rows)
-        var ipiv = [__CLPK_integer](repeating: 0, count: rows)
-        var info: __CLPK_integer = 0
-
-        dgetrf_(&n1, &n2, &a, &lda, &ipiv, &info)
-
-        if info != 0 {
-            return .number(0.0)  // Singular matrix
-        }
-
-        // Determinant is product of diagonal elements, with sign from permutation
-        var det = 1.0
-        var sign = 1
-        for i in 0..<rows {
-            det *= a[i * rows + i]
-            if ipiv[i] != Int32(i + 1) {
-                sign *= -1
-            }
-        }
-
-        return .number(det * Double(sign))
+        return .number(LinAlg.det(m))
     }
 
     private static func invCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1146,46 +1107,17 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.inv: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.inv: matrix must be square")
         }
 
-        var a = data
-        var n1 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(rows)
-        var lda = __CLPK_integer(rows)
-        var ipiv = [__CLPK_integer](repeating: 0, count: rows)
-        var info: __CLPK_integer = 0
-
-        // LU factorization
-        dgetrf_(&n1, &n2, &a, &lda, &ipiv, &info)
-
-        if info != 0 {
+        guard let result = LinAlg.inv(m) else {
             throw LuaError.callbackError("linalg.inv: matrix is singular")
         }
 
-        // Query workspace size
-        var ngetri = __CLPK_integer(rows)
-        var ldagetri = __CLPK_integer(rows)
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        dgetri_(&ngetri, &a, &ldagetri, &ipiv, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        // Compute inverse
-        var ngetri2 = __CLPK_integer(rows)
-        var ldagetri2 = __CLPK_integer(rows)
-        dgetri_(&ngetri2, &a, &ldagetri2, &ipiv, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.inv: inversion failed")
-        }
-
-        return createMatrixTable(rows: rows, cols: cols, data: a)
+        return createMatrixTableFrom(result)
     }
 
     private static func traceCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1193,18 +1125,13 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.trace: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.trace: matrix must be square")
         }
 
-        var trace = 0.0
-        for i in 0..<rows {
-            trace += data[i * cols + i]
-        }
-
-        return .number(trace)
+        return .number(LinAlg.trace(m))
     }
 
     private static func normCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1212,76 +1139,10 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.norm: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
+        let p = args.count > 1 ? (args[1].numberValue ?? 2) : 2
 
-        // Get norm type (default = 2)
-        let normType = args.count > 1 ? args[1] : .number(2)
-
-        if cols == 1 {
-            // Vector norm
-            if let p = normType.numberValue {
-                if p == 1 {
-                    // L1 norm
-                    var result = 0.0
-                    vDSP_svemgD(data, 1, &result, vDSP_Length(rows))
-                    return .number(result)
-                } else if p == 2 {
-                    // L2 norm (Euclidean)
-                    var result = 0.0
-                    vDSP_dotprD(data, 1, data, 1, &result, vDSP_Length(rows))
-                    return .number(sqrt(result))
-                } else if p == Double.infinity {
-                    // Infinity norm
-                    var result = 0.0
-                    vDSP_maxmgvD(data, 1, &result, vDSP_Length(rows))
-                    return .number(result)
-                } else {
-                    // General p-norm
-                    var sum = 0.0
-                    for val in data {
-                        sum += pow(abs(val), p)
-                    }
-                    return .number(pow(sum, 1.0/p))
-                }
-            }
-        } else {
-            // Matrix norm
-            if let p = normType.numberValue {
-                if p == 1 {
-                    // Column sum norm
-                    var maxSum = 0.0
-                    for j in 0..<cols {
-                        var colSum = 0.0
-                        for i in 0..<rows {
-                            colSum += abs(data[i * cols + j])
-                        }
-                        maxSum = max(maxSum, colSum)
-                    }
-                    return .number(maxSum)
-                } else if p == Double.infinity {
-                    // Row sum norm
-                    var maxSum = 0.0
-                    for i in 0..<rows {
-                        var rowSum = 0.0
-                        for j in 0..<cols {
-                            rowSum += abs(data[i * cols + j])
-                        }
-                        maxSum = max(maxSum, rowSum)
-                    }
-                    return .number(maxSum)
-                }
-            } else if let str = normType.stringValue, str == "fro" {
-                // Frobenius norm
-                var result = 0.0
-                vDSP_dotprD(data, 1, data, 1, &result, vDSP_Length(data.count))
-                return .number(sqrt(result))
-            }
-        }
-
-        // Default: Frobenius/L2 norm
-        var result = 0.0
-        vDSP_dotprD(data, 1, data, 1, &result, vDSP_Length(data.count))
-        return .number(sqrt(result))
+        return .number(LinAlg.norm(m, p))
     }
 
     private static func rankCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1289,51 +1150,8 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.rank: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
-
-        // Use SVD to compute rank
-        var a = data
-        var m1 = __CLPK_integer(rows)
-        var n1 = __CLPK_integer(cols)
-        var lda1 = __CLPK_integer(rows)
-        let minDim = min(rows, cols)
-        var s = [Double](repeating: 0, count: minDim)
-        var u = [Double](repeating: 0, count: 1)  // Not needed
-        var vt = [Double](repeating: 0, count: 1)  // Not needed
-        var ldu: __CLPK_integer = 1
-        var ldvt: __CLPK_integer = 1
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var jobu = Int8(UInt8(ascii: "N"))
-        var jobvt = Int8(UInt8(ascii: "N"))
-
-        dgesvd_(&jobu, &jobvt, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        var m2 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(cols)
-        var lda2 = __CLPK_integer(rows)
-        dgesvd_(&jobu, &jobvt, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.rank: SVD computation failed")
-        }
-
-        // Count non-zero singular values (with tolerance)
-        let tol = max(Double(rows), Double(cols)) * s[0] * 2.220446049250313e-16
-        var rank = 0
-        for sv in s {
-            if sv > tol {
-                rank += 1
-            }
-        }
-
-        return .number(Double(rank))
+        let m = try extractMatrix(arg)
+        return .number(Double(LinAlg.rank(m)))
     }
 
     private static func condCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1341,69 +1159,8 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.cond: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
-
-        // Optional p parameter for norm type (default: 2-norm condition number)
-        // p = 2: uses SVD (default)
-        // p = 1: uses 1-norm
-        // p = -1 (fro): uses Frobenius norm
-        // Note: We implement 2-norm via SVD which is the standard approach
-        // Future: implement other norm types
-        let _ = args.count > 1 ? args[1].numberValue : nil
-
-        // Convert to column-major for LAPACK (SVD)
-        var a = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                a[j * rows + i] = data[i * cols + j]
-            }
-        }
-
-        var m1 = __CLPK_integer(rows)
-        var n1 = __CLPK_integer(cols)
-        var lda1 = __CLPK_integer(rows)
-        let minDim = min(rows, cols)
-        var s = [Double](repeating: 0, count: minDim)
-        var u = [Double](repeating: 0, count: 1)  // Not needed
-        var vt = [Double](repeating: 0, count: 1)  // Not needed
-        var ldu: __CLPK_integer = 1
-        var ldvt: __CLPK_integer = 1
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var jobu = Int8(UInt8(ascii: "N"))
-        var jobvt = Int8(UInt8(ascii: "N"))
-
-        dgesvd_(&jobu, &jobvt, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        var m2 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(cols)
-        var lda2 = __CLPK_integer(rows)
-        dgesvd_(&jobu, &jobvt, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.cond: SVD computation failed")
-        }
-
-        // Singular values are sorted in descending order
-        let sMax = s[0]
-        let sMin = s[minDim - 1]  // Last (smallest) singular value
-
-        // Tolerance for considering a singular value as zero
-        let tol = max(Double(rows), Double(cols)) * sMax * 2.220446049250313e-16
-
-        // If minimum singular value is essentially zero, matrix is singular
-        if sMin <= tol {
-            return .number(Double.infinity)
-        }
-
-        // Condition number = max(s) / min(s)
-        return .number(sMax / sMin)
+        let m = try extractMatrix(arg)
+        return .number(LinAlg.cond(m))
     }
 
     private static func pinvCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1411,76 +1168,10 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.pinv: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
-        let minDim = min(rows, cols)
-
-        // Optional rcond parameter for cutoff ratio
+        let m = try extractMatrix(arg)
         let rcond = args.count > 1 ? (args[1].numberValue ?? 1e-15) : 1e-15
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                a[j * rows + i] = data[i * cols + j]
-            }
-        }
-
-        var m1 = __CLPK_integer(rows)
-        var n1 = __CLPK_integer(cols)
-        var lda1 = __CLPK_integer(rows)
-        var s = [Double](repeating: 0, count: minDim)
-        var u = [Double](repeating: 0, count: rows * rows)
-        var vt = [Double](repeating: 0, count: cols * cols)
-        var ldu = __CLPK_integer(rows)
-        var ldvt = __CLPK_integer(cols)
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var jobu = Int8(UInt8(ascii: "A"))
-        var jobvt = Int8(UInt8(ascii: "A"))
-
-        dgesvd_(&jobu, &jobvt, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        var m2 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(cols)
-        var lda2 = __CLPK_integer(rows)
-        dgesvd_(&jobu, &jobvt, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.pinv: SVD computation failed")
-        }
-
-        // Compute tolerance for singular value cutoff
-        let tol = rcond * s[0]
-
-        // Compute V * Σ^(-1) * U^T
-        // Result is cols x rows matrix
-        var result = [Double](repeating: 0, count: cols * rows)
-
-        for i in 0..<cols {       // result row
-            for j in 0..<rows {   // result col
-                var sum = 0.0
-                for k in 0..<minDim {
-                    if s[k] > tol {
-                        // Vt is stored in column-major (cols x cols)
-                        // V = Vt^T, so V[i,k] = Vt[k,i] = vt[i * cols + k]
-                        // U is stored in column-major (rows x rows)
-                        // U[j,k] = u[k * rows + j]
-                        let v_ik = vt[i * cols + k]
-                        let u_jk = u[k * rows + j]
-                        sum += v_ik * (1.0 / s[k]) * u_jk
-                    }
-                }
-                result[i * rows + j] = sum
-            }
-        }
-
-        return createMatrixTable(rows: cols, cols: rows, data: result)
+        return createMatrixTableFrom(LinAlg.pinv(m, rcond: rcond))
     }
 
     // MARK: - Decompositions
@@ -1490,59 +1181,17 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.lu: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.lu: matrix must be square")
         }
 
-        var a = data
-        var n1 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(rows)
-        var lda = __CLPK_integer(rows)
-        var ipiv = [__CLPK_integer](repeating: 0, count: rows)
-        var info: __CLPK_integer = 0
-
-        dgetrf_(&n1, &n2, &a, &lda, &ipiv, &info)
-
-        if info < 0 {
-            throw LuaError.callbackError("linalg.lu: invalid argument")
-        }
-
-        // Extract L and U from the combined matrix
-        var L = [Double](repeating: 0, count: rows * rows)
-        var U = [Double](repeating: 0, count: rows * rows)
-
-        for i in 0..<rows {
-            for j in 0..<rows {
-                if i > j {
-                    L[i * rows + j] = a[i * rows + j]
-                } else if i == j {
-                    L[i * rows + j] = 1.0
-                    U[i * rows + j] = a[i * rows + j]
-                } else {
-                    U[i * rows + j] = a[i * rows + j]
-                }
-            }
-        }
-
-        // Create permutation matrix
-        var P = [Double](repeating: 0, count: rows * rows)
-        var perm = Array(0..<rows)
-        for i in 0..<rows {
-            let pivot = Int(ipiv[i]) - 1
-            if pivot != i {
-                perm.swapAt(i, pivot)
-            }
-        }
-        for i in 0..<rows {
-            P[i * rows + perm[i]] = 1.0
-        }
-
+        let (L, U, P) = LinAlg.lu(m)
         return .array([
-            createMatrixTable(rows: rows, cols: rows, data: L),
-            createMatrixTable(rows: rows, cols: rows, data: U),
-            createMatrixTable(rows: rows, cols: rows, data: P)
+            createMatrixTableFrom(L),
+            createMatrixTableFrom(U),
+            createMatrixTableFrom(P)
         ])
     }
 
@@ -1551,76 +1200,12 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.qr: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
-        let minDim = min(rows, cols)
-
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                a[j * rows + i] = data[i * cols + j]
-            }
-        }
-
-        var m1 = __CLPK_integer(rows)
-        var n1 = __CLPK_integer(cols)
-        var lda1 = __CLPK_integer(rows)
-        var tau = [Double](repeating: 0, count: minDim)
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        dgeqrf_(&m1, &n1, &a, &lda1, &tau, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        // Compute QR
-        var m2 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(cols)
-        var lda2 = __CLPK_integer(rows)
-        dgeqrf_(&m2, &n2, &a, &lda2, &tau, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.qr: computation failed")
-        }
-
-        // Extract R (upper triangular)
-        var R = [Double](repeating: 0, count: minDim * cols)
-        for i in 0..<minDim {
-            for j in i..<cols {
-                R[i * cols + j] = a[j * rows + i]
-            }
-        }
-
-        // Generate Q
-        var m3 = __CLPK_integer(rows)
-        var k1 = __CLPK_integer(minDim)
-        var k2 = __CLPK_integer(minDim)
-        var lda3 = __CLPK_integer(rows)
-        lwork = -1
-        dorgqr_(&m3, &k1, &k2, &a, &lda3, &tau, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-        var m4 = __CLPK_integer(rows)
-        var k3 = __CLPK_integer(minDim)
-        var k4 = __CLPK_integer(minDim)
-        var lda4 = __CLPK_integer(rows)
-        dorgqr_(&m4, &k3, &k4, &a, &lda4, &tau, &work, &lwork, &info)
-
-        // Convert Q back to row-major
-        var Q = [Double](repeating: 0, count: rows * minDim)
-        for i in 0..<rows {
-            for j in 0..<minDim {
-                Q[i * minDim + j] = a[j * rows + i]
-            }
-        }
+        let m = try extractMatrix(arg)
+        let (Q, R) = LinAlg.qr(m)
 
         return .array([
-            createMatrixTable(rows: rows, cols: minDim, data: Q),
-            createMatrixTable(rows: minDim, cols: cols, data: R)
+            createMatrixTableFrom(Q),
+            createMatrixTableFrom(R)
         ])
     }
 
@@ -1629,85 +1214,29 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.svd: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
-        let minDim = min(rows, cols)
-
-        // Optional second argument: if true, return singular values as 1D vector (numpy-compatible)
-        // Default is false for backward compatibility (returns diagonal matrix)
+        let m = try extractMatrix(arg)
         let return1D = args.count > 1 && (args[1].boolValue ?? false)
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                a[j * rows + i] = data[i * cols + j]
-            }
-        }
+        let (s, U, Vt) = LinAlg.svd(m)
 
-        var m1 = __CLPK_integer(rows)
-        var n1 = __CLPK_integer(cols)
-        var lda1 = __CLPK_integer(rows)
-        var s = [Double](repeating: 0, count: minDim)
-        var u = [Double](repeating: 0, count: rows * rows)
-        var vt = [Double](repeating: 0, count: cols * cols)
-        var ldu = __CLPK_integer(rows)
-        var ldvt = __CLPK_integer(cols)
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var jobu = Int8(UInt8(ascii: "A"))
-        var jobvt = Int8(UInt8(ascii: "A"))
-
-        dgesvd_(&jobu, &jobvt, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        var m2 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(cols)
-        var lda2 = __CLPK_integer(rows)
-        dgesvd_(&jobu, &jobvt, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.svd: computation failed")
-        }
-
-        // Convert U to row-major
-        var U = [Double](repeating: 0, count: rows * rows)
-        for i in 0..<rows {
-            for j in 0..<rows {
-                U[i * rows + j] = u[j * rows + i]
-            }
-        }
-
-        // S: either 1D vector (numpy-compatible) or diagonal matrix (backward-compatible)
         let sValue: LuaValue
         if return1D {
-            // Return as 1D vector (numpy.linalg.svd default behavior)
-            sValue = createMatrixTable(rows: minDim, cols: 1, data: s)
+            sValue = createMatrixTable(rows: s.count, cols: 1, data: s)
         } else {
-            // Return as diagonal matrix (current behavior for backward compatibility)
-            var S = [Double](repeating: 0, count: rows * cols)
+            // Return as diagonal matrix for backward compatibility
+            var S = [Double](repeating: 0, count: m.rows * m.cols)
+            let minDim = min(m.rows, m.cols)
             for i in 0..<minDim {
-                S[i * cols + i] = s[i]
+                S[i * m.cols + i] = s[i]
             }
-            sValue = createMatrixTable(rows: rows, cols: cols, data: S)
+            sValue = createMatrixTable(rows: m.rows, cols: m.cols, data: S)
         }
 
-        // Convert Vt to row-major (and it's already transposed)
-        var V = [Double](repeating: 0, count: cols * cols)
-        for i in 0..<cols {
-            for j in 0..<cols {
-                V[i * cols + j] = vt[j * cols + i]
-            }
-        }
-
+        // Note: LinAlg.svd returns Vt (transpose), so transpose to get V
         return .array([
-            createMatrixTable(rows: rows, cols: rows, data: U),
+            createMatrixTableFrom(U),
             sValue,
-            createMatrixTable(rows: cols, cols: cols, data: V)
+            createMatrixTableFrom(Vt.T)
         ])
     }
 
@@ -1716,134 +1245,50 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.eig: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.eig: matrix must be square")
         }
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                a[j * rows + i] = data[i * cols + j]
-            }
-        }
+        let (values, imagParts, vectors) = LinAlg.eig(m)
 
-        var n1 = __CLPK_integer(rows)
-        var lda1 = __CLPK_integer(rows)
-        var wr = [Double](repeating: 0, count: rows)  // Real parts
-        var wi = [Double](repeating: 0, count: rows)  // Imaginary parts
-        var vl = [Double](repeating: 0, count: 1)  // Left eigenvectors (not computed)
-        var vr = [Double](repeating: 0, count: rows * rows)  // Right eigenvectors
-        var ldvl: __CLPK_integer = 1
-        var ldvr = __CLPK_integer(rows)
-        var info: __CLPK_integer = 0
+        // Check for complex eigenvalues
+        let hasComplex = imagParts.contains { abs($0) > 1e-14 }
 
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var jobvl = Int8(UInt8(ascii: "N"))
-        var jobvr = Int8(UInt8(ascii: "V"))
-
-        dgeev_(&jobvl, &jobvr, &n1, &a, &lda1, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        var n2 = __CLPK_integer(rows)
-        var lda2 = __CLPK_integer(rows)
-        dgeev_(&jobvl, &jobvr, &n2, &a, &lda2, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.eig: computation failed")
-        }
-
-        // Check if there are any complex eigenvalues
-        let hasComplexEigenvalues = wi.contains { abs($0) > 1e-14 }
-
-        // Convert eigenvectors to row-major
-        var vecs = [Double](repeating: 0, count: rows * rows)
-        for i in 0..<rows {
-            for j in 0..<rows {
-                vecs[i * rows + j] = vr[j * rows + i]
-            }
-        }
-
-        if hasComplexEigenvalues {
-            // Return complex eigenvalues and eigenvectors
-            // Note: For complex conjugate pairs, LAPACK stores eigenvectors specially
-            // For simplicity, we return the eigenvalues as complex and vectors as real
-            // (full complex eigenvector support would require more complex handling)
+        if hasComplex {
             return .array([
-                createComplexMatrixTable(rows: rows, cols: 1, real: wr, imag: wi),
-                createMatrixTable(rows: rows, cols: rows, data: vecs)
+                createComplexMatrixTable(rows: m.rows, cols: 1, real: values, imag: imagParts),
+                createMatrixTableFrom(vectors)
             ])
         } else {
-            // All real eigenvalues
             return .array([
-                createMatrixTable(rows: rows, cols: 1, data: wr),
-                createMatrixTable(rows: rows, cols: rows, data: vecs)
+                createMatrixTable(rows: m.rows, cols: 1, data: values),
+                createMatrixTableFrom(vectors)
             ])
         }
     }
 
-    /// Returns only eigenvalues (more efficient when eigenvectors not needed)
     private static func eigvalsCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.eigvals: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.eigvals: matrix must be square")
         }
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                a[j * rows + i] = data[i * cols + j]
-            }
-        }
+        let (real, imag) = LinAlg.eigvals(m)
 
-        var n1 = __CLPK_integer(rows)
-        var lda1 = __CLPK_integer(rows)
-        var wr = [Double](repeating: 0, count: rows)
-        var wi = [Double](repeating: 0, count: rows)
-        var vl = [Double](repeating: 0, count: 1)
-        var vr = [Double](repeating: 0, count: 1)  // Don't compute eigenvectors
-        var ldvl: __CLPK_integer = 1
-        var ldvr: __CLPK_integer = 1
-        var info: __CLPK_integer = 0
+        // Check for complex eigenvalues
+        let hasComplex = imag.contains { abs($0) > 1e-14 }
 
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var jobvl = Int8(UInt8(ascii: "N"))
-        var jobvr = Int8(UInt8(ascii: "N"))  // Don't compute eigenvectors
-
-        dgeev_(&jobvl, &jobvr, &n1, &a, &lda1, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        var n2 = __CLPK_integer(rows)
-        var lda2 = __CLPK_integer(rows)
-        dgeev_(&jobvl, &jobvr, &n2, &a, &lda2, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.eigvals: computation failed")
-        }
-
-        // Check if there are any complex eigenvalues
-        let hasComplexEigenvalues = wi.contains { abs($0) > 1e-14 }
-
-        if hasComplexEigenvalues {
-            return createComplexMatrixTable(rows: rows, cols: 1, real: wr, imag: wi)
+        if hasComplex {
+            return createComplexMatrixTable(rows: m.rows, cols: 1, real: real, imag: imag)
         } else {
-            return createMatrixTable(rows: rows, cols: 1, data: wr)
+            return createMatrixTable(rows: m.rows, cols: 1, data: real)
         }
     }
 
@@ -1852,40 +1297,17 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.chol: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.chol: matrix must be square")
         }
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                a[j * rows + i] = data[i * cols + j]
-            }
-        }
-
-        var n1 = __CLPK_integer(rows)
-        var lda1 = __CLPK_integer(rows)
-        var info: __CLPK_integer = 0
-        var uplo = Int8(UInt8(ascii: "L"))
-
-        dpotrf_(&uplo, &n1, &a, &lda1, &info)
-
-        if info != 0 {
+        guard let result = LinAlg.cholesky(m) else {
             throw LuaError.callbackError("linalg.chol: matrix is not positive definite")
         }
 
-        // Convert L to row-major and zero out upper triangle
-        var L = [Double](repeating: 0, count: rows * rows)
-        for i in 0..<rows {
-            for j in 0...i {
-                L[i * rows + j] = a[j * rows + i]
-            }
-        }
-
-        return createMatrixTable(rows: rows, cols: rows, data: L)
+        return createMatrixTableFrom(result)
     }
 
     // MARK: - Solvers
@@ -1895,54 +1317,22 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.solve: requires A and b arguments")
         }
 
-        let (rowsA, colsA, dataA) = try extractMatrixData(args[0])
-        let (rowsB, colsB, dataB) = try extractMatrixData(args[1])
+        let A = try extractMatrix(args[0])
+        let b = try extractMatrix(args[1])
 
-        guard rowsA == colsA else {
+        guard A.rows == A.cols else {
             throw LuaError.callbackError("linalg.solve: A must be square")
         }
 
-        guard rowsA == rowsB else {
+        guard A.rows == b.rows else {
             throw LuaError.callbackError("linalg.solve: A and b must have compatible dimensions")
         }
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rowsA * colsA)
-        for i in 0..<rowsA {
-            for j in 0..<colsA {
-                a[j * rowsA + i] = dataA[i * colsA + j]
-            }
-        }
-
-        var b = [Double](repeating: 0, count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                b[j * rowsB + i] = dataB[i * colsB + j]
-            }
-        }
-
-        var n1 = __CLPK_integer(rowsA)
-        var nrhs = __CLPK_integer(colsB)
-        var lda = __CLPK_integer(rowsA)
-        var ipiv = [__CLPK_integer](repeating: 0, count: rowsA)
-        var ldb = __CLPK_integer(rowsA)
-        var info: __CLPK_integer = 0
-
-        dgesv_(&n1, &nrhs, &a, &lda, &ipiv, &b, &ldb, &info)
-
-        if info != 0 {
+        guard let result = LinAlg.solve(A, b) else {
             throw LuaError.callbackError("linalg.solve: system is singular or computation failed")
         }
 
-        // Convert back to row-major
-        var result = [Double](repeating: 0, count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                result[i * colsB + j] = b[j * rowsB + i]
-            }
-        }
-
-        return createMatrixTable(rows: rowsB, cols: colsB, data: result)
+        return createMatrixTableFrom(result)
     }
 
     private static func lstsqCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1950,667 +1340,143 @@ public struct LinAlgModule {
             throw LuaError.callbackError("linalg.lstsq: requires A and b arguments")
         }
 
-        let (rowsA, colsA, dataA) = try extractMatrixData(args[0])
-        let (rowsB, colsB, dataB) = try extractMatrixData(args[1])
+        let A = try extractMatrix(args[0])
+        let b = try extractMatrix(args[1])
 
-        guard rowsA == rowsB else {
+        guard A.rows == b.rows else {
             throw LuaError.callbackError("linalg.lstsq: A and b must have compatible dimensions")
         }
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rowsA * colsA)
-        for i in 0..<rowsA {
-            for j in 0..<colsA {
-                a[j * rowsA + i] = dataA[i * colsA + j]
-            }
-        }
-
-        let maxDim = max(rowsA, colsA)
-        var b = [Double](repeating: 0, count: maxDim * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                b[j * maxDim + i] = dataB[i * colsB + j]
-            }
-        }
-
-        var m1 = __CLPK_integer(rowsA)
-        var n1 = __CLPK_integer(colsA)
-        var nrhs1 = __CLPK_integer(colsB)
-        var lda1 = __CLPK_integer(rowsA)
-        var ldb1 = __CLPK_integer(maxDim)
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var trans = Int8(UInt8(ascii: "N"))
-
-        dgels_(&trans, &m1, &n1, &nrhs1, &a, &lda1, &b, &ldb1, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        var m2 = __CLPK_integer(rowsA)
-        var n2 = __CLPK_integer(colsA)
-        var nrhs2 = __CLPK_integer(colsB)
-        var lda2 = __CLPK_integer(rowsA)
-        var ldb2 = __CLPK_integer(maxDim)
-        dgels_(&trans, &m2, &n2, &nrhs2, &a, &lda2, &b, &ldb2, &work, &lwork, &info)
-
-        if info != 0 {
+        guard let result = LinAlg.lstsq(A, b) else {
             throw LuaError.callbackError("linalg.lstsq: computation failed")
         }
 
-        // Extract solution (first colsA rows of b)
-        var result = [Double](repeating: 0, count: colsA * colsB)
-        for i in 0..<colsA {
-            for j in 0..<colsB {
-                result[i * colsB + j] = b[j * maxDim + i]
-            }
-        }
-
-        return createMatrixTable(rows: colsA, cols: colsB, data: result)
+        return createMatrixTableFrom(result)
     }
 
     // MARK: - Complex Linear Algebra
 
-    /// Extract complex matrix data from Lua table.
-    /// Expects either:
-    /// 1. A table with 'real' and 'imag' arrays (like createComplexMatrixTable output)
-    /// 2. A nested array of {re=, im=} complex numbers
-    private static func extractComplexMatrixData(_ value: LuaValue) throws -> (rows: Int, cols: Int, real: [Double], imag: [Double]) {
-        guard case .table(let dict) = value else {
-            throw LuaError.callbackError("linalg.csolve: expected complex matrix table")
-        }
-
-        // Try format 1: {rows=, cols=, real=[], imag=[]}
-        if let rowsVal = dict["rows"]?.numberValue,
-           let colsVal = dict["cols"]?.numberValue,
-           let realArr = dict["real"]?.arrayValue,
-           let imagArr = dict["imag"]?.arrayValue {
-            let rows = Int(rowsVal)
-            let cols = Int(colsVal)
-            var real: [Double] = []
-            var imag: [Double] = []
-            real.reserveCapacity(realArr.count)
-            imag.reserveCapacity(imagArr.count)
-
-            for val in realArr {
-                guard let num = val.numberValue else {
-                    throw LuaError.callbackError("linalg: complex matrix real data must be numeric")
-                }
-                real.append(num)
-            }
-            for val in imagArr {
-                guard let num = val.numberValue else {
-                    throw LuaError.callbackError("linalg: complex matrix imag data must be numeric")
-                }
-                imag.append(num)
-            }
-
-            return (rows, cols, real, imag)
-        }
-
-        // Try format 2: nested array of {re=, im=}
-        guard let rowsVal = dict["rows"]?.numberValue,
-              let colsVal = dict["cols"]?.numberValue,
-              let dataArr = dict["data"]?.arrayValue else {
-            throw LuaError.callbackError("linalg: invalid complex matrix structure")
-        }
-
-        let rows = Int(rowsVal)
-        let cols = Int(colsVal)
-        var real: [Double] = []
-        var imag: [Double] = []
-        real.reserveCapacity(dataArr.count)
-        imag.reserveCapacity(dataArr.count)
-
-        for val in dataArr {
-            if let table = val.tableValue,
-               let re = table["re"]?.numberValue,
-               let im = table["im"]?.numberValue {
-                real.append(re)
-                imag.append(im)
-            } else if let num = val.numberValue {
-                // Real number, imaginary part is 0
-                real.append(num)
-                imag.append(0)
-            } else {
-                throw LuaError.callbackError("linalg: complex matrix elements must be {re=, im=} tables or numbers")
-            }
-        }
-
-        return (rows, cols, real, imag)
-    }
-
-    /// Solve complex linear system Ax = b using LAPACK zgesv
     private static func csolveCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2 else {
             throw LuaError.callbackError("linalg.csolve: requires A and b arguments")
         }
 
-        let (rowsA, colsA, realA, imagA) = try extractComplexMatrixData(args[0])
-        let (rowsB, colsB, realB, imagB) = try extractComplexMatrixData(args[1])
+        let A = try extractComplexMatrix(args[0])
+        let b = try extractComplexMatrix(args[1])
 
-        guard rowsA == colsA else {
+        guard A.rows == A.cols else {
             throw LuaError.callbackError("linalg.csolve: A must be square")
         }
 
-        guard rowsA == rowsB else {
+        guard A.rows == b.rows else {
             throw LuaError.callbackError("linalg.csolve: A and b must have compatible dimensions")
         }
 
-        // Convert to column-major interleaved complex for LAPACK
-        // LAPACK uses __CLPK_doublecomplex which is {r: Double, i: Double}
-        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rowsA * colsA)
-        for i in 0..<rowsA {
-            for j in 0..<colsA {
-                let srcIdx = i * colsA + j
-                let dstIdx = j * rowsA + i  // Column-major
-                a[dstIdx] = __CLPK_doublecomplex(r: realA[srcIdx], i: imagA[srcIdx])
-            }
+        guard let result = LinAlg.csolve(A, b) else {
+            throw LuaError.callbackError("linalg.csolve: system is singular or computation failed")
         }
 
-        var b = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                let srcIdx = i * colsB + j
-                let dstIdx = j * rowsB + i  // Column-major
-                b[dstIdx] = __CLPK_doublecomplex(r: realB[srcIdx], i: imagB[srcIdx])
-            }
-        }
-
-        var n1 = __CLPK_integer(rowsA)
-        var nrhs = __CLPK_integer(colsB)
-        var lda = __CLPK_integer(rowsA)
-        var ipiv = [__CLPK_integer](repeating: 0, count: rowsA)
-        var ldb = __CLPK_integer(rowsA)
-        var info: __CLPK_integer = 0
-
-        zgesv_(&n1, &nrhs, &a, &lda, &ipiv, &b, &ldb, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.csolve: system is singular or computation failed (info=\(info))")
-        }
-
-        // Convert back to row-major separate real/imag arrays
-        var resultReal = [Double](repeating: 0, count: rowsB * colsB)
-        var resultImag = [Double](repeating: 0, count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                let srcIdx = j * rowsB + i  // Column-major source
-                let dstIdx = i * colsB + j  // Row-major destination
-                resultReal[dstIdx] = b[srcIdx].r
-                resultImag[dstIdx] = b[srcIdx].i
-            }
-        }
-
-        return createComplexMatrixTable(rows: rowsB, cols: colsB, real: resultReal, imag: resultImag)
+        return createComplexMatrixTable(rows: result.rows, cols: result.cols, real: result.real, imag: result.imag)
     }
 
-    /// Compute complex SVD using LAPACK zgesdd
     private static func csvdCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.csvd: missing argument")
         }
 
-        let (rows, cols, real, imag) = try extractComplexMatrixData(arg)
-        let minDim = min(rows, cols)
+        let m = try extractComplexMatrix(arg)
 
-        // Convert to column-major interleaved complex for LAPACK
-        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * cols)
-        for i in 0..<rows {
-            for j in 0..<cols {
-                let srcIdx = i * cols + j
-                let dstIdx = j * rows + i  // Column-major
-                a[dstIdx] = __CLPK_doublecomplex(r: real[srcIdx], i: imag[srcIdx])
-            }
+        guard let (s, U, Vt) = LinAlg.csvd(m) else {
+            throw LuaError.callbackError("linalg.csvd: computation failed")
         }
 
-        var m1 = __CLPK_integer(rows)
-        var n1 = __CLPK_integer(cols)
-        var lda1 = __CLPK_integer(rows)
-        var s = [Double](repeating: 0, count: minDim)
-        var u = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * rows)
-        var vt = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: cols * cols)
-        var ldu = __CLPK_integer(rows)
-        var ldvt = __CLPK_integer(cols)
-        var info: __CLPK_integer = 0
-
-        // zgesdd requires workspace query
-        var lwork: __CLPK_integer = -1
-        var work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
-        var rwork = [Double](repeating: 0, count: max(1, 5 * minDim * minDim + 7 * minDim))
-        var iwork = [__CLPK_integer](repeating: 0, count: 8 * minDim)
-        var jobz = Int8(UInt8(ascii: "A"))
-
-        zgesdd_(&jobz, &m1, &n1, &a, &lda1, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &rwork, &iwork, &info)
-
-        lwork = __CLPK_integer(work[0].r)
-        work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: Int(lwork))
-
-        var m2 = __CLPK_integer(rows)
-        var n2 = __CLPK_integer(cols)
-        var lda2 = __CLPK_integer(rows)
-
-        zgesdd_(&jobz, &m2, &n2, &a, &lda2, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &rwork, &iwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.csvd: computation failed (info=\(info))")
-        }
-
-        // Convert U to row-major
-        var Ureal = [Double](repeating: 0, count: rows * rows)
-        var Uimag = [Double](repeating: 0, count: rows * rows)
-        for i in 0..<rows {
-            for j in 0..<rows {
-                let srcIdx = j * rows + i  // Column-major source
-                let dstIdx = i * rows + j  // Row-major destination
-                Ureal[dstIdx] = u[srcIdx].r
-                Uimag[dstIdx] = u[srcIdx].i
-            }
-        }
-
-        // S is real - return as 1D vector
-        let sValue = createMatrixTable(rows: minDim, cols: 1, data: s)
-
-        // Convert Vt to row-major (it's already the conjugate transpose)
-        var Vtreal = [Double](repeating: 0, count: cols * cols)
-        var Vtimag = [Double](repeating: 0, count: cols * cols)
-        for i in 0..<cols {
-            for j in 0..<cols {
-                let srcIdx = j * cols + i  // Column-major source
-                let dstIdx = i * cols + j  // Row-major destination
-                Vtreal[dstIdx] = vt[srcIdx].r
-                Vtimag[dstIdx] = vt[srcIdx].i
-            }
-        }
+        // S is real
+        let sValue = createMatrixTable(rows: s.count, cols: 1, data: s)
 
         return .array([
-            createComplexMatrixTable(rows: rows, cols: rows, real: Ureal, imag: Uimag),
+            createComplexMatrixTable(rows: U.rows, cols: U.cols, real: U.real, imag: U.imag),
             sValue,
-            createComplexMatrixTable(rows: cols, cols: cols, real: Vtreal, imag: Vtimag)
+            createComplexMatrixTable(rows: Vt.rows, cols: Vt.cols, real: Vt.real, imag: Vt.imag)
         ])
     }
 
-    /// Compute eigenvalues and eigenvectors of a complex matrix using LAPACK zgeev
     private static func ceigCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.ceig: missing argument")
         }
 
-        // Extract complex matrix
-        guard let table = arg.tableValue,
-              let shapeVal = table["shape"]?.arrayValue,
-              shapeVal.count == 2,
-              let rows = shapeVal[0].intValue,
-              let cols = shapeVal[1].intValue,
-              let realVals = table["real"]?.arrayValue,
-              let imagVals = table["imag"]?.arrayValue else {
-            throw LuaError.callbackError("linalg.ceig: requires a complex matrix")
-        }
+        let m = try extractComplexMatrixForCeig(arg)
 
-        guard rows == cols else {
-            throw LuaError.callbackError("linalg.ceig: matrix must be square")
-        }
-
-        // Extract data from nested arrays and convert to column-major
-        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * cols)
-        for i in 0..<rows {
-            guard let rowReal = realVals[i].arrayValue,
-                  let rowImag = imagVals[i].arrayValue else {
-                throw LuaError.callbackError("linalg.ceig: invalid matrix format")
-            }
-            for j in 0..<cols {
-                let re = rowReal[j].numberValue ?? 0
-                let im = rowImag[j].numberValue ?? 0
-                a[j * rows + i] = __CLPK_doublecomplex(r: re, i: im)  // Column-major
-            }
-        }
-
-        // Eigenvalues (complex)
-        var w = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows)
-
-        // Left eigenvectors (not computed)
-        var vl = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
-        var ldvl: __CLPK_integer = 1
-
-        // Right eigenvectors
-        var vr = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * rows)
-        var ldvr = __CLPK_integer(rows)
-
-        var n1 = __CLPK_integer(rows)
-        var lda1 = __CLPK_integer(rows)
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
-        var rwork = [Double](repeating: 0, count: 2 * rows)
-        var jobvl = Int8(UInt8(ascii: "N"))
-        var jobvr = Int8(UInt8(ascii: "V"))
-
-        zgeev_(&jobvl, &jobvr, &n1, &a, &lda1, &w, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &rwork, &info)
-
-        lwork = __CLPK_integer(work[0].r)
-        work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: Int(lwork))
-
-        // Reset a for actual computation (LAPACK modifies it)
-        for i in 0..<rows {
-            guard let rowReal = realVals[i].arrayValue,
-                  let rowImag = imagVals[i].arrayValue else { continue }
-            for j in 0..<cols {
-                let re = rowReal[j].numberValue ?? 0
-                let im = rowImag[j].numberValue ?? 0
-                a[j * rows + i] = __CLPK_doublecomplex(r: re, i: im)
-            }
-        }
-
-        var n2 = __CLPK_integer(rows)
-        var lda2 = __CLPK_integer(rows)
-
-        zgeev_(&jobvl, &jobvr, &n2, &a, &lda2, &w, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &rwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.ceig: computation failed (info=\(info))")
-        }
-
-        // Extract eigenvalues as complex array
-        var eigReal = [Double](repeating: 0, count: rows)
-        var eigImag = [Double](repeating: 0, count: rows)
-        for i in 0..<rows {
-            eigReal[i] = w[i].r
-            eigImag[i] = w[i].i
-        }
-
-        // Convert eigenvectors to row-major
-        var vecReal = [Double](repeating: 0, count: rows * rows)
-        var vecImag = [Double](repeating: 0, count: rows * rows)
-        for i in 0..<rows {
-            for j in 0..<rows {
-                let srcIdx = j * rows + i  // Column-major source
-                let dstIdx = i * rows + j  // Row-major destination
-                vecReal[dstIdx] = vr[srcIdx].r
-                vecImag[dstIdx] = vr[srcIdx].i
-            }
+        guard let (values, vectors) = LinAlg.ceig(m) else {
+            throw LuaError.callbackError("linalg.ceig: computation failed")
         }
 
         return .array([
-            createComplexMatrixTable(rows: rows, cols: 1, real: eigReal, imag: eigImag),
-            createComplexMatrixTable(rows: rows, cols: rows, real: vecReal, imag: vecImag)
+            createComplexMatrixTable(rows: values.rows, cols: values.cols, real: values.real, imag: values.imag),
+            createComplexMatrixTable(rows: vectors.rows, cols: vectors.cols, real: vectors.real, imag: vectors.imag)
         ])
     }
 
-    /// Compute only eigenvalues of a complex matrix using LAPACK zgeev (no eigenvectors)
     private static func ceigvalsCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.ceigvals: missing argument")
         }
 
-        // Extract complex matrix
-        guard let table = arg.tableValue,
-              let shapeVal = table["shape"]?.arrayValue,
-              shapeVal.count == 2,
-              let rows = shapeVal[0].intValue,
-              let cols = shapeVal[1].intValue,
-              let realVals = table["real"]?.arrayValue,
-              let imagVals = table["imag"]?.arrayValue else {
-            throw LuaError.callbackError("linalg.ceigvals: requires a complex matrix")
+        let m = try extractComplexMatrixForCeig(arg)
+
+        guard let result = LinAlg.ceigvals(m) else {
+            throw LuaError.callbackError("linalg.ceigvals: computation failed")
         }
 
-        guard rows == cols else {
-            throw LuaError.callbackError("linalg.ceigvals: matrix must be square")
-        }
-
-        // Extract data from nested arrays and convert to column-major
-        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * cols)
-        for i in 0..<rows {
-            guard let rowReal = realVals[i].arrayValue,
-                  let rowImag = imagVals[i].arrayValue else {
-                throw LuaError.callbackError("linalg.ceigvals: invalid matrix format")
-            }
-            for j in 0..<cols {
-                let re = rowReal[j].numberValue ?? 0
-                let im = rowImag[j].numberValue ?? 0
-                a[j * rows + i] = __CLPK_doublecomplex(r: re, i: im)  // Column-major
-            }
-        }
-
-        // Eigenvalues (complex)
-        var w = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows)
-
-        // No eigenvectors
-        var vl = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
-        var vr = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
-        var ldvl: __CLPK_integer = 1
-        var ldvr: __CLPK_integer = 1
-
-        var n1 = __CLPK_integer(rows)
-        var lda1 = __CLPK_integer(rows)
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
-        var rwork = [Double](repeating: 0, count: 2 * rows)
-        var jobvl = Int8(UInt8(ascii: "N"))
-        var jobvr = Int8(UInt8(ascii: "N"))
-
-        zgeev_(&jobvl, &jobvr, &n1, &a, &lda1, &w, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &rwork, &info)
-
-        lwork = __CLPK_integer(work[0].r)
-        work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: Int(lwork))
-
-        // Reset a for actual computation
-        for i in 0..<rows {
-            guard let rowReal = realVals[i].arrayValue,
-                  let rowImag = imagVals[i].arrayValue else { continue }
-            for j in 0..<cols {
-                let re = rowReal[j].numberValue ?? 0
-                let im = rowImag[j].numberValue ?? 0
-                a[j * rows + i] = __CLPK_doublecomplex(r: re, i: im)
-            }
-        }
-
-        var n2 = __CLPK_integer(rows)
-        var lda2 = __CLPK_integer(rows)
-
-        zgeev_(&jobvl, &jobvr, &n2, &a, &lda2, &w, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &rwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.ceigvals: computation failed (info=\(info))")
-        }
-
-        // Extract eigenvalues as complex array
-        var eigReal = [Double](repeating: 0, count: rows)
-        var eigImag = [Double](repeating: 0, count: rows)
-        for i in 0..<rows {
-            eigReal[i] = w[i].r
-            eigImag[i] = w[i].i
-        }
-
-        return createComplexMatrixTable(rows: rows, cols: 1, real: eigReal, imag: eigImag)
+        return createComplexMatrixTable(rows: result.rows, cols: result.cols, real: result.real, imag: result.imag)
     }
 
-    /// Compute determinant of a complex matrix using LAPACK zgetrf
     private static func cdetCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.cdet: missing argument")
         }
 
-        // Extract complex matrix
-        guard let table = arg.tableValue,
-              let shapeVal = table["shape"]?.arrayValue,
-              shapeVal.count == 2,
-              let rows = shapeVal[0].intValue,
-              let cols = shapeVal[1].intValue,
-              let realVals = table["real"]?.arrayValue,
-              let imagVals = table["imag"]?.arrayValue else {
-            throw LuaError.callbackError("linalg.cdet: requires a complex matrix")
+        let m = try extractComplexMatrixForCeig(arg)
+
+        guard let (re, im) = LinAlg.cdet(m) else {
+            return .table(["re": .number(0), "im": .number(0)])
         }
 
-        guard rows == cols else {
-            throw LuaError.callbackError("linalg.cdet: matrix must be square")
-        }
-
-        // Extract data and convert to column-major
-        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * cols)
-        for i in 0..<rows {
-            guard let rowReal = realVals[i].arrayValue,
-                  let rowImag = imagVals[i].arrayValue else {
-                throw LuaError.callbackError("linalg.cdet: invalid matrix format")
-            }
-            for j in 0..<cols {
-                let re = rowReal[j].numberValue ?? 0
-                let im = rowImag[j].numberValue ?? 0
-                a[j * rows + i] = __CLPK_doublecomplex(r: re, i: im)  // Column-major
-            }
-        }
-
-        var m = __CLPK_integer(rows)
-        var n = __CLPK_integer(rows)
-        var lda = __CLPK_integer(rows)
-        var ipiv = [__CLPK_integer](repeating: 0, count: rows)
-        var info: __CLPK_integer = 0
-
-        // LU factorization
-        zgetrf_(&m, &n, &a, &lda, &ipiv, &info)
-
-        if info != 0 {
-            if info > 0 {
-                // Matrix is singular
-                return .table(["re": .number(0), "im": .number(0)])
-            }
-            throw LuaError.callbackError("linalg.cdet: computation failed (info=\(info))")
-        }
-
-        // Determinant = product of diagonal elements * sign from pivots
-        var detRe = 1.0
-        var detIm = 0.0
-        var sign = 1
-        for i in 0..<rows {
-            let diagIdx = i * rows + i
-            let diagRe = a[diagIdx].r
-            let diagIm = a[diagIdx].i
-            // Multiply (detRe + i*detIm) * (diagRe + i*diagIm)
-            let newRe = detRe * diagRe - detIm * diagIm
-            let newIm = detRe * diagIm + detIm * diagRe
-            detRe = newRe
-            detIm = newIm
-
-            // Check if pivot swapped
-            if Int(ipiv[i]) != i + 1 {
-                sign = -sign
-            }
-        }
-
-        detRe *= Double(sign)
-        detIm *= Double(sign)
-
-        return .table(["re": .number(detRe), "im": .number(detIm)])
+        return .table(["re": .number(re), "im": .number(im)])
     }
 
-    /// Compute inverse of a complex matrix using LAPACK zgetrf/zgetri
     private static func cinvCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.cinv: missing argument")
         }
 
-        // Extract complex matrix
-        guard let table = arg.tableValue,
-              let shapeVal = table["shape"]?.arrayValue,
-              shapeVal.count == 2,
-              let rows = shapeVal[0].intValue,
-              let cols = shapeVal[1].intValue,
-              let realVals = table["real"]?.arrayValue,
-              let imagVals = table["imag"]?.arrayValue else {
-            throw LuaError.callbackError("linalg.cinv: requires a complex matrix")
+        let m = try extractComplexMatrixForCeig(arg)
+
+        guard let result = LinAlg.cinv(m) else {
+            throw LuaError.callbackError("linalg.cinv: matrix is singular")
         }
 
-        guard rows == cols else {
-            throw LuaError.callbackError("linalg.cinv: matrix must be square")
-        }
-
-        // Extract data and convert to column-major
-        var a = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: rows * cols)
-        for i in 0..<rows {
-            guard let rowReal = realVals[i].arrayValue,
-                  let rowImag = imagVals[i].arrayValue else {
-                throw LuaError.callbackError("linalg.cinv: invalid matrix format")
-            }
-            for j in 0..<cols {
-                let re = rowReal[j].numberValue ?? 0
-                let im = rowImag[j].numberValue ?? 0
-                a[j * rows + i] = __CLPK_doublecomplex(r: re, i: im)  // Column-major
-            }
-        }
-
-        var m = __CLPK_integer(rows)
-        var n = __CLPK_integer(rows)
-        var lda = __CLPK_integer(rows)
-        var ipiv = [__CLPK_integer](repeating: 0, count: rows)
-        var info: __CLPK_integer = 0
-
-        // LU factorization
-        zgetrf_(&m, &n, &a, &lda, &ipiv, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.cinv: matrix is singular (info=\(info))")
-        }
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: 1)
-
-        zgetri_(&n, &a, &lda, &ipiv, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0].r)
-        work = [__CLPK_doublecomplex](repeating: __CLPK_doublecomplex(r: 0, i: 0), count: Int(lwork))
-
-        // Compute inverse
-        var n2 = __CLPK_integer(rows)
-        var lda2 = __CLPK_integer(rows)
-        zgetri_(&n2, &a, &lda2, &ipiv, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("linalg.cinv: computation failed (info=\(info))")
-        }
-
-        // Convert to row-major
-        var resultReal = [Double](repeating: 0, count: rows * rows)
-        var resultImag = [Double](repeating: 0, count: rows * rows)
-        for i in 0..<rows {
-            for j in 0..<rows {
-                let srcIdx = j * rows + i  // Column-major source
-                let dstIdx = i * rows + j  // Row-major destination
-                resultReal[dstIdx] = a[srcIdx].r
-                resultImag[dstIdx] = a[srcIdx].i
-            }
-        }
-
-        return createComplexMatrixTable(rows: rows, cols: rows, real: resultReal, imag: resultImag)
+        return createComplexMatrixTable(rows: result.rows, cols: result.cols, real: result.real, imag: result.imag)
     }
 
     // MARK: - Advanced Solvers
 
-    /// Solve triangular system: solve L*x = b (lower) or U*x = b (upper)
     private static func solveTriangularCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2 else {
             throw LuaError.callbackError("linalg.solve_triangular: requires A and b arguments")
         }
 
-        let (rowsA, colsA, dataA) = try extractMatrixData(args[0])
-        let (rowsB, colsB, dataB) = try extractMatrixData(args[1])
+        let A = try extractMatrix(args[0])
+        let b = try extractMatrix(args[1])
 
-        guard rowsA == colsA else {
+        guard A.rows == A.cols else {
             throw LuaError.callbackError("linalg.solve_triangular: A must be square")
         }
 
-        guard rowsA == rowsB else {
+        guard A.rows == b.rows else {
             throw LuaError.callbackError("linalg.solve_triangular: A and b must have compatible dimensions")
         }
 
-        // Options: lower (default true), trans (default false)
         var lower = true
         var trans = false
 
@@ -2623,609 +1489,157 @@ public struct LinAlgModule {
             }
         }
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rowsA * colsA)
-        for i in 0..<rowsA {
-            for j in 0..<colsA {
-                a[j * rowsA + i] = dataA[i * colsA + j]
-            }
-        }
-
-        var b = [Double](repeating: 0, count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                b[j * rowsB + i] = dataB[i * colsB + j]
-            }
-        }
-
-        var uplo = Int8(UInt8(ascii: lower ? "L" : "U"))
-        var transChar = Int8(UInt8(ascii: trans ? "T" : "N"))
-        var diag = Int8(UInt8(ascii: "N"))  // Non-unit diagonal
-        var n1 = __CLPK_integer(rowsA)
-        var nrhs = __CLPK_integer(colsB)
-        var lda = __CLPK_integer(rowsA)
-        var ldb = __CLPK_integer(rowsB)
-        var info: __CLPK_integer = 0
-
-        dtrtrs_(&uplo, &transChar, &diag, &n1, &nrhs, &a, &lda, &b, &ldb, &info)
-
-        if info != 0 {
+        guard let result = LinAlg.solveTriangular(A, b, lower: lower, trans: trans) else {
             throw LuaError.callbackError("linalg.solve_triangular: system is singular or computation failed")
         }
 
-        // Convert back to row-major
-        var result = [Double](repeating: 0, count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                result[i * colsB + j] = b[j * rowsB + i]
-            }
-        }
-
-        return createMatrixTable(rows: rowsB, cols: colsB, data: result)
+        return createMatrixTableFrom(result)
     }
 
-    /// Solve using Cholesky factorization: solve L*L^T*x = b
-    /// Takes L (lower triangular Cholesky factor) and b
     private static func choSolveCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2 else {
             throw LuaError.callbackError("linalg.cho_solve: requires L and b arguments")
         }
 
-        let (rowsL, colsL, dataL) = try extractMatrixData(args[0])
-        let (rowsB, colsB, dataB) = try extractMatrixData(args[1])
+        let L = try extractMatrix(args[0])
+        let b = try extractMatrix(args[1])
 
-        guard rowsL == colsL else {
+        guard L.rows == L.cols else {
             throw LuaError.callbackError("linalg.cho_solve: L must be square")
         }
 
-        guard rowsL == rowsB else {
+        guard L.rows == b.rows else {
             throw LuaError.callbackError("linalg.cho_solve: L and b must have compatible dimensions")
         }
 
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: rowsL * colsL)
-        for i in 0..<rowsL {
-            for j in 0..<colsL {
-                a[j * rowsL + i] = dataL[i * colsL + j]
-            }
-        }
-
-        var b = [Double](repeating: 0, count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                b[j * rowsB + i] = dataB[i * colsB + j]
-            }
-        }
-
-        var uplo = Int8(UInt8(ascii: "L"))
-        var n1 = __CLPK_integer(rowsL)
-        var nrhs = __CLPK_integer(colsB)
-        var lda = __CLPK_integer(rowsL)
-        var ldb = __CLPK_integer(rowsB)
-        var info: __CLPK_integer = 0
-
-        dpotrs_(&uplo, &n1, &nrhs, &a, &lda, &b, &ldb, &info)
-
-        if info != 0 {
+        guard let result = LinAlg.choSolve(L, b) else {
             throw LuaError.callbackError("linalg.cho_solve: computation failed")
         }
 
-        // Convert back to row-major
-        var result = [Double](repeating: 0, count: rowsB * colsB)
-        for i in 0..<rowsB {
-            for j in 0..<colsB {
-                result[i * colsB + j] = b[j * rowsB + i]
-            }
-        }
-
-        return createMatrixTable(rows: rowsB, cols: colsB, data: result)
+        return createMatrixTableFrom(result)
     }
 
-    /// Solve using LU factorization: solve P*L*U*x = b
-    /// Takes (L, U, P) from lu() decomposition and b
     private static func luSolveCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 4 else {
             throw LuaError.callbackError("linalg.lu_solve: requires L, U, P, and b arguments")
         }
 
-        let (rowsL, colsL, dataL) = try extractMatrixData(args[0])
-        let (rowsU, colsU, dataU) = try extractMatrixData(args[1])
-        let (rowsP, colsP, dataP) = try extractMatrixData(args[2])
-        let (rowsB, colsB, dataB) = try extractMatrixData(args[3])
+        let L = try extractMatrix(args[0])
+        let U = try extractMatrix(args[1])
+        let P = try extractMatrix(args[2])
+        let b = try extractMatrix(args[3])
 
-        guard rowsL == colsL && rowsU == colsU && rowsP == colsP else {
+        guard L.rows == L.cols && U.rows == U.cols && P.rows == P.cols else {
             throw LuaError.callbackError("linalg.lu_solve: L, U, P must be square")
         }
 
-        guard rowsL == rowsU && rowsL == rowsP else {
+        guard L.rows == U.rows && L.rows == P.rows else {
             throw LuaError.callbackError("linalg.lu_solve: L, U, P must have same dimensions")
         }
 
-        guard rowsL == rowsB else {
+        guard L.rows == b.rows else {
             throw LuaError.callbackError("linalg.lu_solve: dimensions must be compatible with b")
         }
 
-        let n = rowsL
-
-        // Apply P to b: P * b (permutation)
-        var pb = [Double](repeating: 0, count: rowsB * colsB)
-        for j in 0..<colsB {
-            for i in 0..<n {
-                var sum = 0.0
-                for k in 0..<n {
-                    sum += dataP[i * n + k] * dataB[k * colsB + j]
-                }
-                pb[i * colsB + j] = sum
-            }
-        }
-
-        // Solve L * y = P * b (forward substitution)
-        var y = pb
-        for j in 0..<colsB {
-            for i in 0..<n {
-                var sum = y[i * colsB + j]
-                for k in 0..<i {
-                    sum -= dataL[i * n + k] * y[k * colsB + j]
-                }
-                y[i * colsB + j] = sum / dataL[i * n + i]
-            }
-        }
-
-        // Solve U * x = y (back substitution)
-        var x = y
-        for j in 0..<colsB {
-            for i in stride(from: n - 1, through: 0, by: -1) {
-                var sum = x[i * colsB + j]
-                for k in (i + 1)..<n {
-                    sum -= dataU[i * n + k] * x[k * colsB + j]
-                }
-                x[i * colsB + j] = sum / dataU[i * n + i]
-            }
-        }
-
-        return createMatrixTable(rows: rowsB, cols: colsB, data: x)
+        let result = LinAlg.luSolve(L, U, P, b)
+        return createMatrixTableFrom(result)
     }
 
     // MARK: - Matrix Functions
 
-    /// Matrix exponential using Padé approximation with scaling and squaring
     private static func expmCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.expm: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.expm: matrix must be square")
         }
 
-        let n = rows
-
-        // Compute matrix norm (Frobenius) using BLAS
-        // cblas_dnrm2 computes sqrt(sum(x_i^2)) which is exactly the Frobenius norm
-        let normA = cblas_dnrm2(Int32(n * n), data, 1)
-
-        // Determine scaling factor s such that ||A/2^s|| < 1
-        var s = 0
-        var scale = 1.0
-        while normA / scale > 1.0 {
-            scale *= 2.0
-            s += 1
-        }
-
-        // Scale the matrix using vDSP for vectorized division
-        var A = [Double](repeating: 0, count: n * n)
-        var scaleVal = scale
-        vDSP_vsdivD(data, 1, &scaleVal, &A, 1, vDSP_Length(n * n))
-
-        // Padé approximation of order [6/6]
-        // coefficients
-        let c = [1.0, 0.5, 0.12, 0.01833333333333333,
-                 0.001992063492063492, 0.0001575312500000000,
-                 0.00000918114788107536]
-
-        // Build Padé numerator and denominator
-        // U = A * (c1*I + A^2 * (c3*I + A^2 * (c5*I + c7*A^2)))
-        // V = c0*I + A^2 * (c2*I + A^2 * (c4*I + c6*A^2))
-
-        // Compute A^2
-        let A2 = matmul(A, A, n)
-
-        // Compute A^4
-        let A4 = matmul(A2, A2, n)
-
-        // Compute A^6
-        let A6 = matmul(A2, A4, n)
-
-        // V = c[0]*I + c[2]*A^2 + c[4]*A^4 + c[6]*A^6
-        // Using vDSP for vectorized linear combinations
-        var V = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            V[i * n + i] = c[0]  // c0 * I (diagonal)
-        }
-        // V += c[2]*A2 using vDSP_vsmaD (scalar multiply and add)
-        var c2 = c[2]
-        vDSP_vsmaD(A2, 1, &c2, V, 1, &V, 1, vDSP_Length(n * n))
-        // V += c[4]*A4
-        var c4 = c[4]
-        vDSP_vsmaD(A4, 1, &c4, V, 1, &V, 1, vDSP_Length(n * n))
-        // V += c[6]*A6
-        var c6 = c[6]
-        vDSP_vsmaD(A6, 1, &c6, V, 1, &V, 1, vDSP_Length(n * n))
-
-        // U_inner = c[1]*I + c[3]*A^2 + c[5]*A^4
-        var Uinner = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            Uinner[i * n + i] = c[1]  // c1 * I (diagonal)
-        }
-        // Uinner += c[3]*A2
-        var c3 = c[3]
-        vDSP_vsmaD(A2, 1, &c3, Uinner, 1, &Uinner, 1, vDSP_Length(n * n))
-        // Uinner += c[5]*A4
-        var c5 = c[5]
-        vDSP_vsmaD(A4, 1, &c5, Uinner, 1, &Uinner, 1, vDSP_Length(n * n))
-
-        // U = A * U_inner
-        let U = matmul(A, Uinner, n)
-
-        // Padé approximant: exp(A) ≈ (V - U)^(-1) * (V + U)
-        // R = (V - U)^(-1) * (V + U)
-
-        // Compute V - U and V + U using vDSP for vectorized operations
-        var VminusU = [Double](repeating: 0, count: n * n)
-        var VplusU = [Double](repeating: 0, count: n * n)
-        vDSP_vsubD(U, 1, V, 1, &VminusU, 1, vDSP_Length(n * n))  // VminusU = V - U
-        vDSP_vaddD(V, 1, U, 1, &VplusU, 1, vDSP_Length(n * n))   // VplusU = V + U
-
-        // Solve (V - U) * R = (V + U) using LU factorization
-        var R = solveLinearSystem(VminusU, VplusU, n)
-
-        // Squaring: exp(A) = (exp(A/2^s))^(2^s)
-        for _ in 0..<s {
-            R = matmul(R, R, n)
-        }
-
-        return createMatrixTable(rows: n, cols: n, data: R)
+        return createMatrixTableFrom(LinAlg.expm(m))
     }
 
-    /// Helper: Matrix multiplication C = A * B for n x n matrices
-    /// Uses BLAS cblas_dgemm for hardware-accelerated, cache-optimized multiplication
-    private static func matmul(_ A: [Double], _ B: [Double], _ n: Int) -> [Double] {
-        var C = [Double](repeating: 0, count: n * n)
-        // cblas_dgemm: C = alpha * A * B + beta * C
-        // CblasRowMajor: matrices are in row-major order
-        // CblasNoTrans: no transpose on A or B
-        cblas_dgemm(
-            CblasRowMajor,           // Row-major storage
-            CblasNoTrans,            // Don't transpose A
-            CblasNoTrans,            // Don't transpose B
-            Int32(n),                // M: rows of A (and C)
-            Int32(n),                // N: cols of B (and C)
-            Int32(n),                // K: cols of A, rows of B
-            1.0,                     // alpha: scalar multiplier for A*B
-            A,                       // Matrix A
-            Int32(n),                // lda: leading dimension of A
-            B,                       // Matrix B
-            Int32(n),                // ldb: leading dimension of B
-            0.0,                     // beta: scalar multiplier for C (0 = overwrite)
-            &C,                      // Matrix C (output)
-            Int32(n)                 // ldc: leading dimension of C
-        )
-        return C
-    }
-
-    /// Helper: Solve A * X = B for X, where A and B are n x n matrices
-    private static func solveLinearSystem(_ A: [Double], _ B: [Double], _ n: Int) -> [Double] {
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                a[j * n + i] = A[i * n + j]
-            }
-        }
-
-        var b = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                b[j * n + i] = B[i * n + j]
-            }
-        }
-
-        var n1 = __CLPK_integer(n)
-        var nrhs = __CLPK_integer(n)
-        var lda = __CLPK_integer(n)
-        var ipiv = [__CLPK_integer](repeating: 0, count: n)
-        var ldb = __CLPK_integer(n)
-        var info: __CLPK_integer = 0
-
-        dgesv_(&n1, &nrhs, &a, &lda, &ipiv, &b, &ldb, &info)
-
-        // Convert back to row-major
-        var result = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                result[i * n + j] = b[j * n + i]
-            }
-        }
-
-        return result
-    }
-
-    // MARK: - Matrix Logarithm (logm)
-
-    /// Matrix logarithm using eigendecomposition
-    /// log(A) = V * diag(log(λ)) * V^(-1) for diagonalizable matrices
     private static func logmCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.logm: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.logm: matrix must be square")
         }
 
-        let n = rows
-
-        // Compute eigendecomposition using LAPACK dgeev
-        let (eigenvalues, eigenvectors) = try computeEigendecomposition(data, n)
-
-        // Check for non-positive eigenvalues
-        for ev in eigenvalues {
-            if ev <= 0 {
-                throw LuaError.callbackError("linalg.logm: matrix has non-positive eigenvalues, logarithm undefined")
-            }
+        guard let result = LinAlg.logm(m) else {
+            throw LuaError.callbackError("linalg.logm: matrix has non-positive eigenvalues, logarithm undefined")
         }
 
-        // Apply log to eigenvalues
-        let logEigenvalues = eigenvalues.map { log($0) }
-
-        // Reconstruct: logA = V * diag(log(λ)) * V^(-1)
-        let result = reconstructFromEigen(eigenvectors, logEigenvalues, n)
-
-        return createMatrixTable(rows: n, cols: n, data: result)
+        return createMatrixTableFrom(result)
     }
 
-    // MARK: - Matrix Square Root (sqrtm)
-
-    /// Matrix square root using eigendecomposition
-    /// sqrt(A) = V * diag(sqrt(λ)) * V^(-1) for diagonalizable matrices
     private static func sqrtmCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.callbackError("linalg.sqrtm: missing argument")
         }
 
-        let (rows, cols, data) = try extractMatrixData(arg)
+        let m = try extractMatrix(arg)
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.sqrtm: matrix must be square")
         }
 
-        let n = rows
-
-        // Compute eigendecomposition using LAPACK dgeev
-        let (eigenvalues, eigenvectors) = try computeEigendecomposition(data, n)
-
-        // Check for negative eigenvalues
-        for ev in eigenvalues {
-            if ev < 0 {
-                throw LuaError.callbackError("linalg.sqrtm: matrix has negative eigenvalues, real square root undefined")
-            }
+        guard let result = LinAlg.sqrtm(m) else {
+            throw LuaError.callbackError("linalg.sqrtm: matrix has negative eigenvalues, real square root undefined")
         }
 
-        // Apply sqrt to eigenvalues
-        let sqrtEigenvalues = eigenvalues.map { sqrt($0) }
-
-        // Reconstruct: sqrtA = V * diag(sqrt(λ)) * V^(-1)
-        let result = reconstructFromEigen(eigenvectors, sqrtEigenvalues, n)
-
-        return createMatrixTable(rows: n, cols: n, data: result)
+        return createMatrixTableFrom(result)
     }
 
-    // MARK: - General Matrix Function (funm)
-
-    /// General matrix function using eigendecomposition
-    /// f(A) = V * diag(f(λ)) * V^(-1) for diagonalizable matrices
-    /// Note: For this implementation, we support common built-in functions
-    /// (sin, cos, exp, log, sqrt) as string identifiers
     private static func funmCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2 else {
             throw LuaError.callbackError("linalg.funm: requires matrix and function arguments")
         }
 
-        let (rows, cols, data) = try extractMatrixData(args[0])
+        let m = try extractMatrix(args[0])
 
-        guard rows == cols else {
+        guard m.rows == m.cols else {
             throw LuaError.callbackError("linalg.funm: matrix must be square")
         }
 
-        let n = rows
-
-        // Get the function name or use a built-in
-        let funcName: String
-        if case let .string(name) = args[1] {
-            funcName = name
-        } else {
+        guard case let .string(funcName) = args[1] else {
             throw LuaError.callbackError("linalg.funm: function must be a string name (sin, cos, exp, log, sqrt, sinh, cosh, tanh)")
         }
 
-        // Compute eigendecomposition using LAPACK dgeev
-        let (eigenvalues, eigenvectors) = try computeEigendecomposition(data, n)
-
-        // Apply the function to eigenvalues
-        let transformedEigenvalues: [Double]
+        let matrixFunc: LinAlg.MatrixFunction
         switch funcName {
         case "sin":
-            transformedEigenvalues = eigenvalues.map { sin($0) }
+            matrixFunc = .sin
         case "cos":
-            transformedEigenvalues = eigenvalues.map { cos($0) }
+            matrixFunc = .cos
         case "exp":
-            transformedEigenvalues = eigenvalues.map { exp($0) }
+            matrixFunc = .exp
         case "log":
-            for ev in eigenvalues {
-                if ev <= 0 {
-                    throw LuaError.callbackError("linalg.funm: log requires positive eigenvalues")
-                }
-            }
-            transformedEigenvalues = eigenvalues.map { log($0) }
+            matrixFunc = .log
         case "sqrt":
-            for ev in eigenvalues {
-                if ev < 0 {
-                    throw LuaError.callbackError("linalg.funm: sqrt requires non-negative eigenvalues")
-                }
-            }
-            transformedEigenvalues = eigenvalues.map { sqrt($0) }
+            matrixFunc = .sqrt
         case "sinh":
-            transformedEigenvalues = eigenvalues.map { sinh($0) }
+            matrixFunc = .sinh
         case "cosh":
-            transformedEigenvalues = eigenvalues.map { cosh($0) }
+            matrixFunc = .cosh
         case "tanh":
-            transformedEigenvalues = eigenvalues.map { tanh($0) }
+            matrixFunc = .tanh
         case "abs":
-            transformedEigenvalues = eigenvalues.map { abs($0) }
+            matrixFunc = .abs
         default:
             throw LuaError.callbackError("linalg.funm: unsupported function '\(funcName)'. Use: sin, cos, exp, log, sqrt, sinh, cosh, tanh, abs")
         }
 
-        // Reconstruct: f(A) = V * diag(f(λ)) * V^(-1)
-        let result = reconstructFromEigen(eigenvectors, transformedEigenvalues, n)
-
-        return createMatrixTable(rows: n, cols: n, data: result)
-    }
-
-    // MARK: - Eigendecomposition Helpers
-
-    /// Compute eigendecomposition and return (eigenvalues, eigenvectors)
-    /// Returns real eigenvalues only; throws if complex eigenvalues are present
-    private static func computeEigendecomposition(_ data: [Double], _ n: Int) throws -> ([Double], [Double]) {
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                a[j * n + i] = data[i * n + j]
-            }
+        guard let result = LinAlg.funm(m, matrixFunc) else {
+            throw LuaError.callbackError("linalg.funm: function application failed (check eigenvalue constraints)")
         }
 
-        var n1 = __CLPK_integer(n)
-        var lda1 = __CLPK_integer(n)
-        var wr = [Double](repeating: 0, count: n)  // Real parts
-        var wi = [Double](repeating: 0, count: n)  // Imaginary parts
-        var vl = [Double](repeating: 0, count: 1)  // Left eigenvectors (not computed)
-        var vr = [Double](repeating: 0, count: n * n)  // Right eigenvectors
-        var ldvl: __CLPK_integer = 1
-        var ldvr = __CLPK_integer(n)
-        var info: __CLPK_integer = 0
-
-        // Query workspace
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var jobvl = Int8(UInt8(ascii: "N"))
-        var jobvr = Int8(UInt8(ascii: "V"))
-
-        dgeev_(&jobvl, &jobvr, &n1, &a, &lda1, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        // Reset a for actual computation
-        for i in 0..<n {
-            for j in 0..<n {
-                a[j * n + i] = data[i * n + j]
-            }
-        }
-
-        var n2 = __CLPK_integer(n)
-        var lda2 = __CLPK_integer(n)
-        dgeev_(&jobvl, &jobvr, &n2, &a, &lda2, &wr, &wi, &vl, &ldvl, &vr, &ldvr, &work, &lwork, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("eigendecomposition failed")
-        }
-
-        // Check for complex eigenvalues
-        for im in wi {
-            if abs(im) > 1e-10 {
-                throw LuaError.callbackError("matrix has complex eigenvalues; real-only implementation")
-            }
-        }
-
-        // Convert eigenvectors to row-major
-        var vecs = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                vecs[i * n + j] = vr[j * n + i]
-            }
-        }
-
-        return (wr, vecs)
-    }
-
-    /// Reconstruct matrix from eigendecomposition: A = V * diag(λ) * V^(-1)
-    private static func reconstructFromEigen(_ V: [Double], _ eigenvalues: [Double], _ n: Int) -> [Double] {
-        // Compute V^(-1)
-        let Vinv = invertMatrix(V, n)
-
-        // Compute V * diag(λ)
-        var VD = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                VD[i * n + j] = V[i * n + j] * eigenvalues[j]
-            }
-        }
-
-        // Compute (V * diag(λ)) * V^(-1)
-        return matmul(VD, Vinv, n)
-    }
-
-    /// Invert matrix using LU decomposition
-    private static func invertMatrix(_ M: [Double], _ n: Int) -> [Double] {
-        // Convert to column-major for LAPACK
-        var a = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                a[j * n + i] = M[i * n + j]
-            }
-        }
-
-        var n1 = __CLPK_integer(n)
-        var n1b = __CLPK_integer(n)
-        var lda = __CLPK_integer(n)
-        var ipiv = [__CLPK_integer](repeating: 0, count: n)
-        var info: __CLPK_integer = 0
-
-        // LU factorization
-        dgetrf_(&n1, &n1b, &a, &lda, &ipiv, &info)
-
-        if info != 0 {
-            return M // Return original if factorization fails
-        }
-
-        // Query workspace for inversion
-        var lwork: __CLPK_integer = -1
-        var work = [Double](repeating: 0, count: 1)
-        var n2 = __CLPK_integer(n)
-        var lda2 = __CLPK_integer(n)
-
-        dgetri_(&n2, &a, &lda2, &ipiv, &work, &lwork, &info)
-
-        lwork = __CLPK_integer(work[0])
-        work = [Double](repeating: 0, count: Int(lwork))
-
-        // Compute inverse
-        var n3 = __CLPK_integer(n)
-        var lda3 = __CLPK_integer(n)
-        dgetri_(&n3, &a, &lda3, &ipiv, &work, &lwork, &info)
-
-        // Convert back to row-major
-        var result = [Double](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in 0..<n {
-                result[i * n + j] = a[j * n + i]
-            }
-        }
-
-        return result
+        return createMatrixTableFrom(result)
     }
 }

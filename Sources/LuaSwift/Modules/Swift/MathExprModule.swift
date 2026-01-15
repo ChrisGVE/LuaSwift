@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import NumericSwift
 
 /// Swift-backed mathematical expression module for LuaSwift.
 ///

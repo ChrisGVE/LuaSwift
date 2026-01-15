@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import NumericSwift
 
 /// Swift-backed Series evaluation module for LuaSwift.
 ///
@@ -42,22 +43,24 @@ public struct SeriesModule {
     /// Default maximum iterations to prevent infinite loops
     private static let defaultMaxIterations: Int = 10000
 
-    /// Cache for factorial values
-    private static var factorialCache: [Int: Double] = [0: 1, 1: 1]
+    // MARK: - Name Mapping
 
-    /// Lock for thread-safe cache access
-    private static let cacheLock = NSLock()
+    /// Map Lua function names to NumericSwift function names
+    private static let luaToNumericSwiftName: [String: String] = [
+        "geometric_alt": "geometricAlt"
+    ]
 
     // MARK: - Taylor Series Coefficients (Analytical)
 
-    /// Known Taylor series coefficients at x=0 for common functions
+    /// Known Taylor series coefficients at x=0 for common functions.
+    /// Uses NumericSwift.factorial for computations.
     private static let taylorCoefficients: [String: (Int) -> Double] = [
         // sin(x) = x - x^3/3! + x^5/5! - ...
         // Coefficient of x^n: 0 if n even, (-1)^((n-1)/2) / n! if n odd
         "sin": { n in
             if n % 2 == 0 { return 0 }
             let sign = ((n - 1) / 2) % 2 == 0 ? 1.0 : -1.0
-            return sign / factorial(n)
+            return sign / NumericSwift.factorial(n)
         },
 
         // cos(x) = 1 - x^2/2! + x^4/4! - ...
@@ -65,13 +68,13 @@ public struct SeriesModule {
         "cos": { n in
             if n % 2 != 0 { return 0 }
             let sign = (n / 2) % 2 == 0 ? 1.0 : -1.0
-            return sign / factorial(n)
+            return sign / NumericSwift.factorial(n)
         },
 
         // exp(x) = 1 + x + x^2/2! + x^3/3! + ...
         // Coefficient of x^n: 1/n!
         "exp": { n in
-            return 1.0 / factorial(n)
+            return 1.0 / NumericSwift.factorial(n)
         },
 
         // log(1+x) = x - x^2/2 + x^3/3 - x^4/4 + ...
@@ -86,14 +89,14 @@ public struct SeriesModule {
         // Coefficient of x^n: 0 if n even, 1/n! if n odd
         "sinh": { n in
             if n % 2 == 0 { return 0 }
-            return 1.0 / factorial(n)
+            return 1.0 / NumericSwift.factorial(n)
         },
 
         // cosh(x) = 1 + x^2/2! + x^4/4! + ...
         // Coefficient of x^n: 0 if n odd, 1/n! if n even
         "cosh": { n in
             if n % 2 != 0 { return 0 }
-            return 1.0 / factorial(n)
+            return 1.0 / NumericSwift.factorial(n)
         },
 
         // tan(x) = x + x^3/3 + 2x^5/15 + 17x^7/315 + ...
@@ -117,7 +120,7 @@ public struct SeriesModule {
         },
 
         // 1/(1-x) = 1 + x + x^2 + x^3 + ... (geometric series)
-        "geometric": { n in
+        "geometric": { _ in
             return 1.0
         },
 
@@ -142,114 +145,6 @@ public struct SeriesModule {
             return n % 2 == 0 ? 1.0 : -1.0
         }
     ]
-
-    // MARK: - Helper Functions
-
-    /// Compute factorial with caching
-    private static func factorial(_ n: Int) -> Double {
-        if n < 0 { return Double.nan }
-        if n > 170 { return Double.infinity } // Overflow
-
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if let cached = factorialCache[n] {
-            return cached
-        }
-
-        // Compute from highest cached value
-        var result = factorialCache[factorialCache.count - 1] ?? 1.0
-        for i in factorialCache.count...n {
-            result *= Double(i)
-            factorialCache[i] = result
-        }
-
-        return result
-    }
-
-    /// Chebyshev-like point distribution for numerical Taylor approximation
-    /// Uses cos(linspace(0, pi, n)) for stability
-    private static func chebyshevPoints(center: Double, scale: Double, count: Int) -> [Double] {
-        var points: [Double] = []
-        for i in 0..<count {
-            let t = Double(i) / Double(count - 1) * Double.pi
-            points.append(scale * cos(t) + center)
-        }
-        return points
-    }
-
-    /// Divided differences for polynomial interpolation (Krogh-style)
-    private static func dividedDifferences(xs: [Double], ys: [Double]) -> [Double] {
-        let n = xs.count
-        var table = Array(repeating: Array(repeating: 0.0, count: n), count: n)
-
-        // Initialize with y values
-        for i in 0..<n {
-            table[i][0] = ys[i]
-        }
-
-        // Compute divided differences
-        for j in 1..<n {
-            for i in 0..<(n - j) {
-                table[i][j] = (table[i + 1][j - 1] - table[i][j - 1]) / (xs[i + j] - xs[i])
-            }
-        }
-
-        return (0..<n).map { table[0][$0] }
-    }
-
-    /// Evaluate interpolating polynomial derivatives at a point using Newton form
-    private static func polynomialDerivatives(coeffs: [Double], xs: [Double], at x: Double, maxDer: Int) -> [Double] {
-        let n = coeffs.count
-        var derivatives = Array(repeating: 0.0, count: maxDer + 1)
-
-        // Build polynomial in Newton form and extract derivatives
-        // P(x) = c0 + c1(x-x0) + c2(x-x0)(x-x1) + ...
-
-        // For derivatives, we need to use the Taylor expansion approach
-        // This is a simplified version - full Krogh interpolation would be more accurate
-
-        // Evaluate polynomial and its derivatives using Horner-like scheme
-        var poly = Array(repeating: 0.0, count: n)
-        poly[n - 1] = coeffs[n - 1]
-
-        for i in stride(from: n - 2, through: 0, by: -1) {
-            for j in stride(from: n - 1, through: i + 1, by: -1) {
-                poly[j - 1] = poly[j] * (x - xs[i]) + poly[j - 1]
-            }
-            poly[i] = coeffs[i]
-            for j in (i + 1)..<n {
-                poly[j] = poly[j] * (x - xs[i])
-            }
-        }
-
-        // Extract Taylor coefficients at x
-        // This requires computing derivatives of the Newton form
-        derivatives[0] = poly[0]
-
-        // For higher derivatives, use numerical differentiation as approximation
-        let h = 1e-6
-        var values: [Double] = []
-        for k in -4...4 {
-            let xk = x + Double(k) * h
-            var val = coeffs[n - 1]
-            for i in stride(from: n - 2, through: 0, by: -1) {
-                val = val * (xk - xs[i]) + coeffs[i]
-            }
-            values.append(val)
-        }
-
-        // Finite difference approximations for derivatives
-        if maxDer >= 1 {
-            derivatives[1] = (-values[2] + 8 * values[3] - 8 * values[5] + values[6]) / (12 * h)
-        }
-        if maxDer >= 2 {
-            derivatives[2] = (-values[2] + 16 * values[3] - 30 * values[4] + 16 * values[5] - values[6]) / (12 * h * h)
-        }
-        // Higher derivatives would need wider stencils
-
-        return derivatives
-    }
 
     // MARK: - Public API
 
@@ -368,9 +263,9 @@ public struct SeriesModule {
         let scale = options["scale"]?.numberValue ?? 0.1
         let order = options["order"]?.numberValue.map { Int($0) } ?? (degree + 5) // Extra for stability
 
-        // Generate Chebyshev-like evaluation points
+        // Generate Chebyshev-like evaluation points using NumericSwift
         let n = order + 1
-        let points = chebyshevPoints(center: at, scale: scale, count: n)
+        let points = NumericSwift.chebyshevPoints(center: at, scale: scale, count: n)
 
         return .table([
             "points": .array(points.map { .number($0) }),
@@ -400,7 +295,7 @@ public struct SeriesModule {
         ])
     }
 
-    /// Evaluate polynomial at a point
+    /// Evaluate polynomial at a point using NumericSwift.polyval
     private static let evalPolyCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 2,
               case .array(let coeffsArray) = args[0] else {
@@ -415,13 +310,8 @@ public struct SeriesModule {
             return .number(0.0)
         }
 
-        // Evaluate using Horner's method: c0 + c1*(x-a) + c2*(x-a)^2 + ...
-        let dx = x - center
-        var result = coeffs[coeffs.count - 1]
-        for i in stride(from: coeffs.count - 2, through: 0, by: -1) {
-            result = result * dx + coeffs[i]
-        }
-
+        // Use NumericSwift's polyval with center support
+        let result = NumericSwift.polyval(coeffs, at: x, center: center)
         return .number(result)
     }
 

@@ -10,6 +10,7 @@
 
 import Foundation
 import Darwin
+import NumericSwift
 
 /// Swift-backed special mathematical functions module for LuaSwift.
 ///
@@ -502,20 +503,17 @@ public struct SpecialModule {
         return .number(Darwin.erfc(x))
     }
 
-    /// Beta function B(a,b) = gamma(a)*gamma(b)/gamma(a+b)
+    /// Beta function B(a,b) = gamma(a)*gamma(b)/gamma(a+b) using NumericSwift
     private static func betaCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2,
               let a = args[0].numberValue,
               let b = args[1].numberValue else {
             throw LuaError.runtimeError("beta: expected two numbers")
         }
-        // Use log-gamma for numerical stability
-        let result = exp(lgamma(a) + lgamma(b) - lgamma(a + b))
-        return .number(result)
+        return .number(NumericSwift.beta(a, b))
     }
 
-    /// Regularized incomplete beta function I_x(a,b)
-    /// Uses continued fraction representation for computation
+    /// Regularized incomplete beta function I_x(a,b) using NumericSwift
     private static func betaincCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 3,
               let a = args[0].numberValue,
@@ -528,8 +526,7 @@ public struct SpecialModule {
         if x <= 0 { return .number(0) }
         if x >= 1 { return .number(1) }
 
-        let result = regularizedIncompleteBeta(a: a, b: b, x: x)
-        return .number(result)
+        return .number(NumericSwift.betainc(a, b, x))
     }
 
     /// Bessel function of the first kind, order 0
@@ -595,17 +592,17 @@ public struct SpecialModule {
 
     // MARK: - Modified Bessel Functions
 
-    /// Modified Bessel function of the first kind I_n(x)
+    /// Modified Bessel function of the first kind I_n(x) using NumericSwift
     private static func besseliCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2,
               let n = args[0].numberValue,
               let x = args[1].numberValue else {
             throw LuaError.runtimeError("besseli: expected two numbers")
         }
-        return .number(besseli(Int(n), x))
+        return .number(NumericSwift.besseli(Int(n), x))
     }
 
-    /// Modified Bessel function of the second kind K_n(x)
+    /// Modified Bessel function of the second kind K_n(x) using NumericSwift
     private static func besselkCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2,
               let n = args[0].numberValue,
@@ -615,242 +612,20 @@ public struct SpecialModule {
         if x <= 0 {
             return .number(.infinity)
         }
-        return .number(besselk(Int(n), x))
-    }
-
-    /// Compute I_n(x) - Modified Bessel function of the first kind
-    /// Uses series expansion for small x and asymptotic expansion for large x
-    private static func besseli(_ n: Int, _ x: Double) -> Double {
-        let absN = abs(n)
-
-        // Handle x = 0
-        if x == 0 {
-            return absN == 0 ? 1.0 : 0.0
-        }
-
-        let absX = abs(x)
-
-        // Use series expansion for moderate x
-        if absX <= 20.0 + Double(absN) {
-            return besseliSeries(absN, absX)
-        } else {
-            // Asymptotic expansion for large x
-            return besseliAsymptotic(absN, absX)
-        }
-    }
-
-    /// Series expansion for I_n(x)
-    /// I_n(x) = (x/2)^n * sum_{k=0}^∞ (x²/4)^k / (k! * (n+k)!)
-    private static func besseliSeries(_ n: Int, _ x: Double) -> Double {
-        let halfX = x / 2.0
-        let quarterX2 = halfX * halfX
-        let eps = 1.0e-15
-        let maxIterations = 200
-
-        // Start with the leading factor (x/2)^n
-        var term = pow(halfX, Double(n)) / tgamma(Double(n) + 1.0)
-        var sum = term
-
-        for k in 1...maxIterations {
-            term *= quarterX2 / (Double(k) * Double(n + k))
-            sum += term
-            if abs(term) < abs(sum) * eps {
-                break
-            }
-        }
-
-        return sum
-    }
-
-    /// Asymptotic expansion for I_n(x) for large x
-    /// I_n(x) ≈ exp(x) / sqrt(2πx) * (1 - μ/(8x) + ...)
-    /// where μ = 4n²
-    private static func besseliAsymptotic(_ n: Int, _ x: Double) -> Double {
-        let mu = 4.0 * Double(n * n)
-        let x8 = 8.0 * x
-
-        // First few terms of the asymptotic series
-        var sum = 1.0
-        var term = 1.0
-        let eps = 1.0e-15
-
-        for k in 1...10 {
-            let k2m1 = Double(2 * k - 1)
-            term *= -(mu - k2m1 * k2m1) / (Double(k) * x8)
-            let newSum = sum + term
-            if abs(term) < abs(sum) * eps {
-                break
-            }
-            sum = newSum
-        }
-
-        return exp(x) / sqrt(2.0 * .pi * x) * sum
-    }
-
-    /// Compute K_n(x) - Modified Bessel function of the second kind
-    private static func besselk(_ n: Int, _ x: Double) -> Double {
-        let absN = abs(n)  // K_n = K_{-n}
-
-        // Handle special cases
-        if x <= 0 {
-            return .infinity
-        }
-
-        // Use different methods based on x size
-        if x <= 2.0 {
-            return besselkSmall(absN, x)
-        } else {
-            return besselkAsymptotic(absN, x)
-        }
-    }
-
-    /// K_n(x) for small x using the relationship with I_n
-    /// K_0(x) = -ln(x/2)*I_0(x) + series
-    /// K_n(x) computed via recurrence from K_0 and K_1
-    private static func besselkSmall(_ n: Int, _ x: Double) -> Double {
-        // Compute K_0(x) and K_1(x) first
-        let k0 = besselk0Small(x)
-        if n == 0 { return k0 }
-
-        let k1 = besselk1Small(x)
-        if n == 1 { return k1 }
-
-        // Use upward recurrence: K_{n+1}(x) = K_{n-1}(x) + (2n/x)*K_n(x)
-        var kPrev = k0
-        var kCurr = k1
-        for m in 1..<n {
-            let kNext = kPrev + (2.0 * Double(m) / x) * kCurr
-            kPrev = kCurr
-            kCurr = kNext
-        }
-
-        return kCurr
-    }
-
-    /// K_0(x) for small x
-    private static func besselk0Small(_ x: Double) -> Double {
-        let halfX = x / 2.0
-        let quarterX2 = halfX * halfX
-        let gamma = 0.5772156649015329  // Euler-Mascheroni constant
-
-        // K_0(x) = -ln(x/2)*I_0(x) + sum_{k=0}^∞ (x²/4)^k * ψ(k+1) / (k!)²
-        // where ψ(k+1) = -γ + sum_{j=1}^k 1/j
-
-        let i0 = besseliSeries(0, x)
-
-        var sum = 0.0
-        var term = 1.0
-        var psi = -gamma
-
-        sum += term * psi
-
-        for k in 1...50 {
-            psi += 1.0 / Double(k)
-            term *= quarterX2 / Double(k * k)
-            sum += term * psi
-            if abs(term) < 1.0e-15 * abs(sum) {
-                break
-            }
-        }
-
-        return -log(halfX) * i0 + sum
-    }
-
-    /// K_1(x) for small x
-    private static func besselk1Small(_ x: Double) -> Double {
-        let halfX = x / 2.0
-        let quarterX2 = halfX * halfX
-        let gamma = 0.5772156649015329
-
-        // K_1(x) = ln(x/2)*I_1(x) + (1/x) + series
-        let i1 = besseliSeries(1, x)
-
-        var sum = 0.0
-        var term = halfX
-        var psiK = -gamma
-        var psiK1 = 1.0 - gamma
-
-        sum += term * (psiK + psiK1) / 2.0
-
-        for k in 1...50 {
-            psiK += 1.0 / Double(k)
-            psiK1 += 1.0 / Double(k + 1)
-            term *= quarterX2 / (Double(k) * Double(k + 1))
-            sum += term * (psiK + psiK1) / 2.0
-            if abs(term) < 1.0e-15 * abs(sum) {
-                break
-            }
-        }
-
-        return log(halfX) * i1 + 1.0 / x - sum
-    }
-
-    /// Asymptotic expansion for K_n(x) for large x
-    /// K_n(x) ≈ sqrt(π/(2x)) * exp(-x) * (1 + μ/(8x) + ...)
-    private static func besselkAsymptotic(_ n: Int, _ x: Double) -> Double {
-        let mu = 4.0 * Double(n * n)
-        let x8 = 8.0 * x
-
-        // Asymptotic series
-        var sum = 1.0
-        var term = 1.0
-        let eps = 1.0e-15
-
-        for k in 1...20 {
-            let k2m1 = Double(2 * k - 1)
-            term *= (mu - k2m1 * k2m1) / (Double(k) * x8)
-            let newSum = sum + term
-            if abs(term) < abs(sum) * eps {
-                break
-            }
-            sum = newSum
-        }
-
-        return sqrt(.pi / (2.0 * x)) * exp(-x) * sum
+        return .number(NumericSwift.besselk(Int(n), x))
     }
 
     // MARK: - Digamma and Gamma Functions
 
-    /// Digamma function ψ(x) = d/dx ln(Γ(x))
-    /// Uses asymptotic expansion for large x and recurrence for small x
+    /// Digamma function ψ(x) = d/dx ln(Γ(x)) using NumericSwift
     private static func digammaCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let x = args.first?.numberValue else {
             throw LuaError.runtimeError("digamma: expected number")
         }
-        return .number(digamma(x))
+        return .number(NumericSwift.digamma(x))
     }
 
-    /// Compute the digamma function
-    private static func digamma(_ x: Double) -> Double {
-        var z = x
-        var result = 0.0
-
-        // Reflection formula for x < 0.5: ψ(1-x) - ψ(x) = π*cot(πx)
-        // So: ψ(x) = ψ(1-x) - π*cot(πx)
-        if z < 0.5 {
-            return digamma(1.0 - z) - Double.pi / tan(Double.pi * z)
-        }
-
-        // Recurrence relation: ψ(x+1) = ψ(x) + 1/x
-        // Use this to shift x to a larger value where asymptotic expansion is accurate
-        while z < 6.0 {
-            result -= 1.0 / z
-            z += 1.0
-        }
-
-        // Asymptotic expansion for large z:
-        // ψ(z) ≈ ln(z) - 1/(2z) - 1/(12z²) + 1/(120z⁴) - 1/(252z⁶) + ...
-        result += log(z) - 0.5 / z
-
-        let z2 = 1.0 / (z * z)
-        // Bernoulli number coefficients: B₂/2 = 1/12, B₄/4 = -1/120, B₆/6 = 1/252, B₈/8 = -1/240
-        result -= z2 * (1.0/12.0 - z2 * (1.0/120.0 - z2 * (1.0/252.0 - z2 * 1.0/240.0)))
-
-        return result
-    }
-
-    /// Inverse error function erfinv(x)
-    /// Uses rational approximation for high accuracy
+    /// Inverse error function erfinv(x) using NumericSwift
     private static func erfinvCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let x = args.first?.numberValue else {
             throw LuaError.runtimeError("erfinv: expected number")
@@ -860,46 +635,10 @@ public struct SpecialModule {
             throw LuaError.runtimeError("erfinv: x must be in (-1, 1)")
         }
 
-        return .number(erfinv(x))
+        return .number(NumericSwift.erfinv(x))
     }
 
-    /// Compute inverse error function using rational approximation
-    private static func erfinv(_ x: Double) -> Double {
-        if x == 0 { return 0 }
-
-        let a = abs(x)
-
-        // For |x| <= 0.7, use central approximation
-        if a <= 0.7 {
-            let x2 = x * x
-            let r = x * ((((-0.140543331 * x2 + 0.914624893) * x2 - 1.645349621) * x2 + 0.886226899))
-            let s = (((0.012229801 * x2 - 0.329097515) * x2 + 1.442710462) * x2 - 2.118377725) * x2 + 1.0
-            return r / s
-        }
-
-        // For |x| > 0.7, use tail approximation
-        let y = sqrt(-log((1.0 - a) / 2.0))
-
-        // Rational approximation for the tail
-        let r: Double
-        if y <= 5.0 {
-            let t = y - 1.6
-            r = ((((((0.00077454501427834 * t + 0.0227238449892691) * t + 0.24178072517745) * t +
-                   1.27045825245237) * t + 3.64784832476320) * t + 5.76949722146069) * t + 4.63033784615655) /
-                ((((((0.00080529518738563 * t + 0.02287663117085) * t + 0.23601290952344) * t +
-                   1.21357729517684) * t + 3.34305755540406) * t + 4.77629303102970) * t + 1.0)
-        } else {
-            let t = y - 5.0
-            r = ((((((0.0000100950558 * t + 0.000280756651) * t + 0.00326196717) * t +
-                   0.0206706341) * t + 0.0783478783) * t + 0.169827922) * t + 0.161895932) /
-                ((((((0.0000100950558 * t + 0.000280756651) * t + 0.00326196717) * t +
-                   0.0206706341) * t + 0.0783478783) * t + 0.169827922) * t + 1.0)
-        }
-
-        return x >= 0 ? r : -r
-    }
-
-    /// Inverse complementary error function erfcinv(x)
+    /// Inverse complementary error function erfcinv(x) using NumericSwift
     private static func erfcinvCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let x = args.first?.numberValue else {
             throw LuaError.runtimeError("erfcinv: expected number")
@@ -909,11 +648,10 @@ public struct SpecialModule {
             throw LuaError.runtimeError("erfcinv: x must be in (0, 2)")
         }
 
-        // erfcinv(x) = erfinv(1 - x)
-        return .number(erfinv(1.0 - x))
+        return .number(NumericSwift.erfcinv(x))
     }
 
-    /// Lower regularized incomplete gamma function P(a, x)
+    /// Lower regularized incomplete gamma function P(a, x) using NumericSwift
     private static func gammaincCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2,
               let a = args[0].numberValue,
@@ -928,10 +666,10 @@ public struct SpecialModule {
             throw LuaError.runtimeError("gammainc: x must be non-negative")
         }
 
-        return .number(gammainc(a, x))
+        return .number(NumericSwift.gammainc(a, x))
     }
 
-    /// Upper regularized incomplete gamma function Q(a, x) = 1 - P(a, x)
+    /// Upper regularized incomplete gamma function Q(a, x) = 1 - P(a, x) using NumericSwift
     private static func gammainccCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2,
               let a = args[0].numberValue,
@@ -946,141 +684,12 @@ public struct SpecialModule {
             throw LuaError.runtimeError("gammaincc: x must be non-negative")
         }
 
-        return .number(1.0 - gammainc(a, x))
-    }
-
-    /// Compute the lower regularized incomplete gamma function P(a, x)
-    /// Uses series expansion for x < a+1, continued fraction for x >= a+1
-    private static func gammainc(_ a: Double, _ x: Double) -> Double {
-        if x == 0 { return 0 }
-        if x < 0 { return 0 }
-
-        // Choose method based on relative sizes of a and x
-        if x < a + 1 {
-            return gammaincSeries(a, x)
-        } else {
-            return 1.0 - gammaincCF(a, x)
-        }
-    }
-
-    /// Series expansion for lower incomplete gamma
-    /// P(a,x) = exp(-x) * x^a * sum_{n=0}^∞ x^n / Γ(a+n+1)
-    private static func gammaincSeries(_ a: Double, _ x: Double) -> Double {
-        let eps = 1.0e-15
-        let maxIterations = 200
-
-        var sum = 1.0 / a
-        var term = 1.0 / a
-
-        for n in 1...maxIterations {
-            term *= x / (a + Double(n))
-            sum += term
-            if abs(term) < abs(sum) * eps {
-                break
-            }
-        }
-
-        return sum * exp(-x + a * log(x) - lgamma(a))
-    }
-
-    /// Continued fraction for upper incomplete gamma
-    /// Q(a,x) = exp(-x) * x^a * CF / Γ(a)
-    private static func gammaincCF(_ a: Double, _ x: Double) -> Double {
-        let eps = 1.0e-15
-        let maxIterations = 200
-
-        // Lentz's algorithm
-        var b = x + 1.0 - a
-        var c = 1.0 / 1.0e-30
-        var d = 1.0 / b
-        var h = d
-
-        for i in 1...maxIterations {
-            let an = -Double(i) * (Double(i) - a)
-            b += 2.0
-            d = an * d + b
-            if abs(d) < 1.0e-30 { d = 1.0e-30 }
-            c = b + an / c
-            if abs(c) < 1.0e-30 { c = 1.0e-30 }
-            d = 1.0 / d
-            let del = d * c
-            h *= del
-            if abs(del - 1.0) < eps {
-                break
-            }
-        }
-
-        return exp(-x + a * log(x) - lgamma(a)) * h
-    }
-
-    // MARK: - Helper Functions
-
-    /// Compute the regularized incomplete beta function I_x(a,b)
-    /// Uses the continued fraction representation for efficiency
-    private static func regularizedIncompleteBeta(a: Double, b: Double, x: Double) -> Double {
-        // For x > (a+1)/(a+b+2), use the symmetry relation:
-        // I_x(a,b) = 1 - I_{1-x}(b,a)
-        let symmetryPoint = (a + 1) / (a + b + 2)
-
-        if x > symmetryPoint {
-            return 1.0 - regularizedIncompleteBeta(a: b, b: a, x: 1.0 - x)
-        }
-
-        // Compute the continued fraction
-        let bt: Double
-        if x == 0 || x == 1 {
-            bt = 0
-        } else {
-            // bt = exp(lgamma(a+b) - lgamma(a) - lgamma(b) + a*log(x) + b*log(1-x))
-            bt = exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * log(x) + b * log(1 - x))
-        }
-
-        // Continued fraction using Lentz's method
-        let eps = 1.0e-15
-        let maxIterations = 200
-
-        var c = 1.0
-        var d = 1.0 - (a + b) * x / (a + 1)
-        if abs(d) < 1.0e-30 { d = 1.0e-30 }
-        d = 1.0 / d
-        var h = d
-
-        for m in 1...maxIterations {
-            let m2 = 2 * m
-            let dm = Double(m)
-            let dm2 = Double(m2)
-
-            // Even step
-            var aa = dm * (b - dm) * x / ((a + dm2 - 1) * (a + dm2))
-            d = 1.0 + aa * d
-            if abs(d) < 1.0e-30 { d = 1.0e-30 }
-            c = 1.0 + aa / c
-            if abs(c) < 1.0e-30 { c = 1.0e-30 }
-            d = 1.0 / d
-            h *= d * c
-
-            // Odd step
-            aa = -(a + dm) * (a + b + dm) * x / ((a + dm2) * (a + dm2 + 1))
-            d = 1.0 + aa * d
-            if abs(d) < 1.0e-30 { d = 1.0e-30 }
-            c = 1.0 + aa / c
-            if abs(c) < 1.0e-30 { c = 1.0e-30 }
-            d = 1.0 / d
-            let del = d * c
-            h *= del
-
-            if abs(del - 1.0) < eps {
-                break
-            }
-        }
-
-        return bt * h / a
+        return .number(NumericSwift.gammaincc(a, x))
     }
 
     // MARK: - Elliptic Integrals
 
-    /// Complete elliptic integral of the first kind K(m)
-    /// Uses the AGM (Arithmetic-Geometric Mean) method
+    /// Complete elliptic integral of the first kind K(m) using NumericSwift
     private static func ellipkCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let m = args.first?.numberValue else {
             throw LuaError.runtimeError("ellipk: expected number")
@@ -1090,32 +699,10 @@ public struct SpecialModule {
             throw LuaError.runtimeError("ellipk: m must be in [0, 1)")
         }
 
-        return .number(ellipk(m))
+        return .number(NumericSwift.ellipk(m))
     }
 
-    /// Compute K(m) using AGM method
-    /// K(m) = π / (2 * AGM(1, sqrt(1-m)))
-    private static func ellipk(_ m: Double) -> Double {
-        // Special case: m = 0 => K(0) = π/2
-        if m == 0 {
-            return .pi / 2
-        }
-
-        // AGM iteration
-        var a = 1.0
-        var g = sqrt(1.0 - m)
-        let eps = 1.0e-15
-
-        while abs(a - g) > eps * abs(a) {
-            let aNew = (a + g) / 2
-            g = sqrt(a * g)
-            a = aNew
-        }
-
-        return .pi / (2 * a)
-    }
-
-    /// Complete elliptic integral of the second kind E(m)
+    /// Complete elliptic integral of the second kind E(m) using NumericSwift
     private static func ellipeCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let m = args.first?.numberValue else {
             throw LuaError.runtimeError("ellipe: expected number")
@@ -1125,208 +712,23 @@ public struct SpecialModule {
             throw LuaError.runtimeError("ellipe: m must be in [0, 1]")
         }
 
-        return .number(ellipe(m))
-    }
-
-    /// Compute E(m) using the AGM method and Legendre relation
-    /// E(m) = K(m) * (1 - sum of c_n^2 * 2^(n-1))
-    private static func ellipe(_ m: Double) -> Double {
-        // Special cases
-        if m == 0 {
-            return .pi / 2
-        }
-        if m == 1 {
-            return 1.0
-        }
-
-        // AGM iteration with tracking of c values
-        var a = 1.0
-        var g = sqrt(1.0 - m)
-        var c = sqrt(m)
-        var sum = c * c
-        var power = 1.0
-        let eps = 1.0e-15
-
-        while abs(c) > eps {
-            let aNew = (a + g) / 2
-            c = (a - g) / 2
-            g = sqrt(a * g)
-            a = aNew
-            power *= 2
-            sum += power * c * c
-        }
-
-        let k = .pi / (2 * a)
-        return k * (1.0 - sum / 2)
+        return .number(NumericSwift.ellipe(m))
     }
 
     // MARK: - Riemann Zeta Function
 
-    /// Riemann zeta function ζ(s)
+    /// Riemann zeta function ζ(s) using NumericSwift
     private static func zetaCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let s = args.first?.numberValue else {
             throw LuaError.runtimeError("zeta: expected number")
         }
 
-        return .number(zeta(s))
-    }
-
-    /// Compute the Riemann zeta function
-    /// Uses different methods depending on the value of s
-    private static func zeta(_ s: Double) -> Double {
-        // Special cases
-        if s == 1 {
-            return .infinity  // Pole at s = 1
-        }
-        if s == 0 {
-            return -0.5  // ζ(0) = -1/2
-        }
-
-        // For s < 0, use reflection formula
-        // ζ(s) = 2^s * π^(s-1) * sin(πs/2) * Γ(1-s) * ζ(1-s)
-        if s < 0 {
-            // Handle trivial zeros at negative even integers
-            if s.truncatingRemainder(dividingBy: 2) == 0 {
-                return 0
-            }
-            let t = 1.0 - s
-            return pow(2, s) * pow(.pi, s - 1) * sin(.pi * s / 2) * tgamma(t) * zeta(t)
-        }
-
-        // For 0 < s < 1, use the functional equation differently
-        // or continue to use the Dirichlet eta alternating series
-        if s < 1 {
-            // Use alternating series (Dirichlet eta function)
-            // η(s) = (1 - 2^(1-s)) * ζ(s)
-            // ζ(s) = η(s) / (1 - 2^(1-s))
-            let eta = zetaEta(s)
-            let factor = 1.0 - pow(2, 1 - s)
-            return eta / factor
-        }
-
-        // For s > 1, use Dirichlet series with Euler-Maclaurin formula
-        // ζ(s) = sum_{n=1}^N 1/n^s + 1/((s-1)*N^(s-1)) + 1/(2*N^s) + corrections
-        if s < 10 {
-            return zetaDirichlet(s)
-        } else {
-            // For large s, simple sum converges quickly
-            var sum = 1.0
-            for n in 2...100 {
-                let term = pow(Double(n), -s)
-                sum += term
-                if term < 1e-15 * sum {
-                    break
-                }
-            }
-            return sum
-        }
-    }
-
-    /// Dirichlet eta function (alternating zeta)
-    /// η(s) = sum_{n=1}^∞ (-1)^(n-1) / n^s
-    private static func zetaEta(_ s: Double) -> Double {
-        // Use acceleration for alternating series
-        // Borwein's algorithm for accelerated convergence
-        let n = 50
-        var d = Array(repeating: 0.0, count: n + 1)
-        d[0] = 1.0
-
-        for k in 1...n {
-            d[k] = d[k - 1] + pow(Double(n + k - 1), Double(n)) *
-                   pow(4, Double(k)) / (tgamma(Double(2 * k + 1)) /
-                   (tgamma(Double(k + 1)) * tgamma(Double(k + 1))))
-        }
-
-        // Simplified: use direct summation with many terms
-        var sum = 0.0
-        var sign = 1.0
-        for k in 1...200 {
-            let term = sign / pow(Double(k), s)
-            sum += term
-            sign = -sign
-            if abs(term) < 1e-15 * abs(sum) && k > 10 {
-                break
-            }
-        }
-        return sum
-    }
-
-    /// Dirichlet series for ζ(s) with Euler-Maclaurin summation
-    /// Uses a larger N and more accurate correction terms
-    private static func zetaDirichlet(_ s: Double) -> Double {
-        let N = 100
-        var sum = 0.0
-
-        // Direct sum for first N terms
-        for n in 1...N {
-            sum += pow(Double(n), -s)
-        }
-
-        // Euler-Maclaurin formula:
-        // ζ(s) ≈ Σ_{n=1}^N n^{-s} + N^{1-s}/(s-1) + 1/(2N^s)
-        //        + Σ_{k=1}^K B_{2k}/(2k)! * s(s+1)...(s+2k-2) * N^{-(s+2k-1)}
-
-        let Ns = pow(Double(N), s)
-        let Ns1 = pow(Double(N), s - 1)
-
-        // Integral term: ∫_N^∞ x^{-s} dx = N^{1-s}/(s-1)
-        sum += 1.0 / ((s - 1) * Ns1)
-
-        // First correction: 1/(2*N^s)
-        sum += 0.5 / Ns
-
-        // Bernoulli numbers B_{2k} for k = 1 to 10
-        let bernoulli: [Double] = [
-            1.0/6,              // B_2
-            -1.0/30,            // B_4
-            1.0/42,             // B_6
-            -1.0/30,            // B_8
-            5.0/66,             // B_10
-            -691.0/2730,        // B_12
-            7.0/6,              // B_14
-            -3617.0/510,        // B_16
-            43867.0/798,        // B_18
-            -174611.0/330       // B_20
-        ]
-
-        // Add Bernoulli correction terms
-        var Npow = Ns * Double(N)    // N^{s+1}
-
-        for (i, b2k) in bernoulli.enumerated() {
-            let k2 = 2 * (i + 1)  // 2, 4, 6, ...
-
-            // Term: B_{2k} / (2k)! * s(s+1)...(s+2k-2) / N^{s+2k-1}
-            // We build this incrementally
-
-            // Factorial denominator: (2k)!
-            var factorial: Double = 1
-            for j in 1...k2 {
-                factorial *= Double(j)
-            }
-
-            // Rising factorial numerator: s(s+1)...(s+2k-2)
-            var rising: Double = 1
-            for j in 0..<(k2 - 1) {
-                rising *= (s + Double(j))
-            }
-
-            let term = b2k * rising / (factorial * Npow)
-            sum += term
-
-            if abs(term) < 1e-16 * abs(sum) {
-                break
-            }
-
-            // Update for next iteration
-            Npow *= Double(N) * Double(N)  // Increase power by 2
-        }
-
-        return sum
+        return .number(NumericSwift.zeta(s))
     }
 
     // MARK: - Lambert W Function
 
-    /// Lambert W function W(x) - principal branch
+    /// Lambert W function W(x) - principal branch using NumericSwift
     private static func lambertwCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let x = args.first?.numberValue else {
             throw LuaError.runtimeError("lambertw: expected number")
@@ -1337,80 +739,12 @@ public struct SpecialModule {
             throw LuaError.runtimeError("lambertw: x must be >= -1/e")
         }
 
-        return .number(lambertw(x))
-    }
-
-    /// Compute the principal branch of Lambert W function using Halley's method
-    /// W(x) is the solution to w * exp(w) = x
-    private static func lambertw(_ x: Double) -> Double {
-        let minVal = -1.0 / Darwin.M_E
-
-        // Special cases
-        if x == 0 {
-            return 0
-        }
-        if x == Darwin.M_E {
-            return 1
-        }
-        if abs(x - minVal) < 1e-15 {
-            return -1  // W(-1/e) = -1
-        }
-
-        // Initial guess
-        var w: Double
-        if x < -0.25 {
-            // Near the branch point, use series expansion
-            let p = sqrt(2.0 * (Darwin.M_E * x + 1.0))
-            w = -1.0 + p - p * p / 3.0 + 11.0 * p * p * p / 72.0
-        } else if x < 3 {
-            w = 0.5 * log(1 + x)
-            if w < 0 { w = 0 }
-        } else {
-            // For large x, use log(x) - log(log(x))
-            let lnx = log(x)
-            let lnlnx = log(lnx)
-            w = lnx - lnlnx + lnlnx / lnx
-        }
-
-        // Halley's method iteration
-        // w_{n+1} = w_n - (w*e^w - x) / (e^w*(w+1) - (w+2)*(w*e^w - x)/(2w+2))
-        let eps = 1e-15
-        let maxIterations = 50
-
-        for _ in 0..<maxIterations {
-            let ew = exp(w)
-            let wew = w * ew
-            let f = wew - x
-            let fp = ew * (w + 1)
-
-            // Halley's correction
-            let correction = f * fp / (fp * fp - f * ew * (w + 2) / 2)
-            w -= correction
-
-            if abs(correction) < eps * (1 + abs(w)) {
-                break
-            }
-        }
-
-        return w
+        return .number(NumericSwift.lambertw(x))
     }
 
     // MARK: - Complex Gamma Functions
 
-    /// Lanczos coefficients for g=7, n=9 (accurate to ~15 digits)
-    private static let lanczosCoeffs: [Double] = [
-        0.99999999999980993,
-        676.5203681218851,
-        -1259.1392167224028,
-        771.32342877765313,
-        -176.61502916214059,
-        12.507343278686905,
-        -0.13857109526572012,
-        9.9843695780195716e-6,
-        1.5056327351493116e-7
-    ]
-
-    /// Complex gamma function callback
+    /// Complex gamma function callback using NumericSwift
     private static func cgammaCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.runtimeError("cgamma: expected argument")
@@ -1422,8 +756,8 @@ public struct SpecialModule {
                 return .number(Darwin.tgamma(x))
             }
             // For non-positive reals, compute via complex
-            let (re, im) = complexGamma(x, 0)
-            return ComplexHelper.toResult(re, im)
+            let result = NumericSwift.cgamma(Complex(x))
+            return ComplexHelper.toResult(result.re, result.im)
         }
 
         // Handle complex input
@@ -1431,11 +765,11 @@ public struct SpecialModule {
             throw LuaError.runtimeError("cgamma: expected number or complex")
         }
 
-        let (resultRe, resultIm) = complexGamma(re, im)
-        return ComplexHelper.toResult(resultRe, resultIm)
+        let result = NumericSwift.cgamma(Complex(re: re, im: im))
+        return ComplexHelper.toResult(result.re, result.im)
     }
 
-    /// Complex log-gamma function callback
+    /// Complex log-gamma function callback using NumericSwift
     private static func clgammaCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
             throw LuaError.runtimeError("clgamma: expected argument")
@@ -1447,8 +781,8 @@ public struct SpecialModule {
                 return ComplexHelper.toLua(Darwin.lgamma(x), 0)
             }
             // For non-positive reals, compute via complex
-            let (re, im) = complexLogGamma(x, 0)
-            return ComplexHelper.toLua(re, im)
+            let result = NumericSwift.clgamma(Complex(x))
+            return ComplexHelper.toLua(result.re, result.im)
         }
 
         // Handle complex input
@@ -1456,162 +790,13 @@ public struct SpecialModule {
             throw LuaError.runtimeError("clgamma: expected number or complex")
         }
 
-        let (resultRe, resultIm) = complexLogGamma(re, im)
-        return ComplexHelper.toLua(resultRe, resultIm)
-    }
-
-    /// Compute complex gamma using Lanczos approximation
-    /// Gamma(z) = sqrt(2*pi) * (z + g + 0.5)^(z+0.5) * exp(-(z+g+0.5)) * sum
-    private static func complexGamma(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
-        // Use reflection formula for Re(z) < 0.5
-        // Gamma(z) = pi / (sin(pi*z) * Gamma(1-z))
-        if re < 0.5 {
-            // sin(pi*z) for complex z
-            // sin(a+bi) = sin(a)cosh(b) + i*cos(a)sinh(b)
-            let sinRe = Darwin.sin(.pi * re) * Darwin.cosh(.pi * im)
-            let sinIm = Darwin.cos(.pi * re) * Darwin.sinh(.pi * im)
-
-            // Gamma(1-z)
-            let (g1Re, g1Im) = complexGammaPositive(1 - re, -im)
-
-            // pi / (sin(pi*z) * Gamma(1-z))
-            let (denRe, denIm) = ComplexHelper.multiply(sinRe, sinIm, g1Re, g1Im)
-            guard let (resultRe, resultIm) = ComplexHelper.divide(.pi, 0, denRe, denIm) else {
-                return (.nan, .nan)
-            }
-            return (resultRe, resultIm)
-        }
-
-        return complexGammaPositive(re, im)
-    }
-
-    /// Lanczos approximation for Re(z) >= 0.5
-    private static func complexGammaPositive(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
-        let g = 7.0
-        let zRe = re - 1
-        let zIm = im
-
-        // Sum of Lanczos series
-        var sumRe = lanczosCoeffs[0]
-        var sumIm = 0.0
-
-        for i in 1..<lanczosCoeffs.count {
-            // 1 / (z + i)
-            let denomRe = zRe + Double(i)
-            let denomIm = zIm
-            guard let (invRe, invIm) = ComplexHelper.divide(1, 0, denomRe, denomIm) else {
-                return (.nan, .nan)
-            }
-            sumRe += lanczosCoeffs[i] * invRe
-            sumIm += lanczosCoeffs[i] * invIm
-        }
-
-        // t = z + g + 0.5
-        let tRe = zRe + g + 0.5
-        let tIm = zIm
-
-        // t^(z + 0.5)
-        let expRe = zRe + 0.5
-        let expIm = zIm
-        let (powRe, powIm) = complexPow(tRe, tIm, expRe, expIm)
-
-        // exp(-t)
-        let (expNegRe, expNegIm) = ComplexHelper.exp(-tRe, -tIm)
-
-        // sqrt(2*pi) * t^(z+0.5) * exp(-t) * sum
-        let sqrt2pi = sqrt(2 * .pi)
-
-        var (resultRe, resultIm) = ComplexHelper.multiply(powRe, powIm, expNegRe, expNegIm)
-        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, sumRe, sumIm)
-        resultRe *= sqrt2pi
-        resultIm *= sqrt2pi
-
-        return (resultRe, resultIm)
-    }
-
-    /// Complex log-gamma using Lanczos approximation
-    private static func complexLogGamma(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
-        // Use reflection formula for Re(z) < 0.5
-        if re < 0.5 {
-            // log(Gamma(z)) = log(pi) - log(sin(pi*z)) - log(Gamma(1-z))
-            // sin(pi*z)
-            let sinRe = Darwin.sin(.pi * re) * Darwin.cosh(.pi * im)
-            let sinIm = Darwin.cos(.pi * re) * Darwin.sinh(.pi * im)
-
-            // log(sin(pi*z))
-            guard let (logSinRe, logSinIm) = ComplexHelper.log(sinRe, sinIm) else {
-                return (.nan, .nan)
-            }
-
-            // log(Gamma(1-z))
-            let (lgRe, lgIm) = complexLogGammaPositive(1 - re, -im)
-
-            // log(pi) - log(sin(pi*z)) - log(Gamma(1-z))
-            return (Darwin.log(.pi) - logSinRe - lgRe, -logSinIm - lgIm)
-        }
-
-        return complexLogGammaPositive(re, im)
-    }
-
-    /// Lanczos log-gamma for Re(z) >= 0.5
-    private static func complexLogGammaPositive(_ re: Double, _ im: Double) -> (re: Double, im: Double) {
-        let g = 7.0
-        let zRe = re - 1
-        let zIm = im
-
-        // Sum of Lanczos series
-        var sumRe = lanczosCoeffs[0]
-        var sumIm = 0.0
-
-        for i in 1..<lanczosCoeffs.count {
-            let denomRe = zRe + Double(i)
-            let denomIm = zIm
-            guard let (invRe, invIm) = ComplexHelper.divide(1, 0, denomRe, denomIm) else {
-                return (.nan, .nan)
-            }
-            sumRe += lanczosCoeffs[i] * invRe
-            sumIm += lanczosCoeffs[i] * invIm
-        }
-
-        // t = z + g + 0.5
-        let tRe = zRe + g + 0.5
-        let tIm = zIm
-
-        // log(sqrt(2*pi)) + (z + 0.5) * log(t) - t + log(sum)
-        let halfLog2pi = 0.5 * Darwin.log(2 * .pi)
-
-        // log(t)
-        guard let (logTRe, logTIm) = ComplexHelper.log(tRe, tIm) else {
-            return (.nan, .nan)
-        }
-
-        // (z + 0.5) * log(t)
-        let (termRe, termIm) = ComplexHelper.multiply(zRe + 0.5, zIm, logTRe, logTIm)
-
-        // log(sum)
-        guard let (logSumRe, logSumIm) = ComplexHelper.log(sumRe, sumIm) else {
-            return (.nan, .nan)
-        }
-
-        // halfLog2pi + termRe - tRe + logSumRe
-        let resultRe = halfLog2pi + termRe - tRe + logSumRe
-        let resultIm = termIm - tIm + logSumIm
-
-        return (resultRe, resultIm)
-    }
-
-    /// Complex power: (a+bi)^(c+di) = exp((c+di) * log(a+bi))
-    private static func complexPow(_ aRe: Double, _ aIm: Double, _ cRe: Double, _ cIm: Double) -> (re: Double, im: Double) {
-        guard let (logRe, logIm) = ComplexHelper.log(aRe, aIm) else {
-            return (.nan, .nan)
-        }
-        let (prodRe, prodIm) = ComplexHelper.multiply(cRe, cIm, logRe, logIm)
-        return ComplexHelper.exp(prodRe, prodIm)
+        let result = NumericSwift.clgamma(Complex(re: re, im: im))
+        return ComplexHelper.toLua(result.re, result.im)
     }
 
     // MARK: - Complex Zeta Function
 
-    /// Complex Riemann zeta function callback
+    /// Complex Riemann zeta function callback using NumericSwift
     /// czeta(s) computes ζ(s) for complex s
     private static func czetaCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard let arg = args.first else {
@@ -1620,7 +805,7 @@ public struct SpecialModule {
 
         // Handle real number input
         if let s = arg.numberValue {
-            return .number(zeta(s))
+            return .number(NumericSwift.zeta(s))
         }
 
         // Handle complex input
@@ -1630,147 +815,11 @@ public struct SpecialModule {
 
         // Pure real case optimization
         if abs(im) < 1e-15 {
-            return .number(zeta(re))
+            return .number(NumericSwift.zeta(re))
         }
 
-        let (resultRe, resultIm) = complexZeta(re, im)
-        return ComplexHelper.toResult(resultRe, resultIm)
+        let result = NumericSwift.czeta(Complex(re: re, im: im))
+        return ComplexHelper.toResult(result.re, result.im)
     }
 
-    /// Compute complex Riemann zeta function ζ(s) for s = σ + it
-    /// Uses functional equation for Re(s) < 0.5 and Dirichlet series for Re(s) >= 0.5
-    private static func complexZeta(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
-        // Special case: pole at s = 1
-        if abs(sigma - 1) < 1e-15 && abs(t) < 1e-15 {
-            return (.infinity, 0)
-        }
-
-        // For Re(s) < 0.5, use the functional equation:
-        // ζ(s) = 2^s * π^(s-1) * sin(πs/2) * Γ(1-s) * ζ(1-s)
-        if sigma < 0.5 {
-            return complexZetaReflection(sigma, t)
-        }
-
-        // For Re(s) >= 0.5, use Dirichlet series with acceleration
-        return complexZetaDirichlet(sigma, t)
-    }
-
-    /// Compute ζ(s) using reflection formula for Re(s) < 0.5
-    private static func complexZetaReflection(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
-        // ζ(s) = 2^s * π^(s-1) * sin(πs/2) * Γ(1-s) * ζ(1-s)
-
-        // 2^s
-        let (twoSRe, twoSIm) = complexPow(2, 0, sigma, t)
-
-        // π^(s-1)
-        let (piS1Re, piS1Im) = complexPow(.pi, 0, sigma - 1, t)
-
-        // sin(πs/2)
-        // sin((πσ/2) + i(πt/2)) = sin(πσ/2)cosh(πt/2) + i*cos(πσ/2)sinh(πt/2)
-        let halfPiSigma = .pi * sigma / 2
-        let halfPiT = .pi * t / 2
-        let sinRe = Darwin.sin(halfPiSigma) * Darwin.cosh(halfPiT)
-        let sinIm = Darwin.cos(halfPiSigma) * Darwin.sinh(halfPiT)
-
-        // Γ(1-s)
-        let (gammaRe, gammaIm) = complexGamma(1 - sigma, -t)
-
-        // ζ(1-s) - recursively compute for Re(1-s) > 0.5
-        let (zeta1sRe, zeta1sIm) = complexZetaDirichlet(1 - sigma, -t)
-
-        // Multiply all together: 2^s * π^(s-1)
-        var (resultRe, resultIm) = ComplexHelper.multiply(twoSRe, twoSIm, piS1Re, piS1Im)
-
-        // * sin(πs/2)
-        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, sinRe, sinIm)
-
-        // * Γ(1-s)
-        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, gammaRe, gammaIm)
-
-        // * ζ(1-s)
-        (resultRe, resultIm) = ComplexHelper.multiply(resultRe, resultIm, zeta1sRe, zeta1sIm)
-
-        return (resultRe, resultIm)
-    }
-
-    /// Compute ζ(s) using Dirichlet series for Re(s) >= 0.5
-    /// Uses the alternating series (Dirichlet eta) with Euler-Maclaurin
-    private static func complexZetaDirichlet(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
-        // For Re(s) close to 1, use eta function approach
-        // η(s) = (1 - 2^(1-s)) * ζ(s)
-        // ζ(s) = η(s) / (1 - 2^(1-s))
-
-        // Compute η(s) using accelerated alternating series
-        let (etaRe, etaIm) = complexEta(sigma, t)
-
-        // Compute 2^(1-s) = 2^(1-σ) * e^(-it*ln(2))
-        let power = 1 - sigma
-        let angle = -t * Darwin.log(2)
-        let twoFactorMag = Darwin.pow(2, power)
-        let twoFactorRe = twoFactorMag * Darwin.cos(angle)
-        let twoFactorIm = twoFactorMag * Darwin.sin(angle)
-
-        // 1 - 2^(1-s)
-        let denomRe = 1 - twoFactorRe
-        let denomIm = -twoFactorIm
-
-        // Check for division by zero (happens near s = 1)
-        let denomMag = denomRe * denomRe + denomIm * denomIm
-        if denomMag < 1e-30 {
-            // Near the pole, return large value
-            return (.infinity, 0)
-        }
-
-        // ζ(s) = η(s) / (1 - 2^(1-s))
-        guard let (resultRe, resultIm) = ComplexHelper.divide(etaRe, etaIm, denomRe, denomIm) else {
-            return (.nan, .nan)
-        }
-
-        return (resultRe, resultIm)
-    }
-
-    /// Compute the Dirichlet eta function η(s) = Σ (-1)^(n-1) / n^s
-    /// Uses Borwein's acceleration for improved convergence
-    private static func complexEta(_ sigma: Double, _ t: Double) -> (re: Double, im: Double) {
-        // Use direct summation with many terms for robustness
-        // η(s) = Σ_{n=1}^∞ (-1)^(n-1) * n^(-s)
-        // n^(-s) = n^(-σ) * e^(-it*ln(n)) = n^(-σ) * (cos(t*ln(n)) - i*sin(t*ln(n)))
-
-        var sumRe = 0.0
-        var sumIm = 0.0
-        var sign = 1.0
-
-        let maxTerms = 500  // More terms for better accuracy on critical line
-
-        for n in 1...maxTerms {
-            let nDouble = Double(n)
-            let logN = Darwin.log(nDouble)
-
-            // n^(-σ)
-            let magnitude = Darwin.pow(nDouble, -sigma)
-
-            // e^(-it*ln(n)) = cos(t*ln(n)) - i*sin(t*ln(n))
-            let angle = -t * logN
-            let cosAngle = Darwin.cos(angle)
-            let sinAngle = Darwin.sin(angle)
-
-            // n^(-s) = magnitude * (cosAngle + i*sinAngle)
-            let termRe = sign * magnitude * cosAngle
-            let termIm = sign * magnitude * sinAngle
-
-            sumRe += termRe
-            sumIm += termIm
-
-            // Check convergence
-            let termMag = magnitude
-            let sumMag = Darwin.sqrt(sumRe * sumRe + sumIm * sumIm)
-            if termMag < 1e-15 * sumMag && n > 50 {
-                break
-            }
-
-            sign = -sign
-        }
-
-        return (sumRe, sumIm)
-    }
 }

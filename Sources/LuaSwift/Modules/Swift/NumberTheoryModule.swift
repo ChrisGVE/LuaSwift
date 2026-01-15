@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import NumericSwift
 
 /// Swift-backed number theory module for LuaSwift.
 ///
@@ -74,264 +75,91 @@ public struct NumberTheoryModule {
         }
     }
 
-    // MARK: - Helper Functions
-
-    /// Check if a number is prime using trial division
-    private static func isPrime(_ n: Int) -> Bool {
-        if n < 2 { return false }
-        if n == 2 { return true }
-        if n % 2 == 0 { return false }
-        if n == 3 { return true }
-        if n % 3 == 0 { return false }
-        var i = 5
-        while i * i <= n {
-            if n % i == 0 || n % (i + 2) == 0 { return false }
-            i += 6
-        }
-        return true
-    }
-
-    /// Get prime factorization of n as [(prime, exponent)]
-    private static func primeFactors(_ n: Int) -> [(prime: Int, exponent: Int)] {
-        guard n > 1 else { return [] }
-        var result: [(Int, Int)] = []
-        var remaining = n
-
-        // Factor out 2s
-        var count = 0
-        while remaining % 2 == 0 {
-            count += 1
-            remaining /= 2
-        }
-        if count > 0 { result.append((2, count)) }
-
-        // Factor out odd primes
-        var factor = 3
-        while factor * factor <= remaining {
-            count = 0
-            while remaining % factor == 0 {
-                count += 1
-                remaining /= factor
-            }
-            if count > 0 { result.append((factor, count)) }
-            factor += 2
-        }
-
-        // Remaining is prime if > 1
-        if remaining > 1 {
-            result.append((remaining, 1))
-        }
-
-        return result
-    }
-
-    /// Generate primes up to n using Sieve of Eratosthenes
-    private static func sieveOfEratosthenes(_ n: Int) -> [Int] {
-        guard n >= 2 else { return [] }
-        var sieve = [Bool](repeating: true, count: n + 1)
-        sieve[0] = false
-        sieve[1] = false
-
-        var i = 2
-        while i * i <= n {
-            if sieve[i] {
-                var j = i * i
-                while j <= n {
-                    sieve[j] = false
-                    j += i
-                }
-            }
-            i += 1
-        }
-
-        return sieve.enumerated().compactMap { $0.element ? $0.offset : nil }
-    }
-
     // MARK: - Callbacks
+    // All helper functions are now provided by NumericSwift
 
     /// Euler's totient function φ(n): count of integers 1 ≤ k ≤ n coprime to n
     private static let eulerPhiCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let n = args.first?.intValue, n >= 1 else {
+        guard let n = args.first?.intValue,
+              let result = NumericSwift.eulerPhi(n) else {
             return .nil
-        }
-        if n == 1 { return .number(1) }
-
-        // φ(n) = n * Π(1 - 1/p) for all prime factors p of n
-        var result = n
-        let factors = primeFactors(n)
-        for (prime, _) in factors {
-            result = result / prime * (prime - 1)
         }
         return .number(Double(result))
     }
 
     /// Divisor sigma function σ_k(n): sum of k-th powers of divisors of n
     private static let divisorSigmaCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let n = args.first?.intValue, n >= 1 else {
+        guard let n = args.first?.intValue else {
             return .nil
         }
         let k = args.count > 1 ? (args[1].intValue ?? 1) : 1
-
-        if n == 1 { return .number(1) }
-
-        // σ_k(n) = Π((p^(k*(e+1)) - 1)/(p^k - 1)) for prime factors p^e
-        // For k=0: σ_0(n) = Π(e+1) (number of divisors)
-        let factors = primeFactors(n)
-
-        if k == 0 {
-            // Number of divisors
-            var result = 1
-            for (_, exp) in factors {
-                result *= (exp + 1)
-            }
-            return .number(Double(result))
-        } else {
-            // Sum of k-th powers of divisors
-            var result = 1.0
-            for (prime, exp) in factors {
-                let pk = pow(Double(prime), Double(k))
-                let numerator = pow(pk, Double(exp + 1)) - 1
-                let denominator = pk - 1
-                result *= numerator / denominator
-            }
-            return .number(result)
+        guard let result = NumericSwift.divisorSigma(n, k: k) else {
+            return .nil
         }
+        return .number(result)
     }
 
     /// Möbius function μ(n)
     /// μ(n) = (-1)^k if n is product of k distinct primes
     /// μ(n) = 0 if n has a squared prime factor
     private static let mobiusCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let n = args.first?.intValue, n >= 1 else {
+        guard let n = args.first?.intValue,
+              let result = NumericSwift.mobius(n) else {
             return .nil
         }
-        if n == 1 { return .number(1) }
-
-        let factors = primeFactors(n)
-
-        // Check for squared factors
-        for (_, exp) in factors {
-            if exp > 1 { return .number(0) }
-        }
-
-        // All exponents are 1, return (-1)^k
-        return .number(factors.count % 2 == 0 ? 1 : -1)
+        return .number(Double(result))
     }
 
     /// Liouville function λ(n) = (-1)^Ω(n)
     /// where Ω(n) is the number of prime factors with multiplicity
     private static let liouvilleCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let n = args.first?.intValue, n >= 1 else {
+        guard let n = args.first?.intValue,
+              let result = NumericSwift.liouville(n) else {
             return .nil
         }
-        if n == 1 { return .number(1) }
-
-        let factors = primeFactors(n)
-        let omega = factors.reduce(0) { $0 + $1.exponent }
-        return .number(omega % 2 == 0 ? 1 : -1)
+        return .number(Double(result))
     }
 
     /// Carmichael function λ(n): smallest positive m such that a^m ≡ 1 (mod n) for all a coprime to n
     private static let carmichaelCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let n = args.first?.intValue, n >= 1 else {
+        guard let n = args.first?.intValue,
+              let result = NumericSwift.carmichael(n) else {
             return .nil
         }
-        if n == 1 { return .number(1) }
-
-        let factors = primeFactors(n)
-        var result = 1
-
-        for (prime, exp) in factors {
-            var lambda: Int
-            if prime == 2 {
-                // λ(2^k) = 2^(k-2) for k ≥ 3, otherwise φ(2^k)
-                if exp >= 3 {
-                    lambda = 1 << (exp - 2)  // 2^(exp-2)
-                } else {
-                    lambda = 1 << max(0, exp - 1)  // φ(2^exp)
-                }
-            } else {
-                // λ(p^k) = φ(p^k) = p^(k-1) * (p-1)
-                lambda = Int(pow(Double(prime), Double(exp - 1))) * (prime - 1)
-            }
-            // lcm
-            result = result / gcd(result, lambda) * lambda
-        }
-
         return .number(Double(result))
-    }
-
-    /// GCD helper
-    private static func gcd(_ a: Int, _ b: Int) -> Int {
-        var a = a, b = b
-        while b != 0 {
-            let t = b
-            b = a % b
-            a = t
-        }
-        return a
     }
 
     /// Chebyshev theta function θ(x) = Σ log(p) for primes p ≤ x
     private static let chebyshevThetaCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let x = args.first?.numberValue, x >= 2 else {
+        guard let x = args.first?.numberValue else {
             return .number(0)
         }
-
-        let primes = sieveOfEratosthenes(Int(x))
-        var result = 0.0
-        for p in primes {
-            result += log(Double(p))
-        }
-        return .number(result)
+        return .number(NumericSwift.chebyshevTheta(x))
     }
 
     /// Chebyshev psi function ψ(x) = Σ Λ(n) for n ≤ x
     /// where Λ(n) is the von Mangoldt function
     private static let chebyshevPsiCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let x = args.first?.numberValue, x >= 2 else {
+        guard let x = args.first?.numberValue else {
             return .number(0)
         }
-
-        var result = 0.0
-        for n in 2...Int(x) {
-            let lambda = vonMangoldt(n)
-            result += lambda
-        }
-        return .number(result)
-    }
-
-    /// Von Mangoldt function Λ(n)
-    /// Λ(n) = log(p) if n = p^k for some prime p and k ≥ 1
-    /// Λ(n) = 0 otherwise
-    private static func vonMangoldt(_ n: Int) -> Double {
-        if n < 2 { return 0 }
-
-        let factors = primeFactors(n)
-
-        // n must be a prime power (exactly one distinct prime factor)
-        if factors.count == 1 {
-            return log(Double(factors[0].prime))
-        }
-        return 0
+        return .number(NumericSwift.chebyshevPsi(x))
     }
 
     /// Von Mangoldt function callback
     private static let mangoldtCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let n = args.first?.intValue, n >= 1 else {
+        guard let n = args.first?.intValue else {
             return .nil
         }
-        return .number(vonMangoldt(n))
+        return .number(NumericSwift.vonMangoldt(n))
     }
 
     /// Prime counting function π(x): number of primes ≤ x
     private static let primePiCallback: ([LuaValue]) -> LuaValue = { args in
-        guard let x = args.first?.numberValue, x >= 2 else {
+        guard let x = args.first?.numberValue else {
             return .number(0)
         }
-
-        let primes = sieveOfEratosthenes(Int(x))
-        return .number(Double(primes.count))
+        return .number(Double(NumericSwift.primePi(x)))
     }
 
     /// Primality test callback
@@ -339,7 +167,7 @@ public struct NumberTheoryModule {
         guard let n = args.first?.intValue else {
             return .nil
         }
-        return .bool(isPrime(n))
+        return .bool(NumericSwift.isPrime(n))
     }
 
     /// Prime factorization callback
@@ -348,7 +176,7 @@ public struct NumberTheoryModule {
             return .nil
         }
 
-        let factors = primeFactors(n)
+        let factors = NumericSwift.primeFactors(n)
         var result: [String: LuaValue] = [:]
 
         for (prime, exp) in factors {
@@ -364,7 +192,7 @@ public struct NumberTheoryModule {
             return .array([])
         }
 
-        let primes = sieveOfEratosthenes(n)
+        let primes = NumericSwift.primesUpTo(n)
         return .array(primes.map { .number(Double($0)) })
     }
 
@@ -375,7 +203,7 @@ public struct NumberTheoryModule {
               let b = args[1].intValue else {
             return .nil
         }
-        return .number(Double(gcd(abs(a), abs(b))))
+        return .number(Double(NumericSwift.gcd(a, b)))
     }
 
     /// LCM callback
@@ -385,10 +213,7 @@ public struct NumberTheoryModule {
               let b = args[1].intValue else {
             return .nil
         }
-        let absA = abs(a)
-        let absB = abs(b)
-        if absA == 0 || absB == 0 { return .number(0) }
-        return .number(Double(absA / gcd(absA, absB) * absB))
+        return .number(Double(NumericSwift.lcm(a, b)))
     }
 
     // MARK: - Lua Wrapper

@@ -10,6 +10,7 @@
 
 import Foundation
 import Accelerate
+import NumericSwift
 
 /// Swift-backed spatial algorithms module for LuaSwift.
 ///
@@ -829,11 +830,11 @@ public struct SpatialModule {
         // Create super-triangle
         let dx = maxX - minX
         let dy = maxY - minY
-        let delta = max(dx, dy) * 10
+        let delta = max(dx, dy) * 10.0
 
         let superTriangle: [[Double]] = [
             [minX - delta, minY - delta],
-            [minX + dx / 2, maxY + delta * 2],
+            [minX + dx / 2.0, maxY + delta * 2.0],
             [maxX + delta, minY - delta]
         ]
 

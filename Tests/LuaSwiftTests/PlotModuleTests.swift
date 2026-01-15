@@ -10,6 +10,7 @@
 
 import XCTest
 @testable import LuaSwift
+import PlotSwift
 
 final class PlotModuleTests: XCTestCase {
     var engine: LuaEngine!
@@ -545,7 +546,7 @@ final class PlotModuleTests: XCTestCase {
     func testPNGMagicBytes() throws {
         // Test via Swift API directly since binary data transfer through Lua strings
         // has encoding complexities (ISO-8859-1 vs UTF-8)
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         ctx.setFillColor(.blue)
         ctx.rect(5, 5, 40, 40)
         ctx.fillPath()
@@ -912,12 +913,12 @@ final class PlotModuleTests: XCTestCase {
     // MARK: - Swift DrawingContext Direct Tests
 
     func testSwiftDrawingContextCreation() {
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         XCTAssertEqual(ctx.commandCount, 0)
     }
 
     func testSwiftDrawingContextCommands() {
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         ctx.moveTo(10, 20)
         ctx.lineTo(100, 200)
         ctx.closePath()
@@ -925,7 +926,7 @@ final class PlotModuleTests: XCTestCase {
     }
 
     func testSwiftDrawingContextClear() {
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         ctx.moveTo(10, 20)
         ctx.lineTo(100, 200)
         XCTAssertEqual(ctx.commandCount, 2)
@@ -934,7 +935,7 @@ final class PlotModuleTests: XCTestCase {
     }
 
     func testSwiftDrawingContextBounds() {
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         ctx.moveTo(10, 20)
         ctx.lineTo(100, 200)
         ctx.rect(50, 50, 100, 100)
@@ -948,33 +949,33 @@ final class PlotModuleTests: XCTestCase {
 
     func testSwiftColorParsing() {
         // Test hex colors
-        let red = PlotModule.Color(hex: "#FF0000")
+        let red = Color(hex: "#FF0000")
         XCTAssertNotNil(red)
         XCTAssertEqual(red?.red, 1.0)
         XCTAssertEqual(red?.green, 0.0)
         XCTAssertEqual(red?.blue, 0.0)
 
-        let green = PlotModule.Color(hex: "00FF00")
+        let green = Color(hex: "00FF00")
         XCTAssertNotNil(green)
         XCTAssertEqual(green?.green, 1.0)
 
         // Test named colors
-        let blue = PlotModule.Color(name: "blue")
+        let blue = Color(name: "blue")
         XCTAssertNotNil(blue)
         XCTAssertEqual(blue?.blue, 1.0)
 
-        let orange = PlotModule.Color(name: "orange")
+        let orange = Color(name: "orange")
         XCTAssertNotNil(orange)
     }
 
     func testSwiftColorToHex() {
-        let color = PlotModule.Color(red: 1.0, green: 0.5, blue: 0.0)
+        let color = Color(red: 1.0, green: 0.5, blue: 0.0)
         let hex = color.toHex()
         XCTAssertEqual(hex, "#FF7F00")
     }
 
     func testSwiftSVGExport() {
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         ctx.setStrokeColor(.blue)
         ctx.setStrokeWidth(2)
         ctx.moveTo(10, 10)
@@ -989,7 +990,7 @@ final class PlotModuleTests: XCTestCase {
 
     #if canImport(ImageIO)
     func testSwiftPNGExport() {
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         ctx.setFillColor(.red)
         ctx.rect(10, 10, 80, 80)
         ctx.fillPath()
@@ -1009,7 +1010,7 @@ final class PlotModuleTests: XCTestCase {
     }
 
     func testSwiftPDFExport() {
-        let ctx = PlotModule.DrawingContext()
+        let ctx = DrawingContext()
         ctx.setFillColor(.green)
         ctx.circle(cx: 50, cy: 50, r: 30)
         ctx.fillPath()

@@ -225,9 +225,84 @@ ModuleRegistry.installHTTPModule(in: engine)
 
 The `iox` module restricts file operations to explicitly allowed directories—Lua scripts cannot access files outside these paths. This replaces Lua's standard `io` library (which is removed in sandboxed mode) with a secure alternative.
 
+## Optional Swift Package Dependencies
+
+LuaSwift can optionally include three companion Swift packages that provide enhanced implementations for specific module groups. These packages are developed as independent Swift libraries that can also be used directly without Lua.
+
+### Available Optional Packages
+
+| Package | Environment Variable | Description |
+|---------|---------------------|-------------|
+| [NumericSwift](https://github.com/ChrisGVE/NumericSwift) | `LUASWIFT_INCLUDE_NUMERICSWIFT` | Complex numbers, statistics, geometry, special functions |
+| [ArraySwift](https://github.com/ChrisGVE/ArraySwift) | `LUASWIFT_INCLUDE_ARRAYSWIFT` | N-dimensional arrays with broadcasting |
+| [PlotSwift](https://github.com/ChrisGVE/PlotSwift) | `LUASWIFT_INCLUDE_PLOTSWIFT` | Matplotlib-inspired plotting with SVG output |
+
+### Compile-Time Selection
+
+By default, all optional packages are included. To exclude packages and reduce binary size or dependencies:
+
+```bash
+# Exclude specific packages
+LUASWIFT_INCLUDE_PLOTSWIFT=0 swift build           # No PlotSwift
+LUASWIFT_INCLUDE_ARRAYSWIFT=0 swift build          # No ArraySwift
+LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build        # No NumericSwift
+
+# Exclude multiple packages
+LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 swift build
+
+# Minimal build (core wrapper only)
+LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build
+```
+
+### What Each Package Provides
+
+**NumericSwift** powers these Lua modules:
+- `math.complex` - Complex number arithmetic
+- `math.geometry` - 2D/3D vectors and transforms
+- `math.stats` - Statistical functions
+- `math.special` - Special mathematical functions
+- `math.numtheory` - Number theory (primes, factorization)
+- Extended math utilities (vDSP-accelerated array operations)
+
+**ArraySwift** powers:
+- `array` - N-dimensional arrays with NumPy-like semantics
+
+**PlotSwift** powers:
+- `plot` - Figure/axes plotting system
+- `svg` - SVG document generation
+
+When a package is excluded, its corresponding Lua modules are unavailable at runtime. Attempting to use them will result in a clear error message.
+
+### Xcode Integration
+
+For Xcode projects, set environment variables in your scheme:
+
+1. Product → Scheme → Edit Scheme
+2. Select "Run" in the left sidebar
+3. Click "Arguments" tab
+4. Add environment variables under "Environment Variables"
+
+### Why Optional Dependencies?
+
+- **Binary size**: Each package adds to the final binary; exclude what you don't need
+- **Build time**: Fewer dependencies means faster builds
+- **Platform support**: Some packages may have platform-specific requirements
+- **App Store size**: iOS apps benefit from smaller binaries
+
+### Technical Note: SPM Optional Dependencies
+
+Swift Package Manager does not have a native "optional dependency" feature like some package managers. LuaSwift uses **environment variables at build time** combined with **conditional compilation** (`#if` directives) to achieve optional dependencies.
+
+For consumers who want fine-grained control, there are two approaches:
+
+1. **Environment variables** (current, Swift 5.9+): Set `LUASWIFT_INCLUDE_*=0` before building
+2. **SPM Traits** (Swift 6.1+): A newer feature that provides trait-based conditional dependencies
+
+The environment variable approach is used for maximum compatibility. Future versions may adopt [SPM Traits](https://theswiftdev.com/2025/all-about-swift-package-manager-traits/) when Swift 6.1+ becomes the minimum supported version.
+
 ## Module Selection
 
-LuaSwift supports compile-time module selection via environment variables, similar to Lua version selection:
+LuaSwift also supports compile-time module selection via environment variables for built-in modules:
 
 ```bash
 # Build with specific module groups
@@ -308,7 +383,12 @@ LuaSwift's scientific computing modules are inspired by excellent open-source li
 - [matplotlib](https://matplotlib.org/) - Plotting API design
 - [Penlight](https://github.com/lunarmodules/Penlight) - String and table utility patterns
 
-**Dependencies:**
-- [Lua](https://www.lua.org/) - The Lua programming language
+**Required Dependencies:**
+- [Lua](https://www.lua.org/) - The Lua programming language (bundled)
 - [Yams](https://github.com/jpsim/Yams) - YAML parsing for Swift
 - [TOMLKit](https://github.com/LebJe/TOMLKit) - TOML parsing for Swift
+
+**Optional Dependencies:**
+- [NumericSwift](https://github.com/ChrisGVE/NumericSwift) - Complex numbers, statistics, geometry
+- [ArraySwift](https://github.com/ChrisGVE/ArraySwift) - N-dimensional arrays
+- [PlotSwift](https://github.com/ChrisGVE/PlotSwift) - Plotting and SVG generation

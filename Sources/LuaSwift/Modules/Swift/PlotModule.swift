@@ -34,9 +34,8 @@ import PlotSwift
 /// ## Usage
 ///
 /// ```lua
-/// local plt = require("luaswift.plot")
-///
-/// local fig, ax = plt.subplots()
+/// -- plot is available as a global, or via require
+/// local fig, ax = plot.subplots()
 /// ax:plot({1, 2, 3, 4}, {1, 4, 2, 3}, {color='blue', linestyle='--'})
 /// ax:set_title("My Plot")
 /// ax:set_xlabel("X")
@@ -3337,8 +3336,8 @@ public struct PlotModule {
     -- Make available via require
     package.loaded["luaswift.plot"] = plot
 
-    -- Top-level alias
-    plt = plot
+    -- Top-level global (user can create aliases like: local plt = plot)
+    plot = luaswift.plot
 
     -- Clean up temporary globals
     _luaswift_plot_create_context = nil

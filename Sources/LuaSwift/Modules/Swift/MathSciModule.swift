@@ -24,7 +24,7 @@ import Foundation
 /// - `luaswift.mathx` stats functions → `math.stats`
 /// - `luaswift.mathx` special functions → `math.special`
 /// - `luaswift.complex` → `math.complex` (via extend_stdlib)
-/// - `luaswift.geometry` → `math.geo` (via extend_stdlib)
+/// - `luaswift.geometry` → `math.geometry` (via extend_stdlib)
 ///
 /// ## Namespace Structure
 ///
@@ -40,7 +40,8 @@ import Foundation
 /// ├── cluster        # Clustering algorithms (k-means, hierarchical, DBSCAN)
 /// ├── spatial        # Spatial algorithms (KDTree, distance, Voronoi)
 /// ├── complex        # Complex number arithmetic (re-export ComplexModule)
-/// └── geo            # Geometry operations (re-export GeometryModule)
+/// ├── geometry       # Geometry operations (re-export GeometryModule)
+/// └── x              # Extended math utilities (round, trunc, sign, clip)
 /// ```
 ///
 /// ## Usage
@@ -128,10 +129,13 @@ public struct MathSciModule {
                     math.complex = luaswift.complex
                 end
 
-                -- Re-export luaswift.geometry → math.geo
+                -- Re-export luaswift.geometry → math.geometry
                 if luaswift.geometry then
-                    math.geo = luaswift.geometry
+                    math.geometry = luaswift.geometry
                 end
+
+                -- Create math.x for extended utilities
+                ensure_namespace(math, "x")
 
                 -- Re-export mathx statistics functions → math.stats
                 if luaswift.mathx then
@@ -159,6 +163,29 @@ public struct MathSciModule {
 
                     -- Also alias gammaln for compatibility with common conventions
                     special.gammaln = mathx.lgamma
+                end
+
+                -- Re-export mathx extended utilities → math.x
+                if luaswift.mathx then
+                    local mathx = luaswift.mathx
+                    local x = math.x
+
+                    -- Extended utilities (trivial Darwin-based extensions)
+                    x.round = mathx.round
+                    x.trunc = mathx.trunc
+                    x.sign = mathx.sign
+
+                    -- Hyperbolic functions
+                    x.sinh = mathx.sinh
+                    x.cosh = mathx.cosh
+                    x.tanh = mathx.tanh
+                    x.asinh = mathx.asinh
+                    x.acosh = mathx.acosh
+                    x.atanh = mathx.atanh
+
+                    -- Extended logarithms
+                    x.log10 = mathx.log10
+                    x.log2 = mathx.log2
                 end
 
                 -- Populate math.constants with physical and mathematical constants

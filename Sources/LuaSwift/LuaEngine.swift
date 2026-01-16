@@ -891,16 +891,8 @@ public final class LuaEngine {
         }
 
         // Check if integer keys form a contiguous array starting at 1
-        if !hasStringKeys && !intKeyedValues.isEmpty {
-            let sortedKeys = intKeyedValues.keys.sorted()
-            let isContiguousArray = sortedKeys.first == 1 &&
-                sortedKeys.last == sortedKeys.count &&
-                sortedKeys.count == intKeyedValues.count
-
-            if isContiguousArray {
-                let arr = sortedKeys.map { intKeyedValues[$0]! }
-                return .array(arr)
-            }
+        if !hasStringKeys, let arr = convertToArrayIfContiguous(intKeyedValues) {
+            return .array(arr)
         }
 
         // Not a pure array - merge all values into dict
@@ -1086,16 +1078,8 @@ public final class LuaEngine {
         }
 
         // Check if integer keys form a contiguous array starting at 1
-        if !hasStringKeys && !intKeyedValues.isEmpty {
-            let sortedKeys = intKeyedValues.keys.sorted()
-            let isContiguousArray = sortedKeys.first == 1 &&
-                sortedKeys.last == sortedKeys.count &&
-                sortedKeys.count == intKeyedValues.count
-
-            if isContiguousArray {
-                let arr = sortedKeys.map { intKeyedValues[$0]! }
-                return .array(arr)
-            }
+        if !hasStringKeys, let arr = convertToArrayIfContiguous(intKeyedValues) {
+            return .array(arr)
         }
 
         // Not a pure array - merge all values into dict
@@ -1397,6 +1381,35 @@ private func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
     }
 }
 
+// MARK: - File-scope Table Conversion Helpers
+
+/// Convert integer-keyed values to a contiguous array if possible.
+/// Uses O(n) min/max check instead of O(n log n) sorting.
+@inline(__always)
+private func convertToArrayIfContiguous(_ intKeyedValues: [Int: LuaValue]) -> [LuaValue]? {
+    guard !intKeyedValues.isEmpty else { return nil }
+
+    // O(n) check: find min and max, verify contiguity
+    var minKey = Int.max
+    var maxKey = Int.min
+    for key in intKeyedValues.keys {
+        if key < minKey { minKey = key }
+        if key > maxKey { maxKey = key }
+    }
+
+    // Must start at 1 and be contiguous
+    guard minKey == 1 && maxKey == intKeyedValues.count else { return nil }
+
+    // Build array in order (O(n))
+    var result = [LuaValue]()
+    result.reserveCapacity(intKeyedValues.count)
+    for i in 1...maxKey {
+        guard let value = intKeyedValues[i] else { return nil }
+        result.append(value)
+    }
+    return result
+}
+
 /// Get a table from the Lua stack (static version for use in callbacks)
 private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue {
     var dict: [String: LuaValue] = [:]
@@ -1435,16 +1448,8 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
     }
 
     // Check if integer keys form a contiguous array starting at 1
-    if !hasStringKeys && !intKeyedValues.isEmpty {
-        let sortedKeys = intKeyedValues.keys.sorted()
-        let isContiguousArray = sortedKeys.first == 1 &&
-            sortedKeys.last == sortedKeys.count &&
-            sortedKeys.count == intKeyedValues.count
-
-        if isContiguousArray {
-            let arr = sortedKeys.map { intKeyedValues[$0]! }
-            return .array(arr)
-        }
+    if !hasStringKeys, let arr = convertToArrayIfContiguous(intKeyedValues) {
+        return .array(arr)
     }
 
     // Not a pure array - merge all values into dict

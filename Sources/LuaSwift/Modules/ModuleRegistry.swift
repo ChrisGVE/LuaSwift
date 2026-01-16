@@ -179,7 +179,9 @@ public struct ModuleRegistry {
                 end
                 """)
         } catch {
-            // Silently fail if setup fails
+            #if DEBUG
+            print("[LuaSwift] Warning: extend_stdlib setup failed: \(error)")
+            #endif
         }
     }
 

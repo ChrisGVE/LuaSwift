@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -596,3 +597,5 @@ public struct IntegrateModule {
         }
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

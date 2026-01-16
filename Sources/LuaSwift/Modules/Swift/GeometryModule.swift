@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import Accelerate
 import simd
@@ -4725,3 +4726,5 @@ public struct GeometryModule {
     package.loaded["luaswift.geometry"] = geo
     """
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

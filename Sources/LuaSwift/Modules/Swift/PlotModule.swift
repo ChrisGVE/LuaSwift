@@ -8,6 +8,8 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_PLOTSWIFT
+
 import Foundation
 import CoreGraphics
 import CoreText
@@ -3363,3 +3365,5 @@ public struct PlotModule {
     _luaswift_plot_savefig = nil
     """
 }
+
+#endif  // LUASWIFT_PLOTSWIFT

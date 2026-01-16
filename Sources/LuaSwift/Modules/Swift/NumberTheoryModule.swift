@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -297,3 +298,5 @@ public struct NumberTheoryModule {
     _luaswift_numtheory_lcm = nil
     """
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

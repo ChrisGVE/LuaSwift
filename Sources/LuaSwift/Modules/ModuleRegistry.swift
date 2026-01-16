@@ -65,21 +65,33 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install modules in
     public static func installModules(in engine: LuaEngine) {
+        // Core modules (always available)
         installJSONModule(in: engine)
         installYAMLModule(in: engine)
         installTOMLModule(in: engine)
         installRegexModule(in: engine)
         installMathModule(in: engine)
-        installLinAlgModule(in: engine)
-        installArrayModule(in: engine)
-        installGeometryModule(in: engine)
         installUTF8XModule(in: engine)
         installStringXModule(in: engine)
         installTableXModule(in: engine)
-        installComplexModule(in: engine)
         installTypesModule(in: engine)
         installSVGModule(in: engine)
+
+        // ArraySwift-dependent module
+        #if LUASWIFT_ARRAYSWIFT
+        installArrayModule(in: engine)
+        #endif
+
+        // PlotSwift-dependent module
+        #if LUASWIFT_PLOTSWIFT
         installPlotModule(in: engine)
+        #endif
+
+        // NumericSwift-dependent modules
+        #if LUASWIFT_NUMERICSWIFT
+        installLinAlgModule(in: engine)
+        installGeometryModule(in: engine)
+        installComplexModule(in: engine)
         installMathSciModule(in: engine)  // Must be before MathExprModule to create math.eval namespace
         installMathExprModule(in: engine)
         installOptimizeModule(in: engine)
@@ -92,6 +104,8 @@ public struct ModuleRegistry {
         installRegressModule(in: engine)
         installSeriesModule(in: engine)  // Must be after MathExprModule (uses eval)
         installNumberTheoryModule(in: engine)
+        #endif
+
         #if DEBUG
         installDebugModule(in: engine)
         #endif
@@ -197,12 +211,14 @@ public struct ModuleRegistry {
         RegexModule.register(in: engine)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     /// Install only the Linear Algebra module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installLinAlgModule(in engine: LuaEngine) {
         LinAlgModule.register(in: engine)
     }
+    #endif
 
     /// Install only the Math extension module.
     ///
@@ -211,19 +227,23 @@ public struct ModuleRegistry {
         MathXModule.register(in: engine)
     }
 
+    #if LUASWIFT_ARRAYSWIFT
     /// Install only the Array module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installArrayModule(in engine: LuaEngine) {
         ArrayModule.register(in: engine)
     }
+    #endif
 
+    #if LUASWIFT_NUMERICSWIFT
     /// Install only the Geometry module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installGeometryModule(in engine: LuaEngine) {
         GeometryModule.register(in: engine)
     }
+    #endif
 
     /// Install only the UTF8X module.
     ///
@@ -246,12 +266,14 @@ public struct ModuleRegistry {
         TableXModule.register(in: engine)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     /// Install only the Complex module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installComplexModule(in engine: LuaEngine) {
         ComplexModule.register(in: engine)
     }
+    #endif
 
     /// Install only the Types module.
     ///
@@ -267,12 +289,14 @@ public struct ModuleRegistry {
         SVGModule.register(in: engine)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     /// Install only the MathExpr module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installMathExprModule(in engine: LuaEngine) {
         MathExprModule.register(in: engine)
     }
+    #endif
 
     #if DEBUG
     /// Install only the Debug module.
@@ -285,13 +309,16 @@ public struct ModuleRegistry {
     }
     #endif
 
+    #if LUASWIFT_PLOTSWIFT
     /// Install only the Plot module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installPlotModule(in engine: LuaEngine) {
         PlotModule.register(in: engine)
     }
+    #endif
 
+    #if LUASWIFT_NUMERICSWIFT
     /// Install only the MathSci module.
     ///
     /// This module sets up math subnamespaces by re-exporting existing modules.
@@ -410,6 +437,7 @@ public struct ModuleRegistry {
     public static func installNumberTheoryModule(in engine: LuaEngine) {
         NumberTheoryModule.register(in: engine)
     }
+    #endif
 
     /// Install only the HTTP module.
     ///

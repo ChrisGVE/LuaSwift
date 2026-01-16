@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -444,3 +445,5 @@ public struct OptimizeModule {
         }
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

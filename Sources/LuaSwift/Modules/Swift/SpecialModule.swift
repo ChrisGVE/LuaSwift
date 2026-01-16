@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import Darwin
 import NumericSwift
@@ -823,3 +824,5 @@ public struct SpecialModule {
     }
 
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -1901,3 +1902,5 @@ public enum MathExprError: Error {
         }
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

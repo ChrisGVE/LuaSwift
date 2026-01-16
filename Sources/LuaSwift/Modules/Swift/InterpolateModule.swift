@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -709,3 +710,5 @@ public struct InterpolateModule {
         }
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

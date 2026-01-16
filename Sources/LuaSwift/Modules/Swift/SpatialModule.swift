@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import Accelerate
 import NumericSwift
@@ -1150,3 +1151,5 @@ public struct SpatialModule {
         })
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

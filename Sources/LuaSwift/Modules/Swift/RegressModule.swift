@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import Accelerate
 import NumericSwift
@@ -2816,3 +2817,5 @@ public struct RegressModule {
         return Array(yCopy.prefix(k))
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

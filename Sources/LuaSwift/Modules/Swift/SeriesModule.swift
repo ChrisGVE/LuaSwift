@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -645,3 +646,5 @@ public struct SeriesModule {
     _luaswift_series_eval_poly = nil
     """
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -449,3 +450,5 @@ public struct ComplexModule {
     package.loaded["luaswift.complex"] = complex
     """
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

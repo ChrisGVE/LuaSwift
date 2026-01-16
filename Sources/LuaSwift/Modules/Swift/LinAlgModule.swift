@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -1643,3 +1644,5 @@ public struct LinAlgModule {
         return createMatrixTableFrom(result)
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

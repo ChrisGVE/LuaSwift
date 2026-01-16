@@ -8,6 +8,8 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_ARRAYSWIFT
+
 import Foundation
 import Accelerate
 import ArraySwift
@@ -6051,3 +6053,5 @@ public struct ArrayModule {
         }
     }
 }
+
+#endif  // LUASWIFT_ARRAYSWIFT

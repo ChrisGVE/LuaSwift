@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import NumericSwift
 
@@ -1111,3 +1112,5 @@ public struct DistributionsModule {
         } catch {}
     }
 }
+
+#endif  // LUASWIFT_NUMERICSWIFT

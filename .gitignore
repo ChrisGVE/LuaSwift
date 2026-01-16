@@ -48,7 +48,17 @@ claude.json
 .taskmaster/
 .serena/
 .specstory/
+.chunkhound
+.chunkhound.json
 tmp/
+
+# Node.js (development tools)
+node_modules/
+package.json
+package-lock.json
+
+# Backup files
+*.old.md
 
 # PRD and planning documents (local only)
 *PRD*.md

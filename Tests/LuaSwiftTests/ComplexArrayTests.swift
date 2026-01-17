@@ -10,7 +10,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
-#if LUASWIFT_ARRAYSWIFT
+#if LUASWIFT_ARRAYSWIFT && LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -932,4 +932,4 @@ final class ComplexArrayTests: XCTestCase {
         }
     }
 }
-#endif  // LUASWIFT_ARRAYSWIFT
+#endif  // LUASWIFT_ARRAYSWIFT && LUASWIFT_NUMERICSWIFT

@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_ARRAYSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -2687,3 +2688,4 @@ final class ArrayDataServer: LuaValueServer {
         }
     }
 }
+#endif  // LUASWIFT_ARRAYSWIFT

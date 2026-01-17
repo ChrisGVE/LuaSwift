@@ -46,6 +46,7 @@ try engine.run("""
 - <doc:GettingStarted>
 - ``LuaEngine``
 - ``LuaValue``
+- ``LuaEngineConfiguration``
 
 ### Data Exchange
 
@@ -54,13 +55,15 @@ try engine.run("""
 - ``LuaValueServer``
 - ``LuaError``
 
-### Security
+### Concurrency
+
+- <doc:Threading>
+- <doc:Coroutines>
+- ``CoroutineHandle``
+
+### Security and Configuration
 
 - <doc:Sandboxing>
-- ``LuaEngineConfiguration``
-
-### Built-in Modules
-
 - ``ModuleRegistry``
 
 ### Data Formats
@@ -76,19 +79,49 @@ try engine.run("""
 - <doc:UTF8XModule>
 - <doc:TableXModule>
 
-### Mathematics
+### Arrays and Linear Algebra
 
-- <doc:MathXModule>
-- <doc:LinAlgModule>
 - <doc:ArrayModule>
-- <doc:ComplexModule>
+- <doc:LinAlgModule>
 
-### Graphics and Geometry
+### Mathematics and Statistics
+
+- <doc:MathSciModule>
+- <doc:MathXModule>
+- <doc:ComplexModule>
+- <doc:SpecialModule>
+- <doc:DistributionsModule>
+
+### Numerical Analysis
+
+- <doc:OptimizeModule>
+- <doc:IntegrateModule>
+- <doc:InterpolateModule>
+- <doc:SeriesModule>
+
+### Data Science
+
+- <doc:RegressModule>
+- <doc:ClusterModule>
+- <doc:SpatialModule>
+
+### Geometry and Visualization
 
 - <doc:GeometryModule>
+- <doc:PlotModule>
 - <doc:SVGModule>
 
-### Utilities
+### Number Theory
+
+- <doc:NumberTheoryModule>
+
+### File I/O and Networking
+
+- <doc:IOModule>
+- <doc:HTTPModule>
+
+### Utilities and Debugging
 
 - <doc:TypesModule>
 - <doc:MathExprModule>
+- <doc:DebugModule>

@@ -165,6 +165,7 @@ final class LuaModuleTests: XCTestCase {
 
     // MARK: - Math Expression Module Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testMathEvalSimple() throws {
         let engine = try LuaEngine()
         try configureLuaPath(engine: engine)
@@ -354,6 +355,7 @@ final class LuaModuleTests: XCTestCase {
             }
         }
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testSVGPolylineAndPolygon() throws {
         let engine = try LuaEngine()
@@ -726,6 +728,7 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     func testExtendStdlibCreatesMathComplex() throws {
         let engine = try LuaEngine()
         ModuleRegistry.installModules(in: engine)
@@ -761,6 +764,7 @@ final class LuaModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue, 3)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - Top-level Alias Tests
 
@@ -774,6 +778,7 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertNotNil(result.stringValue)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     func testTopLevelAliasComplex() throws {
         let engine = try LuaEngine()
         ModuleRegistry.installModules(in: engine)
@@ -807,6 +812,18 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 3)
     }
 
+    func testTopLevelAliasTypes() throws {
+        let engine = try LuaEngine()
+        ModuleRegistry.installModules(in: engine)
+
+        let result = try engine.evaluate("""
+            return types.typeof(complex.new(1, 2))
+            """)
+        XCTAssertEqual(result.stringValue, "complex")
+    }
+    #endif  // LUASWIFT_NUMERICSWIFT
+
+    #if LUASWIFT_ARRAYSWIFT
     func testTopLevelAliasArray() throws {
         let engine = try LuaEngine()
         ModuleRegistry.installModules(in: engine)
@@ -817,16 +834,7 @@ final class LuaModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue, 6)
     }
-
-    func testTopLevelAliasTypes() throws {
-        let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
-
-        let result = try engine.evaluate("""
-            return types.typeof(complex.new(1, 2))
-            """)
-        XCTAssertEqual(result.stringValue, "complex")
-    }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - Serialize Module Tests
 

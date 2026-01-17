@@ -1109,6 +1109,8 @@ final class ArrayModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, 1 + 2 * 10, accuracy: 1.0)
     }
 
+    // sign function requires MathXModule (NumericSwift) for proper implementation
+    #if LUASWIFT_NUMERICSWIFT
     func testSign() throws {
         let result = try engine.evaluate("""
             local a = luaswift.array.array({5, 0, -3})
@@ -1117,6 +1119,7 @@ final class ArrayModuleTests: XCTestCase {
             """)
         XCTAssertEqual(result.numberValue, 1 + 0 * 10 + (-1) * 100)  // 1 + 0 + (-100) = -99
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testClip() throws {
         let result = try engine.evaluate("""

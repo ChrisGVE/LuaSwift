@@ -31,6 +31,7 @@ final class BenchmarkTests: XCTestCase {
 
     // MARK: - Geometry Benchmarks
 
+    #if LUASWIFT_NUMERICSWIFT
     func testVec2OperationsBenchmark() throws {
         // Setup: Create vectors
         try engine.run("""
@@ -129,9 +130,11 @@ final class BenchmarkTests: XCTestCase {
             }
         }
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - Complex Number Benchmarks
 
+    #if LUASWIFT_NUMERICSWIFT
     func testComplexArithmeticBenchmark() throws {
         // Setup: Create complex numbers
         try engine.run("""
@@ -190,6 +193,7 @@ final class BenchmarkTests: XCTestCase {
             }
         }
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - UTF8 Benchmarks
 
@@ -442,6 +446,7 @@ final class BenchmarkTests: XCTestCase {
 
     // MARK: - Linear Algebra Benchmarks
 
+    #if LUASWIFT_NUMERICSWIFT
     func testLinAlgVectorOperationsBenchmark() throws {
         // Setup: Create vectors
         try engine.run("""
@@ -490,9 +495,11 @@ final class BenchmarkTests: XCTestCase {
             }
         }
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - Array Module Benchmarks
 
+    #if LUASWIFT_ARRAYSWIFT
     func testArrayCreationBenchmark() throws {
         measure {
             for _ in 0..<100 {
@@ -527,6 +534,7 @@ final class BenchmarkTests: XCTestCase {
             }
         }
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - Regex Benchmarks
 

@@ -323,6 +323,7 @@ final class TableXModuleTests: XCTestCase {
 
     // MARK: - Type-Aware Deepcopy Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testDeepcopyPreservesComplexType() throws {
         // Register required modules
         ComplexModule.register(in: engine)
@@ -561,6 +562,7 @@ final class TableXModuleTests: XCTestCase {
         XCTAssertEqual(table["pos_y"]?.numberValue, 20)
         XCTAssertEqual(table["is_typed"]?.boolValue, false)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - Copy Tests
 

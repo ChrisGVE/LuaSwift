@@ -183,7 +183,22 @@ let package = Package(
         // Tests
         .testTarget(
             name: "LuaSwiftTests",
-            dependencies: ["LuaSwift"]
+            dependencies: ["LuaSwift"],
+            swiftSettings: {
+                var settings: [SwiftSetting] = [
+                    .define("LUA_VERSION_\(selectedVersion)")
+                ]
+                if includePlotSwift {
+                    settings.append(.define("LUASWIFT_PLOTSWIFT"))
+                }
+                if includeArraySwift {
+                    settings.append(.define("LUASWIFT_ARRAYSWIFT"))
+                }
+                if includeNumericSwift {
+                    settings.append(.define("LUASWIFT_NUMERICSWIFT"))
+                }
+                return settings
+            }()
         ),
     ]
 )

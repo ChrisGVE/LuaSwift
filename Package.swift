@@ -98,7 +98,10 @@ let package = Package(
     name: "LuaSwift",
     platforms: [
         .iOS(.v15),
-        .macOS(.v12)
+        .macOS(.v12),
+        .visionOS(.v1),
+        .watchOS(.v8),
+        .tvOS(.v15)
     ],
     products: [
         .library(
@@ -131,7 +134,7 @@ let package = Package(
             sources: cluaSources,
             publicHeadersPath: "include",
             cSettings: [
-                .define("LUA_USE_IOS", .when(platforms: [.iOS])),
+                .define("LUA_USE_IOS", .when(platforms: [.iOS, .visionOS, .watchOS, .tvOS])),
                 .define("LUA_USE_MACOSX", .when(platforms: [.macOS])),
                 .headerSearchPath(".")
             ]

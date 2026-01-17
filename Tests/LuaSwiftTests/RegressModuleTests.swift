@@ -1964,15 +1964,30 @@ final class RegressModuleTests: XCTestCase {
             local expected_bic = -2 * llf + k * math.log(n)
 
             return {
-                aic_close = math.abs(results.aic - expected_aic) < 1,
-                bic_close = math.abs(results.bic - expected_bic) < 1,
+                aic_diff = math.abs(results.aic - expected_aic),
+                bic_diff = math.abs(results.bic - expected_bic),
                 aic = results.aic,
-                expected_aic = expected_aic
+                expected_aic = expected_aic,
+                bic = results.bic,
+                expected_bic = expected_bic,
+                llf = llf,
+                k = k,
+                n = n
             }
         """)
         let resultTable = result.tableValue!
-        XCTAssertTrue(resultTable["aic_close"]?.boolValue ?? false, "AIC should match formula: -2*llf + 2*k")
-        XCTAssertTrue(resultTable["bic_close"]?.boolValue ?? false, "BIC should match formula: -2*llf + k*log(n)")
+        let aicDiff = resultTable["aic_diff"]?.numberValue ?? 999
+        let bicDiff = resultTable["bic_diff"]?.numberValue ?? 999
+        let aic = resultTable["aic"]?.numberValue ?? 0
+        let expectedAic = resultTable["expected_aic"]?.numberValue ?? 0
+        let bic = resultTable["bic"]?.numberValue ?? 0
+        let expectedBic = resultTable["expected_bic"]?.numberValue ?? 0
+        let llf = resultTable["llf"]?.numberValue ?? 0
+        let k = resultTable["k"]?.numberValue ?? 0
+        let n = resultTable["n"]?.numberValue ?? 0
+
+        XCTAssertLessThan(aicDiff, 1e-6, "AIC should match formula: -2*llf + 2*k. Got \(aic), expected \(expectedAic), diff=\(aicDiff), llf=\(llf), k=\(k), n=\(n)")
+        XCTAssertLessThan(bicDiff, 1e-6, "BIC should match formula: -2*llf + k*log(n). Got \(bic), expected \(expectedBic), diff=\(bicDiff)")
     }
 
     func testGLMPoissonExponentialMean() throws {

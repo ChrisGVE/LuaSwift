@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_PLOTSWIFT
 import XCTest
 @testable import LuaSwift
 import PlotSwift
@@ -3089,3 +3090,4 @@ final class PlotModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 }
+#endif  // LUASWIFT_PLOTSWIFT

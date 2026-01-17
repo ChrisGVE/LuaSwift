@@ -67,6 +67,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout NumericSwift
+        if: matrix.numericswift == '1'
+        uses: actions/checkout@v4
+        with:
+          repository: ChrisGVE/NumericSwift
+          path: ../NumericSwift
+
+      - name: Checkout ArraySwift
+        if: matrix.arrayswift == '1'
+        uses: actions/checkout@v4
+        with:
+          repository: ChrisGVE/ArraySwift
+          path: ../ArraySwift
+
+      - name: Checkout PlotSwift
+        if: matrix.plotswift == '1'
+        uses: actions/checkout@v4
+        with:
+          repository: ChrisGVE/PlotSwift
+          path: ../PlotSwift
+
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
 

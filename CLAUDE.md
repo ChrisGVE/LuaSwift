@@ -94,29 +94,43 @@ Sources/
     │   └── math_expr.lua    # Math expression parsing (Lua parts)
     └── Modules/
         ├── ModuleRegistry.swift # Central module registration
-        └── Swift/           # Swift-backed modules
-            ├── ArrayModule.swift      # NumPy-like N-dimensional arrays
-            ├── ComplexModule.swift    # Complex number arithmetic
-            ├── DebugModule.swift      # Debugging utilities (DEBUG only)
-            ├── DistributionsModule.swift # Probability distributions (scipy-inspired)
-            ├── GeometryModule.swift   # 2D/3D geometry with SIMD
-            ├── IntegrateModule.swift  # Numerical integration (scipy-inspired)
-            ├── JSONModule.swift       # JSON encode/decode
-            ├── LinAlgModule.swift     # Linear algebra with Accelerate
-            ├── MathExprModule.swift   # Math expression parsing
-            ├── MathSciModule.swift    # Scientific computing namespace
-            ├── MathXModule.swift      # Extended math functions
-            ├── OptimizeModule.swift   # Numerical optimization (scipy-inspired)
-            ├── PlotModule.swift       # matplotlib/seaborn-compatible plotting
-            ├── RegexModule.swift      # Regular expressions
-            ├── SlideRuleModule.swift  # Slide rule simulation
-            ├── StringXModule.swift    # String utilities (Penlight-inspired)
-            ├── SVGModule.swift        # SVG document generation
-            ├── TableXModule.swift     # Table utilities (Penlight-inspired)
-            ├── TOMLModule.swift       # TOML encode/decode
-            ├── TypesModule.swift      # Type detection/conversion
-            ├── UTF8XModule.swift      # UTF-8 string utilities
-            └── YAMLModule.swift       # YAML encode/decode
+        └── Swift/           # Swift-backed modules (31 files)
+            # Scientific computing (math.* namespace)
+            ├── ArrayModule.swift        # NumPy-like N-dimensional arrays
+            ├── LinAlgModule.swift       # Linear algebra with Accelerate
+            ├── ComplexModule.swift      # Complex number arithmetic
+            ├── ComplexHelper.swift      # Complex number utilities
+            ├── DistributionsModule.swift # Probability distributions
+            ├── IntegrateModule.swift    # Numerical integration
+            ├── InterpolateModule.swift  # Spline/polynomial interpolation
+            ├── OptimizeModule.swift     # Numerical optimization
+            ├── RegressModule.swift      # Regression analysis
+            ├── ClusterModule.swift      # Clustering algorithms
+            ├── SpatialModule.swift      # KDTree, Voronoi, Delaunay
+            ├── SeriesModule.swift       # Taylor series, summation
+            ├── SpecialModule.swift      # Gamma, Bessel, error functions
+            ├── NumberTheoryModule.swift # Primes, factorization
+            ├── GeometryModule.swift     # 2D/3D geometry with SIMD
+            ├── MathXModule.swift        # Extended math functions
+            ├── MathSciModule.swift      # Scientific computing namespace
+            ├── MathExprModule.swift     # Math expression parsing
+            # Data formats
+            ├── JSONModule.swift         # JSON encode/decode
+            ├── YAMLModule.swift         # YAML encode/decode
+            ├── TOMLModule.swift         # TOML encode/decode
+            # Visualization
+            ├── PlotModule.swift         # matplotlib-compatible plotting
+            ├── SVGModule.swift          # SVG document generation
+            # String/Table utilities (Penlight-inspired)
+            ├── StringXModule.swift      # String utilities
+            ├── TableXModule.swift       # Table utilities
+            ├── UTF8XModule.swift        # UTF-8 string utilities
+            ├── RegexModule.swift        # Regular expressions
+            # System/Utilities
+            ├── TypesModule.swift        # Type detection/conversion
+            ├── IOModule.swift           # File I/O (opt-in)
+            ├── HTTPModule.swift         # HTTP client (opt-in)
+            └── DebugModule.swift        # Debugging utilities
 
 Tests/LuaSwiftTests/
 ├── LuaEngineTests.swift     # Core engine tests

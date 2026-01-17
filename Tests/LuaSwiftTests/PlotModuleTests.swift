@@ -37,14 +37,12 @@ final class PlotModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
-    // TODO: PlotModule should create 'plot' global alias like other modules do
-    // Currently the module doesn't create a global alias, only luaswift.plot
-    // func testPlotGlobalAliasExists() throws {
-    //     let result = try engine.evaluate("""
-    //         return plot ~= nil
-    //     """)
-    //     XCTAssertEqual(result.boolValue, true)
-    // }
+    func testPlotGlobalAliasExists() throws {
+        let result = try engine.evaluate("""
+            return plot ~= nil
+        """)
+        XCTAssertEqual(result.boolValue, true)
+    }
 
     // MARK: - DrawingContext Tests
 

@@ -107,13 +107,17 @@ public struct OptimizeModule {
                     return result
                 end
 
-                -- least_squares: Nonlinear least squares
+                -- least_squares: Nonlinear least squares with optional bounds
                 function optimize.least_squares(residuals, x0, options)
                     options = options or {}
+                    local lower = options.bounds and options.bounds.lower
+                    local upper = options.bounds and options.bounds.upper
                     local result = _luaswift_optimize_least_squares(residuals, x0,
                         options.ftol or 1e-8,
                         options.xtol or 1e-8,
-                        options.maxiter or 100)
+                        options.maxiter or 100,
+                        lower,
+                        upper)
                     return result
                 end
 
@@ -369,8 +373,77 @@ public struct OptimizeModule {
             let xtol = args.count > 3 ? args[3].numberValue ?? 1e-8 : 1e-8
             let maxiter = args.count > 4 ? Int(args[4].numberValue ?? 100) : 100
 
-            let residuals = makeLuaFunctionVector(engine, funcRef)
-            let result = NumericSwift.leastSquares(residuals, x0: x0, ftol: ftol, xtol: xtol, maxiter: maxiter)
+            // Parse optional bounds
+            var lowerBounds: [Double]?
+            var upperBounds: [Double]?
+
+            if args.count > 5, let lowerTable = args[5].arrayValue {
+                lowerBounds = lowerTable.compactMap { $0.numberValue }
+                if lowerBounds?.count != x0.count {
+                    throw LuaError.runtimeError("least_squares: lower bounds must have same length as x0")
+                }
+            }
+
+            if args.count > 6, let upperTable = args[6].arrayValue {
+                upperBounds = upperTable.compactMap { $0.numberValue }
+                if upperBounds?.count != x0.count {
+                    throw LuaError.runtimeError("least_squares: upper bounds must have same length as x0")
+                }
+            }
+
+            let baseResiduals = makeLuaFunctionVector(engine, funcRef)
+            let result: NumericSwift.LeastSquaresResult
+
+            if let lower = lowerBounds, let upper = upperBounds {
+                // Bound-constrained optimization using parameter transformation
+                // Transform: x = lower + (upper - lower) * sigmoid(y)
+                // This maps unbounded y to bounded x in [lower, upper]
+
+                // Transform x0 to initial y0 (inverse sigmoid)
+                let y0 = zip(zip(x0, lower), upper).map { arg -> Double in
+                    let ((x, lo), hi) = arg
+                    // Clamp x to valid range first
+                    let xClamped = min(max(x, lo + 1e-10), hi - 1e-10)
+                    let t = (xClamped - lo) / (hi - lo)
+                    // Inverse sigmoid: y = log(t / (1-t))
+                    return log(t / (1 - t))
+                }
+
+                // Wrapper that transforms y -> x, then calls residuals
+                let boundedResiduals: ([Double]) -> [Double] = { y in
+                    // Transform y to x using sigmoid
+                    let x = zip(zip(y, lower), upper).map { arg -> Double in
+                        let ((yi, lo), hi) = arg
+                        let sig = 1.0 / (1.0 + exp(-yi))  // sigmoid
+                        return lo + (hi - lo) * sig
+                    }
+                    return baseResiduals(x)
+                }
+
+                // Run unconstrained optimization in transformed space
+                let transformedResult = NumericSwift.leastSquares(boundedResiduals, x0: y0, ftol: ftol, xtol: xtol, maxiter: maxiter)
+
+                // Transform result back to original space
+                let xFinal = zip(zip(transformedResult.x, lower), upper).map { arg -> Double in
+                    let ((yi, lo), hi) = arg
+                    let sig = 1.0 / (1.0 + exp(-yi))
+                    return lo + (hi - lo) * sig
+                }
+
+                // Create result with transformed x
+                result = NumericSwift.LeastSquaresResult(
+                    x: xFinal,
+                    cost: transformedResult.cost,
+                    fun: baseResiduals(xFinal),  // Evaluate at final bounded point
+                    nfev: transformedResult.nfev,
+                    njev: transformedResult.njev,
+                    success: transformedResult.success,
+                    message: transformedResult.message
+                )
+            } else {
+                // Unbounded optimization
+                result = NumericSwift.leastSquares(baseResiduals, x0: x0, ftol: ftol, xtol: xtol, maxiter: maxiter)
+            }
 
             return .table([
                 "x": .array(result.x.map { .number($0) }),

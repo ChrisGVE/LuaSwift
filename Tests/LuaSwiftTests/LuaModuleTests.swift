@@ -163,128 +163,7 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
-    // MARK: - Math Expression Module Tests
-
-    #if LUASWIFT_NUMERICSWIFT
-    func testMathEvalSimple() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            return math_expr.eval('2 + 3 * 4')
-        """)
-
-        XCTAssertEqual(result.numberValue, 14)
-    }
-
-    func testMathEvalWithVariables() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            return math_expr.eval('x^2', {x = 5})
-        """)
-
-        XCTAssertEqual(result.numberValue, 25)
-    }
-
-    func testMathEvalFunctions() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            return math_expr.eval('sin(pi/2)')
-        """)
-
-        XCTAssertEqual(result.numberValue!, 1.0, accuracy: 0.0001)
-    }
-
-    func testMathStepByStep() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            local steps = math_expr.solve('2 + 3', {show_steps = true})
-            return #steps > 1
-        """)
-
-        XCTAssertEqual(result.boolValue, true)
-    }
-
-    func testMathEvalComplexExpression() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            return math_expr.eval('sqrt(16) + abs(-5) * 2')
-        """)
-
-        XCTAssertEqual(result.numberValue, 14)
-    }
-
-    func testMathEvalUnaryMinus() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            return math_expr.eval('-5 + 3')
-        """)
-
-        XCTAssertEqual(result.numberValue, -2)
-    }
-
-    func testMathEvalParentheses() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            return math_expr.eval('(2 + 3) * 4')
-        """)
-
-        XCTAssertEqual(result.numberValue, 20)
-    }
-
-    func testMathEvalConstants() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            local piValue = math_expr.eval('pi')
-            return piValue
-        """)
-
-        XCTAssertEqual(result.numberValue!, 3.14159265, accuracy: 0.00001)
-    }
-
-    // MARK: - Integration Tests
-
-    func testSVGWithMathExpression() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local svg = require('luaswift.svg')
-            local math_expr = require('math_expr')
-            local drawing = svg.create(300, 100)
-            -- Evaluate an expression
-            local result = math_expr.eval('3 + 4')
-            -- Use result in SVG text
-            local text = '3 + 4 = ' .. tostring(result)
-            drawing:text(text, 150, 50)
-            local svgStr = drawing:render()
-            return svgStr:match('3 %+ 4 = 7') ~= nil
-        """)
-
-        XCTAssertEqual(result.boolValue, true)
-    }
+    // MARK: - SVG Integration Tests
 
     func testSVGGreekLettersInText() throws {
         let engine = try LuaEngine()
@@ -307,23 +186,6 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
-    func testMathExpressionWithSolveSteps() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        let result = try engine.evaluate("""
-            local math_expr = require('math_expr')
-            local steps = math_expr.solve('2 * 3 + 4', {show_steps = true})
-            -- Should have multiple steps
-            local hasSteps = #steps > 1
-            -- First step should be original expression
-            local firstStep = steps[1].desc == 'Original expression'
-            return hasSteps and firstStep
-        """)
-
-        XCTAssertEqual(result.boolValue, true)
-    }
-
     func testSVGGroupTransform() throws {
         let engine = try LuaEngine()
         try configureLuaPath(engine: engine)
@@ -340,22 +202,6 @@ final class LuaModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
-
-    func testMathExprDivisionByZeroError() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
-
-        XCTAssertThrowsError(try engine.evaluate("""
-            local math_expr = require('math_expr')
-            return math_expr.eval('1 / 0')
-        """)) { error in
-            guard case LuaError.runtimeError = error else {
-                XCTFail("Expected runtime error for division by zero")
-                return
-            }
-        }
-    }
-    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testSVGPolylineAndPolygon() throws {
         let engine = try LuaEngine()

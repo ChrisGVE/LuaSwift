@@ -67,26 +67,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout NumericSwift
+      - name: Clone NumericSwift
         if: matrix.numericswift == '1'
-        uses: actions/checkout@v4
-        with:
-          repository: ChrisGVE/NumericSwift
-          path: ../NumericSwift
+        run: git clone --depth 1 https://github.com/ChrisGVE/NumericSwift.git ../NumericSwift
 
-      - name: Checkout ArraySwift
+      - name: Clone ArraySwift
         if: matrix.arrayswift == '1'
-        uses: actions/checkout@v4
-        with:
-          repository: ChrisGVE/ArraySwift
-          path: ../ArraySwift
+        run: git clone --depth 1 https://github.com/ChrisGVE/ArraySwift.git ../ArraySwift
 
-      - name: Checkout PlotSwift
+      - name: Clone PlotSwift
         if: matrix.plotswift == '1'
-        uses: actions/checkout@v4
-        with:
-          repository: ChrisGVE/PlotSwift
-          path: ../PlotSwift
+        run: git clone --depth 1 https://github.com/ChrisGVE/PlotSwift.git ../PlotSwift
 
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2

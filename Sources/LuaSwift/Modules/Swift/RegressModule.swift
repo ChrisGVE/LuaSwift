@@ -2333,7 +2333,9 @@ public struct RegressModule {
             for i in 0..<n {
                 ssr += (y[i] - mu[i]) * (y[i] - mu[i])
             }
-            llf = -Double(n) / 2.0 * log(2.0 * .pi) - Double(n) / 2.0 * log(ssr / Double(n)) - Double(n) / 2.0
+            // Guard against log(0) when SSR is effectively zero (perfect fit)
+            let mse = max(ssr / Double(n), 1e-300)
+            llf = -Double(n) / 2.0 * log(2.0 * .pi) - Double(n) / 2.0 * log(mse) - Double(n) / 2.0
         case "binomial":
             for i in 0..<n {
                 let p = max(1e-10, min(1.0 - 1e-10, mu[i]))

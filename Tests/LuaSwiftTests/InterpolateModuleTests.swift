@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -647,3 +648,4 @@ final class InterpolateModuleTests: XCTestCase {
         XCTAssertEqual(table["im"]!.numberValue!, 4.0, accuracy: 1e-10)
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

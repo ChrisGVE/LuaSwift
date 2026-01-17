@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -677,3 +678,4 @@ final class ComplexModuleTests: XCTestCase {
         XCTAssertEqual(typeMarker, "complex")
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

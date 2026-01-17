@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import Testing
 @testable import LuaSwift
@@ -623,3 +624,4 @@ struct LinAlgExtrasTests {
         }
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

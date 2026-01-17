@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -381,3 +382,4 @@ final class NumberTheoryModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 0)
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

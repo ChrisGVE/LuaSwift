@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Testing
 import Foundation
 @testable import LuaSwift
@@ -3545,3 +3546,4 @@ struct GeometryModuleTests {
         #expect(arr[2].stringValue == "table")    // spline is a table/object
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

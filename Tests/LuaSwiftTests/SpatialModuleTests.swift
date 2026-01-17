@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -481,3 +482,4 @@ final class SpatialModuleTests: XCTestCase {
         XCTAssertEqual(result.stringValue, "function")
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -755,3 +756,4 @@ final class OptimizeModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue!, 2.0, accuracy: 0.2)
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

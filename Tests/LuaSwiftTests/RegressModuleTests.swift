@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -2264,3 +2265,4 @@ final class RegressModuleTests: XCTestCase {
         XCTAssertTrue(result.boolValue!, "Second-order differencing should reduce nobs by 2")
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

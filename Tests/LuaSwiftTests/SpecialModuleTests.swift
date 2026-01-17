@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import Foundation
 import Testing
 @testable import LuaSwift
@@ -1164,3 +1165,4 @@ struct SpecialModuleTests {
         #expect(result.numberValue! < 1e-4)
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -356,3 +357,4 @@ final class ComplexHelperTests: XCTestCase {
         XCTAssertEqual(result!.im, z.im, accuracy: 1e-10)
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -1686,3 +1687,4 @@ final class MathExprModuleTests: XCTestCase {
         XCTAssertEqual(table["im"]?.numberValue ?? 0, 3, accuracy: 1e-10)
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -1263,3 +1264,4 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -477,3 +478,4 @@ final class SeriesModuleTests: XCTestCase {
         }
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

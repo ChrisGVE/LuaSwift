@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_NUMERICSWIFT
 import XCTest
 @testable import LuaSwift
 
@@ -782,3 +783,4 @@ final class IntegrateModuleTests: XCTestCase {
         XCTAssertEqual(result.stringValue, "number")
     }
 }
+#endif  // LUASWIFT_NUMERICSWIFT

@@ -104,6 +104,7 @@ final class MemoryLimitTests: XCTestCase {
 
     // MARK: - ArrayModule Memory Tracking
 
+    #if LUASWIFT_ARRAYSWIFT
     func testArrayZerosRespectsMemoryLimit() throws {
         // Each Double is 8 bytes. 100 doubles = 800 bytes.
         // Set limit to 400 bytes (50 doubles max)
@@ -199,9 +200,11 @@ final class MemoryLimitTests: XCTestCase {
             XCTAssertTrue(message.contains("Memory limit exceeded"))
         }
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - LinAlgModule Memory Tracking
 
+    #if LUASWIFT_NUMERICSWIFT
     func testLinalgZerosRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
         ModuleRegistry.installLinAlgModule(in: engine)
@@ -270,9 +273,11 @@ final class MemoryLimitTests: XCTestCase {
             XCTAssertTrue(message.contains("Memory limit exceeded"))
         }
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - Multiple Operations
 
+    #if LUASWIFT_ARRAYSWIFT
     func testMultipleArrayOperationsRespectCumulativeLimit() throws {
         // Each 10-element array is 80 bytes
         // Set limit to allow 2 arrays but not 3
@@ -300,8 +305,6 @@ final class MemoryLimitTests: XCTestCase {
         }
     }
 
-    // MARK: - No Limit (Default Behavior)
-
     func testNoMemoryLimitAllowsLargeAllocations() throws {
         // Default configuration has no limit
         let engine = try LuaEngine()
@@ -315,9 +318,11 @@ final class MemoryLimitTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue, 100_000)
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - Memory Tracking State
 
+    #if LUASWIFT_ARRAYSWIFT
     func testAllocatedBytesIsTrackedCorrectly() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 10000))
         ModuleRegistry.installArrayModule(in: engine)
@@ -354,4 +359,5 @@ final class MemoryLimitTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue, 50)
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 }

@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Optional Dependencies** - NumericSwift, ArraySwift, and PlotSwift are now optional dependencies:
+  - `LUASWIFT_INCLUDE_NUMERICSWIFT=0` to exclude NumericSwift
+  - `LUASWIFT_INCLUDE_ARRAYSWIFT=0` to exclude ArraySwift
+  - `LUASWIFT_INCLUDE_PLOTSWIFT=0` to exclude PlotSwift
+  - All three included by default for backward compatibility
+  - Reduces binary size when optional features are not needed
+- **Platform Support** - Added support for additional Apple platforms:
+  - visionOS 1.0+
+  - watchOS 8.0+
+  - tvOS 15.0+
+- **DocC Documentation Catalog** - Full documentation for Swift Package Index:
+  - 37 documentation articles covering all modules
+  - Getting started guide and core API documentation
+  - Comprehensive examples and usage patterns
+  - Automatic documentation hosting via SPI
+- **CI Workflow** - GitHub Actions workflow for testing all 8 dependency combinations:
+  - Matrix strategy runs combinations in parallel
+  - Triggers on push to dev/main and PRs
+- **Test Script** - Local script (`scripts/test-combinations.sh`) for testing dependency combinations:
+  - Sequential and parallel modes
+  - Tests all 8 combinations (standalone through all three)
+- **Unit Tests** - `OptionalDependencyTests.swift` verifying optional dependency behavior:
+  - Module availability based on compilation flags
+  - Graceful handling when dependencies excluded
+
+### Changed
+- **Refactored Scientific Modules** - Integrated with NumericSwift for shared algorithms:
+  - ComplexModule now uses NumericSwift.Complex type
+  - SpecialModule delegates to NumericSwift (beta, bessel, gamma, zeta, elliptic)
+  - SeriesModule uses NumericSwift (factorial, Chebyshev, polynomial evaluation)
+  - NumberTheoryModule uses NumericSwift (primes, factorization, arithmetic functions)
+  - LinAlgModule reduced from 3231 to 1645 lines using NumericSwift.LinAlg
+  - DistributionsModule uses NumericSwift for statistical functions
+  - OptimizeModule uses NumericSwift (golden section, Brent, Nelder-Mead, Levenberg-Marquardt)
+  - InterpolateModule uses NumericSwift (splines, PCHIP, Akima)
+  - IntegrateModule uses NumericSwift (Gauss-Kronrod, ODE solvers)
+  - GeometryModule integrated with NumericSwift
+  - SpatialModule integrated with NumericSwift
+  - ClusterModule integrated with NumericSwift
+  - RegressModule integrated with NumericSwift
+  - MathExprModule integrated with NumericSwift
+- **ArrayModule** - Now uses ArraySwift package for NDArray implementation
+- **PlotModule** - Now uses PlotSwift package for DrawingContext and styling types
+- **Lua Namespaces** - Updated namespace organization:
+  - `math.geo` renamed to `math.geometry`
+  - Added `math.x` namespace for extended math utilities
+  - `plt` global renamed to `plot` (users can alias: `local plt = plot`)
+
+### Performance
+- **Table-to-Array Conversion** - Optimized from O(n log n) to O(n) using min/max check instead of sorting
+
 ## [1.4.1] - 2026-01-11
 
 ### Added

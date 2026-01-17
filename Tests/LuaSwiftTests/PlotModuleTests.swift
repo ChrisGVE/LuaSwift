@@ -38,8 +38,9 @@ final class PlotModuleTests: XCTestCase {
     }
 
     func testPlotGlobalAliasExists() throws {
+        // Note: global is 'plot', not 'plt' - users can create alias: local plt = plot
         let result = try engine.evaluate("""
-            return plt ~= nil
+            return plot ~= nil
         """)
         XCTAssertEqual(result.boolValue, true)
     }

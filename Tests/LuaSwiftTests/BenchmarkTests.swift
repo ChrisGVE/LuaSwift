@@ -576,6 +576,7 @@ final class BenchmarkTests: XCTestCase {
 
     // MARK: - MathExpr Benchmarks
 
+    #if LUASWIFT_NUMERICSWIFT
     func testMathExprEvalBenchmark() throws {
         measure {
             for _ in 0..<1000 {
@@ -607,6 +608,7 @@ final class BenchmarkTests: XCTestCase {
             }
         }
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - SVG Generation Benchmarks
 

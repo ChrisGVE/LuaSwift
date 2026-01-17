@@ -26,7 +26,7 @@ final class TypesModuleTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - typeof Tests
+    // MARK: - typeof Tests (Base Types)
 
     func testTypeofNumber() throws {
         let result = try engine.evaluate("""
@@ -82,6 +82,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(result.stringValue, "table")
     }
 
+    // MARK: - typeof Tests (NumericSwift Types)
+
+    #if LUASWIFT_NUMERICSWIFT
     func testTypeofComplex() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -151,7 +154,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "linalg.matrix")
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
+    // MARK: - typeof Tests (ArraySwift Types)
+
+    #if LUASWIFT_ARRAYSWIFT
     func testTypeofArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -161,9 +168,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "array")
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - is() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsComplex() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -173,6 +182,7 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testIsNotComplex() throws {
         let result = try engine.evaluate("""
@@ -183,6 +193,7 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, false)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsVec2() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -192,6 +203,7 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testIsNumber() throws {
         let result = try engine.evaluate("""
@@ -204,6 +216,7 @@ final class TypesModuleTests: XCTestCase {
 
     // MARK: - is_luaswift() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsLuaswiftComplex() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -213,6 +226,7 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testIsLuaswiftNumber() throws {
         let result = try engine.evaluate("""
@@ -232,6 +246,7 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, false)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsLuaswiftVec3() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -241,7 +256,9 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
+    #if LUASWIFT_ARRAYSWIFT
     func testIsLuaswiftArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -251,6 +268,7 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - is_callable() Tests
 
@@ -311,6 +329,7 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, false)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsIterableLuaSwiftType() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -320,6 +339,7 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)  // LuaSwift types are tables
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - is_numeric() Tests
 
@@ -332,6 +352,7 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, true)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsNumericComplex() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -341,6 +362,7 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testIsNumericString() throws {
         let result = try engine.evaluate("""
@@ -351,6 +373,7 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(result.boolValue, false)
     }
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsNumericVec2() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -359,9 +382,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, false)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - is_vector() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsVectorVec2() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -388,7 +413,9 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
+    #if LUASWIFT_ARRAYSWIFT
     func testIsVectorArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -397,9 +424,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, false)
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - is_matrix() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsMatrixLinalgMatrix() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -408,7 +437,9 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
+    #if LUASWIFT_ARRAYSWIFT
     func testIsMatrixArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -417,7 +448,9 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsMatrixVec3() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -426,9 +459,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, false)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - is_geometry() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testIsGeometryVec2() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -473,9 +508,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, false)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - to_array() Tests
 
+    #if LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
     func testToArrayFromVec2() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -535,7 +572,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(list[1].numberValue, 6)
         XCTAssertEqual(list[2].numberValue, 7)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
 
+    #if LUASWIFT_ARRAYSWIFT
     func testToArrayFromTable() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -564,9 +603,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
     // MARK: - to_vec2() Tests
 
+    #if LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
     func testToVec2FromArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -588,7 +629,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(x, 3, accuracy: 1e-10)
         XCTAssertEqual(y, 4, accuracy: 1e-10)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToVec2FromLinalgVector() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -638,9 +681,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - to_vec3() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToVec3FromVec2() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -662,7 +707,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(y, 2, accuracy: 1e-10)
         XCTAssertEqual(z, 0, accuracy: 1e-10)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
     func testToVec3FromArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -684,7 +731,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(y, 4, accuracy: 1e-10)
         XCTAssertEqual(z, 5, accuracy: 1e-10)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToVec3FromLinalgVector() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -738,9 +787,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - to_complex() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToComplexFromNumber() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -790,9 +841,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - to_vector() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToVectorFromVec2() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -833,7 +886,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(arr[1].numberValue, 2)
         XCTAssertEqual(arr[2].numberValue, 3)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
     func testToVectorFromArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -853,7 +908,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(arr[2].numberValue, 7)
         XCTAssertEqual(arr[3].numberValue, 8)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToVectorFromTable() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -882,9 +939,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - to_matrix() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToMatrixFromTable() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -920,9 +979,11 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.boolValue, true)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - clone() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testCloneComplex() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -1028,7 +1089,9 @@ final class TypesModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "transform3d")
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
+    #if LUASWIFT_ARRAYSWIFT
     func testCloneArray() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -1048,7 +1111,9 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(list[1].numberValue, 2)
         XCTAssertEqual(list[2].numberValue, 3)
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT
     func testCloneLinalgVector() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -1071,6 +1136,7 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertEqual(data[1].numberValue, 5)
         XCTAssertEqual(data[2].numberValue, 6)
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     func testClonePlainTable() throws {
         let result = try engine.evaluate("""
@@ -1097,6 +1163,7 @@ final class TypesModuleTests: XCTestCase {
 
     // MARK: - all_types() Tests
 
+    #if LUASWIFT_NUMERICSWIFT
     func testAllTypes() throws {
         let result = try engine.evaluate("""
             local types = luaswift.types
@@ -1118,9 +1185,11 @@ final class TypesModuleTests: XCTestCase {
         XCTAssertTrue(typeStrings.contains("linalg.matrix"))
         XCTAssertTrue(typeStrings.contains("array"))
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - Error Cases
 
+    #if LUASWIFT_ARRAYSWIFT
     func testToArrayFromNumberError() throws {
         do {
             _ = try engine.evaluate("""
@@ -1132,7 +1201,9 @@ final class TypesModuleTests: XCTestCase {
             XCTAssertTrue(String(describing: error).contains("Cannot convert"))
         }
     }
+    #endif  // LUASWIFT_ARRAYSWIFT
 
+    #if LUASWIFT_NUMERICSWIFT
     func testToVec2FromNumberError() throws {
         do {
             _ = try engine.evaluate("""
@@ -1192,6 +1263,7 @@ final class TypesModuleTests: XCTestCase {
             XCTAssertTrue(String(describing: error).contains("Cannot convert"))
         }
     }
+    #endif  // LUASWIFT_NUMERICSWIFT
 
     // MARK: - require() Tests
 

@@ -1820,23 +1820,17 @@ public struct GeometryModule {
 
     // MARK: - Ellipse Fitting Callbacks
 
-    /// Fit ellipse using Fitzgibbon's direct least squares method (constrained eigenvalue problem)
-    /// Guarantees result is always an ellipse (not hyperbola/parabola)
-    /// Returns: {cx, cy, a, b, theta, conic, residuals, rmse, method}
+    /// Fit ellipse using Fitzgibbon's direct least squares method via NumericSwift
     private static let ellipseFitDirectCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard let pointsArray = args.first?.arrayValue else {
             throw LuaError.callbackError("ellipse_fit requires array of points")
         }
 
-        // Extract points
-        var points: [(x: Double, y: Double)] = []
+        // Extract points as Vec2
+        var points: [Vec2] = []
         for pt in pointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
-                if let x = x, let y = y {
-                    points.append((x, y))
-                }
+            if let v = extractVec2(pt) {
+                points.append(v)
             }
         }
 
@@ -1844,635 +1838,61 @@ public struct GeometryModule {
             throw LuaError.callbackError("ellipse_fit requires at least 5 points")
         }
 
-        let n = points.count
-
-        // Center the data for numerical stability
-        var meanX = 0.0, meanY = 0.0
-        for p in points {
-            meanX += p.x
-            meanY += p.y
-        }
-        meanX /= Double(n)
-        meanY /= Double(n)
-
-        // Create centered points
-        let centered = points.map { ($0.x - meanX, $0.y - meanY) }
-
-        // Build design matrix D = [x², xy, y², x, y, 1]
-        // For Fitzgibbon's method, we use D = [x², xy, y², x, y, 1] and solve D'D a = λ C a
-        // where C is the constraint matrix ensuring 4ac - b² = 1 (i.e., it's an ellipse)
-
-        // Compute scatter matrix S = D' * D (6x6)
-        var S = [[Double]](repeating: [Double](repeating: 0.0, count: 6), count: 6)
-
-        for p in centered {
-            let x = p.0, y = p.1
-            let x2 = x * x
-            let y2 = y * y
-            let xy = x * y
-
-            let d = [x2, xy, y2, x, y, 1.0]
-
-            for i in 0..<6 {
-                for j in 0..<6 {
-                    S[i][j] += d[i] * d[j]
-                }
-            }
-        }
-
-        // Constraint matrix C for 4ac - b² = 1:
-        // C = [0 0 2 0 0 0; 0 -1 0 0 0 0; 2 0 0 0 0 0; 0 0 0 0 0 0; 0 0 0 0 0 0; 0 0 0 0 0 0]
-        // This ensures the conic Ax² + Bxy + Cy² + Dx + Ey + F = 0 is an ellipse (4AC - B² > 0)
-
-        // Partition S into blocks:
-        // S = [S1  S2]
-        //     [S2' S3]
-        // where S1 is 3x3 (for x², xy, y²), S2 is 3x3, S3 is 3x3
-
-        // S1 (top-left 3x3)
-        var S1 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                S1[i][j] = S[i][j]
-            }
-        }
-
-        // S2 (top-right 3x3)
-        var S2 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                S2[i][j] = S[i][j + 3]
-            }
-        }
-
-        // S3 (bottom-right 3x3)
-        var S3 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                S3[i][j] = S[i + 3][j + 3]
-            }
-        }
-
-        // Constraint matrix C1 (3x3) for the quadratic terms
-        // C1 = [0 0 2; 0 -1 0; 2 0 0]
-        let C1: [[Double]] = [[0, 0, 2], [0, -1, 0], [2, 0, 0]]
-
-        // Compute inverse of S3
-        guard let S3inv = invert3x3(S3) else {
-            return .nil  // Degenerate case
-        }
-
-        // Compute T = -S3^(-1) * S2'
-        var T = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                for k in 0..<3 {
-                    T[i][j] -= S3inv[i][k] * S2[j][k]  // S2' is S2 transposed
-                }
-            }
-        }
-
-        // Compute M = S1 + S2 * T = S1 - S2 * S3^(-1) * S2'
-        var M = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                M[i][j] = S1[i][j]
-                for k in 0..<3 {
-                    M[i][j] += S2[i][k] * T[k][j]
-                }
-            }
-        }
-
-        // Compute C1^(-1) * M
-        guard let C1inv = invert3x3(C1) else {
+        // Use NumericSwift's ellipse fit implementation
+        guard let result = ellipseFitDirect(points: points) else {
             return .nil
         }
-
-        var C1invM = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                for k in 0..<3 {
-                    C1invM[i][j] += C1inv[i][k] * M[k][j]
-                }
-            }
-        }
-
-        // Find eigenvalues/eigenvectors of C1^(-1) * M
-        // Use characteristic polynomial method for 3x3 matrix
-        guard let (eigenvalues, eigenvectors) = eigenDecomposition3x3(C1invM) else {
-            return .nil
-        }
-
-        // Find the eigenvector corresponding to the smallest positive eigenvalue
-        // This corresponds to the ellipse (4ac - b² > 0 constraint)
-        var bestIdx = -1
-        var bestEig = Double.infinity
-        let numEigen = min(eigenvalues.count, eigenvectors.count)
-        for i in 0..<numEigen {
-            guard eigenvectors[i].count >= 3 else { continue }
-            let a = eigenvectors[i][0]
-            let b = eigenvectors[i][1]
-            let c = eigenvectors[i][2]
-            let constraint = 4 * a * c - b * b  // Should be positive for ellipse
-
-            if constraint > 0 && eigenvalues[i] < bestEig && eigenvalues[i] > -1e-10 {
-                bestEig = eigenvalues[i]
-                bestIdx = i
-            }
-        }
-
-        guard bestIdx >= 0 else {
-            return .nil  // No valid ellipse found
-        }
-
-        // Get the conic coefficients for quadratic terms
-        let a1 = [eigenvectors[bestIdx][0], eigenvectors[bestIdx][1], eigenvectors[bestIdx][2]]
-
-        // Recover linear coefficients: a2 = T * a1
-        var a2 = [0.0, 0.0, 0.0]
-        for i in 0..<3 {
-            for j in 0..<3 {
-                a2[i] += T[i][j] * a1[j]
-            }
-        }
-
-        // Full conic coefficients [A, B, C, D, E, F] for Ax² + Bxy + Cy² + Dx + Ey + F = 0
-        // But our indexing was [x², xy, y², x, y, 1] = [A, B, C, D, E, F]
-        var A = a1[0]
-        var B = a1[1]
-        var C = a1[2]
-        var D = a2[0]
-        var E = a2[1]
-        var F = a2[2]
-
-        // Un-center: the conic needs to be transformed back to original coordinates
-        // Original: x_orig = x + meanX, y_orig = y + meanY
-        // So: (x_orig - meanX)² → x_orig² - 2*meanX*x_orig + meanX²
-        // Expanding Ax² + Bxy + Cy² + Dx + Ey + F in terms of x_orig, y_orig:
-        // A(x_orig - mx)² + B(x_orig - mx)(y_orig - my) + C(y_orig - my)² + D(x_orig - mx) + E(y_orig - my) + F = 0
-
-        let newD = D - 2 * A * meanX - B * meanY
-        let newE = E - 2 * C * meanY - B * meanX
-        let newF = F + A * meanX * meanX + C * meanY * meanY + B * meanX * meanY - D * meanX - E * meanY
-
-        D = newD
-        E = newE
-        F = newF
-
-        // Convert conic form to parametric ellipse: center (cx, cy), semi-axes (a, b), rotation angle theta
-        // For general conic Ax² + Bxy + Cy² + Dx + Ey + F = 0:
-        // Center: solve [2A B; B 2C] * [cx; cy] = [-D; -E]
-        let det = 4 * A * C - B * B
-        guard abs(det) > 1e-15 else {
-            return .nil  // Degenerate (not an ellipse)
-        }
-
-        let cx = (B * E - 2 * C * D) / det
-        let cy = (B * D - 2 * A * E) / det
-
-        // Evaluate F at center (should give -1 when properly scaled for ellipse equation)
-        let Fc = A * cx * cx + B * cx * cy + C * cy * cy + D * cx + E * cy + F
-
-        // Rotation angle: tan(2θ) = B / (A - C)
-        let theta: Double
-        if abs(A - C) < 1e-15 {
-            theta = B > 0 ? Double.pi / 4 : -Double.pi / 4
-        } else {
-            theta = 0.5 * atan2(B, A - C)
-        }
-
-        // Semi-axes: transform to rotated coordinates where ellipse is axis-aligned
-        // In rotated coords: A'x'² + C'y'² = -Fc
-        // A' = A cos²θ + B sinθ cosθ + C sin²θ
-        // C' = A sin²θ - B sinθ cosθ + C cos²θ
-        let cos2t = cos(theta) * cos(theta)
-        let sin2t = sin(theta) * sin(theta)
-        let sincos = sin(theta) * cos(theta)
-
-        let Ap = A * cos2t + B * sincos + C * sin2t
-        let Cp = A * sin2t - B * sincos + C * cos2t
-
-        guard Ap * Fc < 0 && Cp * Fc < 0 else {
-            return .nil  // Not a valid ellipse (would have imaginary axes)
-        }
-
-        let semiMajor = sqrt(-Fc / min(Ap, Cp))  // Larger axis
-        let semiMinor = sqrt(-Fc / max(Ap, Cp))  // Smaller axis
-
-        // Ensure semi_major >= semi_minor and adjust angle if needed
-        var finalTheta = theta
-        var finalA = semiMajor
-        var finalB = semiMinor
-        if Ap > Cp {
-            // The major axis is aligned with the rotated y-axis, so rotate by π/2
-            finalTheta += Double.pi / 2
-            finalA = semiMajor
-            finalB = semiMinor
-        }
-
-        // Normalize angle to [-π/2, π/2]
-        while finalTheta > Double.pi / 2 { finalTheta -= Double.pi }
-        while finalTheta < -Double.pi / 2 { finalTheta += Double.pi }
-
-        // Compute residuals (algebraic distance)
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        for p in points {
-            let val = A * p.x * p.x + B * p.x * p.y + C * p.y * p.y + D * p.x + E * p.y + F
-            // Normalize by gradient magnitude for approximate geometric distance
-            let grad = sqrt(pow(2 * A * p.x + B * p.y + D, 2) + pow(2 * C * p.y + B * p.x + E, 2))
-            let residual = grad > 1e-10 ? val / grad : val
-            residuals.append(residual)
-            sumResidualsSq += residual * residual
-        }
-
-        let rmse = sqrt(sumResidualsSq / Double(n))
 
         return .table([
-            "cx": .number(cx),
-            "cy": .number(cy),
-            "a": .number(finalA),
-            "b": .number(finalB),
-            "theta": .number(finalTheta),
-            "conic": .array([.number(A), .number(B), .number(C), .number(D), .number(E), .number(F)]),
-            "residuals": .array(residuals.map { .number($0) }),
-            "rmse": .number(rmse),
+            "cx": .number(result.cx),
+            "cy": .number(result.cy),
+            "a": .number(result.a),
+            "b": .number(result.b),
+            "theta": .number(result.theta),
+            "conic": .array(result.conic.map { .number($0) }),
+            "residuals": .array(result.residuals.map { .number($0) }),
+            "rmse": .number(result.rmse),
             "method": .string("direct")
         ])
     }
 
-    /// Helper: Invert a 3x3 matrix
-    private static func invert3x3(_ m: [[Double]]) -> [[Double]]? {
-        let a = m[0][0], b = m[0][1], c = m[0][2]
-        let d = m[1][0], e = m[1][1], f = m[1][2]
-        let g = m[2][0], h = m[2][1], i = m[2][2]
-
-        let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
-        guard abs(det) > 1e-15 else { return nil }
-
-        let invDet = 1.0 / det
-
-        return [
-            [(e * i - f * h) * invDet, (c * h - b * i) * invDet, (b * f - c * e) * invDet],
-            [(f * g - d * i) * invDet, (a * i - c * g) * invDet, (c * d - a * f) * invDet],
-            [(d * h - e * g) * invDet, (b * g - a * h) * invDet, (a * e - b * d) * invDet]
-        ]
-    }
-
-    /// Helper: Eigendecomposition of a 3x3 matrix using characteristic polynomial
-    /// Returns (eigenvalues, eigenvectors) where eigenvectors[i] is the eigenvector for eigenvalues[i]
-    private static func eigenDecomposition3x3(_ m: [[Double]]) -> (eigenvalues: [Double], eigenvectors: [[Double]])? {
-        let a = m[0][0], b = m[0][1], c = m[0][2]
-        let d = m[1][0], e = m[1][1], f = m[1][2]
-        let g = m[2][0], h = m[2][1], i = m[2][2]
-
-        // Characteristic polynomial: λ³ - trace·λ² + (sum of 2x2 minors)·λ - det = 0
-        let trace = a + e + i
-
-        let minor1 = e * i - f * h  // Minor for (0,0)
-        let minor2 = a * i - c * g  // Minor for (1,1)
-        let minor3 = a * e - b * d  // Minor for (2,2)
-        let sumMinors = minor1 + minor2 + minor3
-
-        let det = a * minor1 - b * (d * i - f * g) + c * (d * h - e * g)
-
-        // Solve cubic: λ³ - p·λ² + q·λ - r = 0
-        // where p = trace, q = sumMinors, r = det
-        guard let roots = solveCubic(1.0, -trace, sumMinors, -det) else {
-            return nil
-        }
-
-        var eigenvectors: [[Double]] = []
-
-        for lambda in roots {
-            // Find eigenvector for eigenvalue lambda by solving (A - λI)v = 0
-            // Using null space computation
-
-            let A_lambda = [
-                [m[0][0] - lambda, m[0][1], m[0][2]],
-                [m[1][0], m[1][1] - lambda, m[1][2]],
-                [m[2][0], m[2][1], m[2][2] - lambda]
-            ]
-
-            // Find eigenvector using cross products of rows (null space of rank-2 matrix)
-            let r1 = [A_lambda[0][0], A_lambda[0][1], A_lambda[0][2]]
-            let r2 = [A_lambda[1][0], A_lambda[1][1], A_lambda[1][2]]
-            let r3 = [A_lambda[2][0], A_lambda[2][1], A_lambda[2][2]]
-
-            // Try cross products
-            var v = cross3(r1, r2)
-            var norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-
-            if norm < 1e-10 {
-                v = cross3(r1, r3)
-                norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-            }
-
-            if norm < 1e-10 {
-                v = cross3(r2, r3)
-                norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-            }
-
-            if norm < 1e-10 {
-                // Fallback: use identity direction
-                v = [1, 0, 0]
-                norm = 1
-            }
-
-            eigenvectors.append([v[0] / norm, v[1] / norm, v[2] / norm])
-        }
-
-        return (roots, eigenvectors)
-    }
-
-    /// Helper: Cross product of two 3-vectors
-    private static func cross3(_ a: [Double], _ b: [Double]) -> [Double] {
-        return [
-            a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0]
-        ]
-    }
-
-    /// Helper: Solve cubic equation ax³ + bx² + cx + d = 0
-    /// Returns up to 3 real roots
-    private static func solveCubic(_ a: Double, _ b: Double, _ c: Double, _ d: Double) -> [Double]? {
-        guard abs(a) > 1e-15 else {
-            // Degenerate to quadratic
-            return solveQuadratic(b, c, d)
-        }
-
-        // Normalize
-        let p = b / a
-        let q = c / a
-        let r = d / a
-
-        // Depressed cubic: t³ + pt + q = 0 via substitution x = t - p/3
-        let p1 = q - p * p / 3
-        let q1: Double = 2.0 * p * p * p / 27 - p * q / 3 + r
-
-        // Discriminant
-        let discriminant = q1 * q1 / 4 + p1 * p1 * p1 / 27
-
-        var roots: [Double] = []
-
-        if discriminant > 1e-15 {
-            // One real root
-            let sqrtD = sqrt(discriminant)
-            let u = cbrt(-q1 / 2 + sqrtD)
-            let v = cbrt(-q1 / 2 - sqrtD)
-            roots.append(u + v - p / 3)
-        } else if discriminant < -1e-15 {
-            // Three real roots (casus irreducibilis)
-            let rho = sqrt(-p1 * p1 * p1 / 27)
-            let theta = acos(-q1 / 2 / rho)
-
-            let m: Double = 2.0 * cbrt(rho)
-            roots.append(m * cos(theta / 3) - p / 3)
-            roots.append(m * cos((theta + 2 * Double.pi) / 3) - p / 3)
-            roots.append(m * cos((theta + 4 * Double.pi) / 3) - p / 3)
-        } else {
-            // Double or triple root
-            if abs(q1) < 1e-15 {
-                // Triple root
-                roots.append(-p / 3)
-            } else {
-                // Double root + simple root
-                let u = cbrt(-q1 / 2)
-                roots.append(2 * u - p / 3)
-                roots.append(-u - p / 3)
-            }
-        }
-
-        return roots.isEmpty ? nil : roots
-    }
-
-    /// Helper: Solve quadratic equation ax² + bx + c = 0
-    private static func solveQuadratic(_ a: Double, _ b: Double, _ c: Double) -> [Double]? {
-        guard abs(a) > 1e-15 else {
-            // Degenerate to linear
-            guard abs(b) > 1e-15 else { return nil }
-            return [-c / b]
-        }
-
-        let discriminant = b * b - 4 * a * c
-        if discriminant < -1e-15 {
-            return []  // No real roots
-        } else if discriminant < 1e-15 {
-            return [-b / (2 * a)]  // Double root
-        } else {
-            let sqrtD = sqrt(discriminant)
-            return [(-b + sqrtD) / (2 * a), (-b - sqrtD) / (2 * a)]
-        }
-    }
-
     // MARK: - Sphere Fitting Callbacks
 
-    /// Fit sphere to 3D points using algebraic least squares (3D analog of Kåsa method)
-    /// Minimize Σ(x² + y² + z² + Dx + Ey + Fz + G)² in least squares sense
+    /// Fit sphere to 3D points using algebraic least squares via NumericSwift
     private static let sphereFitAlgebraicCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard let pointsArray = args.first?.arrayValue else {
             throw LuaError.callbackError("sphere_fit requires array of 3D points")
         }
 
-        // Extract points
-        var points: [(x: Double, y: Double, z: Double)] = []
+        // Extract points as Vec3
+        var points: [Vec3] = []
         for pt in pointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
-                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
-                if let x = x, let y = y, let z = z {
-                    points.append((x, y, z))
-                }
+            if let v = extractVec3(pt) {
+                points.append(v)
             }
         }
 
         guard points.count >= 4 else {
-            return .nil  // Need at least 4 points
+            return .nil // Need at least 4 points
         }
 
-        let n = points.count
-
-        // Check for coplanarity using first 4 points
-        if n >= 4 {
-            let p1 = simd_double3(points[0].x, points[0].y, points[0].z)
-            let p2 = simd_double3(points[1].x, points[1].y, points[1].z)
-            let p3 = simd_double3(points[2].x, points[2].y, points[2].z)
-            let p4 = simd_double3(points[3].x, points[3].y, points[3].z)
-
-            let v1 = p2 - p1
-            let v2 = p3 - p1
-            let v3 = p4 - p1
-            let normal = simd_cross(v1, v2)
-            let volume = abs(simd_dot(normal, v3))
-
-            if volume < 1e-10 {
-                // Try other point combinations
-                var isCoplanar = true
-                outerLoop: for i in 0..<min(n, 8) {
-                    for j in (i+1)..<min(n, 8) {
-                        for k in (j+1)..<min(n, 8) {
-                            for l in (k+1)..<min(n, 8) {
-                                let pi = simd_double3(points[i].x, points[i].y, points[i].z)
-                                let pj = simd_double3(points[j].x, points[j].y, points[j].z)
-                                let pk = simd_double3(points[k].x, points[k].y, points[k].z)
-                                let pl = simd_double3(points[l].x, points[l].y, points[l].z)
-
-                                let vi = pj - pi
-                                let vj = pk - pi
-                                let vk = pl - pi
-                                let n = simd_cross(vi, vj)
-                                let vol = abs(simd_dot(n, vk))
-
-                                if vol > 1e-10 {
-                                    isCoplanar = false
-                                    break outerLoop
-                                }
-                            }
-                        }
-                    }
-                }
-                if isCoplanar {
-                    return .nil  // Points are coplanar, no sphere fits
-                }
-            }
+        // Use NumericSwift's sphere fit implementation
+        guard let result = sphereFitAlgebraic(points) else {
+            return .nil
         }
 
-        // Kåsa-like method for sphere: solve [x, y, z, 1] * [D, E, F, G]' = -(x² + y² + z²)
-        // Build normal equations: A'A * params = A'b
-
-        var sumX = 0.0, sumY = 0.0, sumZ = 0.0
-        var sumX2 = 0.0, sumY2 = 0.0, sumZ2 = 0.0
-        var sumXY = 0.0, sumXZ = 0.0, sumYZ = 0.0
-        var sumX3 = 0.0, sumY3 = 0.0, sumZ3 = 0.0
-        var sumX2Y = 0.0, sumX2Z = 0.0
-        var sumXY2 = 0.0, sumY2Z = 0.0
-        var sumXZ2 = 0.0, sumYZ2 = 0.0
-
-        for p in points {
-            let x = p.x, y = p.y, z = p.z
-            let x2 = x * x, y2 = y * y, z2 = z * z
-
-            sumX += x
-            sumY += y
-            sumZ += z
-            sumX2 += x2
-            sumY2 += y2
-            sumZ2 += z2
-            sumXY += x * y
-            sumXZ += x * z
-            sumYZ += y * z
-            sumX3 += x2 * x
-            sumY3 += y2 * y
-            sumZ3 += z2 * z
-            sumX2Y += x2 * y
-            sumX2Z += x2 * z
-            sumXY2 += x * y2
-            sumY2Z += y2 * z
-            sumXZ2 += x * z2
-            sumYZ2 += y * z2
-        }
-
-        // Normal equations matrix A'A (4x4)
-        let a11 = sumX2, a12 = sumXY, a13 = sumXZ, a14 = sumX
-        let a21 = sumXY, a22 = sumY2, a23 = sumYZ, a24 = sumY
-        let a31 = sumXZ, a32 = sumYZ, a33 = sumZ2, a34 = sumZ
-        let a41 = sumX, a42 = sumY, a43 = sumZ, a44 = Double(n)
-
-        // Right-hand side A'b
-        let b1 = -(sumX3 + sumXY2 + sumXZ2)
-        let b2 = -(sumX2Y + sumY3 + sumYZ2)
-        let b3 = -(sumX2Z + sumY2Z + sumZ3)
-        let b4 = -(sumX2 + sumY2 + sumZ2)
-
-        // Solve 4x4 system using Gaussian elimination with partial pivoting
-        var A = [
-            [a11, a12, a13, a14, b1],
-            [a21, a22, a23, a24, b2],
-            [a31, a32, a33, a34, b3],
-            [a41, a42, a43, a44, b4]
-        ]
-
-        // Forward elimination with partial pivoting
-        for k in 0..<4 {
-            // Find pivot
-            var maxVal = abs(A[k][k])
-            var maxRow = k
-            for i in (k+1)..<4 {
-                if abs(A[i][k]) > maxVal {
-                    maxVal = abs(A[i][k])
-                    maxRow = i
-                }
-            }
-
-            // Swap rows
-            if maxRow != k {
-                let temp = A[k]
-                A[k] = A[maxRow]
-                A[maxRow] = temp
-            }
-
-            guard abs(A[k][k]) > 1e-15 else {
-                return .nil  // Singular matrix
-            }
-
-            // Eliminate column
-            for i in (k+1)..<4 {
-                let factor = A[i][k] / A[k][k]
-                for j in k..<5 {
-                    A[i][j] -= factor * A[k][j]
-                }
-            }
-        }
-
-        // Back substitution
-        var solution = [0.0, 0.0, 0.0, 0.0]
-        for i in stride(from: 3, through: 0, by: -1) {
-            var sum = A[i][4]
-            for j in (i+1)..<4 {
-                sum -= A[i][j] * solution[j]
-            }
-            solution[i] = sum / A[i][i]
-        }
-
-        let D = solution[0]
-        let E = solution[1]
-        let F = solution[2]
-        let G = solution[3]
-
-        // Extract sphere parameters
-        let cx = -D / 2.0
-        let cy = -E / 2.0
-        let cz = -F / 2.0
-        let r2 = D * D / 4.0 + E * E / 4.0 + F * F / 4.0 - G
-
-        guard r2 > 0 else {
-            return .nil  // Invalid radius
-        }
-
-        let r = sqrt(r2)
-
-        // Compute residuals
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        var maxResidual = 0.0
-        for p in points {
-            let dist = sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy) + (p.z - cz) * (p.z - cz))
-            let residual = dist - r
-            residuals.append(residual)
-            sumResidualsSq += residual * residual
-            maxResidual = max(maxResidual, abs(residual))
-        }
-
-        let rmse = sqrt(sumResidualsSq / Double(n))
+        // Compute RMSE and max error from residuals
+        let n = Double(result.residuals.count)
+        let sumResidualsSq = result.residuals.reduce(0.0) { $0 + $1 * $1 }
+        let rmse = sqrt(sumResidualsSq / n)
+        let maxResidual = result.residuals.map { abs($0) }.max() ?? 0
 
         return .table([
-            "cx": .number(cx),
-            "cy": .number(cy),
-            "cz": .number(cz),
-            "r": .number(r),
-            "residuals": .array(residuals.map { .number($0) }),
+            "cx": .number(result.center.x),
+            "cy": .number(result.center.y),
+            "cz": .number(result.center.z),
+            "r": .number(result.radius),
+            "residuals": .array(result.residuals.map { .number($0) }),
             "rmse": .number(rmse),
             "max_error": .number(maxResidual),
             "method": .string("algebraic")

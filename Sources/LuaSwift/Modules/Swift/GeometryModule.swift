@@ -746,18 +746,15 @@ public struct GeometryModule {
         return .nil
     }
 
+    /// Compute convex hull of 2D points via NumericSwift
     private static let convexHullCallback: ([LuaValue]) -> LuaValue = { args in
         guard let arr = args[0].arrayValue else { return .nil }
 
         // Extract points
-        var points: [(x: Double, y: Double, idx: Int)] = []
-        for (idx, p) in arr.enumerated() {
+        var points: [Vec2] = []
+        for p in arr {
             if let v = extractVec2(p) {
-                points.append((v.x, v.y, idx))
-            } else if let tbl = p.tableValue,
-                      let x = tbl["x"]?.numberValue,
-                      let y = tbl["y"]?.numberValue {
-                points.append((x, y, idx))
+                points.append(v)
             }
         }
 
@@ -765,53 +762,9 @@ public struct GeometryModule {
             return .array(arr)
         }
 
-        // Pre-compute polar angles (optimization: avoid atan2 in sort)
-        // Find bottom-most point (and leftmost if tie)
-        var startIdx = 0
-        for i in 1..<points.count {
-            if points[i].y < points[startIdx].y ||
-               (points[i].y == points[startIdx].y && points[i].x < points[startIdx].x) {
-                startIdx = i
-            }
-        }
-        let start = points[startIdx]
-        points.remove(at: startIdx)
-
-        // Pre-compute angles using vectorized operations
-        var angles = [Double](repeating: 0, count: points.count)
-        var distances = [Double](repeating: 0, count: points.count)
-        for i in 0..<points.count {
-            let dx = points[i].x - start.x
-            let dy = points[i].y - start.y
-            angles[i] = atan2(dy, dx)
-            distances[i] = dx * dx + dy * dy
-        }
-
-        // Sort by angle (then by distance for collinear points)
-        let indices = (0..<points.count).sorted { i, j in
-            if abs(angles[i] - angles[j]) < 1e-10 {
-                return distances[i] < distances[j]
-            }
-            return angles[i] < angles[j]
-        }
-
-        // Graham scan
-        var hull: [(x: Double, y: Double)] = [(start.x, start.y)]
-
-        func ccw(_ a: (x: Double, y: Double), _ b: (x: Double, y: Double), _ c: (x: Double, y: Double)) -> Double {
-            return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-        }
-
-        for idx in indices {
-            let p = (points[idx].x, points[idx].y)
-            while hull.count >= 2 && ccw(hull[hull.count - 2], hull[hull.count - 1], p) <= 0 {
-                hull.removeLast()
-            }
-            hull.append(p)
-        }
-
-        // Convert back to Lua
-        return .array(hull.map { vec2ToLua(simd_double2($0.x, $0.y)) })
+        // Use NumericSwift's Graham scan implementation
+        let hull = convexHull2D(points)
+        return .array(hull.map { vec2ToLua($0) })
     }
 
     private static let inPolygonCallback: ([LuaValue]) -> LuaValue = { args in
@@ -1141,7 +1094,7 @@ public struct GeometryModule {
 
     // MARK: - Curve Fitting Callbacks
 
-    /// Compute cubic spline coefficients using tridiagonal solver
+    /// Compute cubic spline coefficients via NumericSwift
     /// Input: either array of {x, y} points OR two arrays (xs, ys)
     /// Output: {knots, values, coeffs} where coeffs[i] = {a, b, c, d} for each segment
     private static let cubicSplineCoeffsCallback: ([LuaValue]) throws -> LuaValue = { args in
@@ -1151,7 +1104,6 @@ public struct GeometryModule {
         if args.count >= 2,
            let xsArray = args[0].arrayValue,
            let ysArray = args[1].arrayValue {
-            // Two separate arrays format
             let count = min(xsArray.count, ysArray.count)
             for i in 0..<count {
                 if let x = xsArray[i].numberValue,
@@ -1160,7 +1112,6 @@ public struct GeometryModule {
                 }
             }
         } else if let pointsArray = args.first?.arrayValue {
-            // Single array of {x, y} points format
             for pt in pointsArray {
                 guard let table = pt.tableValue else { continue }
                 let x = table["x"]?.numberValue ?? table["1"]?.numberValue
@@ -1173,122 +1124,22 @@ public struct GeometryModule {
             throw LuaError.callbackError("cubic_spline requires array of points or two arrays (xs, ys)")
         }
 
-        // Handle edge cases
         guard points.count >= 2 else {
             throw LuaError.callbackError("cubic_spline requires at least 2 points")
         }
 
-        // Sort by x
-        points.sort { $0.x < $1.x }
-
-        let n = points.count - 1  // n+1 points, n intervals
-
-        // Handle 2-point case (linear interpolation)
-        if n == 1 {
-            let h = points[1].x - points[0].x
-            let slope = (points[1].y - points[0].y) / h
-            return .table([
-                "knots": .array(points.map { .number($0.x) }),
-                "values": .array(points.map { .number($0.y) }),
-                "coeffs": .array([
-                    .table([
-                        "a": .number(points[0].y),
-                        "b": .number(slope),
-                        "c": .number(0),
-                        "d": .number(0)
-                    ])
-                ])
-            ])
+        // Use NumericSwift's cubic spline implementation
+        guard let result = cubicSplineCoeffs(points: points) else {
+            throw LuaError.callbackError("cubic_spline: computation failed")
         }
 
-        // Calculate interval widths h_i = x_{i+1} - x_i
-        var h = [Double](repeating: 0, count: n)
-        for i in 0..<n {
-            h[i] = points[i + 1].x - points[i].x
-        }
-
-        // Build tridiagonal system for natural cubic spline
-        // The system is: h[i-1]*M[i-1] + 2*(h[i-1]+h[i])*M[i] + h[i]*M[i+1] = 6*(d[i] - d[i-1])
-        // where d[i] = (y[i+1] - y[i]) / h[i]
-        // Natural boundary: M[0] = 0, M[n] = 0
-
-        // For interior points (1 to n-1), we have a tridiagonal system
-        let systemSize = n - 1
-        if systemSize == 0 {
-            // Only 2 points, already handled above
-            return .nil
-        }
-
-        // Subdiagonal (lower), diagonal, superdiagonal (upper)
-        var dl = [Double](repeating: 0, count: systemSize - 1)  // subdiagonal
-        var d = [Double](repeating: 0, count: systemSize)        // diagonal
-        var du = [Double](repeating: 0, count: systemSize - 1)  // superdiagonal
-        var b = [Double](repeating: 0, count: systemSize)        // right-hand side
-
-        // Fill the system matrices
-        for i in 0..<systemSize {
-            let hi = h[i]
-            let hi1 = h[i + 1]
-            d[i] = 2 * (hi + hi1)
-
-            // Calculate right-hand side
-            let di0 = (points[i + 1].y - points[i].y) / hi
-            let di1 = (points[i + 2].y - points[i + 1].y) / hi1
-            b[i] = 6 * (di1 - di0)
-
-            if i > 0 {
-                dl[i - 1] = hi
-            }
-            if i < systemSize - 1 {
-                du[i] = hi1
-            }
-        }
-
-        // Solve tridiagonal system using LAPACK dgtsv_
-        var nrhs: __CLPK_integer = 1
-        var size: __CLPK_integer = __CLPK_integer(systemSize)
-        var ldb: __CLPK_integer = __CLPK_integer(systemSize)
-        var info: __CLPK_integer = 0
-
-        dgtsv_(&size, &nrhs, &dl, &d, &du, &b, &ldb, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("cubic_spline: tridiagonal solver failed")
-        }
-
-        // The solution b now contains M[1] to M[n-1]
-        // M[0] = 0 and M[n] = 0 (natural spline)
-        var M = [Double](repeating: 0, count: n + 1)
-        for i in 0..<systemSize {
-            M[i + 1] = b[i]
-        }
-
-        // Calculate spline coefficients for each interval
-        // S_i(x) = a_i + b_i*(x-x_i) + c_i*(x-x_i)^2 + d_i*(x-x_i)^3
-        var coeffsArray: [LuaValue] = []
-        for i in 0..<n {
-            let hi = h[i]
-            let yi = points[i].y
-            let yi1 = points[i + 1].y
-            let mi = M[i]
-            let mi1 = M[i + 1]
-
-            let a = yi
-            let bi = (yi1 - yi) / hi - hi * (2.0 * mi + mi1) / 6.0
-            let c = mi / 2.0
-            let di = (mi1 - mi) / (6.0 * hi)
-
-            coeffsArray.append(.table([
-                "a": .number(a),
-                "b": .number(bi),
-                "c": .number(c),
-                "d": .number(di)
-            ]))
+        let coeffsArray: [LuaValue] = result.coeffs.map { seg in
+            .table(["a": .number(seg.a), "b": .number(seg.b), "c": .number(seg.c), "d": .number(seg.d)])
         }
 
         return .table([
-            "knots": .array(points.map { .number($0.x) }),
-            "values": .array(points.map { .number($0.y) }),
+            "knots": .array(result.knots.map { .number($0) }),
+            "values": .array(result.values.map { .number($0) }),
             "coeffs": .array(coeffsArray)
         ])
     }

@@ -1,6 +1,6 @@
 # LuaSwift
 
-A lightweight Swift wrapper for Lua with an optional powerpack of advanced modules.
+A lightweight Swift wrapper for Lua with optional extensions for scientific computing, data formats, and visualization.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](https://opensource.org/licenses/MIT)
 [![GitHub Release](https://img.shields.io/github/v/release/ChrisGVE/LuaSwift?style=flat&logo=github)](https://github.com/ChrisGVE/LuaSwift/releases)
@@ -12,7 +12,7 @@ A lightweight Swift wrapper for Lua with an optional powerpack of advanced modul
 
 ## Overview
 
-LuaSwift embeds the Lua scripting language in iOS and macOS applications. The core wrapper is lightweight and dependency-free, bundling the complete Lua source for App Store compliance. An optional powerpack adds scientific computing, data formats, and visualization.
+LuaSwift embeds the Lua scripting language in iOS and macOS applications. The core wrapper is lightweight and dependency-free, bundling the complete Lua source for App Store compliance. Optional extensions add scientific computing, data formats, and visualization capabilities.
 
 ## Requirements
 

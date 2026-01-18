@@ -1144,9 +1144,7 @@ public struct GeometryModule {
         ])
     }
 
-    /// Evaluate B-spline curve using de Boor's algorithm
-    /// Input: control_points (array of vec2 or vec3), degree, knot_vector, t
-    /// Output: evaluated point {x, y} or {x, y, z}
+    /// Evaluate B-spline curve via NumericSwift
     private static let bsplineEvaluateCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 4,
               let controlPointsArray = args[0].arrayValue,
@@ -1156,115 +1154,40 @@ public struct GeometryModule {
             throw LuaError.callbackError("bspline_evaluate requires (control_points, degree, knots, t)")
         }
 
-        // Extract control points (2D or 3D)
-        var controlPoints: [[Double]] = []
+        let knots = knotsArray.compactMap { $0.numberValue }
+
+        // Check if 3D by looking for z coordinate
         var is3D = false
         for pt in controlPointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue ?? 0
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue ?? 0
-                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
-                if let z = z {
-                    controlPoints.append([x, y, z])
-                    is3D = true
-                } else {
-                    controlPoints.append([x, y])
-                }
-            }
-        }
-
-        // Extract knot vector
-        var knots: [Double] = []
-        for k in knotsArray {
-            if let v = k.numberValue {
-                knots.append(v)
-            }
-        }
-
-        let n = controlPoints.count
-        let p = degree
-
-        // Validate
-        guard n >= p + 1 else {
-            throw LuaError.callbackError("Need at least degree+1 control points")
-        }
-        guard knots.count == n + p + 1 else {
-            throw LuaError.callbackError("Knot vector size must be n + p + 1")
-        }
-
-        // Find knot span (which interval t falls in)
-        // k is the index such that knots[k] <= t < knots[k+1]
-        var k = p
-        for i in p..<(n) {
-            if t >= knots[i] && t < knots[i + 1] {
-                k = i
+            if let table = pt.tableValue,
+               table["z"]?.numberValue != nil || table["3"]?.numberValue != nil {
+                is3D = true
                 break
             }
         }
-        // Handle t at the end
-        if t >= knots[n] {
-            k = n - 1
-        }
 
-        // De Boor's algorithm
-        let dim = is3D ? 3 : 2
-
-        // Handle degree 0 (piecewise constant)
-        if p == 0 {
-            let result = k >= 0 && k < n ? controlPoints[k] : controlPoints[0]
-            if is3D {
-                return .table(["x": .number(result[0]), "y": .number(result[1]), "z": .number(result[2])])
-            } else {
-                return .table(["x": .number(result[0]), "y": .number(result[1])])
-            }
-        }
-
-        // Initialize with the relevant control points
-        var d: [[Double]] = []
-        for j in 0...p {
-            if k - p + j >= 0 && k - p + j < n {
-                d.append(controlPoints[k - p + j])
-            } else {
-                d.append([Double](repeating: 0, count: dim))
-            }
-        }
-
-        // Triangular computation
-        for r in 1...p {
-            for j in stride(from: p, through: r, by: -1) {
-                let i = k - p + j
-                guard i >= 0, i + p - r + 1 < knots.count, i < knots.count else { continue }
-                let denom = knots[i + p - r + 1] - knots[i]
-                let alpha: Double
-                if abs(denom) < 1e-15 {
-                    alpha = 0
-                } else {
-                    alpha = (t - knots[i]) / denom
-                }
-                for c in 0..<dim {
-                    d[j][c] = (1 - alpha) * d[j - 1][c] + alpha * d[j][c]
-                }
-            }
-        }
-
-        // Result is in d[p]
         if is3D {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1]),
-                "z": .number(d[p][2])
-            ])
+            var points3D: [Vec3] = []
+            for pt in controlPointsArray {
+                if let v = extractVec3(pt) {
+                    points3D.append(v)
+                }
+            }
+            let result = bsplineEvaluate3D(controlPoints: points3D, degree: degree, t: t, knots: knots)
+            return vec3ToLua(result)
         } else {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1])
-            ])
+            var points2D: [Vec2] = []
+            for pt in controlPointsArray {
+                if let v = extractVec2(pt) {
+                    points2D.append(v)
+                }
+            }
+            let result = bsplineEvaluate(controlPoints: points2D, degree: degree, t: t, knots: knots)
+            return vec2ToLua(result)
         }
     }
 
-    /// Compute B-spline basis function N_{i,p}(t) using Cox-de Boor recursion
-    /// Input: knot_vector, i (index), p (degree), t
-    /// Output: basis function value
+    /// Compute B-spline basis function N_{i,p}(t) via NumericSwift
     private static let bsplineBasisCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 4,
               let knotsArray = args[0].arrayValue,
@@ -1274,71 +1197,15 @@ public struct GeometryModule {
             throw LuaError.callbackError("bspline_basis requires (knots, i, p, t)")
         }
 
-        // Extract knot vector
-        var knots: [Double] = []
-        for k in knotsArray {
-            if let v = k.numberValue {
-                knots.append(v)
-            }
-        }
-
+        let knots = knotsArray.compactMap { $0.numberValue }
         guard knots.count >= 2 else {
             return .number(0.0)
         }
 
-        // Handle t at the last knot (special case for clamped splines)
-        // At t = knots[last], only the last basis function should be 1
-        let tmax = knots[knots.count - 1]
-        if abs(t - tmax) < 1e-15 {
-            // At the endpoint, find the last non-zero span
-            // For clamped splines, the last n control point's basis is 1 at t=1
-            let numBasis = knots.count - p - 1  // number of basis functions
-            if i == numBasis - 1 {
-                return .number(1.0)
-            } else {
-                return .number(0.0)
-            }
-        }
-
-        // Cox-de Boor recursion
-        func basis(_ i: Int, _ p: Int, _ t: Double) -> Double {
-            if p == 0 {
-                // Base case
-                if i >= 0 && i + 1 < knots.count {
-                    if t >= knots[i] && t < knots[i + 1] {
-                        return 1.0
-                    }
-                }
-                return 0.0
-            }
-
-            var result = 0.0
-
-            // First term
-            if i >= 0 && i + p < knots.count {
-                let denom1 = knots[i + p] - knots[i]
-                if abs(denom1) > 1e-15 {
-                    result += ((t - knots[i]) / denom1) * basis(i, p - 1, t)
-                }
-            }
-
-            // Second term
-            if i + 1 >= 0 && i + p + 1 < knots.count {
-                let denom2 = knots[i + p + 1] - knots[i + 1]
-                if abs(denom2) > 1e-15 {
-                    result += ((knots[i + p + 1] - t) / denom2) * basis(i + 1, p - 1, t)
-                }
-            }
-
-            return result
-        }
-
-        return .number(basis(i, p, t))
+        return .number(bsplineBasis(i: i, degree: p, t: t, knots: knots))
     }
 
-    /// Generate uniform knot vector for B-spline
-    /// Input: n (number of control points), p (degree)
-    /// Output: knot vector array
+    /// Generate uniform knot vector for B-spline via NumericSwift
     private static let bsplineUniformKnotsCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 2,
               let n = args[0].numberValue.map({ Int($0) }),
@@ -1346,31 +1213,11 @@ public struct GeometryModule {
             throw LuaError.callbackError("bspline_uniform_knots requires (n, p)")
         }
 
-        // Clamped uniform knot vector:
-        // First p+1 knots are 0, last p+1 knots are 1
-        // Interior knots are uniformly spaced
-        var knots: [Double] = []
-        let m = n + p + 1  // Total number of knots
-
-        for i in 0..<m {
-            if i <= p {
-                knots.append(0.0)
-            } else if i >= m - p - 1 {
-                knots.append(1.0)
-            } else {
-                // Interior knot
-                let interior = i - p
-                let numInterior = m - 2 * (p + 1)
-                knots.append(Double(interior) / Double(numInterior + 1))
-            }
-        }
-
+        let knots = bsplineUniformKnots(n: n, degree: p)
         return .array(knots.map { .number($0) })
     }
 
-    /// Evaluate B-spline derivative using differentiation formula
-    /// Input: control_points, degree, knots, t, order (default 1)
-    /// Output: derivative vector
+    /// Evaluate B-spline derivative via NumericSwift
     private static let bsplineDerivativeCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 4,
               let controlPointsArray = args[0].arrayValue,
@@ -1381,145 +1228,36 @@ public struct GeometryModule {
         }
 
         let order = args.count > 4 ? Int(args[4].numberValue ?? 1) : 1
+        let knots = knotsArray.compactMap { $0.numberValue }
 
-        // Extract control points
-        var controlPoints: [[Double]] = []
+        // Check if 3D by looking for z coordinate
         var is3D = false
         for pt in controlPointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue ?? 0
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue ?? 0
-                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
-                if let z = z {
-                    controlPoints.append([x, y, z])
-                    is3D = true
-                } else {
-                    controlPoints.append([x, y])
-                }
-            }
-        }
-
-        // Extract knot vector
-        var knots: [Double] = []
-        for k in knotsArray {
-            if let v = k.numberValue {
-                knots.append(v)
-            }
-        }
-
-        let n = controlPoints.count
-        var p = degree
-        let dim = is3D ? 3 : 2
-
-        // Compute derivative control points iteratively
-        var Q = controlPoints
-        var currentKnots = knots
-
-        for _ in 0..<order {
-            guard p >= 1 else { break }
-
-            var newQ: [[Double]] = []
-            for i in 0..<(Q.count - 1) {
-                let denom = currentKnots[i + p + 1] - currentKnots[i + 1]
-                if abs(denom) < 1e-15 {
-                    newQ.append([Double](repeating: 0, count: dim))
-                } else {
-                    var diff = [Double](repeating: 0, count: dim)
-                    for c in 0..<dim {
-                        diff[c] = Double(p) * (Q[i + 1][c] - Q[i][c]) / denom
-                    }
-                    newQ.append(diff)
-                }
-            }
-            Q = newQ
-            // Remove first and last knot for lower degree
-            if currentKnots.count > 2 {
-                currentKnots = Array(currentKnots[1..<(currentKnots.count - 1)])
-            }
-            p -= 1
-        }
-
-        // Now evaluate the derivative B-spline at t
-        guard !Q.isEmpty else {
-            if is3D {
-                return .table(["x": .number(0), "y": .number(0), "z": .number(0)])
-            } else {
-                return .table(["x": .number(0), "y": .number(0)])
-            }
-        }
-
-        // Use de Boor for the derivative spline
-        let nQ = Q.count
-        guard nQ >= p + 1, currentKnots.count == nQ + p + 1 else {
-            // Degenerate case
-            if is3D {
-                return .table(["x": .number(Q[0][0]), "y": .number(Q[0][1]), "z": .number(Q[0][2])])
-            } else {
-                return .table(["x": .number(Q[0][0]), "y": .number(Q[0][1])])
-            }
-        }
-
-        // Find knot span
-        var k = p
-        for i in p..<nQ {
-            if t >= currentKnots[i] && t < currentKnots[i + 1] {
-                k = i
+            if let table = pt.tableValue,
+               table["z"]?.numberValue != nil || table["3"]?.numberValue != nil {
+                is3D = true
                 break
-            }
-        }
-        if t >= currentKnots[nQ] {
-            k = nQ - 1
-        }
-
-        // De Boor's algorithm
-        // Handle p == 0 case (constant spline, no de Boor iteration needed)
-        if p == 0 {
-            // Just return the value at knot span k
-            let result = k >= 0 && k < nQ ? Q[k] : Q[0]
-            if is3D {
-                return .table(["x": .number(result[0]), "y": .number(result[1]), "z": .number(result[2])])
-            } else {
-                return .table(["x": .number(result[0]), "y": .number(result[1])])
-            }
-        }
-
-        var d: [[Double]] = []
-        for j in 0...p {
-            if k - p + j >= 0 && k - p + j < nQ {
-                d.append(Q[k - p + j])
-            } else {
-                d.append([Double](repeating: 0, count: dim))
-            }
-        }
-
-        for r in 1...p {
-            for j in stride(from: p, through: r, by: -1) {
-                let i = k - p + j
-                guard i >= 0, i + p - r + 1 < currentKnots.count, i < currentKnots.count else { continue }
-                let denom = currentKnots[i + p - r + 1] - currentKnots[i]
-                let alpha: Double
-                if abs(denom) < 1e-15 {
-                    alpha = 0
-                } else {
-                    alpha = (t - currentKnots[i]) / denom
-                }
-                for c in 0..<dim {
-                    d[j][c] = (1 - alpha) * d[j - 1][c] + alpha * d[j][c]
-                }
             }
         }
 
         if is3D {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1]),
-                "z": .number(d[p][2])
-            ])
+            var points3D: [Vec3] = []
+            for pt in controlPointsArray {
+                if let v = extractVec3(pt) {
+                    points3D.append(v)
+                }
+            }
+            let result = bsplineDerivativeOrder3D(controlPoints: points3D, degree: degree, t: t, knots: knots, order: order)
+            return vec3ToLua(result)
         } else {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1])
-            ])
+            var points2D: [Vec2] = []
+            for pt in controlPointsArray {
+                if let v = extractVec2(pt) {
+                    points2D.append(v)
+                }
+            }
+            let result = bsplineDerivativeOrder(controlPoints: points2D, degree: degree, t: t, knots: knots, order: order)
+            return vec2ToLua(result)
         }
     }
 
@@ -1750,9 +1488,9 @@ public struct GeometryModule {
         ])
     }
 
-    /// Fit a B-spline curve to data points using least squares
+    /// Fit a B-spline curve to data points using least squares via NumericSwift
     /// Input: points (array of {x,y} or {x,y,z}), degree, n_control_points, [parameterization]
-    /// Output: {control_points, knots, degree, residuals, rmse}
+    /// Output: {control_points, knots, degree, residuals, rmse, max_error, parameters}
     private static let bsplineFitCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 3,
               let pointsArray = args[0].arrayValue,
@@ -1764,9 +1502,20 @@ public struct GeometryModule {
         // Optional parameterization method: "chord" (default), "uniform", "centripetal"
         let paramMethod = args.count > 3 ? (args[3].stringValue ?? "chord") : "chord"
 
+        // Map string to NumericSwift parameterization enum
+        let parameterization: BSplineParameterization
+        switch paramMethod {
+        case "uniform":
+            parameterization = .uniform
+        case "centripetal":
+            parameterization = .centripetal
+        default:
+            parameterization = .chordLength
+        }
+
         // Extract points (2D or 3D)
-        var points2D: [(x: Double, y: Double)] = []
-        var points3D: [(x: Double, y: Double, z: Double)] = []
+        var points2D: [Vec2] = []
+        var points3D: [Vec3] = []
         var is3D = false
 
         for pt in pointsArray {
@@ -1778,240 +1527,48 @@ public struct GeometryModule {
                 if let x = x, let y = y {
                     if let z = z {
                         is3D = true
-                        points3D.append((x, y, z))
+                        points3D.append(Vec3(x, y, z))
                     } else {
-                        points2D.append((x, y))
+                        points2D.append(Vec2(x, y))
                     }
                 }
             }
         }
 
-        let nData = is3D ? points3D.count : points2D.count
-        guard nData >= nControl else {
-            throw LuaError.callbackError("bspline_fit: need at least as many data points as control points")
-        }
-        guard nControl >= degree + 1 else {
-            throw LuaError.callbackError("bspline_fit: need at least degree+1 control points")
-        }
-        guard degree >= 1 && degree <= 5 else {
-            throw LuaError.callbackError("bspline_fit: degree must be 1-5")
-        }
-
-        // Step 1: Generate parameter values using chord-length parameterization
-        var t: [Double] = Array(repeating: 0.0, count: nData)
-        t[0] = 0.0
-
-        if paramMethod == "uniform" {
-            for i in 0..<nData {
-                t[i] = Double(i) / Double(nData - 1)
+        // Call NumericSwift bsplineFit
+        if is3D {
+            guard let result = bsplineFit3D(points: points3D, degree: degree,
+                                            numControlPoints: nControl,
+                                            parameterization: parameterization) else {
+                throw LuaError.callbackError("bspline_fit: fitting failed")
             }
+
+            return .table([
+                "control_points": .array(result.controlPoints.map { vec3ToLua($0) }),
+                "knots": .array(result.knots.map { .number($0) }),
+                "degree": .number(Double(result.degree)),
+                "residuals": .array(result.residuals.map { .number($0) }),
+                "rmse": .number(result.rmse),
+                "max_error": .number(result.maxError),
+                "parameters": .array(result.parameters.map { .number($0) })
+            ])
         } else {
-            // Chord-length or centripetal parameterization
-            var chordLengths: [Double] = [0.0]
-            for i in 1..<nData {
-                let dist: Double
-                if is3D {
-                    let dx = points3D[i].x - points3D[i-1].x
-                    let dy = points3D[i].y - points3D[i-1].y
-                    let dz = points3D[i].z - points3D[i-1].z
-                    dist = sqrt(dx*dx + dy*dy + dz*dz)
-                } else {
-                    let dx = points2D[i].x - points2D[i-1].x
-                    let dy = points2D[i].y - points2D[i-1].y
-                    dist = sqrt(dx*dx + dy*dy)
-                }
-                let d = paramMethod == "centripetal" ? sqrt(dist) : dist
-                chordLengths.append(chordLengths.last! + d)
+            guard let result = bsplineFit(points: points2D, degree: degree,
+                                          numControlPoints: nControl,
+                                          parameterization: parameterization) else {
+                throw LuaError.callbackError("bspline_fit: fitting failed")
             }
-            let totalLength = chordLengths.last!
-            if totalLength > 1e-15 {
-                for i in 0..<nData {
-                    t[i] = chordLengths[i] / totalLength
-                }
-            } else {
-                // Fallback to uniform if all points coincide
-                for i in 0..<nData {
-                    t[i] = Double(i) / Double(nData - 1)
-                }
-            }
+
+            return .table([
+                "control_points": .array(result.controlPoints.map { vec2ToLua($0) }),
+                "knots": .array(result.knots.map { .number($0) }),
+                "degree": .number(Double(result.degree)),
+                "residuals": .array(result.residuals.map { .number($0) }),
+                "rmse": .number(result.rmse),
+                "max_error": .number(result.maxError),
+                "parameters": .array(result.parameters.map { .number($0) })
+            ])
         }
-
-        // Step 2: Generate clamped uniform knot vector
-        let m = nControl + degree + 1  // Total number of knots
-        var knots: [Double] = Array(repeating: 0.0, count: m)
-        for i in 0..<m {
-            if i <= degree {
-                knots[i] = 0.0
-            } else if i >= m - degree - 1 {
-                knots[i] = 1.0
-            } else {
-                // Interior knots uniformly spaced
-                let interior = i - degree
-                let numInterior = m - 2 * (degree + 1) + 1
-                knots[i] = Double(interior) / Double(numInterior)
-            }
-        }
-
-        // Step 3: Build design matrix A where A[i,j] = N_j(t[i])
-        // Cox-de Boor basis function
-        func basisFunc(_ knots: [Double], _ j: Int, _ p: Int, _ tVal: Double) -> Double {
-            if p == 0 {
-                if j >= 0 && j + 1 < knots.count {
-                    // Special case: at the right endpoint
-                    if abs(tVal - knots[knots.count - 1]) < 1e-15 && j == knots.count - degree - 2 {
-                        return 1.0
-                    }
-                    if tVal >= knots[j] && tVal < knots[j + 1] {
-                        return 1.0
-                    }
-                }
-                return 0.0
-            }
-
-            var result = 0.0
-            if j >= 0 && j + p < knots.count {
-                let denom1 = knots[j + p] - knots[j]
-                if abs(denom1) > 1e-15 {
-                    result += ((tVal - knots[j]) / denom1) * basisFunc(knots, j, p - 1, tVal)
-                }
-            }
-            if j + 1 >= 0 && j + p + 1 < knots.count {
-                let denom2 = knots[j + p + 1] - knots[j + 1]
-                if abs(denom2) > 1e-15 {
-                    result += ((knots[j + p + 1] - tVal) / denom2) * basisFunc(knots, j + 1, p - 1, tVal)
-                }
-            }
-            return result
-        }
-
-        // Build A matrix (nData x nControl) in column-major for LAPACK
-        var A: [Double] = Array(repeating: 0.0, count: nData * nControl)
-        for i in 0..<nData {
-            for j in 0..<nControl {
-                A[i + j * nData] = basisFunc(knots, j, degree, t[i])
-            }
-        }
-
-        // Step 4: Solve least squares using LAPACK dgels
-        // For 2D: solve for x and y coordinates separately
-        // For 3D: solve for x, y, and z coordinates separately
-
-        let numDims = is3D ? 3 : 2
-        var controlPoints: [[Double]] = Array(repeating: Array(repeating: 0.0, count: nControl), count: numDims)
-
-        for dim in 0..<numDims {
-            // Build right-hand side
-            var b: [Double] = Array(repeating: 0.0, count: max(nData, nControl))
-            for i in 0..<nData {
-                if is3D {
-                    switch dim {
-                    case 0: b[i] = points3D[i].x
-                    case 1: b[i] = points3D[i].y
-                    case 2: b[i] = points3D[i].z
-                    default: break
-                    }
-                } else {
-                    switch dim {
-                    case 0: b[i] = points2D[i].x
-                    case 1: b[i] = points2D[i].y
-                    default: break
-                    }
-                }
-            }
-
-            // Copy A matrix for this dimension (dgels modifies it)
-            var Acopy = A
-
-            // Call dgels
-            var trans: CChar = 78  // 'N' for no transpose
-            var mm: __CLPK_integer = __CLPK_integer(nData)
-            var nn: __CLPK_integer = __CLPK_integer(nControl)
-            var nrhs: __CLPK_integer = 1
-            var lda: __CLPK_integer = __CLPK_integer(nData)
-            var ldb: __CLPK_integer = __CLPK_integer(max(nData, nControl))
-            var work: [Double] = Array(repeating: 0.0, count: 1)
-            var lwork: __CLPK_integer = -1  // Query optimal work size
-            var info: __CLPK_integer = 0
-
-            // Query workspace size
-            dgels_(&trans, &mm, &nn, &nrhs, &Acopy, &lda, &b, &ldb, &work, &lwork, &info)
-
-            lwork = __CLPK_integer(work[0])
-            work = Array(repeating: 0.0, count: Int(lwork))
-
-            // Solve
-            Acopy = A  // Reset A since query may have modified it
-            dgels_(&trans, &mm, &nn, &nrhs, &Acopy, &lda, &b, &ldb, &work, &lwork, &info)
-
-            guard info == 0 else {
-                throw LuaError.callbackError("bspline_fit: least squares solver failed")
-            }
-
-            // Extract solution (first nControl elements of b)
-            for j in 0..<nControl {
-                controlPoints[dim][j] = b[j]
-            }
-        }
-
-        // Step 5: Compute residuals
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        var maxResidual = 0.0
-
-        for i in 0..<nData {
-            // Evaluate the fitted spline at t[i]
-            var fitted: [Double] = Array(repeating: 0.0, count: numDims)
-            for j in 0..<nControl {
-                let basis = basisFunc(knots, j, degree, t[i])
-                for dim in 0..<numDims {
-                    fitted[dim] += basis * controlPoints[dim][j]
-                }
-            }
-
-            // Compute distance to actual point
-            var distSq = 0.0
-            if is3D {
-                distSq = pow(fitted[0] - points3D[i].x, 2) +
-                         pow(fitted[1] - points3D[i].y, 2) +
-                         pow(fitted[2] - points3D[i].z, 2)
-            } else {
-                distSq = pow(fitted[0] - points2D[i].x, 2) +
-                         pow(fitted[1] - points2D[i].y, 2)
-            }
-            let dist = sqrt(distSq)
-            residuals.append(dist)
-            sumResidualsSq += distSq
-            maxResidual = max(maxResidual, dist)
-        }
-
-        let rmse = sqrt(sumResidualsSq / Double(nData))
-
-        // Build control points array for return
-        var controlPointsLua: [LuaValue] = []
-        for j in 0..<nControl {
-            if is3D {
-                controlPointsLua.append(.table([
-                    "x": .number(controlPoints[0][j]),
-                    "y": .number(controlPoints[1][j]),
-                    "z": .number(controlPoints[2][j])
-                ]))
-            } else {
-                controlPointsLua.append(.table([
-                    "x": .number(controlPoints[0][j]),
-                    "y": .number(controlPoints[1][j])
-                ]))
-            }
-        }
-
-        return .table([
-            "control_points": .array(controlPointsLua),
-            "knots": .array(knots.map { .number($0) }),
-            "degree": .number(Double(degree)),
-            "residuals": .array(residuals.map { .number($0) }),
-            "rmse": .number(rmse),
-            "max_error": .number(maxResidual),
-            "parameters": .array(t.map { .number($0) })
-        ])
     }
 
     // MARK: - Lua Wrapper Code

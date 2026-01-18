@@ -981,6 +981,7 @@ public struct GeometryModule {
         return .nil
     }
 
+    /// Compute sphere through 4 points via NumericSwift
     private static let sphereFrom4PointsCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 4,
               let p1 = extractVec3(args[0]),
@@ -988,107 +989,13 @@ public struct GeometryModule {
               let p3 = extractVec3(args[2]),
               let p4 = extractVec3(args[3]) else { return .nil }
 
-        // Use Accelerate for 4x4 determinant computation
-        // Set up the matrix for sphere center calculation
-        let a: [Double] = [
-            p1.x, p1.y, p1.z, 1,
-            p2.x, p2.y, p2.z, 1,
-            p3.x, p3.y, p3.z, 1,
-            p4.x, p4.y, p4.z, 1
-        ]
-
-        // Calculate determinant using LAPACK
-        var matrix = a
-        var n: __CLPK_integer = 4
-        var m: __CLPK_integer = 4
-        var lda: __CLPK_integer = 4
-        var ipiv = [__CLPK_integer](repeating: 0, count: 4)
-        var info: __CLPK_integer = 0
-
-        dgetrf_(&n, &m, &matrix, &lda, &ipiv, &info)
-        if info != 0 { return .nil }
-
-        var det = 1.0
-        for i in 0..<4 {
-            det *= matrix[i * 4 + i]
-            if ipiv[i] != Int32(i + 1) { det = -det }
+        guard let result = sphereFrom4Points(p1, p2, p3, p4) else {
+            return .nil
         }
-
-        if abs(det) < 1e-10 { return .nil } // Coplanar
-
-        // Calculate sphere center using Cramer's rule with pre-computed squared distances
-        let sq1 = simd_length_squared(p1)
-        let sq2 = simd_length_squared(p2)
-        let sq3 = simd_length_squared(p3)
-        let sq4 = simd_length_squared(p4)
-
-        // Helper function for 3x3 determinant
-        func det3(_ m: [[Double]]) -> Double {
-            return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-                 - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-                 + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
-        }
-
-        let dx = det3([
-            [sq1, p1.y, p1.z],
-            [sq2, p2.y, p2.z],
-            [sq3, p3.y, p3.z]
-        ]) - det3([
-            [sq1, p1.y, p1.z],
-            [sq2, p2.y, p2.z],
-            [sq4, p4.y, p4.z]
-        ]) + det3([
-            [sq1, p1.y, p1.z],
-            [sq3, p3.y, p3.z],
-            [sq4, p4.y, p4.z]
-        ]) - det3([
-            [sq2, p2.y, p2.z],
-            [sq3, p3.y, p3.z],
-            [sq4, p4.y, p4.z]
-        ])
-
-        let dy = -(det3([
-            [sq1, p1.x, p1.z],
-            [sq2, p2.x, p2.z],
-            [sq3, p3.x, p3.z]
-        ]) - det3([
-            [sq1, p1.x, p1.z],
-            [sq2, p2.x, p2.z],
-            [sq4, p4.x, p4.z]
-        ]) + det3([
-            [sq1, p1.x, p1.z],
-            [sq3, p3.x, p3.z],
-            [sq4, p4.x, p4.z]
-        ]) - det3([
-            [sq2, p2.x, p2.z],
-            [sq3, p3.x, p3.z],
-            [sq4, p4.x, p4.z]
-        ]))
-
-        let dz = det3([
-            [sq1, p1.x, p1.y],
-            [sq2, p2.x, p2.y],
-            [sq3, p3.x, p3.y]
-        ]) - det3([
-            [sq1, p1.x, p1.y],
-            [sq2, p2.x, p2.y],
-            [sq4, p4.x, p4.y]
-        ]) + det3([
-            [sq1, p1.x, p1.y],
-            [sq3, p3.x, p3.y],
-            [sq4, p4.x, p4.y]
-        ]) - det3([
-            [sq2, p2.x, p2.y],
-            [sq3, p3.x, p3.y],
-            [sq4, p4.x, p4.y]
-        ])
-
-        let center = simd_double3(dx / (2 * det), dy / (2 * det), dz / (2 * det))
-        let radius = simd_distance(center, p1)
 
         return .table([
-            "center": vec3ToLua(center),
-            "radius": .number(radius)
+            "center": vec3ToLua(result.center),
+            "radius": .number(result.radius)
         ])
     }
 

@@ -767,12 +767,13 @@ public struct GeometryModule {
         return .array(hull.map { vec2ToLua($0) })
     }
 
+    /// Point-in-polygon test via NumericSwift
     private static let inPolygonCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let point = extractVec2(args[0]),
               let polyArr = args[1].arrayValue else { return .nil }
 
-        var polygon: [simd_double2] = []
+        var polygon: [Vec2] = []
         for p in polyArr {
             if let v = extractVec2(p) {
                 polygon.append(v)
@@ -780,21 +781,10 @@ public struct GeometryModule {
         }
 
         guard polygon.count >= 3 else { return .bool(false) }
-
-        // Ray casting algorithm
-        var inside = false
-        var j = polygon.count - 1
-        for i in 0..<polygon.count {
-            if ((polygon[i].y > point.y) != (polygon[j].y > point.y)) &&
-               (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x) {
-                inside = !inside
-            }
-            j = i
-        }
-
-        return .bool(inside)
+        return .bool(pointInPolygon(point, polygon))
     }
 
+    /// Line-line intersection via NumericSwift
     private static let lineIntersectionCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let l1 = args[0].arrayValue, l1.count >= 2,
@@ -802,85 +792,67 @@ public struct GeometryModule {
               let p1 = extractVec2(l1[0]), let p2 = extractVec2(l1[1]),
               let p3 = extractVec2(l2[0]), let p4 = extractVec2(l2[1]) else { return .nil }
 
-        let d1 = p2 - p1
-        let d2 = p4 - p3
-        let cross = d1.x * d2.y - d1.y * d2.x
-
-        if abs(cross) < 1e-10 { return .nil } // Parallel
-
-        let d3 = p3 - p1
-        let t = (d3.x * d2.y - d3.y * d2.x) / cross
-
-        return vec2ToLua(p1 + d1 * t)
+        guard let intersection = lineIntersection2D(p1: p1, p2: p2, p3: p3, p4: p4) else {
+            return .nil
+        }
+        return vec2ToLua(intersection)
     }
 
+    /// Triangle area via NumericSwift
     private static let areaTriangleCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 3,
               let p1 = extractVec2(args[0]),
               let p2 = extractVec2(args[1]),
               let p3 = extractVec2(args[2]) else { return .nil }
 
-        let dx1 = p2.x - p1.x
-        let dy1 = p3.y - p1.y
-        let dx2 = p3.x - p1.x
-        let dy2 = p2.y - p1.y
-        let area = abs(dx1 * dy1 - dx2 * dy2) / 2.0
-        return .number(area)
+        return .number(triangleArea2D(p1, p2, p3))
     }
 
+    /// Centroid calculation via NumericSwift
     private static let centroidCallback: ([LuaValue]) -> LuaValue = { args in
         guard let arr = args[0].arrayValue, !arr.isEmpty else { return .nil }
 
         // Try 3D first
-        if let first = extractVec3(arr[0]) {
-            var sum = first
-            var count = 1
-            for i in 1..<arr.count {
-                if let v = extractVec3(arr[i]) {
-                    sum += v
-                    count += 1
+        if let _ = extractVec3(arr[0]) {
+            var points: [Vec3] = []
+            for pt in arr {
+                if let v = extractVec3(pt) {
+                    points.append(v)
                 }
             }
-            return vec3ToLua(sum / Double(count))
+            guard let result = centroid3D(points) else { return .nil }
+            return vec3ToLua(result)
         }
 
         // Try 2D
-        if let first = extractVec2(arr[0]) {
-            var sum = first
-            var count = 1
-            for i in 1..<arr.count {
-                if let v = extractVec2(arr[i]) {
-                    sum += v
-                    count += 1
+        if let _ = extractVec2(arr[0]) {
+            var points: [Vec2] = []
+            for pt in arr {
+                if let v = extractVec2(pt) {
+                    points.append(v)
                 }
             }
-            return vec2ToLua(sum / Double(count))
+            guard let result = centroid2D(points) else { return .nil }
+            return vec2ToLua(result)
         }
 
         return .nil
     }
 
+    /// Circle through 3 points via NumericSwift
     private static let circleFrom3PointsCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 3,
               let p1 = extractVec2(args[0]),
               let p2 = extractVec2(args[1]),
               let p3 = extractVec2(args[2]) else { return .nil }
 
-        let ax = p1.x, ay = p1.y
-        let bx = p2.x, by = p2.y
-        let cx = p3.x, cy = p3.y
-
-        let d: Double = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-        if abs(d) < 1e-10 { return .nil } // Collinear
-
-        let ux = ((ax*ax + ay*ay) * (by - cy) + (bx*bx + by*by) * (cy - ay) + (cx*cx + cy*cy) * (ay - by)) / d
-        let uy = ((ax*ax + ay*ay) * (cx - bx) + (bx*bx + by*by) * (ax - cx) + (cx*cx + cy*cy) * (bx - ax)) / d
-        let center = simd_double2(ux, uy)
-        let radius = simd_distance(center, p1)
+        guard let result = circleFrom3Points(p1, p2, p3) else {
+            return .nil
+        }
 
         return .table([
-            "center": vec2ToLua(center),
-            "radius": .number(radius)
+            "center": vec2ToLua(result.center),
+            "radius": .number(result.radius)
         ])
     }
 

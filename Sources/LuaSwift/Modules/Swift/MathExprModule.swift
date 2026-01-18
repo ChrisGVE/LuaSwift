@@ -35,223 +35,11 @@ import NumericSwift
 /// ```
 public struct MathExprModule {
 
-    // MARK: - Token Types
-
-    /// Token types for mathematical expression parsing
-    public enum Token: Equatable {
-        case number(Double)
-        case imaginary(Double)  // e.g., 2i, 5i (coefficient of imaginary unit)
-        case `operator`(String)
-        case function(String)
-        case lparen
-        case rparen
-        case comma
-        case variable(String)
-        case constant(String)
-
-        /// String description for debugging
-        public var description: String {
-            switch self {
-            case .number(let n):
-                return "number(\(n))"
-            case .imaginary(let n):
-                return "imaginary(\(n))"
-            case .operator(let op):
-                return "operator(\(op))"
-            case .function(let name):
-                return "function(\(name))"
-            case .lparen:
-                return "lparen"
-            case .rparen:
-                return "rparen"
-            case .comma:
-                return "comma"
-            case .variable(let name):
-                return "variable(\(name))"
-            case .constant(let name):
-                return "constant(\(name))"
-            }
-        }
-    }
-
-    // MARK: - Known Functions and Constants
-
-    /// Known mathematical functions
-    private static let knownFunctions: Set<String> = [
-        // Trigonometric
-        "sin", "cos", "tan",
-        "asin", "acos", "atan", "atan2",
-        "sinh", "cosh", "tanh",
-        "asinh", "acosh", "atanh",
-        // Exponential and logarithmic
-        "exp", "log", "log10", "log2", "ln",
-        // Power and roots
-        "sqrt", "cbrt", "pow",
-        // Absolute value and sign
-        "abs", "sign", "floor", "ceil", "round", "trunc",
-        // Min/max and interpolation
-        "min", "max", "clamp", "lerp",
-        // Other
-        "rad", "deg"
-    ]
-
-    /// Known mathematical constants
-    /// Note: 'i' is NOT included to avoid conflicts with loop variables.
-    /// Use '1i' syntax for pure imaginary unit.
-    private static let knownConstants: Set<String> = [
-        "pi", "e", "inf", "nan"
-    ]
-
-    // MARK: - Tokenizer
-
-    /// Tokenize a mathematical expression string.
-    ///
-    /// - Parameter expression: The expression to tokenize
-    /// - Returns: Array of tokens
-    /// - Throws: Error if expression contains invalid characters
-    public static func tokenize(_ expression: String) throws -> [Token] {
-        var tokens: [Token] = []
-        var index = expression.startIndex
-
-        while index < expression.endIndex {
-            let char = expression[index]
-
-            // Skip whitespace
-            if char.isWhitespace {
-                index = expression.index(after: index)
-                continue
-            }
-
-            // Numbers (including decimals, scientific notation, and imaginary suffix)
-            if char.isNumber || (char == "." && index < expression.endIndex) {
-                let (number, endIndex) = try parseNumber(expression, startingAt: index)
-                // Check for imaginary suffix 'i' (no space between number and i)
-                if endIndex < expression.endIndex && expression[endIndex] == "i" {
-                    let nextIdx = expression.index(after: endIndex)
-                    // Ensure 'i' is not followed by more identifier characters (like 'in', 'if')
-                    if nextIdx >= expression.endIndex || !expression[nextIdx].isLetter {
-                        tokens.append(.imaginary(number))
-                        index = nextIdx
-                        continue
-                    }
-                }
-                tokens.append(.number(number))
-                index = endIndex
-                continue
-            }
-
-            // Operators
-            if "+-*/^=".contains(char) {
-                tokens.append(.operator(String(char)))
-                index = expression.index(after: index)
-                continue
-            }
-
-            // Parentheses
-            if char == "(" {
-                tokens.append(.lparen)
-                index = expression.index(after: index)
-                continue
-            }
-
-            if char == ")" {
-                tokens.append(.rparen)
-                index = expression.index(after: index)
-                continue
-            }
-
-            // Comma (for multi-argument functions)
-            if char == "," {
-                tokens.append(.comma)
-                index = expression.index(after: index)
-                continue
-            }
-
-            // Identifiers (functions, constants, variables)
-            if char.isLetter || char == "_" {
-                let (identifier, endIndex) = parseIdentifier(expression, startingAt: index)
-                index = endIndex
-
-                if knownFunctions.contains(identifier) {
-                    tokens.append(.function(identifier))
-                } else if knownConstants.contains(identifier) {
-                    tokens.append(.constant(identifier))
-                } else {
-                    tokens.append(.variable(identifier))
-                }
-                continue
-            }
-
-            // Unknown character
-            throw MathExprError.unexpectedCharacter(char, at: expression.distance(from: expression.startIndex, to: index))
-        }
-
-        return tokens
-    }
-
-    /// Parse a number from the expression.
-    private static func parseNumber(_ expression: String, startingAt start: String.Index) throws -> (Double, String.Index) {
-        var index = start
-        var numberString = ""
-        var hasDecimal = false
-        var hasExponent = false
-
-        while index < expression.endIndex {
-            let char = expression[index]
-
-            if char.isNumber {
-                numberString.append(char)
-                index = expression.index(after: index)
-            } else if char == "." && !hasDecimal && !hasExponent {
-                numberString.append(char)
-                hasDecimal = true
-                index = expression.index(after: index)
-            } else if (char == "e" || char == "E") && !hasExponent && !numberString.isEmpty {
-                numberString.append(char)
-                hasExponent = true
-                index = expression.index(after: index)
-                // Check for optional sign after exponent
-                if index < expression.endIndex {
-                    let nextChar = expression[index]
-                    if nextChar == "+" || nextChar == "-" {
-                        numberString.append(nextChar)
-                        index = expression.index(after: index)
-                    }
-                }
-            } else {
-                break
-            }
-        }
-
-        guard let number = Double(numberString) else {
-            throw MathExprError.invalidNumber(numberString)
-        }
-
-        return (number, index)
-    }
-
-    /// Parse an identifier from the expression.
-    private static func parseIdentifier(_ expression: String, startingAt start: String.Index) -> (String, String.Index) {
-        var index = start
-        var identifier = ""
-
-        while index < expression.endIndex {
-            let char = expression[index]
-            if char.isLetter || char.isNumber || char == "_" {
-                identifier.append(char)
-                index = expression.index(after: index)
-            } else {
-                break
-            }
-        }
-
-        return (identifier, index)
-    }
-
     // MARK: - Token to Lua Conversion
+    // Note: Uses MathExprToken from NumericSwift for tokenization
 
-    /// Convert a token to a Lua table representation
-    private static func tokenToLua(_ token: Token) -> LuaValue {
+    /// Convert a MathExprToken from NumericSwift to a Lua table representation
+    private static func tokenToLua(_ token: MathExprToken) -> LuaValue {
         switch token {
         case .number(let n):
             return .table(["type": .string("number"), "value": .number(n)])
@@ -297,7 +85,8 @@ public struct MathExprModule {
         }
 
         do {
-            let tokens = try tokenize(expression)
+            // Use NumericSwift's MathExpr.tokenize() for expression tokenization
+            let tokens = try MathExpr.tokenize(expression)
             return .array(tokens.map { tokenToLua($0) })
         } catch let error as MathExprError {
             throw LuaError.callbackError("eval.tokenize error: \(error.description)")
@@ -1880,27 +1669,6 @@ public struct MathExprModule {
     """
 }
 
-// MARK: - Errors
-
-/// Errors for mathematical expression parsing
-public enum MathExprError: Error {
-    case unexpectedCharacter(Character, at: Int)
-    case invalidNumber(String)
-    case unexpectedEnd
-    case unmatchedParenthesis
-
-    var description: String {
-        switch self {
-        case .unexpectedCharacter(let char, let pos):
-            return "unexpected character '\(char)' at position \(pos)"
-        case .invalidNumber(let str):
-            return "invalid number '\(str)'"
-        case .unexpectedEnd:
-            return "unexpected end of expression"
-        case .unmatchedParenthesis:
-            return "unmatched parenthesis"
-        }
-    }
-}
+// Note: MathExprError is provided by NumericSwift
 
 #endif  // LUASWIFT_NUMERICSWIFT

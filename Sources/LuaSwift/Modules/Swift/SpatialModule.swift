@@ -10,7 +10,6 @@
 
 #if LUASWIFT_NUMERICSWIFT
 import Foundation
-import Accelerate
 import NumericSwift
 
 /// Swift-backed spatial algorithms module for LuaSwift.
@@ -217,124 +216,10 @@ public struct SpatialModule {
     }
 
     /// Euclidean distance using BLAS
-    private static func euclideanDistance(_ p1: [Double], _ p2: [Double]) -> Double {
-        let n = min(p1.count, p2.count)
-        var diff = [Double](repeating: 0, count: n)
-
-        // Compute difference vector: diff = p1 - p2
-        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
-
-        // Compute Euclidean norm using BLAS
-        return cblas_dnrm2(Int32(n), diff, 1)
-    }
-
-    /// Squared Euclidean distance using vDSP
-    private static func sqeuclideanDistance(_ p1: [Double], _ p2: [Double]) -> Double {
-        let n = min(p1.count, p2.count)
-        var diff = [Double](repeating: 0, count: n)
-
-        // Compute difference vector
-        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
-
-        // Compute sum of squares using vDSP
-        var result: Double = 0
-        vDSP_dotprD(diff, 1, diff, 1, &result, vDSP_Length(n))
-        return result
-    }
-
-    /// Manhattan (cityblock) distance using vDSP
-    private static func cityblockDistance(_ p1: [Double], _ p2: [Double]) -> Double {
-        let n = min(p1.count, p2.count)
-        var diff = [Double](repeating: 0, count: n)
-        var absDiff = [Double](repeating: 0, count: n)
-
-        // Compute difference vector
-        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
-
-        // Compute absolute values
-        vDSP_vabsD(diff, 1, &absDiff, 1, vDSP_Length(n))
-
-        // Sum using vDSP
-        var result: Double = 0
-        vDSP_sveD(absDiff, 1, &result, vDSP_Length(n))
-        return result
-    }
-
-    /// Chebyshev distance using vDSP
-    private static func chebyshevDistance(_ p1: [Double], _ p2: [Double]) -> Double {
-        let n = min(p1.count, p2.count)
-        var diff = [Double](repeating: 0, count: n)
-        var absDiff = [Double](repeating: 0, count: n)
-
-        // Compute difference vector
-        vDSP_vsubD(p2, 1, p1, 1, &diff, 1, vDSP_Length(n))
-
-        // Compute absolute values
-        vDSP_vabsD(diff, 1, &absDiff, 1, vDSP_Length(n))
-
-        // Find maximum using vDSP
-        var result: Double = 0
-        vDSP_maxvD(absDiff, 1, &result, vDSP_Length(n))
-        return result
-    }
-
-    /// Minkowski distance
-    private static func minkowskiDistance(_ p1: [Double], _ p2: [Double], _ p: Double) -> Double {
-        let n = min(p1.count, p2.count)
-        var sum: Double = 0
-
-        for i in 0..<n {
-            sum += pow(abs(p1[i] - p2[i]), p)
-        }
-        return pow(sum, 1.0 / p)
-    }
-
-    /// Cosine distance using BLAS
-    private static func cosineDistance(_ p1: [Double], _ p2: [Double]) -> Double {
-        let n = Int32(min(p1.count, p2.count))
-
-        // Compute dot product using BLAS
-        let dot = cblas_ddot(n, p1, 1, p2, 1)
-
-        // Compute norms using BLAS
-        let norm1 = cblas_dnrm2(n, p1, 1)
-        let norm2 = cblas_dnrm2(n, p2, 1)
-
-        let denom = norm1 * norm2
-        if denom < 1e-15 { return 1.0 }
-        return 1.0 - dot / denom
-    }
-
-    /// Correlation distance
-    private static func correlationDistance(_ p1: [Double], _ p2: [Double]) -> Double {
-        let n = min(p1.count, p2.count)
-        guard n > 0 else { return 1.0 }
-
-        // Compute means using vDSP
-        var mean1: Double = 0
-        var mean2: Double = 0
-        vDSP_meanvD(p1, 1, &mean1, vDSP_Length(n))
-        vDSP_meanvD(p2, 1, &mean2, vDSP_Length(n))
-
-        // Center the vectors
-        var centered1 = [Double](repeating: 0, count: n)
-        var centered2 = [Double](repeating: 0, count: n)
-        var negMean1 = -mean1
-        var negMean2 = -mean2
-        vDSP_vsaddD(p1, 1, &negMean1, &centered1, 1, vDSP_Length(n))
-        vDSP_vsaddD(p2, 1, &negMean2, &centered2, 1, vDSP_Length(n))
-
-        // Compute correlation using BLAS
-        let dot = cblas_ddot(Int32(n), centered1, 1, centered2, 1)
-        let norm1 = cblas_dnrm2(Int32(n), centered1, 1)
-        let norm2 = cblas_dnrm2(Int32(n), centered2, 1)
-
-        let denom = norm1 * norm2
-        if denom < 1e-15 { return 1.0 }
-        return 1.0 - dot / denom
-    }
-
     // MARK: - Distance Callbacks
+    // Note: Distance functions (euclideanDistance, squaredEuclideanDistance, cityblockDistance,
+    // chebyshevDistance, minkowskiDistance, cosineDistance, correlationDistance) are provided
+    // by NumericSwift.
 
     private static func euclideanCallback(_ args: [LuaValue]) throws -> LuaValue {
         guard args.count >= 2,
@@ -351,7 +236,7 @@ public struct SpatialModule {
               let p2 = extractPoint(args[1]) else {
             throw LuaError.runtimeError("sqeuclidean: expected two point arrays")
         }
-        return .number(sqeuclideanDistance(p1, p2))
+        return .number(squaredEuclideanDistance(p1, p2))
     }
 
     private static func cityblockCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -379,7 +264,7 @@ public struct SpatialModule {
             throw LuaError.runtimeError("minkowski: expected two point arrays")
         }
         let p = args.count >= 3 ? (args[2].numberValue ?? 2.0) : 2.0
-        return .number(minkowskiDistance(p1, p2, p))
+        return .number(minkowskiDistance(p1, p2, p: p))
     }
 
     private static func cosineCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -422,10 +307,10 @@ public struct SpatialModule {
         return nil
     }
 
-    /// Get distance function by metric name
+    /// Get distance function by metric name (uses NumericSwift distance functions)
     private static func getDistanceFunction(_ metric: String) -> (([Double], [Double]) -> Double) {
         switch metric.lowercased() {
-        case "sqeuclidean": return sqeuclideanDistance
+        case "sqeuclidean": return squaredEuclideanDistance
         case "cityblock", "manhattan": return cityblockDistance
         case "chebyshev": return chebyshevDistance
         case "cosine": return cosineDistance
@@ -1081,8 +966,8 @@ public struct SpatialModule {
             let angleA = atan2(points[a][1] - start[1], points[a][0] - start[0])
             let angleB = atan2(points[b][1] - start[1], points[b][0] - start[0])
             if abs(angleA - angleB) < 1e-10 {
-                let distA = sqeuclideanDistance(points[a], start)
-                let distB = sqeuclideanDistance(points[b], start)
+                let distA = squaredEuclideanDistance(points[a], start)
+                let distB = squaredEuclideanDistance(points[b], start)
                 return distA < distB
             }
             return angleA < angleB

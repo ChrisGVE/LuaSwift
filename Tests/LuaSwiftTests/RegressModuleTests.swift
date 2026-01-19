@@ -1950,8 +1950,10 @@ final class RegressModuleTests: XCTestCase {
         // Verify AIC and BIC formulas match our implementation
         // AIC = -2*llf + 2*k (k = number of beta parameters)
         // BIC = -2*llf + k*log(n)
+        // Note: Use data that is NOT a perfect fit to avoid llf=infinity
+        // (Perfect fits have zero residuals, leading to log(0) in likelihood)
         let result = try engine.evaluate("""
-            local y = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+            local y = {1.1, 2.3, 2.8, 4.2, 5.1, 5.8, 7.2, 8.1, 8.9, 10.3}
             local X = math.regress.add_constant({1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
             local glm_model = math.regress.GLM(y, X, {family = "gaussian"})
             local results = glm_model:fit()

@@ -4,7 +4,7 @@ A lightweight Swift wrapper for Lua with optional extensions for scientific comp
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](https://opensource.org/licenses/MIT)
 [![GitHub Release](https://img.shields.io/github/v/release/ChrisGVE/LuaSwift?style=flat&logo=github)](https://github.com/ChrisGVE/LuaSwift/releases)
-[![CI](https://github.com/ChrisGVE/LuaSwift/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrisGVE/LuaSwift/actions/workflows/ci.yml)
+[![CI](https://github.com/ChrisGVE/LuaSwift/actions/workflows/test-combinations.yml/badge.svg)](https://github.com/ChrisGVE/LuaSwift/actions/workflows/test-combinations.yml)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FChrisGVE%2FLuaSwift%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/ChrisGVE/LuaSwift)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FChrisGVE%2FLuaSwift%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/ChrisGVE/LuaSwift)
 [![Documentation](https://img.shields.io/badge/Documentation-DocC-blue.svg?style=flat&logo=readthedocs&logoColor=white)](https://swiftpackageindex.com/ChrisGVE/LuaSwift/documentation)

@@ -116,13 +116,13 @@ let package = Package(
             .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         ]
         if includePlotSwift {
-            deps.append(.package(path: "../PlotSwift"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/PlotSwift.git", from: "0.1.0"))
         }
         if includeArraySwift {
-            deps.append(.package(path: "../ArraySwift"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/ArraySwift.git", from: "0.1.0"))
         }
         if includeNumericSwift {
-            deps.append(.package(path: "../NumericSwift"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/NumericSwift.git", from: "0.1.4"))
         }
         return deps
     }(),

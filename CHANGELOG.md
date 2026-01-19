@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-01-19
+
 ### Changed
 - **Deeper NumericSwift Integration** - Modules now use NumericSwift as thin wrappers:
   - SpatialModule: Delaunay, Voronoi, ConvexHull now delegate to NumericSwift (~290 lines removed)

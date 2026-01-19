@@ -746,18 +746,15 @@ public struct GeometryModule {
         return .nil
     }
 
+    /// Compute convex hull of 2D points via NumericSwift
     private static let convexHullCallback: ([LuaValue]) -> LuaValue = { args in
         guard let arr = args[0].arrayValue else { return .nil }
 
         // Extract points
-        var points: [(x: Double, y: Double, idx: Int)] = []
-        for (idx, p) in arr.enumerated() {
+        var points: [Vec2] = []
+        for p in arr {
             if let v = extractVec2(p) {
-                points.append((v.x, v.y, idx))
-            } else if let tbl = p.tableValue,
-                      let x = tbl["x"]?.numberValue,
-                      let y = tbl["y"]?.numberValue {
-                points.append((x, y, idx))
+                points.append(v)
             }
         }
 
@@ -765,61 +762,18 @@ public struct GeometryModule {
             return .array(arr)
         }
 
-        // Pre-compute polar angles (optimization: avoid atan2 in sort)
-        // Find bottom-most point (and leftmost if tie)
-        var startIdx = 0
-        for i in 1..<points.count {
-            if points[i].y < points[startIdx].y ||
-               (points[i].y == points[startIdx].y && points[i].x < points[startIdx].x) {
-                startIdx = i
-            }
-        }
-        let start = points[startIdx]
-        points.remove(at: startIdx)
-
-        // Pre-compute angles using vectorized operations
-        var angles = [Double](repeating: 0, count: points.count)
-        var distances = [Double](repeating: 0, count: points.count)
-        for i in 0..<points.count {
-            let dx = points[i].x - start.x
-            let dy = points[i].y - start.y
-            angles[i] = atan2(dy, dx)
-            distances[i] = dx * dx + dy * dy
-        }
-
-        // Sort by angle (then by distance for collinear points)
-        let indices = (0..<points.count).sorted { i, j in
-            if abs(angles[i] - angles[j]) < 1e-10 {
-                return distances[i] < distances[j]
-            }
-            return angles[i] < angles[j]
-        }
-
-        // Graham scan
-        var hull: [(x: Double, y: Double)] = [(start.x, start.y)]
-
-        func ccw(_ a: (x: Double, y: Double), _ b: (x: Double, y: Double), _ c: (x: Double, y: Double)) -> Double {
-            return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-        }
-
-        for idx in indices {
-            let p = (points[idx].x, points[idx].y)
-            while hull.count >= 2 && ccw(hull[hull.count - 2], hull[hull.count - 1], p) <= 0 {
-                hull.removeLast()
-            }
-            hull.append(p)
-        }
-
-        // Convert back to Lua
-        return .array(hull.map { vec2ToLua(simd_double2($0.x, $0.y)) })
+        // Use NumericSwift's Graham scan implementation
+        let hull = convexHull2D(points)
+        return .array(hull.map { vec2ToLua($0) })
     }
 
+    /// Point-in-polygon test via NumericSwift
     private static let inPolygonCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let point = extractVec2(args[0]),
               let polyArr = args[1].arrayValue else { return .nil }
 
-        var polygon: [simd_double2] = []
+        var polygon: [Vec2] = []
         for p in polyArr {
             if let v = extractVec2(p) {
                 polygon.append(v)
@@ -827,21 +781,10 @@ public struct GeometryModule {
         }
 
         guard polygon.count >= 3 else { return .bool(false) }
-
-        // Ray casting algorithm
-        var inside = false
-        var j = polygon.count - 1
-        for i in 0..<polygon.count {
-            if ((polygon[i].y > point.y) != (polygon[j].y > point.y)) &&
-               (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x) {
-                inside = !inside
-            }
-            j = i
-        }
-
-        return .bool(inside)
+        return .bool(pointInPolygon(point, polygon))
     }
 
+    /// Line-line intersection via NumericSwift
     private static let lineIntersectionCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 2,
               let l1 = args[0].arrayValue, l1.count >= 2,
@@ -849,85 +792,67 @@ public struct GeometryModule {
               let p1 = extractVec2(l1[0]), let p2 = extractVec2(l1[1]),
               let p3 = extractVec2(l2[0]), let p4 = extractVec2(l2[1]) else { return .nil }
 
-        let d1 = p2 - p1
-        let d2 = p4 - p3
-        let cross = d1.x * d2.y - d1.y * d2.x
-
-        if abs(cross) < 1e-10 { return .nil } // Parallel
-
-        let d3 = p3 - p1
-        let t = (d3.x * d2.y - d3.y * d2.x) / cross
-
-        return vec2ToLua(p1 + d1 * t)
+        guard let intersection = lineIntersection2D(p1: p1, p2: p2, p3: p3, p4: p4) else {
+            return .nil
+        }
+        return vec2ToLua(intersection)
     }
 
+    /// Triangle area via NumericSwift
     private static let areaTriangleCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 3,
               let p1 = extractVec2(args[0]),
               let p2 = extractVec2(args[1]),
               let p3 = extractVec2(args[2]) else { return .nil }
 
-        let dx1 = p2.x - p1.x
-        let dy1 = p3.y - p1.y
-        let dx2 = p3.x - p1.x
-        let dy2 = p2.y - p1.y
-        let area = abs(dx1 * dy1 - dx2 * dy2) / 2.0
-        return .number(area)
+        return .number(triangleArea2D(p1, p2, p3))
     }
 
+    /// Centroid calculation via NumericSwift
     private static let centroidCallback: ([LuaValue]) -> LuaValue = { args in
         guard let arr = args[0].arrayValue, !arr.isEmpty else { return .nil }
 
         // Try 3D first
-        if let first = extractVec3(arr[0]) {
-            var sum = first
-            var count = 1
-            for i in 1..<arr.count {
-                if let v = extractVec3(arr[i]) {
-                    sum += v
-                    count += 1
+        if let _ = extractVec3(arr[0]) {
+            var points: [Vec3] = []
+            for pt in arr {
+                if let v = extractVec3(pt) {
+                    points.append(v)
                 }
             }
-            return vec3ToLua(sum / Double(count))
+            guard let result = centroid3D(points) else { return .nil }
+            return vec3ToLua(result)
         }
 
         // Try 2D
-        if let first = extractVec2(arr[0]) {
-            var sum = first
-            var count = 1
-            for i in 1..<arr.count {
-                if let v = extractVec2(arr[i]) {
-                    sum += v
-                    count += 1
+        if let _ = extractVec2(arr[0]) {
+            var points: [Vec2] = []
+            for pt in arr {
+                if let v = extractVec2(pt) {
+                    points.append(v)
                 }
             }
-            return vec2ToLua(sum / Double(count))
+            guard let result = centroid2D(points) else { return .nil }
+            return vec2ToLua(result)
         }
 
         return .nil
     }
 
+    /// Circle through 3 points via NumericSwift
     private static let circleFrom3PointsCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 3,
               let p1 = extractVec2(args[0]),
               let p2 = extractVec2(args[1]),
               let p3 = extractVec2(args[2]) else { return .nil }
 
-        let ax = p1.x, ay = p1.y
-        let bx = p2.x, by = p2.y
-        let cx = p3.x, cy = p3.y
-
-        let d: Double = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-        if abs(d) < 1e-10 { return .nil } // Collinear
-
-        let ux = ((ax*ax + ay*ay) * (by - cy) + (bx*bx + by*by) * (cy - ay) + (cx*cx + cy*cy) * (ay - by)) / d
-        let uy = ((ax*ax + ay*ay) * (cx - bx) + (bx*bx + by*by) * (ax - cx) + (cx*cx + cy*cy) * (bx - ax)) / d
-        let center = simd_double2(ux, uy)
-        let radius = simd_distance(center, p1)
+        guard let result = circleFrom3Points(p1, p2, p3) else {
+            return .nil
+        }
 
         return .table([
-            "center": vec2ToLua(center),
-            "radius": .number(radius)
+            "center": vec2ToLua(result.center),
+            "radius": .number(result.radius)
         ])
     }
 
@@ -1028,6 +953,7 @@ public struct GeometryModule {
         return .nil
     }
 
+    /// Compute sphere through 4 points via NumericSwift
     private static let sphereFrom4PointsCallback: ([LuaValue]) -> LuaValue = { args in
         guard args.count >= 4,
               let p1 = extractVec3(args[0]),
@@ -1035,113 +961,19 @@ public struct GeometryModule {
               let p3 = extractVec3(args[2]),
               let p4 = extractVec3(args[3]) else { return .nil }
 
-        // Use Accelerate for 4x4 determinant computation
-        // Set up the matrix for sphere center calculation
-        let a: [Double] = [
-            p1.x, p1.y, p1.z, 1,
-            p2.x, p2.y, p2.z, 1,
-            p3.x, p3.y, p3.z, 1,
-            p4.x, p4.y, p4.z, 1
-        ]
-
-        // Calculate determinant using LAPACK
-        var matrix = a
-        var n: __CLPK_integer = 4
-        var m: __CLPK_integer = 4
-        var lda: __CLPK_integer = 4
-        var ipiv = [__CLPK_integer](repeating: 0, count: 4)
-        var info: __CLPK_integer = 0
-
-        dgetrf_(&n, &m, &matrix, &lda, &ipiv, &info)
-        if info != 0 { return .nil }
-
-        var det = 1.0
-        for i in 0..<4 {
-            det *= matrix[i * 4 + i]
-            if ipiv[i] != Int32(i + 1) { det = -det }
+        guard let result = sphereFrom4Points(p1, p2, p3, p4) else {
+            return .nil
         }
-
-        if abs(det) < 1e-10 { return .nil } // Coplanar
-
-        // Calculate sphere center using Cramer's rule with pre-computed squared distances
-        let sq1 = simd_length_squared(p1)
-        let sq2 = simd_length_squared(p2)
-        let sq3 = simd_length_squared(p3)
-        let sq4 = simd_length_squared(p4)
-
-        // Helper function for 3x3 determinant
-        func det3(_ m: [[Double]]) -> Double {
-            return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-                 - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-                 + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
-        }
-
-        let dx = det3([
-            [sq1, p1.y, p1.z],
-            [sq2, p2.y, p2.z],
-            [sq3, p3.y, p3.z]
-        ]) - det3([
-            [sq1, p1.y, p1.z],
-            [sq2, p2.y, p2.z],
-            [sq4, p4.y, p4.z]
-        ]) + det3([
-            [sq1, p1.y, p1.z],
-            [sq3, p3.y, p3.z],
-            [sq4, p4.y, p4.z]
-        ]) - det3([
-            [sq2, p2.y, p2.z],
-            [sq3, p3.y, p3.z],
-            [sq4, p4.y, p4.z]
-        ])
-
-        let dy = -(det3([
-            [sq1, p1.x, p1.z],
-            [sq2, p2.x, p2.z],
-            [sq3, p3.x, p3.z]
-        ]) - det3([
-            [sq1, p1.x, p1.z],
-            [sq2, p2.x, p2.z],
-            [sq4, p4.x, p4.z]
-        ]) + det3([
-            [sq1, p1.x, p1.z],
-            [sq3, p3.x, p3.z],
-            [sq4, p4.x, p4.z]
-        ]) - det3([
-            [sq2, p2.x, p2.z],
-            [sq3, p3.x, p3.z],
-            [sq4, p4.x, p4.z]
-        ]))
-
-        let dz = det3([
-            [sq1, p1.x, p1.y],
-            [sq2, p2.x, p2.y],
-            [sq3, p3.x, p3.y]
-        ]) - det3([
-            [sq1, p1.x, p1.y],
-            [sq2, p2.x, p2.y],
-            [sq4, p4.x, p4.y]
-        ]) + det3([
-            [sq1, p1.x, p1.y],
-            [sq3, p3.x, p3.y],
-            [sq4, p4.x, p4.y]
-        ]) - det3([
-            [sq2, p2.x, p2.y],
-            [sq3, p3.x, p3.y],
-            [sq4, p4.x, p4.y]
-        ])
-
-        let center = simd_double3(dx / (2 * det), dy / (2 * det), dz / (2 * det))
-        let radius = simd_distance(center, p1)
 
         return .table([
-            "center": vec3ToLua(center),
-            "radius": .number(radius)
+            "center": vec3ToLua(result.center),
+            "radius": .number(result.radius)
         ])
     }
 
     // MARK: - Curve Fitting Callbacks
 
-    /// Compute cubic spline coefficients using tridiagonal solver
+    /// Compute cubic spline coefficients via NumericSwift
     /// Input: either array of {x, y} points OR two arrays (xs, ys)
     /// Output: {knots, values, coeffs} where coeffs[i] = {a, b, c, d} for each segment
     private static let cubicSplineCoeffsCallback: ([LuaValue]) throws -> LuaValue = { args in
@@ -1151,7 +983,6 @@ public struct GeometryModule {
         if args.count >= 2,
            let xsArray = args[0].arrayValue,
            let ysArray = args[1].arrayValue {
-            // Two separate arrays format
             let count = min(xsArray.count, ysArray.count)
             for i in 0..<count {
                 if let x = xsArray[i].numberValue,
@@ -1160,7 +991,6 @@ public struct GeometryModule {
                 }
             }
         } else if let pointsArray = args.first?.arrayValue {
-            // Single array of {x, y} points format
             for pt in pointsArray {
                 guard let table = pt.tableValue else { continue }
                 let x = table["x"]?.numberValue ?? table["1"]?.numberValue
@@ -1173,129 +1003,27 @@ public struct GeometryModule {
             throw LuaError.callbackError("cubic_spline requires array of points or two arrays (xs, ys)")
         }
 
-        // Handle edge cases
         guard points.count >= 2 else {
             throw LuaError.callbackError("cubic_spline requires at least 2 points")
         }
 
-        // Sort by x
-        points.sort { $0.x < $1.x }
-
-        let n = points.count - 1  // n+1 points, n intervals
-
-        // Handle 2-point case (linear interpolation)
-        if n == 1 {
-            let h = points[1].x - points[0].x
-            let slope = (points[1].y - points[0].y) / h
-            return .table([
-                "knots": .array(points.map { .number($0.x) }),
-                "values": .array(points.map { .number($0.y) }),
-                "coeffs": .array([
-                    .table([
-                        "a": .number(points[0].y),
-                        "b": .number(slope),
-                        "c": .number(0),
-                        "d": .number(0)
-                    ])
-                ])
-            ])
+        // Use NumericSwift's cubic spline implementation
+        guard let result = cubicSplineCoeffs(points: points) else {
+            throw LuaError.callbackError("cubic_spline: computation failed")
         }
 
-        // Calculate interval widths h_i = x_{i+1} - x_i
-        var h = [Double](repeating: 0, count: n)
-        for i in 0..<n {
-            h[i] = points[i + 1].x - points[i].x
-        }
-
-        // Build tridiagonal system for natural cubic spline
-        // The system is: h[i-1]*M[i-1] + 2*(h[i-1]+h[i])*M[i] + h[i]*M[i+1] = 6*(d[i] - d[i-1])
-        // where d[i] = (y[i+1] - y[i]) / h[i]
-        // Natural boundary: M[0] = 0, M[n] = 0
-
-        // For interior points (1 to n-1), we have a tridiagonal system
-        let systemSize = n - 1
-        if systemSize == 0 {
-            // Only 2 points, already handled above
-            return .nil
-        }
-
-        // Subdiagonal (lower), diagonal, superdiagonal (upper)
-        var dl = [Double](repeating: 0, count: systemSize - 1)  // subdiagonal
-        var d = [Double](repeating: 0, count: systemSize)        // diagonal
-        var du = [Double](repeating: 0, count: systemSize - 1)  // superdiagonal
-        var b = [Double](repeating: 0, count: systemSize)        // right-hand side
-
-        // Fill the system matrices
-        for i in 0..<systemSize {
-            let hi = h[i]
-            let hi1 = h[i + 1]
-            d[i] = 2 * (hi + hi1)
-
-            // Calculate right-hand side
-            let di0 = (points[i + 1].y - points[i].y) / hi
-            let di1 = (points[i + 2].y - points[i + 1].y) / hi1
-            b[i] = 6 * (di1 - di0)
-
-            if i > 0 {
-                dl[i - 1] = hi
-            }
-            if i < systemSize - 1 {
-                du[i] = hi1
-            }
-        }
-
-        // Solve tridiagonal system using LAPACK dgtsv_
-        var nrhs: __CLPK_integer = 1
-        var size: __CLPK_integer = __CLPK_integer(systemSize)
-        var ldb: __CLPK_integer = __CLPK_integer(systemSize)
-        var info: __CLPK_integer = 0
-
-        dgtsv_(&size, &nrhs, &dl, &d, &du, &b, &ldb, &info)
-
-        if info != 0 {
-            throw LuaError.callbackError("cubic_spline: tridiagonal solver failed")
-        }
-
-        // The solution b now contains M[1] to M[n-1]
-        // M[0] = 0 and M[n] = 0 (natural spline)
-        var M = [Double](repeating: 0, count: n + 1)
-        for i in 0..<systemSize {
-            M[i + 1] = b[i]
-        }
-
-        // Calculate spline coefficients for each interval
-        // S_i(x) = a_i + b_i*(x-x_i) + c_i*(x-x_i)^2 + d_i*(x-x_i)^3
-        var coeffsArray: [LuaValue] = []
-        for i in 0..<n {
-            let hi = h[i]
-            let yi = points[i].y
-            let yi1 = points[i + 1].y
-            let mi = M[i]
-            let mi1 = M[i + 1]
-
-            let a = yi
-            let bi = (yi1 - yi) / hi - hi * (2.0 * mi + mi1) / 6.0
-            let c = mi / 2.0
-            let di = (mi1 - mi) / (6.0 * hi)
-
-            coeffsArray.append(.table([
-                "a": .number(a),
-                "b": .number(bi),
-                "c": .number(c),
-                "d": .number(di)
-            ]))
+        let coeffsArray: [LuaValue] = result.coeffs.map { seg in
+            .table(["a": .number(seg.a), "b": .number(seg.b), "c": .number(seg.c), "d": .number(seg.d)])
         }
 
         return .table([
-            "knots": .array(points.map { .number($0.x) }),
-            "values": .array(points.map { .number($0.y) }),
+            "knots": .array(result.knots.map { .number($0) }),
+            "values": .array(result.values.map { .number($0) }),
             "coeffs": .array(coeffsArray)
         ])
     }
 
-    /// Evaluate B-spline curve using de Boor's algorithm
-    /// Input: control_points (array of vec2 or vec3), degree, knot_vector, t
-    /// Output: evaluated point {x, y} or {x, y, z}
+    /// Evaluate B-spline curve via NumericSwift
     private static let bsplineEvaluateCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 4,
               let controlPointsArray = args[0].arrayValue,
@@ -1305,115 +1033,40 @@ public struct GeometryModule {
             throw LuaError.callbackError("bspline_evaluate requires (control_points, degree, knots, t)")
         }
 
-        // Extract control points (2D or 3D)
-        var controlPoints: [[Double]] = []
+        let knots = knotsArray.compactMap { $0.numberValue }
+
+        // Check if 3D by looking for z coordinate
         var is3D = false
         for pt in controlPointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue ?? 0
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue ?? 0
-                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
-                if let z = z {
-                    controlPoints.append([x, y, z])
-                    is3D = true
-                } else {
-                    controlPoints.append([x, y])
-                }
-            }
-        }
-
-        // Extract knot vector
-        var knots: [Double] = []
-        for k in knotsArray {
-            if let v = k.numberValue {
-                knots.append(v)
-            }
-        }
-
-        let n = controlPoints.count
-        let p = degree
-
-        // Validate
-        guard n >= p + 1 else {
-            throw LuaError.callbackError("Need at least degree+1 control points")
-        }
-        guard knots.count == n + p + 1 else {
-            throw LuaError.callbackError("Knot vector size must be n + p + 1")
-        }
-
-        // Find knot span (which interval t falls in)
-        // k is the index such that knots[k] <= t < knots[k+1]
-        var k = p
-        for i in p..<(n) {
-            if t >= knots[i] && t < knots[i + 1] {
-                k = i
+            if let table = pt.tableValue,
+               table["z"]?.numberValue != nil || table["3"]?.numberValue != nil {
+                is3D = true
                 break
             }
         }
-        // Handle t at the end
-        if t >= knots[n] {
-            k = n - 1
-        }
 
-        // De Boor's algorithm
-        let dim = is3D ? 3 : 2
-
-        // Handle degree 0 (piecewise constant)
-        if p == 0 {
-            let result = k >= 0 && k < n ? controlPoints[k] : controlPoints[0]
-            if is3D {
-                return .table(["x": .number(result[0]), "y": .number(result[1]), "z": .number(result[2])])
-            } else {
-                return .table(["x": .number(result[0]), "y": .number(result[1])])
-            }
-        }
-
-        // Initialize with the relevant control points
-        var d: [[Double]] = []
-        for j in 0...p {
-            if k - p + j >= 0 && k - p + j < n {
-                d.append(controlPoints[k - p + j])
-            } else {
-                d.append([Double](repeating: 0, count: dim))
-            }
-        }
-
-        // Triangular computation
-        for r in 1...p {
-            for j in stride(from: p, through: r, by: -1) {
-                let i = k - p + j
-                guard i >= 0, i + p - r + 1 < knots.count, i < knots.count else { continue }
-                let denom = knots[i + p - r + 1] - knots[i]
-                let alpha: Double
-                if abs(denom) < 1e-15 {
-                    alpha = 0
-                } else {
-                    alpha = (t - knots[i]) / denom
-                }
-                for c in 0..<dim {
-                    d[j][c] = (1 - alpha) * d[j - 1][c] + alpha * d[j][c]
-                }
-            }
-        }
-
-        // Result is in d[p]
         if is3D {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1]),
-                "z": .number(d[p][2])
-            ])
+            var points3D: [Vec3] = []
+            for pt in controlPointsArray {
+                if let v = extractVec3(pt) {
+                    points3D.append(v)
+                }
+            }
+            let result = bsplineEvaluate3D(controlPoints: points3D, degree: degree, t: t, knots: knots)
+            return vec3ToLua(result)
         } else {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1])
-            ])
+            var points2D: [Vec2] = []
+            for pt in controlPointsArray {
+                if let v = extractVec2(pt) {
+                    points2D.append(v)
+                }
+            }
+            let result = bsplineEvaluate(controlPoints: points2D, degree: degree, t: t, knots: knots)
+            return vec2ToLua(result)
         }
     }
 
-    /// Compute B-spline basis function N_{i,p}(t) using Cox-de Boor recursion
-    /// Input: knot_vector, i (index), p (degree), t
-    /// Output: basis function value
+    /// Compute B-spline basis function N_{i,p}(t) via NumericSwift
     private static let bsplineBasisCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 4,
               let knotsArray = args[0].arrayValue,
@@ -1423,71 +1076,15 @@ public struct GeometryModule {
             throw LuaError.callbackError("bspline_basis requires (knots, i, p, t)")
         }
 
-        // Extract knot vector
-        var knots: [Double] = []
-        for k in knotsArray {
-            if let v = k.numberValue {
-                knots.append(v)
-            }
-        }
-
+        let knots = knotsArray.compactMap { $0.numberValue }
         guard knots.count >= 2 else {
             return .number(0.0)
         }
 
-        // Handle t at the last knot (special case for clamped splines)
-        // At t = knots[last], only the last basis function should be 1
-        let tmax = knots[knots.count - 1]
-        if abs(t - tmax) < 1e-15 {
-            // At the endpoint, find the last non-zero span
-            // For clamped splines, the last n control point's basis is 1 at t=1
-            let numBasis = knots.count - p - 1  // number of basis functions
-            if i == numBasis - 1 {
-                return .number(1.0)
-            } else {
-                return .number(0.0)
-            }
-        }
-
-        // Cox-de Boor recursion
-        func basis(_ i: Int, _ p: Int, _ t: Double) -> Double {
-            if p == 0 {
-                // Base case
-                if i >= 0 && i + 1 < knots.count {
-                    if t >= knots[i] && t < knots[i + 1] {
-                        return 1.0
-                    }
-                }
-                return 0.0
-            }
-
-            var result = 0.0
-
-            // First term
-            if i >= 0 && i + p < knots.count {
-                let denom1 = knots[i + p] - knots[i]
-                if abs(denom1) > 1e-15 {
-                    result += ((t - knots[i]) / denom1) * basis(i, p - 1, t)
-                }
-            }
-
-            // Second term
-            if i + 1 >= 0 && i + p + 1 < knots.count {
-                let denom2 = knots[i + p + 1] - knots[i + 1]
-                if abs(denom2) > 1e-15 {
-                    result += ((knots[i + p + 1] - t) / denom2) * basis(i + 1, p - 1, t)
-                }
-            }
-
-            return result
-        }
-
-        return .number(basis(i, p, t))
+        return .number(bsplineBasis(i: i, degree: p, t: t, knots: knots))
     }
 
-    /// Generate uniform knot vector for B-spline
-    /// Input: n (number of control points), p (degree)
-    /// Output: knot vector array
+    /// Generate uniform knot vector for B-spline via NumericSwift
     private static let bsplineUniformKnotsCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 2,
               let n = args[0].numberValue.map({ Int($0) }),
@@ -1495,31 +1092,11 @@ public struct GeometryModule {
             throw LuaError.callbackError("bspline_uniform_knots requires (n, p)")
         }
 
-        // Clamped uniform knot vector:
-        // First p+1 knots are 0, last p+1 knots are 1
-        // Interior knots are uniformly spaced
-        var knots: [Double] = []
-        let m = n + p + 1  // Total number of knots
-
-        for i in 0..<m {
-            if i <= p {
-                knots.append(0.0)
-            } else if i >= m - p - 1 {
-                knots.append(1.0)
-            } else {
-                // Interior knot
-                let interior = i - p
-                let numInterior = m - 2 * (p + 1)
-                knots.append(Double(interior) / Double(numInterior + 1))
-            }
-        }
-
+        let knots = bsplineUniformKnots(n: n, degree: p)
         return .array(knots.map { .number($0) })
     }
 
-    /// Evaluate B-spline derivative using differentiation formula
-    /// Input: control_points, degree, knots, t, order (default 1)
-    /// Output: derivative vector
+    /// Evaluate B-spline derivative via NumericSwift
     private static let bsplineDerivativeCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 4,
               let controlPointsArray = args[0].arrayValue,
@@ -1530,145 +1107,36 @@ public struct GeometryModule {
         }
 
         let order = args.count > 4 ? Int(args[4].numberValue ?? 1) : 1
+        let knots = knotsArray.compactMap { $0.numberValue }
 
-        // Extract control points
-        var controlPoints: [[Double]] = []
+        // Check if 3D by looking for z coordinate
         var is3D = false
         for pt in controlPointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue ?? 0
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue ?? 0
-                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
-                if let z = z {
-                    controlPoints.append([x, y, z])
-                    is3D = true
-                } else {
-                    controlPoints.append([x, y])
-                }
-            }
-        }
-
-        // Extract knot vector
-        var knots: [Double] = []
-        for k in knotsArray {
-            if let v = k.numberValue {
-                knots.append(v)
-            }
-        }
-
-        let n = controlPoints.count
-        var p = degree
-        let dim = is3D ? 3 : 2
-
-        // Compute derivative control points iteratively
-        var Q = controlPoints
-        var currentKnots = knots
-
-        for _ in 0..<order {
-            guard p >= 1 else { break }
-
-            var newQ: [[Double]] = []
-            for i in 0..<(Q.count - 1) {
-                let denom = currentKnots[i + p + 1] - currentKnots[i + 1]
-                if abs(denom) < 1e-15 {
-                    newQ.append([Double](repeating: 0, count: dim))
-                } else {
-                    var diff = [Double](repeating: 0, count: dim)
-                    for c in 0..<dim {
-                        diff[c] = Double(p) * (Q[i + 1][c] - Q[i][c]) / denom
-                    }
-                    newQ.append(diff)
-                }
-            }
-            Q = newQ
-            // Remove first and last knot for lower degree
-            if currentKnots.count > 2 {
-                currentKnots = Array(currentKnots[1..<(currentKnots.count - 1)])
-            }
-            p -= 1
-        }
-
-        // Now evaluate the derivative B-spline at t
-        guard !Q.isEmpty else {
-            if is3D {
-                return .table(["x": .number(0), "y": .number(0), "z": .number(0)])
-            } else {
-                return .table(["x": .number(0), "y": .number(0)])
-            }
-        }
-
-        // Use de Boor for the derivative spline
-        let nQ = Q.count
-        guard nQ >= p + 1, currentKnots.count == nQ + p + 1 else {
-            // Degenerate case
-            if is3D {
-                return .table(["x": .number(Q[0][0]), "y": .number(Q[0][1]), "z": .number(Q[0][2])])
-            } else {
-                return .table(["x": .number(Q[0][0]), "y": .number(Q[0][1])])
-            }
-        }
-
-        // Find knot span
-        var k = p
-        for i in p..<nQ {
-            if t >= currentKnots[i] && t < currentKnots[i + 1] {
-                k = i
+            if let table = pt.tableValue,
+               table["z"]?.numberValue != nil || table["3"]?.numberValue != nil {
+                is3D = true
                 break
-            }
-        }
-        if t >= currentKnots[nQ] {
-            k = nQ - 1
-        }
-
-        // De Boor's algorithm
-        // Handle p == 0 case (constant spline, no de Boor iteration needed)
-        if p == 0 {
-            // Just return the value at knot span k
-            let result = k >= 0 && k < nQ ? Q[k] : Q[0]
-            if is3D {
-                return .table(["x": .number(result[0]), "y": .number(result[1]), "z": .number(result[2])])
-            } else {
-                return .table(["x": .number(result[0]), "y": .number(result[1])])
-            }
-        }
-
-        var d: [[Double]] = []
-        for j in 0...p {
-            if k - p + j >= 0 && k - p + j < nQ {
-                d.append(Q[k - p + j])
-            } else {
-                d.append([Double](repeating: 0, count: dim))
-            }
-        }
-
-        for r in 1...p {
-            for j in stride(from: p, through: r, by: -1) {
-                let i = k - p + j
-                guard i >= 0, i + p - r + 1 < currentKnots.count, i < currentKnots.count else { continue }
-                let denom = currentKnots[i + p - r + 1] - currentKnots[i]
-                let alpha: Double
-                if abs(denom) < 1e-15 {
-                    alpha = 0
-                } else {
-                    alpha = (t - currentKnots[i]) / denom
-                }
-                for c in 0..<dim {
-                    d[j][c] = (1 - alpha) * d[j - 1][c] + alpha * d[j][c]
-                }
             }
         }
 
         if is3D {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1]),
-                "z": .number(d[p][2])
-            ])
+            var points3D: [Vec3] = []
+            for pt in controlPointsArray {
+                if let v = extractVec3(pt) {
+                    points3D.append(v)
+                }
+            }
+            let result = bsplineDerivativeOrder3D(controlPoints: points3D, degree: degree, t: t, knots: knots, order: order)
+            return vec3ToLua(result)
         } else {
-            return .table([
-                "x": .number(d[p][0]),
-                "y": .number(d[p][1])
-            ])
+            var points2D: [Vec2] = []
+            for pt in controlPointsArray {
+                if let v = extractVec2(pt) {
+                    points2D.append(v)
+                }
+            }
+            let result = bsplineDerivativeOrder(controlPoints: points2D, degree: degree, t: t, knots: knots, order: order)
+            return vec2ToLua(result)
         }
     }
 
@@ -1683,15 +1151,11 @@ public struct GeometryModule {
             throw LuaError.callbackError("circle_fit requires array of points")
         }
 
-        // Extract points
-        var points: [(x: Double, y: Double)] = []
+        // Extract points as Vec2
+        var points: [Vec2] = []
         for pt in pointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
-                if let x = x, let y = y {
-                    points.append((x, y))
-                }
+            if let v = extractVec2(pt) {
+                points.append(v)
             }
         }
 
@@ -1699,112 +1163,21 @@ public struct GeometryModule {
             throw LuaError.callbackError("circle_fit requires at least 3 points")
         }
 
-        let n = points.count
-
-        // Check for collinearity using area of triangle formed by first 3 points
-        if n >= 3 {
-            let p1 = points[0], p2 = points[1], p3 = points[2]
-            let area = abs((p2.x - p1.x) * (p3.y - p1.y) - (p3.x - p1.x) * (p2.y - p1.y)) / 2.0
-            if area < 1e-10 {
-                // Try other point combinations
-                var isCollinear = true
-                for i in 0..<min(n, 10) {
-                    for j in (i+1)..<min(n, 10) {
-                        for k in (j+1)..<min(n, 10) {
-                            let pi = points[i], pj = points[j], pk = points[k]
-                            let a = abs((pj.x - pi.x) * (pk.y - pi.y) - (pk.x - pi.x) * (pj.y - pi.y)) / 2.0
-                            if a > 1e-10 {
-                                isCollinear = false
-                                break
-                            }
-                        }
-                        if !isCollinear { break }
-                    }
-                    if !isCollinear { break }
-                }
-                if isCollinear {
-                    return .nil  // Points are collinear, no circle fits
-                }
-            }
+        // Use NumericSwift's circle fit
+        guard let result = circleFitAlgebraic(points) else {
+            return .nil
         }
 
-        // Kåsa's method: solve [x, y, 1] * [D, E, F]^T = -(x² + y²) in least squares sense
-        // Build the linear system A * [D, E, F]^T = b
-        // Using normal equations: A^T A * x = A^T b
-
-        // Compute sums
-        var sumX = 0.0, sumY = 0.0, sumX2 = 0.0, sumY2 = 0.0, sumXY = 0.0
-        var sumX3 = 0.0, sumY3 = 0.0, sumX2Y = 0.0, sumXY2 = 0.0
-
-        for p in points {
-            let x = p.x, y = p.y
-            let x2 = x * x, y2 = y * y
-            sumX += x
-            sumY += y
-            sumX2 += x2
-            sumY2 += y2
-            sumXY += x * y
-            sumX3 += x2 * x
-            sumY3 += y2 * y
-            sumX2Y += x2 * y
-            sumXY2 += x * y2
-        }
-
-        // Normal equations matrix A^T A (3x3)
-        // A^T A = [sumX2, sumXY, sumX; sumXY, sumY2, sumY; sumX, sumY, n]
-        // A^T b = [-(sumX3 + sumXY2), -(sumX2Y + sumY3), -(sumX2 + sumY2)]
-
-        let a11 = sumX2, a12 = sumXY, a13 = sumX
-        let a21 = sumXY, a22 = sumY2, a23 = sumY
-        let a31 = sumX, a32 = sumY, a33 = Double(n)
-
-        let b1 = -(sumX3 + sumXY2)
-        let b2 = -(sumX2Y + sumY3)
-        let b3 = -(sumX2 + sumY2)
-
-        // Solve 3x3 system using Cramer's rule
-        let det = a11 * (a22 * a33 - a23 * a32) - a12 * (a21 * a33 - a23 * a31) + a13 * (a21 * a32 - a22 * a31)
-
-        guard abs(det) > 1e-15 else {
-            return .nil  // Singular matrix, points may be collinear
-        }
-
-        let detD = b1 * (a22 * a33 - a23 * a32) - a12 * (b2 * a33 - a23 * b3) + a13 * (b2 * a32 - a22 * b3)
-        let detE = a11 * (b2 * a33 - a23 * b3) - b1 * (a21 * a33 - a23 * a31) + a13 * (a21 * b3 - b2 * a31)
-        let detF = a11 * (a22 * b3 - b2 * a32) - a12 * (a21 * b3 - b2 * a31) + b1 * (a21 * a32 - a22 * a31)
-
-        let D = detD / det
-        let E = detE / det
-        let F = detF / det
-
-        // Extract circle parameters
-        let cx = -D / 2.0
-        let cy = -E / 2.0
-        let r2 = D * D / 4.0 + E * E / 4.0 - F
-
-        guard r2 > 0 else {
-            return .nil  // Invalid radius (imaginary)
-        }
-
-        let r = sqrt(r2)
-
-        // Compute residuals (distances from points to fitted circle)
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        for p in points {
-            let dist = sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy))
-            let residual = dist - r
-            residuals.append(residual)
-            sumResidualsSq += residual * residual
-        }
-
-        let rmse = sqrt(sumResidualsSq / Double(n))
+        // Compute RMSE from residuals
+        let n = Double(result.residuals.count)
+        let sumResidualsSq = result.residuals.reduce(0.0) { $0 + $1 * $1 }
+        let rmse = sqrt(sumResidualsSq / n)
 
         return .table([
-            "cx": .number(cx),
-            "cy": .number(cy),
-            "r": .number(r),
-            "residuals": .array(residuals.map { .number($0) }),
+            "cx": .number(result.center.x),
+            "cy": .number(result.center.y),
+            "r": .number(result.radius),
+            "residuals": .array(result.residuals.map { .number($0) }),
             "rmse": .number(rmse),
             "method": .string("algebraic")
         ])
@@ -1817,15 +1190,11 @@ public struct GeometryModule {
             throw LuaError.callbackError("circle_fit requires array of points")
         }
 
-        // Extract points
-        var points: [(x: Double, y: Double)] = []
+        // Extract points as Vec2
+        var points: [Vec2] = []
         for pt in pointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
-                if let x = x, let y = y {
-                    points.append((x, y))
-                }
+            if let v = extractVec2(pt) {
+                points.append(v)
             }
         }
 
@@ -1833,100 +1202,21 @@ public struct GeometryModule {
             throw LuaError.callbackError("circle_fit requires at least 3 points")
         }
 
-        let n = Double(points.count)
-
-        // Center the data
-        var meanX = 0.0, meanY = 0.0
-        for p in points {
-            meanX += p.x
-            meanY += p.y
-        }
-        meanX /= n
-        meanY /= n
-
-        // Compute moments of centered data
-        var Mxx = 0.0, Myy = 0.0, Mxy = 0.0
-        var Mxz = 0.0, Myz = 0.0, Mzz = 0.0
-
-        for p in points {
-            let xi = p.x - meanX
-            let yi = p.y - meanY
-            let zi = xi * xi + yi * yi
-
-            Mxx += xi * xi
-            Myy += yi * yi
-            Mxy += xi * yi
-            Mxz += xi * zi
-            Myz += yi * zi
-            Mzz += zi * zi
-        }
-
-        Mxx /= n
-        Myy /= n
-        Mxy /= n
-        Mxz /= n
-        Myz /= n
-        Mzz /= n
-
-        // Taubin's method: solve the constraint optimization problem
-        // Using Newton's method on the characteristic polynomial
-
-        let Mz = Mxx + Myy
-        let Cov_xy = Mxx * Myy - Mxy * Mxy
-        let Var_z = Mzz - Mz * Mz
-
-        let A3 = 4.0 * Mz
-        let A2 = -3.0 * Mz * Mz - Mzz
-        let A1 = Var_z * Mz + 4.0 * Cov_xy * Mz - Mxz * Mxz - Myz * Myz
-        let A0 = Mxz * (Mxz * Myy - Myz * Mxy) + Myz * (Myz * Mxx - Mxz * Mxy) - Var_z * Cov_xy
-
-        // Newton's method to find the root
-        var y = A0
-        var x = 0.0
-
-        for _ in 0..<20 {
-            let Dy = A1 + x * (2.0 * A2 + x * 3.0 * A3)
-            guard abs(Dy) > 1e-15 else { break }
-            let xNew = x - y / Dy
-            if abs(xNew - x) < 1e-12 { break }
-            x = xNew
-            y = A0 + x * (A1 + x * (A2 + x * A3))
-        }
-
-        // Compute circle parameters
-        let DET = x * x - x * Mz + Cov_xy
-        guard abs(DET) > 1e-15 else {
+        // Use NumericSwift's Taubin circle fit
+        guard let result = circleFitTaubin(points) else {
             return .nil
         }
 
-        let Xcenter = (Mxz * (Myy - x) - Myz * Mxy) / DET / 2.0
-        let Ycenter = (Myz * (Mxx - x) - Mxz * Mxy) / DET / 2.0
-
-        let cx = Xcenter + meanX
-        let cy = Ycenter + meanY
-        let r = sqrt(Xcenter * Xcenter + Ycenter * Ycenter + Mz)
-
-        guard r > 0 && r.isFinite else {
-            return .nil
-        }
-
-        // Compute residuals
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        for p in points {
-            let dist = sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy))
-            let residual = dist - r
-            residuals.append(residual)
-            sumResidualsSq += residual * residual
-        }
-
+        // Compute RMSE from residuals
+        let n = Double(result.residuals.count)
+        let sumResidualsSq = result.residuals.reduce(0.0) { $0 + $1 * $1 }
         let rmse = sqrt(sumResidualsSq / n)
 
         return .table([
-            "cx": .number(cx),
-            "cy": .number(cy),
-            "r": .number(r),
-            "residuals": .array(residuals.map { .number($0) }),
+            "cx": .number(result.center.x),
+            "cy": .number(result.center.y),
+            "r": .number(result.radius),
+            "residuals": .array(result.residuals.map { .number($0) }),
             "rmse": .number(rmse),
             "method": .string("taubin")
         ])
@@ -1998,23 +1288,17 @@ public struct GeometryModule {
 
     // MARK: - Ellipse Fitting Callbacks
 
-    /// Fit ellipse using Fitzgibbon's direct least squares method (constrained eigenvalue problem)
-    /// Guarantees result is always an ellipse (not hyperbola/parabola)
-    /// Returns: {cx, cy, a, b, theta, conic, residuals, rmse, method}
+    /// Fit ellipse using Fitzgibbon's direct least squares method via NumericSwift
     private static let ellipseFitDirectCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard let pointsArray = args.first?.arrayValue else {
             throw LuaError.callbackError("ellipse_fit requires array of points")
         }
 
-        // Extract points
-        var points: [(x: Double, y: Double)] = []
+        // Extract points as Vec2
+        var points: [Vec2] = []
         for pt in pointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
-                if let x = x, let y = y {
-                    points.append((x, y))
-                }
+            if let v = extractVec2(pt) {
+                points.append(v)
             }
         }
 
@@ -2022,644 +1306,70 @@ public struct GeometryModule {
             throw LuaError.callbackError("ellipse_fit requires at least 5 points")
         }
 
-        let n = points.count
-
-        // Center the data for numerical stability
-        var meanX = 0.0, meanY = 0.0
-        for p in points {
-            meanX += p.x
-            meanY += p.y
-        }
-        meanX /= Double(n)
-        meanY /= Double(n)
-
-        // Create centered points
-        let centered = points.map { ($0.x - meanX, $0.y - meanY) }
-
-        // Build design matrix D = [x², xy, y², x, y, 1]
-        // For Fitzgibbon's method, we use D = [x², xy, y², x, y, 1] and solve D'D a = λ C a
-        // where C is the constraint matrix ensuring 4ac - b² = 1 (i.e., it's an ellipse)
-
-        // Compute scatter matrix S = D' * D (6x6)
-        var S = [[Double]](repeating: [Double](repeating: 0.0, count: 6), count: 6)
-
-        for p in centered {
-            let x = p.0, y = p.1
-            let x2 = x * x
-            let y2 = y * y
-            let xy = x * y
-
-            let d = [x2, xy, y2, x, y, 1.0]
-
-            for i in 0..<6 {
-                for j in 0..<6 {
-                    S[i][j] += d[i] * d[j]
-                }
-            }
-        }
-
-        // Constraint matrix C for 4ac - b² = 1:
-        // C = [0 0 2 0 0 0; 0 -1 0 0 0 0; 2 0 0 0 0 0; 0 0 0 0 0 0; 0 0 0 0 0 0; 0 0 0 0 0 0]
-        // This ensures the conic Ax² + Bxy + Cy² + Dx + Ey + F = 0 is an ellipse (4AC - B² > 0)
-
-        // Partition S into blocks:
-        // S = [S1  S2]
-        //     [S2' S3]
-        // where S1 is 3x3 (for x², xy, y²), S2 is 3x3, S3 is 3x3
-
-        // S1 (top-left 3x3)
-        var S1 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                S1[i][j] = S[i][j]
-            }
-        }
-
-        // S2 (top-right 3x3)
-        var S2 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                S2[i][j] = S[i][j + 3]
-            }
-        }
-
-        // S3 (bottom-right 3x3)
-        var S3 = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                S3[i][j] = S[i + 3][j + 3]
-            }
-        }
-
-        // Constraint matrix C1 (3x3) for the quadratic terms
-        // C1 = [0 0 2; 0 -1 0; 2 0 0]
-        let C1: [[Double]] = [[0, 0, 2], [0, -1, 0], [2, 0, 0]]
-
-        // Compute inverse of S3
-        guard let S3inv = invert3x3(S3) else {
-            return .nil  // Degenerate case
-        }
-
-        // Compute T = -S3^(-1) * S2'
-        var T = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                for k in 0..<3 {
-                    T[i][j] -= S3inv[i][k] * S2[j][k]  // S2' is S2 transposed
-                }
-            }
-        }
-
-        // Compute M = S1 + S2 * T = S1 - S2 * S3^(-1) * S2'
-        var M = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                M[i][j] = S1[i][j]
-                for k in 0..<3 {
-                    M[i][j] += S2[i][k] * T[k][j]
-                }
-            }
-        }
-
-        // Compute C1^(-1) * M
-        guard let C1inv = invert3x3(C1) else {
+        // Use NumericSwift's ellipse fit implementation
+        guard let result = ellipseFitDirect(points: points) else {
             return .nil
         }
-
-        var C1invM = [[Double]](repeating: [Double](repeating: 0.0, count: 3), count: 3)
-        for i in 0..<3 {
-            for j in 0..<3 {
-                for k in 0..<3 {
-                    C1invM[i][j] += C1inv[i][k] * M[k][j]
-                }
-            }
-        }
-
-        // Find eigenvalues/eigenvectors of C1^(-1) * M
-        // Use characteristic polynomial method for 3x3 matrix
-        guard let (eigenvalues, eigenvectors) = eigenDecomposition3x3(C1invM) else {
-            return .nil
-        }
-
-        // Find the eigenvector corresponding to the smallest positive eigenvalue
-        // This corresponds to the ellipse (4ac - b² > 0 constraint)
-        var bestIdx = -1
-        var bestEig = Double.infinity
-        let numEigen = min(eigenvalues.count, eigenvectors.count)
-        for i in 0..<numEigen {
-            guard eigenvectors[i].count >= 3 else { continue }
-            let a = eigenvectors[i][0]
-            let b = eigenvectors[i][1]
-            let c = eigenvectors[i][2]
-            let constraint = 4 * a * c - b * b  // Should be positive for ellipse
-
-            if constraint > 0 && eigenvalues[i] < bestEig && eigenvalues[i] > -1e-10 {
-                bestEig = eigenvalues[i]
-                bestIdx = i
-            }
-        }
-
-        guard bestIdx >= 0 else {
-            return .nil  // No valid ellipse found
-        }
-
-        // Get the conic coefficients for quadratic terms
-        let a1 = [eigenvectors[bestIdx][0], eigenvectors[bestIdx][1], eigenvectors[bestIdx][2]]
-
-        // Recover linear coefficients: a2 = T * a1
-        var a2 = [0.0, 0.0, 0.0]
-        for i in 0..<3 {
-            for j in 0..<3 {
-                a2[i] += T[i][j] * a1[j]
-            }
-        }
-
-        // Full conic coefficients [A, B, C, D, E, F] for Ax² + Bxy + Cy² + Dx + Ey + F = 0
-        // But our indexing was [x², xy, y², x, y, 1] = [A, B, C, D, E, F]
-        var A = a1[0]
-        var B = a1[1]
-        var C = a1[2]
-        var D = a2[0]
-        var E = a2[1]
-        var F = a2[2]
-
-        // Un-center: the conic needs to be transformed back to original coordinates
-        // Original: x_orig = x + meanX, y_orig = y + meanY
-        // So: (x_orig - meanX)² → x_orig² - 2*meanX*x_orig + meanX²
-        // Expanding Ax² + Bxy + Cy² + Dx + Ey + F in terms of x_orig, y_orig:
-        // A(x_orig - mx)² + B(x_orig - mx)(y_orig - my) + C(y_orig - my)² + D(x_orig - mx) + E(y_orig - my) + F = 0
-
-        let newD = D - 2 * A * meanX - B * meanY
-        let newE = E - 2 * C * meanY - B * meanX
-        let newF = F + A * meanX * meanX + C * meanY * meanY + B * meanX * meanY - D * meanX - E * meanY
-
-        D = newD
-        E = newE
-        F = newF
-
-        // Convert conic form to parametric ellipse: center (cx, cy), semi-axes (a, b), rotation angle theta
-        // For general conic Ax² + Bxy + Cy² + Dx + Ey + F = 0:
-        // Center: solve [2A B; B 2C] * [cx; cy] = [-D; -E]
-        let det = 4 * A * C - B * B
-        guard abs(det) > 1e-15 else {
-            return .nil  // Degenerate (not an ellipse)
-        }
-
-        let cx = (B * E - 2 * C * D) / det
-        let cy = (B * D - 2 * A * E) / det
-
-        // Evaluate F at center (should give -1 when properly scaled for ellipse equation)
-        let Fc = A * cx * cx + B * cx * cy + C * cy * cy + D * cx + E * cy + F
-
-        // Rotation angle: tan(2θ) = B / (A - C)
-        let theta: Double
-        if abs(A - C) < 1e-15 {
-            theta = B > 0 ? Double.pi / 4 : -Double.pi / 4
-        } else {
-            theta = 0.5 * atan2(B, A - C)
-        }
-
-        // Semi-axes: transform to rotated coordinates where ellipse is axis-aligned
-        // In rotated coords: A'x'² + C'y'² = -Fc
-        // A' = A cos²θ + B sinθ cosθ + C sin²θ
-        // C' = A sin²θ - B sinθ cosθ + C cos²θ
-        let cos2t = cos(theta) * cos(theta)
-        let sin2t = sin(theta) * sin(theta)
-        let sincos = sin(theta) * cos(theta)
-
-        let Ap = A * cos2t + B * sincos + C * sin2t
-        let Cp = A * sin2t - B * sincos + C * cos2t
-
-        guard Ap * Fc < 0 && Cp * Fc < 0 else {
-            return .nil  // Not a valid ellipse (would have imaginary axes)
-        }
-
-        let semiMajor = sqrt(-Fc / min(Ap, Cp))  // Larger axis
-        let semiMinor = sqrt(-Fc / max(Ap, Cp))  // Smaller axis
-
-        // Ensure semi_major >= semi_minor and adjust angle if needed
-        var finalTheta = theta
-        var finalA = semiMajor
-        var finalB = semiMinor
-        if Ap > Cp {
-            // The major axis is aligned with the rotated y-axis, so rotate by π/2
-            finalTheta += Double.pi / 2
-            finalA = semiMajor
-            finalB = semiMinor
-        }
-
-        // Normalize angle to [-π/2, π/2]
-        while finalTheta > Double.pi / 2 { finalTheta -= Double.pi }
-        while finalTheta < -Double.pi / 2 { finalTheta += Double.pi }
-
-        // Compute residuals (algebraic distance)
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        for p in points {
-            let val = A * p.x * p.x + B * p.x * p.y + C * p.y * p.y + D * p.x + E * p.y + F
-            // Normalize by gradient magnitude for approximate geometric distance
-            let grad = sqrt(pow(2 * A * p.x + B * p.y + D, 2) + pow(2 * C * p.y + B * p.x + E, 2))
-            let residual = grad > 1e-10 ? val / grad : val
-            residuals.append(residual)
-            sumResidualsSq += residual * residual
-        }
-
-        let rmse = sqrt(sumResidualsSq / Double(n))
 
         return .table([
-            "cx": .number(cx),
-            "cy": .number(cy),
-            "a": .number(finalA),
-            "b": .number(finalB),
-            "theta": .number(finalTheta),
-            "conic": .array([.number(A), .number(B), .number(C), .number(D), .number(E), .number(F)]),
-            "residuals": .array(residuals.map { .number($0) }),
-            "rmse": .number(rmse),
+            "cx": .number(result.cx),
+            "cy": .number(result.cy),
+            "a": .number(result.a),
+            "b": .number(result.b),
+            "theta": .number(result.theta),
+            "conic": .array(result.conic.map { .number($0) }),
+            "residuals": .array(result.residuals.map { .number($0) }),
+            "rmse": .number(result.rmse),
             "method": .string("direct")
         ])
     }
 
-    /// Helper: Invert a 3x3 matrix
-    private static func invert3x3(_ m: [[Double]]) -> [[Double]]? {
-        let a = m[0][0], b = m[0][1], c = m[0][2]
-        let d = m[1][0], e = m[1][1], f = m[1][2]
-        let g = m[2][0], h = m[2][1], i = m[2][2]
-
-        let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
-        guard abs(det) > 1e-15 else { return nil }
-
-        let invDet = 1.0 / det
-
-        return [
-            [(e * i - f * h) * invDet, (c * h - b * i) * invDet, (b * f - c * e) * invDet],
-            [(f * g - d * i) * invDet, (a * i - c * g) * invDet, (c * d - a * f) * invDet],
-            [(d * h - e * g) * invDet, (b * g - a * h) * invDet, (a * e - b * d) * invDet]
-        ]
-    }
-
-    /// Helper: Eigendecomposition of a 3x3 matrix using characteristic polynomial
-    /// Returns (eigenvalues, eigenvectors) where eigenvectors[i] is the eigenvector for eigenvalues[i]
-    private static func eigenDecomposition3x3(_ m: [[Double]]) -> (eigenvalues: [Double], eigenvectors: [[Double]])? {
-        let a = m[0][0], b = m[0][1], c = m[0][2]
-        let d = m[1][0], e = m[1][1], f = m[1][2]
-        let g = m[2][0], h = m[2][1], i = m[2][2]
-
-        // Characteristic polynomial: λ³ - trace·λ² + (sum of 2x2 minors)·λ - det = 0
-        let trace = a + e + i
-
-        let minor1 = e * i - f * h  // Minor for (0,0)
-        let minor2 = a * i - c * g  // Minor for (1,1)
-        let minor3 = a * e - b * d  // Minor for (2,2)
-        let sumMinors = minor1 + minor2 + minor3
-
-        let det = a * minor1 - b * (d * i - f * g) + c * (d * h - e * g)
-
-        // Solve cubic: λ³ - p·λ² + q·λ - r = 0
-        // where p = trace, q = sumMinors, r = det
-        guard let roots = solveCubic(1.0, -trace, sumMinors, -det) else {
-            return nil
-        }
-
-        var eigenvectors: [[Double]] = []
-
-        for lambda in roots {
-            // Find eigenvector for eigenvalue lambda by solving (A - λI)v = 0
-            // Using null space computation
-
-            let A_lambda = [
-                [m[0][0] - lambda, m[0][1], m[0][2]],
-                [m[1][0], m[1][1] - lambda, m[1][2]],
-                [m[2][0], m[2][1], m[2][2] - lambda]
-            ]
-
-            // Find eigenvector using cross products of rows (null space of rank-2 matrix)
-            let r1 = [A_lambda[0][0], A_lambda[0][1], A_lambda[0][2]]
-            let r2 = [A_lambda[1][0], A_lambda[1][1], A_lambda[1][2]]
-            let r3 = [A_lambda[2][0], A_lambda[2][1], A_lambda[2][2]]
-
-            // Try cross products
-            var v = cross3(r1, r2)
-            var norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-
-            if norm < 1e-10 {
-                v = cross3(r1, r3)
-                norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-            }
-
-            if norm < 1e-10 {
-                v = cross3(r2, r3)
-                norm = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-            }
-
-            if norm < 1e-10 {
-                // Fallback: use identity direction
-                v = [1, 0, 0]
-                norm = 1
-            }
-
-            eigenvectors.append([v[0] / norm, v[1] / norm, v[2] / norm])
-        }
-
-        return (roots, eigenvectors)
-    }
-
-    /// Helper: Cross product of two 3-vectors
-    private static func cross3(_ a: [Double], _ b: [Double]) -> [Double] {
-        return [
-            a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0]
-        ]
-    }
-
-    /// Helper: Solve cubic equation ax³ + bx² + cx + d = 0
-    /// Returns up to 3 real roots
-    private static func solveCubic(_ a: Double, _ b: Double, _ c: Double, _ d: Double) -> [Double]? {
-        guard abs(a) > 1e-15 else {
-            // Degenerate to quadratic
-            return solveQuadratic(b, c, d)
-        }
-
-        // Normalize
-        let p = b / a
-        let q = c / a
-        let r = d / a
-
-        // Depressed cubic: t³ + pt + q = 0 via substitution x = t - p/3
-        let p1 = q - p * p / 3
-        let q1: Double = 2.0 * p * p * p / 27 - p * q / 3 + r
-
-        // Discriminant
-        let discriminant = q1 * q1 / 4 + p1 * p1 * p1 / 27
-
-        var roots: [Double] = []
-
-        if discriminant > 1e-15 {
-            // One real root
-            let sqrtD = sqrt(discriminant)
-            let u = cbrt(-q1 / 2 + sqrtD)
-            let v = cbrt(-q1 / 2 - sqrtD)
-            roots.append(u + v - p / 3)
-        } else if discriminant < -1e-15 {
-            // Three real roots (casus irreducibilis)
-            let rho = sqrt(-p1 * p1 * p1 / 27)
-            let theta = acos(-q1 / 2 / rho)
-
-            let m: Double = 2.0 * cbrt(rho)
-            roots.append(m * cos(theta / 3) - p / 3)
-            roots.append(m * cos((theta + 2 * Double.pi) / 3) - p / 3)
-            roots.append(m * cos((theta + 4 * Double.pi) / 3) - p / 3)
-        } else {
-            // Double or triple root
-            if abs(q1) < 1e-15 {
-                // Triple root
-                roots.append(-p / 3)
-            } else {
-                // Double root + simple root
-                let u = cbrt(-q1 / 2)
-                roots.append(2 * u - p / 3)
-                roots.append(-u - p / 3)
-            }
-        }
-
-        return roots.isEmpty ? nil : roots
-    }
-
-    /// Helper: Solve quadratic equation ax² + bx + c = 0
-    private static func solveQuadratic(_ a: Double, _ b: Double, _ c: Double) -> [Double]? {
-        guard abs(a) > 1e-15 else {
-            // Degenerate to linear
-            guard abs(b) > 1e-15 else { return nil }
-            return [-c / b]
-        }
-
-        let discriminant = b * b - 4 * a * c
-        if discriminant < -1e-15 {
-            return []  // No real roots
-        } else if discriminant < 1e-15 {
-            return [-b / (2 * a)]  // Double root
-        } else {
-            let sqrtD = sqrt(discriminant)
-            return [(-b + sqrtD) / (2 * a), (-b - sqrtD) / (2 * a)]
-        }
-    }
-
     // MARK: - Sphere Fitting Callbacks
 
-    /// Fit sphere to 3D points using algebraic least squares (3D analog of Kåsa method)
-    /// Minimize Σ(x² + y² + z² + Dx + Ey + Fz + G)² in least squares sense
+    /// Fit sphere to 3D points using algebraic least squares via NumericSwift
     private static let sphereFitAlgebraicCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard let pointsArray = args.first?.arrayValue else {
             throw LuaError.callbackError("sphere_fit requires array of 3D points")
         }
 
-        // Extract points
-        var points: [(x: Double, y: Double, z: Double)] = []
+        // Extract points as Vec3
+        var points: [Vec3] = []
         for pt in pointsArray {
-            if let table = pt.tableValue {
-                let x = table["x"]?.numberValue ?? table["1"]?.numberValue
-                let y = table["y"]?.numberValue ?? table["2"]?.numberValue
-                let z = table["z"]?.numberValue ?? table["3"]?.numberValue
-                if let x = x, let y = y, let z = z {
-                    points.append((x, y, z))
-                }
+            if let v = extractVec3(pt) {
+                points.append(v)
             }
         }
 
         guard points.count >= 4 else {
-            return .nil  // Need at least 4 points
+            return .nil // Need at least 4 points
         }
 
-        let n = points.count
-
-        // Check for coplanarity using first 4 points
-        if n >= 4 {
-            let p1 = simd_double3(points[0].x, points[0].y, points[0].z)
-            let p2 = simd_double3(points[1].x, points[1].y, points[1].z)
-            let p3 = simd_double3(points[2].x, points[2].y, points[2].z)
-            let p4 = simd_double3(points[3].x, points[3].y, points[3].z)
-
-            let v1 = p2 - p1
-            let v2 = p3 - p1
-            let v3 = p4 - p1
-            let normal = simd_cross(v1, v2)
-            let volume = abs(simd_dot(normal, v3))
-
-            if volume < 1e-10 {
-                // Try other point combinations
-                var isCoplanar = true
-                outerLoop: for i in 0..<min(n, 8) {
-                    for j in (i+1)..<min(n, 8) {
-                        for k in (j+1)..<min(n, 8) {
-                            for l in (k+1)..<min(n, 8) {
-                                let pi = simd_double3(points[i].x, points[i].y, points[i].z)
-                                let pj = simd_double3(points[j].x, points[j].y, points[j].z)
-                                let pk = simd_double3(points[k].x, points[k].y, points[k].z)
-                                let pl = simd_double3(points[l].x, points[l].y, points[l].z)
-
-                                let vi = pj - pi
-                                let vj = pk - pi
-                                let vk = pl - pi
-                                let n = simd_cross(vi, vj)
-                                let vol = abs(simd_dot(n, vk))
-
-                                if vol > 1e-10 {
-                                    isCoplanar = false
-                                    break outerLoop
-                                }
-                            }
-                        }
-                    }
-                }
-                if isCoplanar {
-                    return .nil  // Points are coplanar, no sphere fits
-                }
-            }
+        // Use NumericSwift's sphere fit implementation
+        guard let result = sphereFitAlgebraic(points) else {
+            return .nil
         }
 
-        // Kåsa-like method for sphere: solve [x, y, z, 1] * [D, E, F, G]' = -(x² + y² + z²)
-        // Build normal equations: A'A * params = A'b
-
-        var sumX = 0.0, sumY = 0.0, sumZ = 0.0
-        var sumX2 = 0.0, sumY2 = 0.0, sumZ2 = 0.0
-        var sumXY = 0.0, sumXZ = 0.0, sumYZ = 0.0
-        var sumX3 = 0.0, sumY3 = 0.0, sumZ3 = 0.0
-        var sumX2Y = 0.0, sumX2Z = 0.0
-        var sumXY2 = 0.0, sumY2Z = 0.0
-        var sumXZ2 = 0.0, sumYZ2 = 0.0
-
-        for p in points {
-            let x = p.x, y = p.y, z = p.z
-            let x2 = x * x, y2 = y * y, z2 = z * z
-
-            sumX += x
-            sumY += y
-            sumZ += z
-            sumX2 += x2
-            sumY2 += y2
-            sumZ2 += z2
-            sumXY += x * y
-            sumXZ += x * z
-            sumYZ += y * z
-            sumX3 += x2 * x
-            sumY3 += y2 * y
-            sumZ3 += z2 * z
-            sumX2Y += x2 * y
-            sumX2Z += x2 * z
-            sumXY2 += x * y2
-            sumY2Z += y2 * z
-            sumXZ2 += x * z2
-            sumYZ2 += y * z2
-        }
-
-        // Normal equations matrix A'A (4x4)
-        let a11 = sumX2, a12 = sumXY, a13 = sumXZ, a14 = sumX
-        let a21 = sumXY, a22 = sumY2, a23 = sumYZ, a24 = sumY
-        let a31 = sumXZ, a32 = sumYZ, a33 = sumZ2, a34 = sumZ
-        let a41 = sumX, a42 = sumY, a43 = sumZ, a44 = Double(n)
-
-        // Right-hand side A'b
-        let b1 = -(sumX3 + sumXY2 + sumXZ2)
-        let b2 = -(sumX2Y + sumY3 + sumYZ2)
-        let b3 = -(sumX2Z + sumY2Z + sumZ3)
-        let b4 = -(sumX2 + sumY2 + sumZ2)
-
-        // Solve 4x4 system using Gaussian elimination with partial pivoting
-        var A = [
-            [a11, a12, a13, a14, b1],
-            [a21, a22, a23, a24, b2],
-            [a31, a32, a33, a34, b3],
-            [a41, a42, a43, a44, b4]
-        ]
-
-        // Forward elimination with partial pivoting
-        for k in 0..<4 {
-            // Find pivot
-            var maxVal = abs(A[k][k])
-            var maxRow = k
-            for i in (k+1)..<4 {
-                if abs(A[i][k]) > maxVal {
-                    maxVal = abs(A[i][k])
-                    maxRow = i
-                }
-            }
-
-            // Swap rows
-            if maxRow != k {
-                let temp = A[k]
-                A[k] = A[maxRow]
-                A[maxRow] = temp
-            }
-
-            guard abs(A[k][k]) > 1e-15 else {
-                return .nil  // Singular matrix
-            }
-
-            // Eliminate column
-            for i in (k+1)..<4 {
-                let factor = A[i][k] / A[k][k]
-                for j in k..<5 {
-                    A[i][j] -= factor * A[k][j]
-                }
-            }
-        }
-
-        // Back substitution
-        var solution = [0.0, 0.0, 0.0, 0.0]
-        for i in stride(from: 3, through: 0, by: -1) {
-            var sum = A[i][4]
-            for j in (i+1)..<4 {
-                sum -= A[i][j] * solution[j]
-            }
-            solution[i] = sum / A[i][i]
-        }
-
-        let D = solution[0]
-        let E = solution[1]
-        let F = solution[2]
-        let G = solution[3]
-
-        // Extract sphere parameters
-        let cx = -D / 2.0
-        let cy = -E / 2.0
-        let cz = -F / 2.0
-        let r2 = D * D / 4.0 + E * E / 4.0 + F * F / 4.0 - G
-
-        guard r2 > 0 else {
-            return .nil  // Invalid radius
-        }
-
-        let r = sqrt(r2)
-
-        // Compute residuals
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        var maxResidual = 0.0
-        for p in points {
-            let dist = sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy) + (p.z - cz) * (p.z - cz))
-            let residual = dist - r
-            residuals.append(residual)
-            sumResidualsSq += residual * residual
-            maxResidual = max(maxResidual, abs(residual))
-        }
-
-        let rmse = sqrt(sumResidualsSq / Double(n))
+        // Compute RMSE and max error from residuals
+        let n = Double(result.residuals.count)
+        let sumResidualsSq = result.residuals.reduce(0.0) { $0 + $1 * $1 }
+        let rmse = sqrt(sumResidualsSq / n)
+        let maxResidual = result.residuals.map { abs($0) }.max() ?? 0
 
         return .table([
-            "cx": .number(cx),
-            "cy": .number(cy),
-            "cz": .number(cz),
-            "r": .number(r),
-            "residuals": .array(residuals.map { .number($0) }),
+            "cx": .number(result.center.x),
+            "cy": .number(result.center.y),
+            "cz": .number(result.center.z),
+            "r": .number(result.radius),
+            "residuals": .array(result.residuals.map { .number($0) }),
             "rmse": .number(rmse),
             "max_error": .number(maxResidual),
             "method": .string("algebraic")
         ])
     }
 
-    /// Fit a B-spline curve to data points using least squares
+    /// Fit a B-spline curve to data points using least squares via NumericSwift
     /// Input: points (array of {x,y} or {x,y,z}), degree, n_control_points, [parameterization]
-    /// Output: {control_points, knots, degree, residuals, rmse}
+    /// Output: {control_points, knots, degree, residuals, rmse, max_error, parameters}
     private static let bsplineFitCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 3,
               let pointsArray = args[0].arrayValue,
@@ -2671,9 +1381,20 @@ public struct GeometryModule {
         // Optional parameterization method: "chord" (default), "uniform", "centripetal"
         let paramMethod = args.count > 3 ? (args[3].stringValue ?? "chord") : "chord"
 
+        // Map string to NumericSwift parameterization enum
+        let parameterization: BSplineParameterization
+        switch paramMethod {
+        case "uniform":
+            parameterization = .uniform
+        case "centripetal":
+            parameterization = .centripetal
+        default:
+            parameterization = .chordLength
+        }
+
         // Extract points (2D or 3D)
-        var points2D: [(x: Double, y: Double)] = []
-        var points3D: [(x: Double, y: Double, z: Double)] = []
+        var points2D: [Vec2] = []
+        var points3D: [Vec3] = []
         var is3D = false
 
         for pt in pointsArray {
@@ -2685,240 +1406,48 @@ public struct GeometryModule {
                 if let x = x, let y = y {
                     if let z = z {
                         is3D = true
-                        points3D.append((x, y, z))
+                        points3D.append(Vec3(x, y, z))
                     } else {
-                        points2D.append((x, y))
+                        points2D.append(Vec2(x, y))
                     }
                 }
             }
         }
 
-        let nData = is3D ? points3D.count : points2D.count
-        guard nData >= nControl else {
-            throw LuaError.callbackError("bspline_fit: need at least as many data points as control points")
-        }
-        guard nControl >= degree + 1 else {
-            throw LuaError.callbackError("bspline_fit: need at least degree+1 control points")
-        }
-        guard degree >= 1 && degree <= 5 else {
-            throw LuaError.callbackError("bspline_fit: degree must be 1-5")
-        }
-
-        // Step 1: Generate parameter values using chord-length parameterization
-        var t: [Double] = Array(repeating: 0.0, count: nData)
-        t[0] = 0.0
-
-        if paramMethod == "uniform" {
-            for i in 0..<nData {
-                t[i] = Double(i) / Double(nData - 1)
+        // Call NumericSwift bsplineFit
+        if is3D {
+            guard let result = bsplineFit3D(points: points3D, degree: degree,
+                                            numControlPoints: nControl,
+                                            parameterization: parameterization) else {
+                throw LuaError.callbackError("bspline_fit: fitting failed")
             }
+
+            return .table([
+                "control_points": .array(result.controlPoints.map { vec3ToLua($0) }),
+                "knots": .array(result.knots.map { .number($0) }),
+                "degree": .number(Double(result.degree)),
+                "residuals": .array(result.residuals.map { .number($0) }),
+                "rmse": .number(result.rmse),
+                "max_error": .number(result.maxError),
+                "parameters": .array(result.parameters.map { .number($0) })
+            ])
         } else {
-            // Chord-length or centripetal parameterization
-            var chordLengths: [Double] = [0.0]
-            for i in 1..<nData {
-                let dist: Double
-                if is3D {
-                    let dx = points3D[i].x - points3D[i-1].x
-                    let dy = points3D[i].y - points3D[i-1].y
-                    let dz = points3D[i].z - points3D[i-1].z
-                    dist = sqrt(dx*dx + dy*dy + dz*dz)
-                } else {
-                    let dx = points2D[i].x - points2D[i-1].x
-                    let dy = points2D[i].y - points2D[i-1].y
-                    dist = sqrt(dx*dx + dy*dy)
-                }
-                let d = paramMethod == "centripetal" ? sqrt(dist) : dist
-                chordLengths.append(chordLengths.last! + d)
+            guard let result = bsplineFit(points: points2D, degree: degree,
+                                          numControlPoints: nControl,
+                                          parameterization: parameterization) else {
+                throw LuaError.callbackError("bspline_fit: fitting failed")
             }
-            let totalLength = chordLengths.last!
-            if totalLength > 1e-15 {
-                for i in 0..<nData {
-                    t[i] = chordLengths[i] / totalLength
-                }
-            } else {
-                // Fallback to uniform if all points coincide
-                for i in 0..<nData {
-                    t[i] = Double(i) / Double(nData - 1)
-                }
-            }
+
+            return .table([
+                "control_points": .array(result.controlPoints.map { vec2ToLua($0) }),
+                "knots": .array(result.knots.map { .number($0) }),
+                "degree": .number(Double(result.degree)),
+                "residuals": .array(result.residuals.map { .number($0) }),
+                "rmse": .number(result.rmse),
+                "max_error": .number(result.maxError),
+                "parameters": .array(result.parameters.map { .number($0) })
+            ])
         }
-
-        // Step 2: Generate clamped uniform knot vector
-        let m = nControl + degree + 1  // Total number of knots
-        var knots: [Double] = Array(repeating: 0.0, count: m)
-        for i in 0..<m {
-            if i <= degree {
-                knots[i] = 0.0
-            } else if i >= m - degree - 1 {
-                knots[i] = 1.0
-            } else {
-                // Interior knots uniformly spaced
-                let interior = i - degree
-                let numInterior = m - 2 * (degree + 1) + 1
-                knots[i] = Double(interior) / Double(numInterior)
-            }
-        }
-
-        // Step 3: Build design matrix A where A[i,j] = N_j(t[i])
-        // Cox-de Boor basis function
-        func basisFunc(_ knots: [Double], _ j: Int, _ p: Int, _ tVal: Double) -> Double {
-            if p == 0 {
-                if j >= 0 && j + 1 < knots.count {
-                    // Special case: at the right endpoint
-                    if abs(tVal - knots[knots.count - 1]) < 1e-15 && j == knots.count - degree - 2 {
-                        return 1.0
-                    }
-                    if tVal >= knots[j] && tVal < knots[j + 1] {
-                        return 1.0
-                    }
-                }
-                return 0.0
-            }
-
-            var result = 0.0
-            if j >= 0 && j + p < knots.count {
-                let denom1 = knots[j + p] - knots[j]
-                if abs(denom1) > 1e-15 {
-                    result += ((tVal - knots[j]) / denom1) * basisFunc(knots, j, p - 1, tVal)
-                }
-            }
-            if j + 1 >= 0 && j + p + 1 < knots.count {
-                let denom2 = knots[j + p + 1] - knots[j + 1]
-                if abs(denom2) > 1e-15 {
-                    result += ((knots[j + p + 1] - tVal) / denom2) * basisFunc(knots, j + 1, p - 1, tVal)
-                }
-            }
-            return result
-        }
-
-        // Build A matrix (nData x nControl) in column-major for LAPACK
-        var A: [Double] = Array(repeating: 0.0, count: nData * nControl)
-        for i in 0..<nData {
-            for j in 0..<nControl {
-                A[i + j * nData] = basisFunc(knots, j, degree, t[i])
-            }
-        }
-
-        // Step 4: Solve least squares using LAPACK dgels
-        // For 2D: solve for x and y coordinates separately
-        // For 3D: solve for x, y, and z coordinates separately
-
-        let numDims = is3D ? 3 : 2
-        var controlPoints: [[Double]] = Array(repeating: Array(repeating: 0.0, count: nControl), count: numDims)
-
-        for dim in 0..<numDims {
-            // Build right-hand side
-            var b: [Double] = Array(repeating: 0.0, count: max(nData, nControl))
-            for i in 0..<nData {
-                if is3D {
-                    switch dim {
-                    case 0: b[i] = points3D[i].x
-                    case 1: b[i] = points3D[i].y
-                    case 2: b[i] = points3D[i].z
-                    default: break
-                    }
-                } else {
-                    switch dim {
-                    case 0: b[i] = points2D[i].x
-                    case 1: b[i] = points2D[i].y
-                    default: break
-                    }
-                }
-            }
-
-            // Copy A matrix for this dimension (dgels modifies it)
-            var Acopy = A
-
-            // Call dgels
-            var trans: CChar = 78  // 'N' for no transpose
-            var mm: __CLPK_integer = __CLPK_integer(nData)
-            var nn: __CLPK_integer = __CLPK_integer(nControl)
-            var nrhs: __CLPK_integer = 1
-            var lda: __CLPK_integer = __CLPK_integer(nData)
-            var ldb: __CLPK_integer = __CLPK_integer(max(nData, nControl))
-            var work: [Double] = Array(repeating: 0.0, count: 1)
-            var lwork: __CLPK_integer = -1  // Query optimal work size
-            var info: __CLPK_integer = 0
-
-            // Query workspace size
-            dgels_(&trans, &mm, &nn, &nrhs, &Acopy, &lda, &b, &ldb, &work, &lwork, &info)
-
-            lwork = __CLPK_integer(work[0])
-            work = Array(repeating: 0.0, count: Int(lwork))
-
-            // Solve
-            Acopy = A  // Reset A since query may have modified it
-            dgels_(&trans, &mm, &nn, &nrhs, &Acopy, &lda, &b, &ldb, &work, &lwork, &info)
-
-            guard info == 0 else {
-                throw LuaError.callbackError("bspline_fit: least squares solver failed")
-            }
-
-            // Extract solution (first nControl elements of b)
-            for j in 0..<nControl {
-                controlPoints[dim][j] = b[j]
-            }
-        }
-
-        // Step 5: Compute residuals
-        var residuals: [Double] = []
-        var sumResidualsSq = 0.0
-        var maxResidual = 0.0
-
-        for i in 0..<nData {
-            // Evaluate the fitted spline at t[i]
-            var fitted: [Double] = Array(repeating: 0.0, count: numDims)
-            for j in 0..<nControl {
-                let basis = basisFunc(knots, j, degree, t[i])
-                for dim in 0..<numDims {
-                    fitted[dim] += basis * controlPoints[dim][j]
-                }
-            }
-
-            // Compute distance to actual point
-            var distSq = 0.0
-            if is3D {
-                distSq = pow(fitted[0] - points3D[i].x, 2) +
-                         pow(fitted[1] - points3D[i].y, 2) +
-                         pow(fitted[2] - points3D[i].z, 2)
-            } else {
-                distSq = pow(fitted[0] - points2D[i].x, 2) +
-                         pow(fitted[1] - points2D[i].y, 2)
-            }
-            let dist = sqrt(distSq)
-            residuals.append(dist)
-            sumResidualsSq += distSq
-            maxResidual = max(maxResidual, dist)
-        }
-
-        let rmse = sqrt(sumResidualsSq / Double(nData))
-
-        // Build control points array for return
-        var controlPointsLua: [LuaValue] = []
-        for j in 0..<nControl {
-            if is3D {
-                controlPointsLua.append(.table([
-                    "x": .number(controlPoints[0][j]),
-                    "y": .number(controlPoints[1][j]),
-                    "z": .number(controlPoints[2][j])
-                ]))
-            } else {
-                controlPointsLua.append(.table([
-                    "x": .number(controlPoints[0][j]),
-                    "y": .number(controlPoints[1][j])
-                ]))
-            }
-        }
-
-        return .table([
-            "control_points": .array(controlPointsLua),
-            "knots": .array(knots.map { .number($0) }),
-            "degree": .number(Double(degree)),
-            "residuals": .array(residuals.map { .number($0) }),
-            "rmse": .number(rmse),
-            "max_error": .number(maxResidual),
-            "parameters": .array(t.map { .number($0) })
-        ])
     }
 
     // MARK: - Lua Wrapper Code

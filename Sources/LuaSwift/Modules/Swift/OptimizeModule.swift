@@ -107,13 +107,17 @@ public struct OptimizeModule {
                     return result
                 end
 
-                -- least_squares: Nonlinear least squares
+                -- least_squares: Nonlinear least squares with optional bounds
                 function optimize.least_squares(residuals, x0, options)
                     options = options or {}
+                    local lower = options.bounds and options.bounds.lower
+                    local upper = options.bounds and options.bounds.upper
                     local result = _luaswift_optimize_least_squares(residuals, x0,
                         options.ftol or 1e-8,
                         options.xtol or 1e-8,
-                        options.maxiter or 100)
+                        options.maxiter or 100,
+                        lower,
+                        upper)
                     return result
                 end
 
@@ -369,8 +373,26 @@ public struct OptimizeModule {
             let xtol = args.count > 3 ? args[3].numberValue ?? 1e-8 : 1e-8
             let maxiter = args.count > 4 ? Int(args[4].numberValue ?? 100) : 100
 
+            // Parse optional bounds
+            var bounds: (lower: [Double], upper: [Double])?
+
+            if args.count > 5, let lowerTable = args[5].arrayValue,
+               args.count > 6, let upperTable = args[6].arrayValue {
+                let lower = lowerTable.compactMap { $0.numberValue }
+                let upper = upperTable.compactMap { $0.numberValue }
+                if lower.count != x0.count {
+                    throw LuaError.runtimeError("least_squares: lower bounds must have same length as x0")
+                }
+                if upper.count != x0.count {
+                    throw LuaError.runtimeError("least_squares: upper bounds must have same length as x0")
+                }
+                bounds = (lower: lower, upper: upper)
+            }
+
             let residuals = makeLuaFunctionVector(engine, funcRef)
-            let result = NumericSwift.leastSquares(residuals, x0: x0, ftol: ftol, xtol: xtol, maxiter: maxiter)
+
+            // Use NumericSwift's native bounds support (Projected Levenberg-Marquardt)
+            let result = NumericSwift.leastSquares(residuals, x0: x0, bounds: bounds, ftol: ftol, xtol: xtol, maxiter: maxiter)
 
             return .table([
                 "x": .array(result.x.map { .number($0) }),

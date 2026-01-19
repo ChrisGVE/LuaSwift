@@ -3337,7 +3337,8 @@ public struct PlotModule {
     package.loaded["luaswift.plot"] = plot
 
     -- Top-level global (user can create aliases like: local plt = plot)
-    plot = luaswift.plot
+    -- Use _G to bypass local 'plot' variable that shadows global
+    _G.plot = luaswift.plot
 
     -- Clean up temporary globals
     _luaswift_plot_create_context = nil

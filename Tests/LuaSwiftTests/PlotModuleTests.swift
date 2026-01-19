@@ -39,7 +39,7 @@ final class PlotModuleTests: XCTestCase {
 
     func testPlotGlobalAliasExists() throws {
         let result = try engine.evaluate("""
-            return plt ~= nil
+            return plot ~= nil
         """)
         XCTAssertEqual(result.boolValue, true)
     }

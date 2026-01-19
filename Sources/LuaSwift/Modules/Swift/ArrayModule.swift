@@ -3148,9 +3148,11 @@ public struct ArrayModule {
         var absX = [Double](repeating: 0, count: arrayData.size)
         vDSP_vabsD(arrayData.data, 1, &absX, 1, n)
 
-        // Step 2: Add tiny epsilon to avoid division by zero
-        // Using Double.leastNonzeroMagnitude ensures 0/eps ≈ 0
-        var epsilon = Double.leastNonzeroMagnitude
+        // Step 2: Add epsilon to avoid division by zero
+        // Note: Using 1e-300 instead of Double.leastNonzeroMagnitude because
+        // denormalized numbers may be flushed to zero on some ARM64 processors
+        // with DAZ (Denormals-Are-Zero) mode enabled.
+        var epsilon = 1e-300
         vDSP_vsaddD(absX, 1, &epsilon, &absX, 1, n)
 
         // Step 3: Divide x by (abs(x) + epsilon)

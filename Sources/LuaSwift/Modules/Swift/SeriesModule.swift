@@ -45,106 +45,18 @@ public struct SeriesModule {
     private static let defaultMaxIterations: Int = 10000
 
     // MARK: - Name Mapping
+    // Note: Taylor coefficient generators are provided by NumericSwift.knownTaylorSeries.
+    // This mapping converts Lua-style names (snake_case) to NumericSwift names (camelCase).
 
     /// Map Lua function names to NumericSwift function names
     private static let luaToNumericSwiftName: [String: String] = [
         "geometric_alt": "geometricAlt"
     ]
 
-    // MARK: - Taylor Series Coefficients (Analytical)
-
-    /// Known Taylor series coefficients at x=0 for common functions.
-    /// Uses NumericSwift.factorial for computations.
-    private static let taylorCoefficients: [String: (Int) -> Double] = [
-        // sin(x) = x - x^3/3! + x^5/5! - ...
-        // Coefficient of x^n: 0 if n even, (-1)^((n-1)/2) / n! if n odd
-        "sin": { n in
-            if n % 2 == 0 { return 0 }
-            let sign = ((n - 1) / 2) % 2 == 0 ? 1.0 : -1.0
-            return sign / NumericSwift.factorial(n)
-        },
-
-        // cos(x) = 1 - x^2/2! + x^4/4! - ...
-        // Coefficient of x^n: 0 if n odd, (-1)^(n/2) / n! if n even
-        "cos": { n in
-            if n % 2 != 0 { return 0 }
-            let sign = (n / 2) % 2 == 0 ? 1.0 : -1.0
-            return sign / NumericSwift.factorial(n)
-        },
-
-        // exp(x) = 1 + x + x^2/2! + x^3/3! + ...
-        // Coefficient of x^n: 1/n!
-        "exp": { n in
-            return 1.0 / NumericSwift.factorial(n)
-        },
-
-        // log(1+x) = x - x^2/2 + x^3/3 - x^4/4 + ...
-        // Coefficient of x^n: 0 if n=0, (-1)^(n+1) / n if n > 0
-        "log1p": { n in
-            if n == 0 { return 0 }
-            let sign = n % 2 == 1 ? 1.0 : -1.0
-            return sign / Double(n)
-        },
-
-        // sinh(x) = x + x^3/3! + x^5/5! + ...
-        // Coefficient of x^n: 0 if n even, 1/n! if n odd
-        "sinh": { n in
-            if n % 2 == 0 { return 0 }
-            return 1.0 / NumericSwift.factorial(n)
-        },
-
-        // cosh(x) = 1 + x^2/2! + x^4/4! + ...
-        // Coefficient of x^n: 0 if n odd, 1/n! if n even
-        "cosh": { n in
-            if n % 2 != 0 { return 0 }
-            return 1.0 / NumericSwift.factorial(n)
-        },
-
-        // tan(x) = x + x^3/3 + 2x^5/15 + 17x^7/315 + ...
-        // Uses Bernoulli numbers, only first few terms for practical use
-        "tan": { n in
-            // First few Taylor coefficients for tan(x) at x=0
-            let coeffs: [Int: Double] = [
-                0: 0, 1: 1, 2: 0, 3: 1.0/3.0, 4: 0,
-                5: 2.0/15.0, 6: 0, 7: 17.0/315.0, 8: 0,
-                9: 62.0/2835.0, 10: 0, 11: 1382.0/155925.0
-            ]
-            return coeffs[n] ?? 0
-        },
-
-        // atan(x) = x - x^3/3 + x^5/5 - x^7/7 + ...
-        // Coefficient of x^n: 0 if n even, (-1)^((n-1)/2) / n if n odd
-        "atan": { n in
-            if n % 2 == 0 { return 0 }
-            let sign = ((n - 1) / 2) % 2 == 0 ? 1.0 : -1.0
-            return sign / Double(n)
-        },
-
-        // 1/(1-x) = 1 + x + x^2 + x^3 + ... (geometric series)
-        "geometric": { _ in
-            return 1.0
-        },
-
-        // 1/(1+x) = 1 - x + x^2 - x^3 + ... (alternating geometric)
-        "geometric_alt": { n in
-            return n % 2 == 0 ? 1.0 : -1.0
-        },
-
-        // sqrt(1+x) = 1 + x/2 - x^2/8 + x^3/16 - ...
-        // Binomial series (1+x)^(1/2)
-        "sqrt1p": { n in
-            if n == 0 { return 1.0 }
-            var coeff = 0.5
-            for k in 1..<n {
-                coeff *= (0.5 - Double(k)) / Double(k + 1)
-            }
-            return coeff
-        },
-
-        // (1+x)^(-1) = 1 - x + x^2 - x^3 + ...
-        "inv1p": { n in
-            return n % 2 == 0 ? 1.0 : -1.0
-        }
+    /// Available Taylor series functions (for error messages)
+    private static let availableTaylorFunctions = [
+        "sin", "cos", "exp", "log1p", "sinh", "cosh", "tan", "atan",
+        "geometric", "geometric_alt", "sqrt1p", "inv1p"
     ]
 
     // MARK: - Public API
@@ -218,6 +130,7 @@ public struct SeriesModule {
     }
 
     /// Taylor series callback (analytical for known functions)
+    /// Uses NumericSwift.taylorCoefficients for coefficient generation.
     private static let taylorCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 1,
               let funcName = args[0].stringValue else {
@@ -232,15 +145,16 @@ public struct SeriesModule {
         let at = options["at"]?.numberValue ?? 0.0
         let terms = options["terms"]?.numberValue.map { Int($0) } ?? 10
 
-        guard let coeffGenerator = taylorCoefficients[funcName] else {
-            throw LuaError.callbackError("Unknown function for Taylor series: \(funcName). Available: \(taylorCoefficients.keys.sorted().joined(separator: ", "))")
+        // Map Lua-style names to NumericSwift names
+        let numericSwiftName = luaToNumericSwiftName[funcName] ?? funcName
+
+        // Use NumericSwift's taylorCoefficients function
+        guard let coeffsArray = taylorCoefficients(for: numericSwiftName, terms: terms) else {
+            throw LuaError.callbackError("Unknown function for Taylor series: \(funcName). Available: \(availableTaylorFunctions.joined(separator: ", "))")
         }
 
-        // Generate coefficients
-        var coeffs: [LuaValue] = []
-        for n in 0..<terms {
-            coeffs.append(.number(coeffGenerator(n)))
-        }
+        // Convert to Lua array
+        let coeffs: [LuaValue] = coeffsArray.map { .number($0) }
 
         return .table([
             "coefficients": .array(coeffs),

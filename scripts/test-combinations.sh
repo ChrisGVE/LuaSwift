@@ -51,13 +51,20 @@ test_combination() {
     return 1
   fi
 
-  # Run tests
-  if swift test 2>&1 | grep -q "Test Suite.*passed"; then
+  # Run tests - write to temp file to avoid SIGPIPE issues with pipefail
+  local test_log="/tmp/luaswift_test_${n}${a}${p}_$$.log"
+  swift test > "$test_log" 2>&1 || true
+
+  # Check for new Swift Testing format or classic XCTest format
+  if grep -qE "(Test run with .* passed|Test Suite.*passed)" "$test_log"; then
     echo -e "  Tests: ${GREEN}PASS${NC}"
+    rm -f "$test_log"
     echo ""
     return 0
   else
     echo -e "  Tests: ${RED}FAIL${NC}"
+    tail -20 "$test_log"  # Show last 20 lines for debugging
+    rm -f "$test_log"
     FAILED_COMBINATIONS+=("$combo_name (tests)")
     echo ""
     return 1

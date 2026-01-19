@@ -540,6 +540,11 @@ public struct MathExprModule {
         return _find_variables(ast)
     end
 
+    -- Find all variable names in an AST (delegates to Swift/NumericSwift)
+    function eval.find_variables(ast)
+        return _find_variables(ast)
+    end
+
     -- Convenience function: parse and evaluate expression using Swift
     -- For real-valued expressions without complex numbers
     function eval.eval_swift(expr, vars)
@@ -551,99 +556,10 @@ public struct MathExprModule {
         return _evaluate(ast, vars or {})
     end
 
-    -- Operator precedence for parsing
-    local precedence = {
-        ["+"] = 1, ["-"] = 1,
-        ["*"] = 2, ["/"] = 2,
-        ["^"] = 3
-    }
-
-    local right_associative = {
-        ["^"] = true
-    }
-
-    -- Parse tokens to AST using shunting-yard algorithm
+    -- Parse tokens to AST (delegates to Swift/NumericSwift)
+    -- Note: Swift's MathExpr.parse handles all token types including imaginary
     function eval.parse(tokens)
-        local output = {}
-        local operators = {}
-        local arg_counts = {}  -- Track argument counts for functions
-
-        local function pop_operator()
-            local op = table.remove(operators)
-            local right = table.remove(output)
-            local left = table.remove(output)
-            table.insert(output, {type = "binop", op = op.value, left = left, right = right})
-        end
-
-        local prev_token = nil
-        for i, token in ipairs(tokens) do
-            if token.type == "number" then
-                table.insert(output, {type = "number", value = token.value})
-            elseif token.type == "imaginary" then
-                -- Imaginary literal like 2i -> complex {re=0, im=value}
-                table.insert(output, {type = "imaginary", value = token.value})
-            elseif token.type == "constant" then
-                table.insert(output, {type = "constant", name = token.value})
-            elseif token.type == "variable" then
-                table.insert(output, {type = "variable", name = token.value})
-            elseif token.type == "function" then
-                table.insert(operators, token)
-                table.insert(arg_counts, 1)  -- At least 1 argument
-            elseif token.type == "comma" then
-                while #operators > 0 and operators[#operators].type ~= "lparen" do
-                    pop_operator()
-                end
-                -- Increment arg count for current function
-                if #arg_counts > 0 then
-                    arg_counts[#arg_counts] = arg_counts[#arg_counts] + 1
-                end
-            elseif token.type == "operator" then
-                -- Handle unary minus
-                if token.value == "-" and (prev_token == nil or prev_token.type == "lparen" or prev_token.type == "operator" or prev_token.type == "comma") then
-                    table.insert(output, {type = "number", value = 0})
-                end
-
-                local op1_prec = precedence[token.value] or 0
-                while #operators > 0 do
-                    local top = operators[#operators]
-                    if top.type ~= "operator" then break end
-                    local op2_prec = precedence[top.value] or 0
-                    if right_associative[token.value] then
-                        if op1_prec >= op2_prec then break end
-                    else
-                        if op1_prec > op2_prec then break end
-                    end
-                    pop_operator()
-                end
-                table.insert(operators, token)
-            elseif token.type == "lparen" then
-                table.insert(operators, token)
-            elseif token.type == "rparen" then
-                while #operators > 0 and operators[#operators].type ~= "lparen" do
-                    pop_operator()
-                end
-                if #operators > 0 then
-                    table.remove(operators)  -- Remove lparen
-                end
-                -- Handle function call with multiple arguments
-                if #operators > 0 and operators[#operators].type == "function" then
-                    local func_token = table.remove(operators)
-                    local num_args = table.remove(arg_counts) or 1
-                    local args = {}
-                    for j = 1, num_args do
-                        table.insert(args, 1, table.remove(output))
-                    end
-                    table.insert(output, {type = "call", name = func_token.value, args = args})
-                end
-            end
-            prev_token = token
-        end
-
-        while #operators > 0 do
-            pop_operator()
-        end
-
-        return output[1]
+        return _parse(tokens)
     end
 
     -- Helper to check if value is a complex table
@@ -1140,118 +1056,15 @@ public struct MathExprModule {
         return fn()
     end
 
-    -- Substitute variables in AST with expressions (symbolic, not numeric)
+    -- Substitute variables in AST with expressions (delegates to Swift/NumericSwift)
+    -- Accepts numbers, expression strings, or AST nodes as replacement values
     function eval.substitute(ast, vars)
-        vars = vars or {}
-
-        if ast.type == "variable" then
-            local replacement = vars[ast.name]
-            if replacement ~= nil then
-                if type(replacement) == "string" then
-                    -- Parse the replacement expression and return its AST
-                    local tokens = eval.tokenize(replacement)
-                    return eval.parse(tokens)
-                elseif type(replacement) == "number" then
-                    -- Convert number to number node
-                    return {type = "number", value = replacement}
-                elseif type(replacement) == "table" and replacement.type then
-                    -- Already an AST node, return a copy
-                    return eval.substitute(replacement, {})
-                end
-            end
-            -- No substitution, return copy of variable node
-            return {type = "variable", name = ast.name}
-
-        elseif ast.type == "number" then
-            return {type = "number", value = ast.value}
-
-        elseif ast.type == "constant" then
-            return {type = "constant", name = ast.name}
-
-        elseif ast.type == "binop" then
-            return {
-                type = "binop",
-                op = ast.op,
-                left = eval.substitute(ast.left, vars),
-                right = eval.substitute(ast.right, vars)
-            }
-
-        elseif ast.type == "unary" then
-            return {
-                type = "unary",
-                op = ast.op,
-                operand = eval.substitute(ast.operand, vars)
-            }
-
-        elseif ast.type == "call" then
-            local new_args = {}
-            for _, arg in ipairs(ast.args or {}) do
-                table.insert(new_args, eval.substitute(arg, vars))
-            end
-            return {type = "call", name = ast.name, args = new_args}
-        end
-
-        error("substitute: unknown AST node type: " .. tostring(ast.type))
+        return _substitute(ast, vars or {})
     end
 
-    -- Operator precedence for to_string parenthesization
-    local function op_precedence(op)
-        if op == "^" then return 4
-        elseif op == "*" or op == "/" then return 3
-        elseif op == "+" or op == "-" then return 2
-        else return 1
-        end
-    end
-
-    -- Convert AST back to expression string
+    -- Convert AST back to expression string (delegates to Swift/NumericSwift)
     function eval.to_string(ast)
-        if ast.type == "number" then
-            if ast.value ~= ast.value then return "nan"
-            elseif ast.value == math.huge then return "inf"
-            elseif ast.value == -math.huge then return "-inf"
-            elseif ast.value == math.floor(ast.value) then
-                return tostring(math.floor(ast.value))  -- Format integers without decimal
-            else return tostring(ast.value)
-            end
-
-        elseif ast.type == "constant" then
-            return ast.name  -- pi, e, inf, nan
-
-        elseif ast.type == "variable" then
-            return ast.name
-
-        elseif ast.type == "binop" then
-            local left = eval.to_string(ast.left)
-            local right = eval.to_string(ast.right)
-            local op = ast.op
-
-            -- Add parentheses based on precedence
-            local left_needs_parens = ast.left.type == "binop" and
-                op_precedence(ast.left.op) < op_precedence(op)
-            local right_needs_parens = ast.right.type == "binop" and
-                op_precedence(ast.right.op) <= op_precedence(op)
-
-            if left_needs_parens then left = "(" .. left .. ")" end
-            if right_needs_parens then right = "(" .. right .. ")" end
-
-            return left .. " " .. op .. " " .. right
-
-        elseif ast.type == "unary" then
-            local operand = eval.to_string(ast.operand)
-            if ast.operand.type == "binop" then
-                operand = "(" .. operand .. ")"
-            end
-            return ast.op .. operand
-
-        elseif ast.type == "call" then
-            local args = {}
-            for _, arg in ipairs(ast.args or {}) do
-                table.insert(args, eval.to_string(arg))
-            end
-            return ast.name .. "(" .. table.concat(args, ", ") .. ")"
-        end
-
-        error("to_string: unknown AST node type: " .. tostring(ast.type))
+        return _to_string(ast)
     end
 
     -- Helper to format a number for display

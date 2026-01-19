@@ -51,8 +51,8 @@ test_combination() {
     return 1
   fi
 
-  # Run tests
-  if swift test 2>&1 | grep -q "Test Suite.*passed"; then
+  # Run tests (check for new Swift Testing format or classic XCTest format)
+  if swift test 2>&1 | grep -qE "(Test run with .* passed|Test Suite.*passed)"; then
     echo -e "  Tests: ${GREEN}PASS${NC}"
     echo ""
     return 0

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Deeper NumericSwift Integration** - Modules now use NumericSwift as thin wrappers:
+  - SpatialModule: Delaunay, Voronoi, ConvexHull now delegate to NumericSwift (~290 lines removed)
+  - SeriesModule: Taylor coefficient generation delegates to NumericSwift (~90 lines removed)
+  - MathExprModule: parse, substitute, to_string, find_variables delegate to NumericSwift (~187 lines removed)
+  - All algorithmic code now lives in NumericSwift; LuaSwift modules handle only Lua↔Swift type conversion
+
+### Fixed
+- **test-combinations.sh** - Fixed SIGPIPE issue with bash pipefail option causing false test failures
+
 ## [1.5.0] - 2026-01-17
 
 ### Added

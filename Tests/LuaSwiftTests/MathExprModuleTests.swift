@@ -1273,6 +1273,139 @@ final class MathExprModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue ?? 0, 1, accuracy: 1e-10)
     }
 
+    // MARK: - Swift-backed Function Tests (NumericSwift MathExpr)
+
+    func testParseSwift() throws {
+        // Test Swift-backed parse function
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("x + 2")
+            local ast = mathexpr.parse_swift(tokens)
+            return {type = ast.type, op = ast.op,
+                    left_type = ast.left.type, right_type = ast.right.type}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+        XCTAssertEqual(table["type"]?.stringValue, "binop")
+        XCTAssertEqual(table["op"]?.stringValue, "+")
+        XCTAssertEqual(table["left_type"]?.stringValue, "variable")
+        XCTAssertEqual(table["right_type"]?.stringValue, "number")
+    }
+
+    func testEvaluateSwift() throws {
+        // Test Swift-backed evaluate function
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("x^2 + 2*x + 1")
+            local ast = mathexpr.parse_swift(tokens)
+            return mathexpr.evaluate_swift(ast, {x = 3})
+        """)
+
+        // (3)^2 + 2*(3) + 1 = 9 + 6 + 1 = 16
+        XCTAssertEqual(result.numberValue, 16)
+    }
+
+    func testToStringSwift() throws {
+        // Test Swift-backed to_string function
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("sin(x)")
+            local ast = mathexpr.parse_swift(tokens)
+            return mathexpr.to_string_swift(ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "sin(x)")
+    }
+
+    func testSubstituteSwift() throws {
+        // Test Swift-backed substitute function
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("x + y")
+            local ast = mathexpr.parse_swift(tokens)
+            local new_ast = mathexpr.substitute_swift(ast, {x = 5})
+            return mathexpr.to_string_swift(new_ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "5 + y")
+    }
+
+    func testSubstituteSwiftWithExpression() throws {
+        // Test substitute with expression string
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("x + y")
+            local ast = mathexpr.parse_swift(tokens)
+            local new_ast = mathexpr.substitute_swift(ast, {x = "2*z"})
+            return mathexpr.to_string_swift(new_ast)
+        """)
+
+        XCTAssertEqual(result.stringValue, "2 * z + y")
+    }
+
+    func testFindVariablesSwift() throws {
+        // Test Swift-backed find_variables function
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("x^2 + y*z + x")
+            local ast = mathexpr.parse_swift(tokens)
+            local vars = mathexpr.find_variables_swift(ast)
+            return {count = #vars, v1 = vars[1], v2 = vars[2], v3 = vars[3]}
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table")
+            return
+        }
+        XCTAssertEqual(table["count"]?.numberValue, 3)
+        // Variables are returned sorted: x, y, z
+        XCTAssertEqual(table["v1"]?.stringValue, "x")
+        XCTAssertEqual(table["v2"]?.stringValue, "y")
+        XCTAssertEqual(table["v3"]?.stringValue, "z")
+    }
+
+    func testEvalSwiftConvenience() throws {
+        // Test Swift-backed convenience eval function
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval_swift("sin(x)^2 + cos(x)^2", {x = 0.5})
+        """)
+
+        // sin(x)^2 + cos(x)^2 = 1 (trig identity)
+        XCTAssertEqual(result.numberValue ?? 0, 1, accuracy: 1e-10)
+    }
+
+    func testEvalSwiftWithConstants() throws {
+        // Test Swift evaluation with mathematical constants
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            return mathexpr.eval_swift("2*pi + e")
+        """)
+
+        // 2*pi + e ≈ 6.283 + 2.718 ≈ 9.001
+        XCTAssertEqual(result.numberValue ?? 0, 2 * Double.pi + M_E, accuracy: 1e-10)
+    }
+
+    func testSwiftRoundTrip() throws {
+        // Test complete round-trip through Swift functions
+        let result = try engine.evaluate("""
+            local mathexpr = require("luaswift.mathexpr")
+            local tokens = mathexpr.tokenize("sqrt(x^2 + y^2)")
+            local ast = mathexpr.parse_swift(tokens)
+            local str = mathexpr.to_string_swift(ast)
+            -- Parse again and evaluate
+            local tokens2 = mathexpr.tokenize(str)
+            local ast2 = mathexpr.parse_swift(tokens2)
+            return mathexpr.evaluate_swift(ast2, {x = 3, y = 4})
+        """)
+
+        // sqrt(3^2 + 4^2) = sqrt(9 + 16) = sqrt(25) = 5
+        XCTAssertEqual(result.numberValue ?? 0, 5, accuracy: 1e-10)
+    }
+
     // MARK: - AST Validation Tests
 
     func testInvalidASTNodeType() throws {

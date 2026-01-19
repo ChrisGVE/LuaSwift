@@ -1,4 +1,4 @@
-name: Test Dependency Combinations
+name: CI
 
 on:
   push:

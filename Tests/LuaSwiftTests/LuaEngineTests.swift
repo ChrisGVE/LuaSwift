@@ -209,6 +209,62 @@ final class LuaEngineTests: XCTestCase {
         XCTAssertEqual(array?[2].stringValue, "c")
     }
 
+    // MARK: - Numeric Table Key Behavior (Known Limitations)
+
+    /// Documents that fractional numeric keys are truncated to Int.
+    ///
+    /// This is a known limitation: Lua allows any numeric value as a table key,
+    /// but when converting to Swift, numeric keys are cast to Int, truncating
+    /// any fractional part. Key 1.5 becomes key 1, potentially overwriting values.
+    func testNumericKeyFractionalTruncation() throws {
+        let engine = try LuaEngine()
+        // Create table with fractional key 1.5 and integer key 1
+        let result = try engine.evaluate("""
+            local t = {}
+            t[1] = "integer-one"
+            t[1.5] = "fractional-one-point-five"
+            return t
+        """)
+
+        // Due to truncation, both keys map to Int(1), and the second overwrites the first
+        // This documents current behavior, not necessarily desired behavior
+        // With only integer key (after truncation), it becomes a 1-element array
+        if let array = result.arrayValue {
+            // The table becomes a single-element array since 1.5 truncates to 1
+            XCTAssertEqual(array.count, 1, "Fractional key 1.5 truncates to 1, overwriting")
+            XCTAssertEqual(array[0].stringValue, "fractional-one-point-five")
+        } else if let table = result.tableValue {
+            XCTAssertEqual(table.count, 1, "Fractional key 1.5 truncates to 1, overwriting")
+        } else {
+            XCTFail("Expected table or array")
+        }
+    }
+
+    /// Documents that integer numeric keys work correctly.
+    func testNumericKeyIntegerWorks() throws {
+        let engine = try LuaEngine()
+        let result = try engine.evaluate("""
+            local t = {}
+            t[1] = "one"
+            t[2] = "two"
+            t[100] = "hundred"
+            return t
+        """)
+
+        // Non-contiguous integer keys (1, 2, 100) become a table with string keys
+        // because they don't form a contiguous array starting at 1
+        guard result.tableValue != nil || result.arrayValue != nil else {
+            XCTFail("Expected table or array")
+            return
+        }
+        // The values should be accessible via the appropriate accessor
+        if let table = result.tableValue {
+            XCTAssertEqual(table["1"]?.stringValue, "one")
+            XCTAssertEqual(table["2"]?.stringValue, "two")
+            XCTAssertEqual(table["100"]?.stringValue, "hundred")
+        }
+    }
+
     // MARK: - Math Library Tests
 
     func testMathSqrt() throws {

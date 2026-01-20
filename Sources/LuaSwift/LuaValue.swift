@@ -128,6 +128,14 @@ public enum LuaValue: Equatable, Sendable {
     /// Represents a Lua table that has string keys. This is used when
     /// the table contains at least one non-integer key or when the
     /// integer keys don't form a contiguous sequence starting at 1.
+    ///
+    /// - Important: **Numeric Key Conversion**: When Lua tables are converted
+    ///   to Swift, numeric keys are cast to `Int`. This has two implications:
+    ///   1. **Fractional keys are truncated**: A Lua key of `1.5` becomes `1`
+    ///   2. **Large keys may overflow**: Keys outside `Int` range may wrap
+    ///
+    ///   If you need to preserve non-integer numeric keys, use string keys
+    ///   in your Lua code (e.g., `t["1.5"] = value` instead of `t[1.5] = value`).
     case table([String: LuaValue])
 
     /// A table with integer keys (array).

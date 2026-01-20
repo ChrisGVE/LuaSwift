@@ -53,8 +53,39 @@ import Foundation
 /// http.delete(url, options)
 /// http.head(url, options)
 /// http.options(url, options)
+///
+/// -- Redirect control
+/// local resp = http.get("https://example.com/redirect", {
+///     follow_redirects = false  -- Returns 3xx response instead of following
+/// })
 /// ```
 public struct HTTPModule {
+
+    // MARK: - Redirect Delegate
+
+    /// Delegate that controls redirect behavior for URLSession requests.
+    private class RedirectDelegate: NSObject, URLSessionTaskDelegate {
+        let followRedirects: Bool
+
+        init(followRedirects: Bool) {
+            self.followRedirects = followRedirects
+            super.init()
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping (URLRequest?) -> Void
+        ) {
+            if followRedirects {
+                completionHandler(request)
+            } else {
+                completionHandler(nil)
+            }
+        }
+    }
 
     // MARK: - Registration
 
@@ -180,13 +211,10 @@ public struct HTTPModule {
         var httpResponse: HTTPURLResponse?
         var requestError: Error?
 
-        // Configure session
+        // Configure session with redirect delegate
         let config = URLSessionConfiguration.default
-        if !followRedirects {
-            // Custom delegate would be needed for redirect control
-            // For now, we always follow redirects
-        }
-        let session = URLSession(configuration: config)
+        let delegate = RedirectDelegate(followRedirects: followRedirects)
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
 
         let task = session.dataTask(with: request) { data, response, error in
             responseData = data

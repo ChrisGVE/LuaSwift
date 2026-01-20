@@ -270,6 +270,102 @@ final class HTTPModuleTests: XCTestCase {
         }
     }
 
+    // MARK: - Redirect Tests
+
+    func testFollowRedirectsTrue() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("https://httpbin.org/redirect/1", {
+                follow_redirects = true
+            })
+            return {resp.status, resp.ok}
+        """)
+
+        guard let arr = result.arrayValue, arr.count >= 2 else {
+            XCTFail("Expected array with 2 elements")
+            return
+        }
+        XCTAssertEqual(arr[0].numberValue, 200, "Should follow redirect and get 200")
+        XCTAssertEqual(arr[1].boolValue, true, "Response should be ok")
+    }
+
+    func testFollowRedirectsFalse() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("https://httpbin.org/redirect/1", {
+                follow_redirects = false
+            })
+            return {resp.status, resp.ok}
+        """)
+
+        guard let arr = result.arrayValue, arr.count >= 2 else {
+            XCTFail("Expected array with 2 elements")
+            return
+        }
+        XCTAssertEqual(arr[0].numberValue, 302, "Should not follow redirect and get 302")
+        XCTAssertEqual(arr[1].boolValue, false, "Response should not be ok")
+    }
+
+    func testFollowRedirectsDefaultBehavior() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        // Default behavior should follow redirects
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("https://httpbin.org/redirect/1")
+            return resp.status
+        """)
+
+        XCTAssertEqual(result.numberValue, 200, "Default should follow redirect")
+    }
+
+    func testFollowRedirectsChain() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        // Test that multiple redirects are followed
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("https://httpbin.org/redirect/3", {
+                follow_redirects = true
+            })
+            return resp.status
+        """)
+
+        XCTAssertEqual(result.numberValue, 200, "Should follow redirect chain")
+    }
+
+    func testFollowRedirectsFalseReturnsLocationHeader() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("https://httpbin.org/redirect/1", {
+                follow_redirects = false
+            })
+            -- Check for Location header (case may vary)
+            return resp.headers["Location"] or resp.headers["location"]
+        """)
+
+        XCTAssertNotNil(result.stringValue, "Should have Location header")
+        // httpbin returns relative URL "/get" for redirect
+        XCTAssertTrue(result.stringValue?.contains("/get") ?? false,
+                      "Location header should point to redirect target, got: \(result.stringValue ?? "nil")")
+    }
+
     // MARK: - Helper Methods
 
     private func hasNetworkAccess() -> Bool {

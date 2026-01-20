@@ -65,7 +65,7 @@ public struct IOModule {
     /// Set the allowed directories for file operations.
     ///
     /// Call this before running Lua code that uses the IO module.
-    /// Paths are normalized and stored for the current engine.
+    /// Paths are normalized and symlinks are resolved for security.
     ///
     /// - Parameters:
     ///   - directories: Array of directory paths to allow
@@ -73,7 +73,8 @@ public struct IOModule {
     public static func setAllowedDirectories(_ directories: [String], for engine: LuaEngine) {
         let normalized = directories.map { (path: String) -> String in
             let expanded = NSString(string: path).expandingTildeInPath
-            return URL(fileURLWithPath: expanded).standardizedFileURL.path
+            // Resolve symlinks to get the actual filesystem path
+            return URL(fileURLWithPath: expanded).standardizedFileURL.resolvingSymlinksInPath().path
         }
         // Store in engine's user info (we'll use object association)
         objc_setAssociatedObject(engine, &AssociatedKeys.allowedDirectories, normalized, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -171,10 +172,16 @@ public struct IOModule {
 
     /// Validate that a path is within allowed directories.
     ///
+    /// This method resolves symlinks to prevent sandbox escape attacks where
+    /// a symlink inside an allowed directory points to a location outside.
+    ///
+    /// For paths where the final component doesn't exist (e.g., writing a new file),
+    /// we resolve the parent directory's symlinks and append the filename.
+    ///
     /// - Parameters:
     ///   - path: The path to validate
     ///   - engine: The engine with allowed directories configured
-    /// - Returns: The normalized absolute path
+    /// - Returns: The normalized absolute path with symlinks resolved
     /// - Throws: If the path is outside allowed directories
     private static func validatePath(_ path: String, engine: LuaEngine) throws -> String {
         let allowedDirs = getAllowedDirectories(for: engine)
@@ -185,10 +192,23 @@ public struct IOModule {
 
         // Normalize the path
         let expanded = NSString(string: path).expandingTildeInPath
-        let url = URL(fileURLWithPath: expanded)
-        let normalizedPath = url.standardizedFileURL.path
+        let url = URL(fileURLWithPath: expanded).standardizedFileURL
 
-        // Check if path is within any allowed directory
+        // Resolve symlinks. If the full path exists, resolve it directly.
+        // If not, resolve the parent directory and append the last component.
+        // This handles the case of writing to a new file via a symlink directory.
+        let normalizedPath: String
+        if FileManager.default.fileExists(atPath: url.path) {
+            normalizedPath = url.resolvingSymlinksInPath().path
+        } else {
+            // File doesn't exist - resolve parent directory symlinks
+            let parentURL = url.deletingLastPathComponent()
+            let lastComponent = url.lastPathComponent
+            let resolvedParent = parentURL.resolvingSymlinksInPath()
+            normalizedPath = resolvedParent.appendingPathComponent(lastComponent).path
+        }
+
+        // Check if resolved path is within any allowed directory
         for allowedDir in allowedDirs {
             if normalizedPath.hasPrefix(allowedDir + "/") || normalizedPath == allowedDir {
                 return normalizedPath

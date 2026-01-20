@@ -156,8 +156,27 @@ public enum LuaValue: Equatable, Sendable {
     /// Swift callbacks to receive and call Lua functions passed as arguments.
     /// The reference is an index in the Lua registry.
     ///
-    /// Note: This case should only be created by LuaEngine when converting
-    /// from the Lua stack. Use `LuaEngine.callLuaFunction(ref:args:)` to call it.
+    /// - Important: This case should only be created by `LuaEngine` when converting
+    ///   from the Lua stack. Use ``LuaEngine/callLuaFunction(ref:args:)`` to call it.
+    ///
+    /// ## Memory Management
+    ///
+    /// Function references must be explicitly released when no longer needed to
+    /// prevent memory leaks. Use one of these approaches:
+    ///
+    /// - **Manual release**: Call ``LuaEngine/releaseLuaFunction(ref:)`` when done
+    /// - **Auto-release**: Use ``LuaEngine/withLuaFunction(_:args:action:)`` or
+    ///   ``LuaEngine/callAndReleaseLuaFunction(_:args:)`` for one-shot calls
+    ///
+    /// ```swift
+    /// // Manual (retain for later use)
+    /// guard case .luaFunction(let ref) = funcValue else { return }
+    /// // ... use ref multiple times ...
+    /// engine.releaseLuaFunction(ref: ref)
+    ///
+    /// // Auto-release (one-shot call)
+    /// let result = try engine.callAndReleaseLuaFunction(funcValue, args: [.number(1)])
+    /// ```
     case luaFunction(Int32)
 
     // MARK: - Convenience Accessors

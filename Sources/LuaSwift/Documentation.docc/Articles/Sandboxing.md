@@ -23,7 +23,7 @@ let engine2 = try LuaEngine(configuration: .default)
 
 ### Disabled Functions
 
-In sandboxed mode, the following functions are removed:
+In sandboxed mode, the following functions are removed or restricted:
 
 | Category | Disabled Functions |
 |----------|-------------------|
@@ -31,6 +31,20 @@ In sandboxed mode, the following functions are removed:
 | **File I/O** | Entire `io` library (`io.open`, `io.read`, `io.write`, etc.) |
 | **Debug** | Entire `debug` library |
 | **Code Loading** | `loadfile`, `dofile`, `load`, `loadstring` |
+| **Package System** | `package.loadlib`, `package.cpath`, file-based `package.searchers` |
+
+### Module Loading Restrictions
+
+The sandbox also hardens the `require()` system to prevent bypass attempts:
+
+- `package.loaded.io` and `package.loaded.debug` are cleared, so `require('io')` and `require('debug')` cannot restore disabled libraries
+- `package.loadlib` is disabled to prevent dynamic library loading (App Store compliance)
+- `package.cpath` is cleared to prevent C library loading
+- `package.path` is cleared (unless `packagePath` is configured)
+- **Without `packagePath`**: File-based searchers are removed from `package.searchers`, keeping only the preload searcher. This completely prevents loading `.lua` files from disk.
+- **With `packagePath`**: File searchers are kept so modules can be loaded from the explicitly allowed directory. Only the configured path is searchable.
+
+This ensures that even if a script attempts `require('io')`, it will fail rather than restoring the disabled library.
 
 ### Available Safe Libraries
 
@@ -160,6 +174,8 @@ let engine = try LuaEngine(configuration: config)
 -- Now require() can find modules in your app bundle
 local utils = require("utils")  -- Loads Lua/utils.lua
 ```
+
+> Warning: **Security consideration**: Never set `packagePath` to a writable directory (such as Documents or Caches) when running untrusted Lua code. Doing so would allow malicious scripts to execute downloaded code via `require()`, which violates App Store guidelines 2.5.2. Only use `packagePath` with read-only directories like your app bundle resources.
 
 ## Security Best Practices
 

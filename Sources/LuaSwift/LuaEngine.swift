@@ -39,6 +39,12 @@ import CLua
 /// - `io.*` (all IO functions)
 /// - `debug.*` (all debug functions)
 /// - `loadfile`, `dofile`, `load`, `loadstring`
+/// - `package.loadlib` (dynamic library loading)
+///
+/// Additionally, the `require()` system is hardened:
+/// - `package.loaded.io` and `package.loaded.debug` are cleared to prevent bypass via `require()`
+/// - File-based `package.searchers` are removed, keeping only the preload searcher
+/// - `package.path` and `package.cpath` are cleared (unless `packagePath` is set)
 ///
 /// Safe libraries remain available: `math`, `string`, `table`, `coroutine`, `utf8`
 public struct LuaEngineConfiguration {
@@ -333,7 +339,7 @@ public final class LuaEngine {
 
         // Apply sandboxing if enabled
         if configuration.sandboxed {
-            applySandbox()
+            applySandbox(hasPackagePath: configuration.packagePath != nil)
         }
 
         // Set package path if provided
@@ -908,11 +914,18 @@ public final class LuaEngine {
 
     // MARK: - Private Methods
 
-    private func applySandbox() {
+    private func applySandbox(hasPackagePath: Bool) {
         guard let L = L else { return }
 
-        // Remove dangerous functions
+        // Remove dangerous functions and harden package system
+        // This multi-step approach ensures:
+        // 1. Dangerous globals are removed
+        // 2. package.loaded entries are cleared so require() can't restore them
+        // 3. package.loadlib is disabled to prevent dynamic library loading
+        // 4. If no packagePath configured, searchers are cleared to prevent disk loading
+        //    If packagePath configured, searchers kept but path cleared (will be set later)
         let dangerous = """
+            -- Remove dangerous globals
             os.execute = nil
             os.exit = nil
             os.remove = nil
@@ -926,15 +939,49 @@ public final class LuaEngine {
             dofile = nil
             load = nil
             loadstring = nil
+
+            -- Clear package.loaded for restricted libraries to prevent require() bypass
+            package.loaded.io = nil
+            package.loaded.debug = nil
+            -- Note: os is partially restricted, leave in loaded but with dangerous funcs removed
+
+            -- Disable dynamic library loading (App Store compliance)
+            package.loadlib = nil
+            package.cpath = ''
+
+            -- Clear package.path (will be set to configured path if packagePath provided)
+            package.path = ''
         """
 
         luaL_dostring(L, dangerous)
+
+        // If no packagePath is configured, also remove file-based searchers
+        // This prevents any file loading via require()
+        // If packagePath IS configured, keep searchers so files can be loaded from
+        // the explicitly allowed directory
+        if !hasPackagePath {
+            let removeSearchers = """
+                -- Clear file-based searchers, keeping only preload searcher
+                -- Lua 5.2+ uses package.searchers, Lua 5.1 uses package.loaders
+                local searchers = package.searchers or package.loaders
+                if searchers then
+                    -- Keep only the preload searcher (index 1), remove file searchers
+                    for i = #searchers, 2, -1 do
+                        searchers[i] = nil
+                    end
+                end
+            """
+            luaL_dostring(L, removeSearchers)
+        }
     }
 
     private func setPackagePath(_ path: String) {
         guard let L = L else { return }
 
-        let code = "package.path = '\(path)/?.lua;' .. package.path"
+        // Set package.path to the specified path only (don't append to existing)
+        // This is intentional: in sandboxed mode, we've cleared package.path
+        // and only want to allow loading from explicitly specified directories
+        let code = "package.path = '\(path)/?.lua'"
         luaL_dostring(L, code)
     }
 

@@ -12,8 +12,8 @@ final class LuaModuleTests: XCTestCase {
 
     // MARK: - Helper Methods
 
-    /// Configure package.path to find the LuaModules directory and register Swift-backed modules
-    private func configureLuaPath(engine: LuaEngine) throws {
+    /// Get the path to the LuaModules directory
+    private func getLuaModulesPath() -> String? {
         // Use the absolute path to LuaModules in the source tree
         // This works because Swift tests run from the package root
         let sourceRoot = URL(fileURLWithPath: #file)
@@ -28,7 +28,37 @@ final class LuaModuleTests: XCTestCase {
             .path
 
         guard FileManager.default.fileExists(atPath: modulesPath) else {
-            XCTFail("Could not find LuaModules directory at \(modulesPath)")
+            return nil
+        }
+
+        return modulesPath
+    }
+
+    /// Create a LuaEngine configured to find the LuaModules directory
+    private func createEngineWithLuaModules() throws -> LuaEngine {
+        guard let modulesPath = getLuaModulesPath() else {
+            throw LuaError.runtimeError("Could not find LuaModules directory")
+        }
+
+        // Create engine with packagePath set so file searchers are kept
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: modulesPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        // Register Swift-backed modules (svg.lua was replaced by SVGModule.swift)
+        SVGModule.register(in: engine)
+
+        return engine
+    }
+
+    /// Configure package.path to find the LuaModules directory and register Swift-backed modules
+    /// @deprecated Use createEngineWithLuaModules() instead for sandboxed engines
+    private func configureLuaPath(engine: LuaEngine) throws {
+        guard let modulesPath = getLuaModulesPath() else {
+            XCTFail("Could not find LuaModules directory")
             return
         }
 
@@ -44,8 +74,7 @@ final class LuaModuleTests: XCTestCase {
     // MARK: - SVG Module Tests
 
     func testSVGCreate() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -62,8 +91,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGRect() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -77,8 +105,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGCircle() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -92,8 +119,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGText() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -107,8 +133,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGGreekLetters() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -124,8 +149,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGLinePlot() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -145,8 +169,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGRender() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -166,8 +189,7 @@ final class LuaModuleTests: XCTestCase {
     // MARK: - SVG Integration Tests
 
     func testSVGGreekLettersInText() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -187,8 +209,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGGroupTransform() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -204,8 +225,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSVGPolylineAndPolygon() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local svg = require('luaswift.svg')
@@ -229,8 +249,7 @@ final class LuaModuleTests: XCTestCase {
     // MARK: - Compat Module Tests
 
     func testCompatVersion() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -244,8 +263,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatVersionFlags() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -270,8 +288,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatFeatures() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -302,8 +319,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Band() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -314,8 +330,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Bor() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -326,8 +341,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Bxor() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -338,8 +352,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Bnot() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -350,8 +363,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Lshift() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -362,8 +374,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Rshift() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -374,8 +385,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Lrotate() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -386,8 +396,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Rrotate() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -398,8 +407,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Btest() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -414,8 +422,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Extract() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -426,8 +433,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatBit32Replace() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -438,8 +444,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatVersionCompare() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -456,8 +461,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatVersionAtLeast() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -490,8 +494,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatInstall() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -504,8 +507,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testCompatCheckDeprecated() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local compat = require('compat')
@@ -685,8 +687,7 @@ final class LuaModuleTests: XCTestCase {
     // MARK: - Serialize Module Tests
 
     func testSerializeEncodeNumber() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -697,8 +698,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeEncodeString() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -709,8 +709,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeEncodeBoolean() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -721,8 +720,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeEncodeNil() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -733,8 +731,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeEncodeArray() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -745,8 +742,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeEncodeTable() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -758,8 +754,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeEncodeNestedTable() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -775,8 +770,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeDecodeNumber() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -787,8 +781,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeDecodeString() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -799,8 +792,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeDecodeTable() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -812,8 +804,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeRoundTrip() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -833,8 +824,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializePretty() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -846,8 +836,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeCompact() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -859,8 +848,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeSafeDecode() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -872,8 +860,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeIsSerializable() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -890,8 +877,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeSpecialNumbers() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')
@@ -904,8 +890,7 @@ final class LuaModuleTests: XCTestCase {
     }
 
     func testSerializeEscapedStrings() throws {
-        let engine = try LuaEngine()
-        try configureLuaPath(engine: engine)
+        let engine = try createEngineWithLuaModules()
 
         let result = try engine.evaluate("""
             local serialize = require('serialize')

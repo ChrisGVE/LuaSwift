@@ -495,4 +495,126 @@ final class LuaEngineTests: XCTestCase {
         XCTAssertTrue(result.isNil)
     }
 
+    // MARK: - Binary-Safe String Tests (Embedded NUL)
+
+    func testStringWithEmbeddedNulRoundTrip() throws {
+        let engine = try LuaEngine()
+
+        // Create a string with embedded NUL in Lua and return it
+        let result = try engine.evaluate("""
+            local s = "hello\\0world"
+            return s
+        """)
+
+        // The string should preserve the embedded NUL
+        XCTAssertEqual(result.stringValue, "hello\0world")
+        XCTAssertEqual(result.stringValue?.count, 11)  // 5 + 1 + 5
+    }
+
+    func testStringWithEmbeddedNulInTable() throws {
+        let engine = try LuaEngine()
+
+        // Create a table with a string value containing embedded NUL
+        let result = try engine.evaluate("""
+            return { data = "ab\\0cd" }
+        """)
+
+        XCTAssertEqual(result.tableValue?["data"]?.stringValue, "ab\0cd")
+        XCTAssertEqual(result.tableValue?["data"]?.stringValue?.count, 5)
+    }
+
+    func testStringWithMultipleEmbeddedNuls() throws {
+        let engine = try LuaEngine()
+
+        let result = try engine.evaluate("""
+            return "a\\0b\\0c\\0d"
+        """)
+
+        let expected = "a\0b\0c\0d"
+        XCTAssertEqual(result.stringValue, expected)
+        XCTAssertEqual(result.stringValue?.count, 7)  // a + NUL + b + NUL + c + NUL + d
+    }
+
+    func testCallbackReceivesStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        var receivedString: String?
+        engine.registerFunction(name: "checkString") { args in
+            receivedString = args.first?.stringValue
+            return .number(Double(receivedString?.count ?? 0))
+        }
+
+        let result = try engine.evaluate("""
+            local s = "test\\0data"
+            return checkString(s)
+        """)
+
+        XCTAssertEqual(receivedString, "test\0data")
+        XCTAssertEqual(result.numberValue, 9.0)  // 4 + 1 + 4
+    }
+
+    func testCallbackReturnsStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        engine.registerFunction(name: "makeString") { _ in
+            return .string("prefix\0suffix")
+        }
+
+        let result = try engine.evaluate("return makeString()")
+
+        XCTAssertEqual(result.stringValue, "prefix\0suffix")
+        XCTAssertEqual(result.stringValue?.count, 13)  // 6 + 1 + 6
+    }
+
+    func testTableKeyWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        // Create a table with a key containing embedded NUL
+        let result = try engine.evaluate("""
+            local t = {}
+            t["key\\0name"] = "value"
+            return t
+        """)
+
+        // The key should preserve the embedded NUL
+        XCTAssertEqual(result.tableValue?["key\0name"]?.stringValue, "value")
+    }
+
+    func testValueServerWriteStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+        let server = TestValueServer()
+        engine.register(server: server)
+
+        try engine.run("Test.Cache.binary = 'data\\0with\\0nuls'")
+
+        XCTAssertEqual(server.cache["binary"]?.stringValue, "data\0with\0nuls")
+        XCTAssertEqual(server.cache["binary"]?.stringValue?.count, 14)  // 4 + 1 + 4 + 1 + 4
+    }
+
+    func testCoroutineStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        let handle = try engine.createCoroutine(code: """
+            local function gen()
+                coroutine.yield("hello\\0world")
+                return "done\\0!"
+            end
+            return gen()
+        """)
+
+        let result1 = try engine.resume(handle)
+        if case .yielded(let values) = result1 {
+            XCTAssertEqual(values.first?.stringValue, "hello\0world")
+        } else {
+            XCTFail("Expected yielded result")
+        }
+
+        let result2 = try engine.resume(handle)
+        if case .completed(let value) = result2 {
+            XCTAssertEqual(value.stringValue, "done\0!")
+        } else {
+            XCTFail("Expected completed result")
+        }
+    }
+
 }

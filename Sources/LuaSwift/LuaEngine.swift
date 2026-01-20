@@ -777,7 +777,7 @@ public final class LuaEngine {
     private func pushValueOnThread(_ thread: OpaquePointer, _ value: LuaValue) {
         switch value {
         case .string(let str):
-            lua_pushstring(thread, str)
+            lua_pushstring_binary(thread, str)
         case .number(let num):
             lua_pushnumber(thread, num)
         case .complex(let re, let im):
@@ -790,7 +790,7 @@ public final class LuaEngine {
         case .table(let dict):
             lua_newtable(thread)
             for (k, v) in dict {
-                lua_pushstring(thread, k)
+                lua_pushstring_binary(thread, k)
                 pushValueOnThread(thread, v)
                 lua_settable(thread, -3)
             }
@@ -851,8 +851,8 @@ public final class LuaEngine {
             return .number(lua_tonumber(thread, index))
 
         case LUA_TSTRING:
-            guard let cstr = lua_tostring(thread, index) else { return .nil }
-            return .string(String(cString: cstr))
+            guard let str = lua_getstring(thread, index) else { return .nil }
+            return .string(str)
 
         case LUA_TTABLE:
             return tableFromThread(thread, at: index)
@@ -880,8 +880,7 @@ public final class LuaEngine {
                 intKeyedValues[keyNum] = value
             } else if keyType == LUA_TSTRING {
                 hasStringKeys = true
-                if let keyStr = lua_tostring(thread, -2) {
-                    let key = String(cString: keyStr)
+                if let key = lua_getstring(thread, -2) {
                     dict[key] = value
                 }
             }
@@ -1076,8 +1075,8 @@ public final class LuaEngine {
             return .number(lua_tonumber(L, index))
 
         case LUA_TSTRING:
-            guard let cstr = lua_tostring(L, index) else { return .nil }
-            return .string(String(cString: cstr))
+            guard let str = lua_getstring(L, index) else { return .nil }
+            return .string(str)
 
         case LUA_TTABLE:
             return tableFromStack(at: index)
@@ -1115,8 +1114,7 @@ public final class LuaEngine {
                 intKeyedValues[keyNum] = value
             } else if keyType == LUA_TSTRING {
                 hasStringKeys = true
-                if let keyStr = lua_tostring(L, -2) {
-                    let key = String(cString: keyStr)
+                if let key = lua_getstring(L, -2) {
                     dict[key] = value
                 }
             }
@@ -1206,7 +1204,7 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
 
     // Get the key being accessed
     guard lua_isstring(L, 2) != 0 else { return 0 }
-    let key = String(cString: lua_tostring(L, 2)!)
+    guard let key = lua_getstring(L, 2) else { return 0 }
 
     // Get metatable to access _engine and _namespace
     guard lua_getmetatable(L, 1) != 0 else { return 0 }
@@ -1237,8 +1235,8 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
         // Iterate path array
         lua_pushnil(L)
         while lua_next(L, -2) != 0 {
-            if lua_isstring(L, -1) != 0, let pStr = lua_tostring(L, -1) {
-                path.append(String(cString: pStr))
+            if lua_isstring(L, -1) != 0, let pStr = lua_getstring(L, -1) {
+                path.append(pStr)
             }
             lua_pop(L, 1)
         }
@@ -1270,7 +1268,7 @@ private func serverNewIndexCallback(_ L: OpaquePointer?) -> Int32 {
 
     // Get the key being set
     guard lua_isstring(L, 2) != 0 else { return 0 }
-    let key = String(cString: lua_tostring(L, 2)!)
+    guard let key = lua_getstring(L, 2) else { return 0 }
 
     // Get metatable to access _engine and _namespace
     guard lua_getmetatable(L, 1) != 0 else { return 0 }
@@ -1301,8 +1299,8 @@ private func serverNewIndexCallback(_ L: OpaquePointer?) -> Int32 {
         // Iterate path array
         lua_pushnil(L)
         while lua_next(L, -2) != 0 {
-            if lua_isstring(L, -1) != 0, let pStr = lua_tostring(L, -1) {
-                path.append(String(cString: pStr))
+            if lua_isstring(L, -1) != 0, let pStr = lua_getstring(L, -1) {
+                path.append(pStr)
             }
             lua_pop(L, 1)
         }
@@ -1337,7 +1335,7 @@ private func serverNewIndexCallback(_ L: OpaquePointer?) -> Int32 {
 private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String, path: [String], enginePtr: UnsafeMutableRawPointer) {
     switch value {
     case .string(let str):
-        lua_pushstring(L, str)
+        lua_pushstring_binary(L, str)
 
     case .number(let num):
         lua_pushnumber(L, num)
@@ -1356,7 +1354,7 @@ private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String,
         // Store path using raw access to avoid triggering __newindex
         lua_newtable(L)
         for (i, p) in path.enumerated() {
-            lua_pushstring(L, p)
+            lua_pushstring_binary(L, p)
             lua_rawseti(L, -2, lua_Integer(i + 1))
         }
         lua_pushstring(L, "_path")
@@ -1378,7 +1376,7 @@ private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String,
     case .table(let dict):
         lua_newtable(L)
         for (k, v) in dict {
-            lua_pushstring(L, k)
+            lua_pushstring_binary(L, k)
             pushSimpleValue(L, v)
             lua_settable(L, -3)
         }
@@ -1411,8 +1409,8 @@ private func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
         return .number(lua_tonumber(L, index))
 
     case LUA_TSTRING:
-        guard let cstr = lua_tostring(L, index) else { return .nil }
-        return .string(String(cString: cstr))
+        guard let str = lua_getstring(L, index) else { return .nil }
+        return .string(str)
 
     case LUA_TTABLE:
         return tableFromLuaStack(L, at: index)
@@ -1478,8 +1476,7 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
             intKeyedValues[keyNum] = value
         } else if keyType == LUA_TSTRING {
             hasStringKeys = true
-            if let keyStr = lua_tostring(L, -2) {
-                let key = String(cString: keyStr)
+            if let key = lua_getstring(L, -2) {
                 dict[key] = value
             }
         }
@@ -1514,7 +1511,7 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
 private func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
     switch value {
     case .string(let str):
-        lua_pushstring(L, str)
+        lua_pushstring_binary(L, str)
     case .number(let num):
         lua_pushnumber(L, num)
     case .complex(let re, let im):
@@ -1526,7 +1523,7 @@ private func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
     case .table(let dict):
         lua_newtable(L)
         for (k, v) in dict {
-            lua_pushstring(L, k)
+            lua_pushstring_binary(L, k)
             pushSimpleValue(L, v)
             lua_settable(L, -3)
         }

@@ -361,13 +361,57 @@ let engine = try LuaEngine(configuration: .unrestricted)
 
 ## App Store Compliance
 
-LuaSwift is designed to be App Store compliant:
+LuaSwift is designed to be App Store compliant per Apple's [App Store Review Guidelines 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements).
+
+### Core Compliance
 
 - **Bundled interpreter**: Lua source compiled into app (no code download)
+- **No JIT**: Standard interpreter only, not LuaJIT
 - **Sandboxing**: Dangerous functions disabled by default
-- **No JIT**: Standard interpreter, not LuaJIT
 
-Per Apple's [App Store Review Guidelines 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements).
+### Sandbox Security
+
+The default sandboxed mode provides defense-in-depth:
+
+| Disabled | Reason |
+|----------|--------|
+| `os.execute`, `os.exit` | System command execution |
+| `io.*` library | File system access |
+| `debug.*` library | Runtime introspection |
+| `loadfile`, `dofile`, `load` | External code loading |
+| `package.loadlib` | Dynamic library loading |
+| `require('io')`, `require('debug')` | Library restoration bypass |
+
+### Security Warnings
+
+> **packagePath Security**: Never set `packagePath` to a writable directory (Documents, Caches, tmp) when running user-provided scripts. This would allow downloaded Lua code to be executed via `require()`, violating App Store guidelines.
+
+```swift
+// SAFE: Read-only bundle resources
+let config = LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: Bundle.main.resourcePath! + "/Lua"
+)
+
+// UNSAFE: Writable directory - don't do this with untrusted scripts
+let config = LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: documentsDirectory  // Dangerous!
+)
+```
+
+### App Store Submission Checklist
+
+Before submitting to the App Store, verify:
+
+- [ ] Use sandboxed mode (default) for any user-provided scripts
+- [ ] If using `packagePath`, ensure it points only to read-only directories
+- [ ] Validate all inputs to Swift callbacks registered with Lua
+- [ ] If using IOModule, restrict `allowedDirectories` to app-controlled paths
+- [ ] Consider implementing script execution timeouts for untrusted code
+- [ ] Don't combine HTTP + IO modules with `packagePath` for untrusted scripts
+
+See the [Sandboxing Guide](Sources/LuaSwift/Documentation.docc/Articles/Sandboxing.md) for detailed security information.
 
 ## License
 

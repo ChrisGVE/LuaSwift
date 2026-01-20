@@ -349,7 +349,7 @@ let engine = try LuaEngine()
 let config = LuaEngineConfiguration(
     sandboxed: true,              // Remove dangerous functions
     packagePath: "/path/to/lua",  // Custom require() path
-    memoryLimit: 50_000_000       // 50 MB limit
+    memoryLimit: 50_000_000       // 50 MB limit for Swift modules (array, linalg, etc.)
 )
 let engine = try LuaEngine(configuration: config)
 

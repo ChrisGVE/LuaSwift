@@ -68,11 +68,20 @@ public struct LuaEngineConfiguration {
     /// Default: `nil` (use Lua's default package path)
     public var packagePath: String?
 
-    /// Memory limit in bytes (0 = unlimited).
+    /// Memory limit in bytes for Swift module allocations (0 = unlimited).
     ///
-    /// When set to a positive value, limits the total memory the Lua
-    /// state can allocate. Exceeding this limit will cause memory
-    /// allocation to fail.
+    /// When set to a positive value, limits memory allocated by Swift-backed
+    /// modules such as `array`, `linalg`, `plot`, etc. Exceeding this limit
+    /// causes those allocations to fail with a memory error.
+    ///
+    /// - Important: This limit applies **only** to Swift module allocations
+    ///   (tracked via ``LuaEngine/trackAllocation(bytes:)``), **not** to Lua VM
+    ///   allocations. Lua strings, tables, and other Lua-native objects are not
+    ///   tracked by this limit. To limit total Lua VM memory, a custom allocator
+    ///   via `lua_setallocf` would be required (not currently implemented).
+    ///
+    /// - Note: Each `Double` in array modules consumes 8 bytes. A 1000-element
+    ///   array requires approximately 8KB of tracked memory.
     ///
     /// Default: `0` (unlimited)
     public var memoryLimit: Int
@@ -104,7 +113,8 @@ public struct LuaEngineConfiguration {
     /// - Parameters:
     ///   - sandboxed: Whether to disable dangerous functions. Default `true`.
     ///   - packagePath: Custom path for Lua module loading. Default `nil`.
-    ///   - memoryLimit: Maximum memory in bytes (0 = unlimited). Default `0`.
+    ///   - memoryLimit: Maximum memory in bytes for Swift module allocations
+    ///     (0 = unlimited). Does not limit Lua VM allocations. Default `0`.
     public init(sandboxed: Bool, packagePath: String?, memoryLimit: Int) {
         self.sandboxed = sandboxed
         self.packagePath = packagePath

@@ -155,7 +155,9 @@ let engine = try LuaEngine(configuration: config)
 |--------|------|---------|-------------|
 | `sandboxed` | `Bool` | `true` | Disable dangerous functions |
 | `packagePath` | `String?` | `nil` | Custom path for `require()` |
-| `memoryLimit` | `Int` | `0` | Memory limit in bytes (0 = unlimited) |
+| `memoryLimit` | `Int` | `0` | Memory limit for Swift modules in bytes (0 = unlimited) |
+
+> Note: The `memoryLimit` option only limits memory allocated by Swift-backed modules (array, linalg, plot, etc.). Lua VM allocations (strings, tables, coroutines) are not tracked by this limit.
 
 ### Setting Package Path
 

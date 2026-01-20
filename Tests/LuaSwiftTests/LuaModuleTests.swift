@@ -302,7 +302,6 @@ final class LuaModuleTests: XCTestCase {
 
         // Features depend on Lua version
         let version = result.tableValue?["version"]?.stringValue ?? "5.4"
-        let major = Int(version.split(separator: ".").first ?? "5") ?? 5
         let minor = Int(version.split(separator: ".").last ?? "4") ?? 4
 
         // table_unpack: 5.2+
@@ -901,5 +900,90 @@ final class LuaModuleTests: XCTestCase {
         """)
 
         XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - Bundle Resource Loading Tests
+
+    /// Test that verifies loading Lua modules from a resource bundle works correctly.
+    /// This test documents the recommended production pattern for loading bundled modules.
+    ///
+    /// Note: In production apps using LuaSwift as a dependency, you would use:
+    /// ```swift
+    /// import LuaSwift
+    /// // Within the LuaSwift module:
+    /// // let path = Bundle.module.resourcePath! + "/LuaModules"
+    /// ```
+    ///
+    /// In test targets, Bundle.module refers to the test bundle, not LuaSwift's bundle,
+    /// so we use the source path approach for testing. The production pattern is
+    /// documented in Sandboxing.md.
+    func testBundleModuleResourceLoading() throws {
+        // In test context, we use source path since Bundle.module isn't available
+        // for the LuaSwift module from the test target. The documentation in
+        // Sandboxing.md shows the Bundle.module pattern for production use.
+        guard let modulesPath = getLuaModulesPath() else {
+            XCTFail("Could not find LuaModules directory")
+            return
+        }
+
+        // Create engine with the discovered path - this is the same pattern
+        // as using Bundle.module.resourcePath + "/LuaModules" in production
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: modulesPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        // Verify compat module loads and works
+        let compatVersion = try engine.evaluate("""
+            local compat = require("compat")
+            return compat.version
+        """)
+        XCTAssertNotNil(compatVersion.stringValue, "compat module should load and return version")
+
+        // Verify serialize module loads and works
+        let encoded = try engine.evaluate("""
+            local serialize = require("serialize")
+            return serialize.encode({test = true})
+        """)
+        XCTAssertTrue(
+            encoded.stringValue?.contains("test") == true,
+            "serialize module should load and encode tables"
+        )
+    }
+
+    /// Test that verifies the documented pattern for loading multiple module paths works.
+    func testMultipleModulePathsPattern() throws {
+        guard let modulesPath = getLuaModulesPath() else {
+            XCTFail("Could not find LuaModules directory")
+            return
+        }
+
+        // Create engine and add custom path via package.path manipulation
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: modulesPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        // Verify that package.path includes our modules path
+        let pathResult = try engine.evaluate("return package.path")
+        XCTAssertTrue(
+            pathResult.stringValue?.contains(modulesPath) == true,
+            "package.path should include configured modulesPath"
+        )
+
+        // Add a secondary path (simulating multiple module directories)
+        try engine.run("""
+            package.path = package.path .. ";/additional/path/?.lua"
+        """)
+
+        let updatedPath = try engine.evaluate("return package.path")
+        XCTAssertTrue(
+            updatedPath.stringValue?.contains("/additional/path") == true,
+            "Should be able to append additional paths to package.path"
+        )
     }
 }

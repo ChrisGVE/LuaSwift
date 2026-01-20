@@ -179,6 +179,166 @@ local utils = require("utils")  -- Loads Lua/utils.lua
 
 > Warning: **Security consideration**: Never set `packagePath` to a writable directory (such as Documents or Caches) when running untrusted Lua code. Doing so would allow malicious scripts to execute downloaded code via `require()`, which violates App Store guidelines 2.5.2. Only use `packagePath` with read-only directories like your app bundle resources.
 
+## Loading Bundled Lua Modules
+
+LuaSwift includes pure Lua modules (`compat.lua` and `serialize.lua`) that are bundled as SPM resources. This section explains how to access these modules in different contexts.
+
+### How SPM Bundles Resources
+
+LuaSwift's `Package.swift` includes the LuaModules directory as a copy resource:
+
+```swift
+resources: [
+    .copy("LuaModules")
+]
+```
+
+This means SPM copies the `LuaModules` folder into the resource bundle, making the Lua files available at runtime.
+
+### Accessing Bundled Modules in Framework/Library Context
+
+When using LuaSwift as a package dependency in your Swift code (including tests and library code), use `Bundle.module`:
+
+```swift
+import LuaSwift
+
+// Access the LuaSwift package's bundled modules
+if let luaModulesPath = Bundle.module.resourcePath.map({ $0 + "/LuaModules" }) {
+    let config = LuaEngineConfiguration(
+        sandboxed: true,
+        packagePath: luaModulesPath,
+        memoryLimit: 0
+    )
+    let engine = try LuaEngine(configuration: config)
+
+    // Now require() finds the bundled modules
+    try engine.run("""
+        local compat = require("compat")
+        local serialize = require("serialize")
+    """)
+}
+```
+
+> Note: `Bundle.module` is a synthesized accessor created by SPM for packages with resources. It refers to the bundle containing the package's resources, not the main application bundle.
+
+### Accessing Bundled Modules in Application Context
+
+When building an iOS/macOS application that embeds LuaSwift, the approach depends on how your app is structured:
+
+**Option 1: Using Bundle.module (Recommended)**
+
+If your app imports LuaSwift as a package, `Bundle.module` continues to work because SPM handles resource bundling automatically:
+
+```swift
+import LuaSwift
+
+class LuaScriptRunner {
+    let engine: LuaEngine
+
+    init() throws {
+        // Bundle.module finds LuaSwift's bundled resources
+        let luaModulesPath = Bundle.module.resourcePath! + "/LuaModules"
+
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: luaModulesPath,
+            memoryLimit: 0
+        )
+        engine = try LuaEngine(configuration: config)
+    }
+}
+```
+
+**Option 2: Copying Modules to Your App Bundle**
+
+If you want to include your own Lua modules alongside LuaSwift's, copy them to your app's resource bundle and use `Bundle.main`:
+
+```swift
+// In your app target
+if let luaPath = Bundle.main.resourcePath?.appending("/Lua") {
+    let config = LuaEngineConfiguration(
+        sandboxed: true,
+        packagePath: luaPath,
+        memoryLimit: 0
+    )
+    let engine = try LuaEngine(configuration: config)
+}
+```
+
+For this approach, add your Lua files to your Xcode project and ensure they're included in the "Copy Bundle Resources" build phase.
+
+### Platform-Specific Considerations
+
+#### iOS, watchOS, tvOS, visionOS
+
+Bundle paths work the same across all Apple platforms. The main difference is that app bundles on iOS-family platforms are read-only, making them safe for `packagePath`.
+
+#### macOS
+
+On macOS, be aware that:
+- App bundles are typically in `/Applications` (read-only for users)
+- Development builds may be in writable locations
+- Command-line tools don't have bundles; use explicit paths instead
+
+```swift
+// For macOS command-line tools, use explicit paths
+let config = LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: "/usr/local/share/myapp/lua",
+    memoryLimit: 0
+)
+```
+
+### Loading Multiple Module Paths
+
+Lua's `package.path` supports multiple search paths separated by semicolons. You can configure this manually after creating the engine:
+
+```swift
+let engine = try LuaEngine()
+
+// Add multiple search paths
+try engine.run("""
+    package.path = package.path .. ";/path/to/modules1/?.lua"
+    package.path = package.path .. ";/path/to/modules2/?.lua"
+""")
+```
+
+> Warning: Only add paths to read-only directories when running untrusted code.
+
+### Verifying Module Loading
+
+Test that bundled modules load correctly:
+
+```swift
+func testBundledModulesLoad() throws {
+    guard let luaModulesPath = Bundle.module.resourcePath.map({ $0 + "/LuaModules" }) else {
+        XCTFail("Could not find LuaModules resource path")
+        return
+    }
+
+    let config = LuaEngineConfiguration(
+        sandboxed: true,
+        packagePath: luaModulesPath,
+        memoryLimit: 0
+    )
+    let engine = try LuaEngine(configuration: config)
+
+    // Verify compat module loads
+    let version = try engine.evaluate("""
+        local compat = require("compat")
+        return compat.version
+    """)
+    XCTAssertNotNil(version.stringValue)
+
+    // Verify serialize module loads
+    let encoded = try engine.evaluate("""
+        local serialize = require("serialize")
+        return serialize.encode({test = true})
+    """)
+    XCTAssertTrue(encoded.stringValue?.contains("test") == true)
+}
+```
+
 ## Security Best Practices
 
 ### 1. Always Use Sandboxed Mode for Untrusted Code

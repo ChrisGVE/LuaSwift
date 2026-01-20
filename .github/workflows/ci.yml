@@ -96,10 +96,61 @@ jobs:
           LUASWIFT_INCLUDE_PLOTSWIFT: ${{ matrix.plotswift }}
         run: swift test
 
+  # Test all Lua versions with full dependencies
+  test-lua-versions:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lua-version: ["51", "52", "53", "54", "55"]
+        include:
+          - lua-version: "51"
+            name: "Lua 5.1"
+          - lua-version: "52"
+            name: "Lua 5.2"
+          - lua-version: "53"
+            name: "Lua 5.3"
+          - lua-version: "54"
+            name: "Lua 5.4"
+          - lua-version: "55"
+            name: "Lua 5.5"
+
+    name: "Test: ${{ matrix.name }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone NumericSwift
+        run: git clone --depth 1 https://github.com/ChrisGVE/NumericSwift.git ../NumericSwift
+
+      - name: Clone ArraySwift
+        run: git clone --depth 1 https://github.com/ChrisGVE/ArraySwift.git ../ArraySwift
+
+      - name: Clone PlotSwift
+        run: git clone --depth 1 https://github.com/ChrisGVE/PlotSwift.git ../PlotSwift
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+
+      - name: Build with Lua ${{ matrix.name }}
+        env:
+          LUASWIFT_LUA_VERSION: ${{ matrix.lua-version }}
+          LUASWIFT_INCLUDE_NUMERICSWIFT: "1"
+          LUASWIFT_INCLUDE_ARRAYSWIFT: "1"
+          LUASWIFT_INCLUDE_PLOTSWIFT: "1"
+        run: swift build
+
+      - name: Run tests with Lua ${{ matrix.name }}
+        env:
+          LUASWIFT_LUA_VERSION: ${{ matrix.lua-version }}
+          LUASWIFT_INCLUDE_NUMERICSWIFT: "1"
+          LUASWIFT_INCLUDE_ARRAYSWIFT: "1"
+          LUASWIFT_INCLUDE_PLOTSWIFT: "1"
+        run: swift test
+
   # Summary job that depends on all test combinations
   all-tests:
     runs-on: ubuntu-latest
-    needs: test-combinations
+    needs: [test-combinations, test-lua-versions]
     if: always()
     steps:
       - name: Check test results
@@ -108,4 +159,8 @@ jobs:
             echo "One or more dependency combinations failed"
             exit 1
           fi
-          echo "All 8 dependency combinations passed!"
+          if [ "${{ needs.test-lua-versions.result }}" != "success" ]; then
+            echo "One or more Lua version tests failed"
+            exit 1
+          fi
+          echo "All 8 dependency combinations and 5 Lua versions passed!"

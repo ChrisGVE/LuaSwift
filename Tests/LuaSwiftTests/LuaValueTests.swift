@@ -23,9 +23,33 @@ final class LuaValueTests: XCTestCase {
     func testNumberValue() {
         let value: LuaValue = .number(42.5)
         XCTAssertEqual(value.numberValue, 42.5)
-        XCTAssertEqual(value.intValue, 42)
+        XCTAssertNil(value.intValue)  // 42.5 has fractional part, so intValue is nil
         XCTAssertNil(value.stringValue)
         XCTAssertTrue(value.isTruthy)
+    }
+
+    func testIntValueWithWholeNumber() {
+        // Whole numbers should return Int value
+        XCTAssertEqual(LuaValue.number(42.0).intValue, 42)
+        XCTAssertEqual(LuaValue.number(0.0).intValue, 0)
+        XCTAssertEqual(LuaValue.number(-3.0).intValue, -3)
+        XCTAssertEqual(LuaValue.number(1000000.0).intValue, 1000000)
+    }
+
+    func testIntValueWithFractionalNumber() {
+        // Fractional numbers should return nil
+        XCTAssertNil(LuaValue.number(1.5).intValue)
+        XCTAssertNil(LuaValue.number(-2.7).intValue)
+        XCTAssertNil(LuaValue.number(0.001).intValue)
+        XCTAssertNil(LuaValue.number(42.5).intValue)
+    }
+
+    func testIntValueWithNonNumber() {
+        // Non-numbers should return nil
+        XCTAssertNil(LuaValue.string("42").intValue)
+        XCTAssertNil(LuaValue.bool(true).intValue)
+        XCTAssertNil(LuaValue.nil.intValue)
+        XCTAssertNil(LuaValue.table([:]).intValue)
     }
 
     func testBoolValue() {

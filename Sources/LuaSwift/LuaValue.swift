@@ -166,10 +166,22 @@ public enum LuaValue: Equatable, Sendable {
         return nil
     }
 
-    /// Returns the integer value if this is a number, nil otherwise.
+    /// Returns the integer value if this is a number with no fractional part, nil otherwise.
+    ///
+    /// Returns `nil` if:
+    /// - The value is not a number
+    /// - The number has a fractional component (e.g., 1.5)
+    ///
+    /// ```swift
+    /// LuaValue.number(42.0).intValue  // 42
+    /// LuaValue.number(1.5).intValue   // nil (has fractional part)
+    /// LuaValue.number(-3.0).intValue  // -3
+    /// ```
     public var intValue: Int? {
-        if case .number(let value) = self { return Int(value) }
-        return nil
+        guard case .number(let value) = self else { return nil }
+        // Return nil if the number has a fractional component
+        guard value.truncatingRemainder(dividingBy: 1) == 0 else { return nil }
+        return Int(value)
     }
 
     /// Returns the complex value if this is a complex number, nil otherwise.

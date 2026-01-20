@@ -255,7 +255,9 @@ public struct MathSciModule {
                 luaswift.mathsci.loaded = true
                 """)
         } catch {
-            // Silently fail if setup fails
+            #if DEBUG
+            print("[LuaSwift] MathSciModule setup failed: \(error)")
+            #endif
         }
     }
 }

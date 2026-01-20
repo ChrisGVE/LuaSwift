@@ -482,7 +482,9 @@ public struct SpecialModule {
                 end
                 """)
         } catch {
-            // Silently fail if setup fails
+            #if DEBUG
+            print("[LuaSwift] SpecialModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -490,7 +490,9 @@ public struct LinAlgModule {
                 _luaswift_linalg_pinv = nil
                 """)
         } catch {
-            // Silently fail if setup fails
+            #if DEBUG
+            print("[LuaSwift] LinAlgModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -154,7 +154,9 @@ public struct OptimizeModule {
                 end
                 """)
         } catch {
-            // Silently fail
+            #if DEBUG
+            print("[LuaSwift] OptimizeModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -64,7 +64,9 @@ public struct TOMLModule {
                 _luaswift_toml_decode = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] TOMLModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -801,7 +801,9 @@ public struct RegressModule {
                 _luaswift_regress_arima_fit = nil
                 """)
         } catch {
-            // Silently fail if setup fails
+            #if DEBUG
+            print("[LuaSwift] RegressModule setup failed: \(error)")
+            #endif
         }
     }
 

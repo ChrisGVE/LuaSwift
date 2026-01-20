@@ -147,7 +147,9 @@ public struct RegexModule {
                 _luaswift_regex_split = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] RegexModule setup failed: \(error)")
+            #endif
         }
     }
 

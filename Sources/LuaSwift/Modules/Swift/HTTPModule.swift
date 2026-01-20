@@ -129,7 +129,9 @@ public struct HTTPModule {
                 package.loaded["luaswift.http"] = luaswift.http
                 """)
         } catch {
-            // Silently fail if setup fails
+            #if DEBUG
+            print("[LuaSwift] HTTPModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -92,7 +92,9 @@ public struct DistributionsModule {
             registerStatisticalTests(in: engine)
 
         } catch {
-            // Silently fail
+            #if DEBUG
+            print("[LuaSwift] DistributionsModule setup failed: \(error)")
+            #endif
         }
     }
 

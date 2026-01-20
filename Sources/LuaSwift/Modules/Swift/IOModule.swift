@@ -164,7 +164,9 @@ public struct IOModule {
                 package.loaded["luaswift.iox"] = luaswift.iox
                 """)
         } catch {
-            // Silently fail if setup fails
+            #if DEBUG
+            print("[LuaSwift] IOModule setup failed: \(error)")
+            #endif
         }
     }
 

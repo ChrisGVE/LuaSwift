@@ -109,7 +109,9 @@ public struct ClusterModule {
                 end
                 """)
         } catch {
-            // Silently fail
+            #if DEBUG
+            print("[LuaSwift] ClusterModule setup failed: \(error)")
+            #endif
         }
     }
 

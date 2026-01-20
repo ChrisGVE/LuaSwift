@@ -474,7 +474,9 @@ public struct TableXModule {
                 tablex = luaswift.tablex
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] TableXModule setup failed: \(error)")
+            #endif
         }
     }
 

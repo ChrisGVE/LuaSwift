@@ -169,7 +169,9 @@ public struct IntegrateModule {
                 end
                 """)
         } catch {
-            // Silently fail
+            #if DEBUG
+            print("[LuaSwift] IntegrateModule setup failed: \(error)")
+            #endif
         }
     }
 

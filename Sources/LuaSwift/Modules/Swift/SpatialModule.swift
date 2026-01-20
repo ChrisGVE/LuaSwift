@@ -197,7 +197,9 @@ public struct SpatialModule {
                 end
                 """)
         } catch {
-            // Silently fail
+            #if DEBUG
+            print("[LuaSwift] SpatialModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -205,7 +205,7 @@ local svg_string = fig:render()
 
 | Module | Global | Description |
 |--------|--------|-------------|
-| regex | `regex` | ICU regular expressions (also extends `string` after extend_stdlib) |
+| regex | `regex` | ICU regular expressions |
 
 ### File and Network Access
 

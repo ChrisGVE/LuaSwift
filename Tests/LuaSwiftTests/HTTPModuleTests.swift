@@ -366,6 +366,112 @@ final class HTTPModuleTests: XCTestCase {
                       "Location header should point to redirect target, got: \(result.stringValue ?? "nil")")
     }
 
+    // MARK: - Session Reuse Tests
+
+    /// Test that multiple requests from the same engine reuse URLSession.
+    /// This is a behavioral test - we can't directly verify session reuse,
+    /// but we can verify that multiple concurrent requests work correctly.
+    func testMultipleRequestsReuseSession() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        // Multiple requests should all succeed using reused session
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+
+            -- Make multiple requests sequentially
+            local r1 = http.get("https://httpbin.org/get")
+            local r2 = http.get("https://httpbin.org/headers")
+            local r3 = http.get("https://httpbin.org/ip")
+
+            return {
+                r1_ok = r1.ok,
+                r2_ok = r2.ok,
+                r3_ok = r3.ok,
+                r1_status = r1.status,
+                r2_status = r2.status,
+                r3_status = r3.status
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        XCTAssertEqual(table["r1_ok"]?.boolValue, true, "First request should succeed")
+        XCTAssertEqual(table["r2_ok"]?.boolValue, true, "Second request should succeed")
+        XCTAssertEqual(table["r3_ok"]?.boolValue, true, "Third request should succeed")
+        XCTAssertEqual(table["r1_status"]?.numberValue, 200)
+        XCTAssertEqual(table["r2_status"]?.numberValue, 200)
+        XCTAssertEqual(table["r3_status"]?.numberValue, 200)
+    }
+
+    /// Test that requests with different redirect settings use appropriate sessions.
+    func testMixedRedirectSettingsReuseCorrectSessions() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+
+            -- Mix of following and not following redirects
+            local r1 = http.get("https://httpbin.org/redirect/1", {follow_redirects = true})
+            local r2 = http.get("https://httpbin.org/redirect/1", {follow_redirects = false})
+            local r3 = http.get("https://httpbin.org/redirect/1", {follow_redirects = true})
+            local r4 = http.get("https://httpbin.org/redirect/1", {follow_redirects = false})
+
+            return {
+                r1_status = r1.status,
+                r2_status = r2.status,
+                r3_status = r3.status,
+                r4_status = r4.status
+            }
+        """)
+
+        guard let table = result.tableValue else {
+            XCTFail("Expected table result")
+            return
+        }
+
+        // Requests with follow_redirects=true should return 200
+        XCTAssertEqual(table["r1_status"]?.numberValue, 200, "Should follow redirect")
+        XCTAssertEqual(table["r3_status"]?.numberValue, 200, "Should follow redirect")
+
+        // Requests with follow_redirects=false should return 302
+        XCTAssertEqual(table["r2_status"]?.numberValue, 302, "Should not follow redirect")
+        XCTAssertEqual(table["r4_status"]?.numberValue, 302, "Should not follow redirect")
+    }
+
+    /// Test that different engines get separate sessions.
+    func testDifferentEnginesHaveSeparateSessions() throws {
+        guard hasNetworkAccess() else {
+            throw XCTSkip("No network access")
+        }
+
+        // Create a second engine
+        let engine2 = try LuaEngine()
+        ModuleRegistry.installHTTPModule(in: engine2)
+
+        // Both engines should be able to make requests independently
+        let result1 = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("https://httpbin.org/get")
+            return resp.ok
+        """)
+
+        let result2 = try engine2.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("https://httpbin.org/get")
+            return resp.ok
+        """)
+
+        XCTAssertEqual(result1.boolValue, true, "First engine request should succeed")
+        XCTAssertEqual(result2.boolValue, true, "Second engine request should succeed")
+    }
+
     // MARK: - Helper Methods
 
     private func hasNetworkAccess() -> Bool {

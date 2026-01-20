@@ -61,6 +61,104 @@ import Foundation
 /// ```
 public struct HTTPModule {
 
+    // MARK: - Session Management
+
+    /// Manages URLSession instances per LuaEngine with automatic cleanup.
+    ///
+    /// This class maintains two sessions per engine:
+    /// - One that follows redirects (default behavior)
+    /// - One that does not follow redirects
+    ///
+    /// Sessions are automatically invalidated when the engine is deallocated.
+    private final class SessionManager {
+        /// Storage for sessions indexed by engine ObjectIdentifier
+        private struct SessionPair {
+            weak var engine: LuaEngine?
+            let followingSession: URLSession
+            let nonFollowingSession: URLSession
+            let followingDelegate: RedirectDelegate
+            let nonFollowingDelegate: RedirectDelegate
+
+            func invalidate() {
+                followingSession.invalidateAndCancel()
+                nonFollowingSession.invalidateAndCancel()
+            }
+        }
+
+        /// Thread-safe storage for session pairs
+        private var sessions: [ObjectIdentifier: SessionPair] = [:]
+        private let lock = NSLock()
+
+        /// Get the appropriate session for the given engine and redirect setting.
+        func session(for engine: LuaEngine, followRedirects: Bool) -> URLSession {
+            lock.lock()
+            defer { lock.unlock() }
+
+            // Clean up any sessions for deallocated engines
+            cleanupOrphanedSessions()
+
+            let engineId = ObjectIdentifier(engine)
+
+            // Check for existing sessions
+            if let pair = sessions[engineId] {
+                return followRedirects ? pair.followingSession : pair.nonFollowingSession
+            }
+
+            // Create new session pair for this engine
+            let config = URLSessionConfiguration.default
+
+            let followingDelegate = RedirectDelegate(followRedirects: true)
+            let followingSession = URLSession(
+                configuration: config,
+                delegate: followingDelegate,
+                delegateQueue: nil
+            )
+
+            let nonFollowingDelegate = RedirectDelegate(followRedirects: false)
+            let nonFollowingSession = URLSession(
+                configuration: config,
+                delegate: nonFollowingDelegate,
+                delegateQueue: nil
+            )
+
+            let pair = SessionPair(
+                engine: engine,
+                followingSession: followingSession,
+                nonFollowingSession: nonFollowingSession,
+                followingDelegate: followingDelegate,
+                nonFollowingDelegate: nonFollowingDelegate
+            )
+            sessions[engineId] = pair
+
+            return followRedirects ? followingSession : nonFollowingSession
+        }
+
+        /// Invalidate sessions for a specific engine (call on engine deinit).
+        func invalidateSessions(for engine: LuaEngine) {
+            lock.lock()
+            defer { lock.unlock() }
+
+            let engineId = ObjectIdentifier(engine)
+            if let pair = sessions.removeValue(forKey: engineId) {
+                pair.invalidate()
+            }
+        }
+
+        /// Clean up sessions for engines that have been deallocated.
+        private func cleanupOrphanedSessions() {
+            // Note: Must be called while lock is held
+            let orphanedIds = sessions.filter { $0.value.engine == nil }.map { $0.key }
+            for id in orphanedIds {
+                if let pair = sessions.removeValue(forKey: id) {
+                    pair.invalidate()
+                }
+            }
+        }
+    }
+
+    /// Shared session manager instance
+    private static let sessionManager = SessionManager()
+
     // MARK: - Redirect Delegate
 
     /// Delegate that controls redirect behavior for URLSession requests.
@@ -93,8 +191,10 @@ public struct HTTPModule {
     ///
     /// - Parameter engine: The Lua engine to register with
     public static func register(in engine: LuaEngine) {
-        // Register HTTP method callbacks
-        engine.registerFunction(name: "_luaswift_http_request", callback: requestCallback)
+        // Register HTTP method callbacks with engine reference for session management
+        engine.registerFunction(name: "_luaswift_http_request") { args in
+            try requestCallback(args, engine: engine)
+        }
 
         // Set up the luaswift.http namespace
         do {
@@ -137,7 +237,7 @@ public struct HTTPModule {
 
     // MARK: - Request Callback
 
-    private static func requestCallback(_ args: [LuaValue]) throws -> LuaValue {
+    private static func requestCallback(_ args: [LuaValue], engine: LuaEngine) throws -> LuaValue {
         guard args.count >= 2,
               let method = args[0].stringValue,
               let urlString = args[1].stringValue else {
@@ -213,10 +313,8 @@ public struct HTTPModule {
         var httpResponse: HTTPURLResponse?
         var requestError: Error?
 
-        // Configure session with redirect delegate
-        let config = URLSessionConfiguration.default
-        let delegate = RedirectDelegate(followRedirects: followRedirects)
-        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        // Get shared session from session manager (reuses sessions per engine)
+        let session = sessionManager.session(for: engine, followRedirects: followRedirects)
 
         let task = session.dataTask(with: request) { data, response, error in
             responseData = data

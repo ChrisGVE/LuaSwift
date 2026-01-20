@@ -302,30 +302,9 @@ For consumers who want fine-grained control, there are two approaches:
 
 The environment variable approach is used for maximum compatibility. Future versions may adopt [SPM Traits](https://theswiftdev.com/2025/all-about-swift-package-manager-traits/) when Swift 6.1+ becomes the minimum supported version.
 
-## Module Selection
+## Runtime Module Installation
 
-LuaSwift also supports compile-time module selection via environment variables for built-in modules:
-
-```bash
-# Build with specific module groups
-LUASWIFT_MODULES=core swift build                    # Core wrapper only
-LUASWIFT_MODULES=core,data swift build               # + JSON, YAML, TOML
-LUASWIFT_MODULES=core,data,math swift build          # + Math namespace
-LUASWIFT_MODULES=all swift build                     # Everything (default)
-```
-
-| Module Group | Contents |
-|--------------|----------|
-| `core` | Wrapper + stdlib extensions (stringx, tablex, utf8x, compat, regex) |
-| `data` | Data formats (json, yaml, toml) |
-| `math` | Math namespace (linalg, complex, geo, stats, optimize, etc.) |
-| `array` | N-dimensional arrays |
-| `plot` | Visualization (plot with SVG) |
-| `iox` | Sandboxed file I/O |
-| `http` | HTTP client |
-| `all` | All modules (default) |
-
-At runtime, install only what you need:
+At runtime, install only the modules you need:
 
 ```swift
 let engine = try LuaEngine()

@@ -308,7 +308,9 @@ main() {
         combinations_to_test=("${all_on# }")
     else
         # Generate all combinations
-        IFS=' ' read -ra combinations_to_test <<< "$(generate_dep_combinations)"
+        while IFS= read -r combo; do
+            combinations_to_test+=("$combo")
+        done < <(generate_dep_combinations)
     fi
 
     # Calculate total tests

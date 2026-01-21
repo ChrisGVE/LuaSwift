@@ -101,22 +101,24 @@ parse_lua_version() {
 }
 
 # Generate all 2^n dependency combinations
-# Returns array of strings like "0 0 0" (all off) to "1 1 1" (all on)
+# Outputs one combination per line like "0 0 0" (all off) to "1 1 1" (all on)
+# Use: while IFS= read -r combo; do ... done < <(generate_dep_combinations)
 generate_dep_combinations() {
     local n=${#OPTIONAL_DEPS[@]}
     local total=$((1 << n))  # 2^n combinations
-    local combinations=()
 
     for ((i=0; i<total; i++)); do
         local combo=""
         for ((j=0; j<n; j++)); do
             local bit=$(( (i >> j) & 1 ))
-            combo="$combo$bit "
+            if [ -n "$combo" ]; then
+                combo="$combo $bit"
+            else
+                combo="$bit"
+            fi
         done
-        combinations+=("${combo% }")  # Remove trailing space
+        echo "$combo"
     done
-
-    echo "${combinations[@]}"
 }
 
 # Generate combination name from bits

@@ -102,8 +102,11 @@ if [ "$PARALLEL" = true ]; then
     echo ""
 fi
 
-# Generate all combinations
-IFS=' ' read -ra COMBINATIONS <<< "$(generate_dep_combinations)"
+# Generate all combinations into array
+COMBINATIONS=()
+while IFS= read -r combo; do
+    COMBINATIONS+=("$combo")
+done < <(generate_dep_combinations)
 
 if [ "$PARALLEL" = true ]; then
     for combo in "${COMBINATIONS[@]}"; do

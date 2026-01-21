@@ -125,11 +125,13 @@ public struct OptimizeModule {
                 -- Supports both f(x, params) and f(x, a, b, c, ...) calling conventions
                 function optimize.curve_fit(func, xdata, ydata, p0, options)
                     options = options or {}
+                    -- Lua 5.1 compatibility: unpack vs table.unpack
+                    local unpack_func = table.unpack or unpack
                     -- Wrap function to support expanded form: f(x, a, b, c) -> f(x, params)
                     local wrapped_func = function(x, params)
                         -- Try expanded form first (f(x, a, b, c, ...))
                         local success, result = pcall(function()
-                            return func(x, table.unpack(params))
+                            return func(x, unpack_func(params))
                         end)
                         if success then
                             return result

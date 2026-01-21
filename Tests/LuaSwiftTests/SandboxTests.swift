@@ -172,14 +172,24 @@ final class SandboxTests: XCTestCase {
     }
 
     func testSafeLibrariesAvailable() throws {
-        // Math, string, table, coroutine, utf8 should be available
+        // Math, string, table, coroutine should be available
+        // utf8 is only available in Lua 5.3+
         let engine = try LuaEngine()
 
-        let libraries = ["math", "string", "table", "coroutine", "utf8"]
+        let libraries = ["math", "string", "table", "coroutine"]
         for lib in libraries {
             let result = try engine.evaluate("return type(\(lib)) == 'table'")
             XCTAssertEqual(result.boolValue, true, "\(lib) library should be available")
         }
+
+        // utf8 library is only in Lua 5.3+
+        #if LUA_VERSION_51 || LUA_VERSION_52
+        let utf8Result = try engine.evaluate("return utf8 == nil")
+        XCTAssertEqual(utf8Result.boolValue, true, "utf8 should not exist in Lua 5.1/5.2")
+        #else
+        let utf8Result = try engine.evaluate("return type(utf8) == 'table'")
+        XCTAssertEqual(utf8Result.boolValue, true, "utf8 library should be available in Lua 5.3+")
+        #endif
     }
 
     func testLoadFunctionsBlocked() throws {

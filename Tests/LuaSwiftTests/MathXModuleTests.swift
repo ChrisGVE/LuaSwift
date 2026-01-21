@@ -380,15 +380,27 @@ final class MathXModuleTests: XCTestCase {
     }
 
     func testMathMaxIntegerConstant() throws {
-        // Verify math.maxinteger is available (Lua 5.3+)
+        // math.maxinteger is only available in Lua 5.3+
+        #if LUA_VERSION_51 || LUA_VERSION_52
+        // Not available in Lua 5.1/5.2
+        let result = try engine.evaluate("return math.maxinteger")
+        XCTAssertNil(result.numberValue, "math.maxinteger should not exist in Lua 5.1/5.2")
+        #else
         let result = try engine.evaluate("return math.maxinteger")
         XCTAssertNotNil(result.numberValue)
+        #endif
     }
 
     func testMathMinIntegerConstant() throws {
-        // Verify math.mininteger is available (Lua 5.3+)
+        // math.mininteger is only available in Lua 5.3+
+        #if LUA_VERSION_51 || LUA_VERSION_52
+        // Not available in Lua 5.1/5.2
+        let result = try engine.evaluate("return math.mininteger")
+        XCTAssertNil(result.numberValue, "math.mininteger should not exist in Lua 5.1/5.2")
+        #else
         let result = try engine.evaluate("return math.mininteger")
         XCTAssertNotNil(result.numberValue)
+        #endif
     }
 
     // MARK: - Complex Number Support Tests (Task 184)

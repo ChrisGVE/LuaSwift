@@ -1,0 +1,30 @@
+{
+  "lua_versions": [
+    {"code": "51", "name": "Lua 5.1"},
+    {"code": "52", "name": "Lua 5.2"},
+    {"code": "53", "name": "Lua 5.3"},
+    {"code": "54", "name": "Lua 5.4"},
+    {"code": "55", "name": "Lua 5.5"}
+  ],
+  "default_lua_version": "54",
+  "optional_dependencies": [
+    {
+      "short": "N",
+      "name": "NumericSwift",
+      "env_var": "LUASWIFT_INCLUDE_NUMERICSWIFT",
+      "repo": "https://github.com/ChrisGVE/NumericSwift.git"
+    },
+    {
+      "short": "A",
+      "name": "ArraySwift",
+      "env_var": "LUASWIFT_INCLUDE_ARRAYSWIFT",
+      "repo": "https://github.com/ChrisGVE/ArraySwift.git"
+    },
+    {
+      "short": "P",
+      "name": "PlotSwift",
+      "env_var": "LUASWIFT_INCLUDE_PLOTSWIFT",
+      "repo": "https://github.com/ChrisGVE/PlotSwift.git"
+    }
+  ]
+}

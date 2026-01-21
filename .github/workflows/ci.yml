@@ -9,80 +9,92 @@ on:
     # Allow manual trigger
 
 jobs:
+  # Generate test matrices from centralized configuration
+  setup-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      dep-matrix: ${{ steps.generate.outputs.dep-matrix }}
+      lua-matrix: ${{ steps.generate.outputs.lua-matrix }}
+      dependencies: ${{ steps.generate.outputs.dependencies }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate matrices from config
+        id: generate
+        run: |
+          # Read the centralized configuration
+          CONFIG_FILE="scripts/test-matrix.json"
+
+          # Generate dependency combinations matrix
+          # Creates all 2^n combinations where n = number of optional dependencies
+          DEP_MATRIX=$(jq -c '[
+            # Get dependency info
+            .optional_dependencies as $deps |
+            # Generate all combinations (0 to 2^n - 1)
+            range(pow(2; $deps | length) | floor) as $i |
+            # Build matrix entry for each combination
+            {
+              name: (
+                [$deps | to_entries[] | select(($i / pow(2; .key) | floor) % 2 == 1) | .value.short] |
+                if length == 0 then "Standalone"
+                else join("+")
+                end
+              )
+            } + (
+              $deps | to_entries | map({
+                key: (.value.env_var | sub("LUASWIFT_INCLUDE_"; "") | ascii_downcase),
+                value: (if (($i / pow(2; .key) | floor) % 2 == 1) then "1" else "0" end)
+              }) | from_entries
+            )
+          ]' "$CONFIG_FILE")
+
+          # Generate Lua versions matrix
+          LUA_MATRIX=$(jq -c '[.lua_versions[] | {"lua-version": .code, "name": .name}]' "$CONFIG_FILE")
+
+          # Extract dependency info for clone steps
+          DEPS=$(jq -c '.optional_dependencies | map({name: .name, repo: .repo, env_var: .env_var})' "$CONFIG_FILE")
+
+          echo "dep-matrix=$DEP_MATRIX" >> $GITHUB_OUTPUT
+          echo "lua-matrix=$LUA_MATRIX" >> $GITHUB_OUTPUT
+          echo "dependencies=$DEPS" >> $GITHUB_OUTPUT
+
+          # Debug output
+          echo "Dependency matrix:"
+          echo "$DEP_MATRIX" | jq .
+          echo "Lua version matrix:"
+          echo "$LUA_MATRIX" | jq .
+
+  # Test all dependency combinations with default Lua version
   test-combinations:
     runs-on: macos-latest
+    needs: setup-matrix
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Combination 1: Standalone (all excluded)
-          - name: "Standalone"
-            numericswift: "0"
-            arrayswift: "0"
-            plotswift: "0"
-
-          # Combination 2: NumericSwift only
-          - name: "NumericSwift"
-            numericswift: "1"
-            arrayswift: "0"
-            plotswift: "0"
-
-          # Combination 3: ArraySwift only
-          - name: "ArraySwift"
-            numericswift: "0"
-            arrayswift: "1"
-            plotswift: "0"
-
-          # Combination 4: PlotSwift only
-          - name: "PlotSwift"
-            numericswift: "0"
-            arrayswift: "0"
-            plotswift: "1"
-
-          # Combination 5: NumericSwift + ArraySwift
-          - name: "N+A"
-            numericswift: "1"
-            arrayswift: "1"
-            plotswift: "0"
-
-          # Combination 6: NumericSwift + PlotSwift
-          - name: "N+P"
-            numericswift: "1"
-            arrayswift: "0"
-            plotswift: "1"
-
-          # Combination 7: ArraySwift + PlotSwift
-          - name: "A+P"
-            numericswift: "0"
-            arrayswift: "1"
-            plotswift: "1"
-
-          # Combination 8: All three (default)
-          - name: "N+A+P"
-            numericswift: "1"
-            arrayswift: "1"
-            plotswift: "1"
+        include: ${{ fromJSON(needs.setup-matrix.outputs.dep-matrix) }}
 
     name: "Test: ${{ matrix.name }}"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone NumericSwift
-        if: matrix.numericswift == '1'
-        run: git clone --depth 1 https://github.com/ChrisGVE/NumericSwift.git ../NumericSwift
-
-      - name: Clone ArraySwift
-        if: matrix.arrayswift == '1'
-        run: git clone --depth 1 https://github.com/ChrisGVE/ArraySwift.git ../ArraySwift
-
-      - name: Clone PlotSwift
-        if: matrix.plotswift == '1'
-        run: git clone --depth 1 https://github.com/ChrisGVE/PlotSwift.git ../PlotSwift
+      - name: Clone dependencies
+        run: |
+          DEPS='${{ needs.setup-matrix.outputs.dependencies }}'
+          echo "$DEPS" | jq -r '.[] | "\(.name) \(.repo) \(.env_var)"' | while read name repo env_var; do
+            # Get the env var name without the prefix for matrix lookup
+            short_name=$(echo "$env_var" | sed 's/LUASWIFT_INCLUDE_//' | tr '[:upper:]' '[:lower:]')
+            # Check if this dependency is enabled in the matrix
+            enabled=$(echo '${{ toJSON(matrix) }}' | jq -r --arg key "$short_name" '.[$key] // "0"')
+            if [ "$enabled" = "1" ]; then
+              echo "Cloning $name from $repo..."
+              git clone --depth 1 "$repo" "../$name"
+            fi
+          done
 
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
 
-      - name: Build with dependencies
+      - name: Build
         env:
           LUASWIFT_INCLUDE_NUMERICSWIFT: ${{ matrix.numericswift }}
           LUASWIFT_INCLUDE_ARRAYSWIFT: ${{ matrix.arrayswift }}
@@ -96,42 +108,31 @@ jobs:
           LUASWIFT_INCLUDE_PLOTSWIFT: ${{ matrix.plotswift }}
         run: swift test
 
-  # Test all Lua versions with full dependencies
+  # Test all Lua versions with all dependencies enabled
   test-lua-versions:
     runs-on: macos-latest
+    needs: setup-matrix
     strategy:
       fail-fast: false
       matrix:
-        lua-version: ["51", "52", "53", "54", "55"]
-        include:
-          - lua-version: "51"
-            name: "Lua 5.1"
-          - lua-version: "52"
-            name: "Lua 5.2"
-          - lua-version: "53"
-            name: "Lua 5.3"
-          - lua-version: "54"
-            name: "Lua 5.4"
-          - lua-version: "55"
-            name: "Lua 5.5"
+        include: ${{ fromJSON(needs.setup-matrix.outputs.lua-matrix) }}
 
     name: "Test: ${{ matrix.name }}"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone NumericSwift
-        run: git clone --depth 1 https://github.com/ChrisGVE/NumericSwift.git ../NumericSwift
-
-      - name: Clone ArraySwift
-        run: git clone --depth 1 https://github.com/ChrisGVE/ArraySwift.git ../ArraySwift
-
-      - name: Clone PlotSwift
-        run: git clone --depth 1 https://github.com/ChrisGVE/PlotSwift.git ../PlotSwift
+      - name: Clone all dependencies
+        run: |
+          DEPS='${{ needs.setup-matrix.outputs.dependencies }}'
+          echo "$DEPS" | jq -r '.[] | "\(.name) \(.repo)"' | while read name repo; do
+            echo "Cloning $name from $repo..."
+            git clone --depth 1 "$repo" "../$name"
+          done
 
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
 
-      - name: Build with Lua ${{ matrix.name }}
+      - name: Build with ${{ matrix.name }}
         env:
           LUASWIFT_LUA_VERSION: ${{ matrix.lua-version }}
           LUASWIFT_INCLUDE_NUMERICSWIFT: "1"
@@ -139,7 +140,7 @@ jobs:
           LUASWIFT_INCLUDE_PLOTSWIFT: "1"
         run: swift build
 
-      - name: Run tests with Lua ${{ matrix.name }}
+      - name: Run tests with ${{ matrix.name }}
         env:
           LUASWIFT_LUA_VERSION: ${{ matrix.lua-version }}
           LUASWIFT_INCLUDE_NUMERICSWIFT: "1"
@@ -163,4 +164,4 @@ jobs:
             echo "One or more Lua version tests failed"
             exit 1
           fi
-          echo "All 8 dependency combinations and 5 Lua versions passed!"
+          echo "All dependency combinations and Lua versions passed!"

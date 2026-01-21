@@ -249,6 +249,139 @@ func testLuaVersion() throws {
 }
 ```
 
+## Test Scripts
+
+LuaSwift provides comprehensive test scripts for running the full test matrix locally.
+
+### Prerequisites
+
+The scripts require `jq` for JSON parsing:
+
+```bash
+brew install jq
+```
+
+### Quick Test
+
+Run a quick test with default configuration (Lua 5.4, all dependencies):
+
+```bash
+./scripts/run-all-tests.sh --quick
+```
+
+### Full Test Matrix
+
+Run the complete test matrix (all Lua versions × all dependency combinations):
+
+```bash
+# Sequential execution (slower but easier to debug)
+./scripts/run-all-tests.sh
+
+# Parallel execution (faster)
+./scripts/run-all-tests.sh --parallel
+```
+
+### Partial Test Runs
+
+```bash
+# Test all dependency combinations with default Lua 5.4
+./scripts/run-all-tests.sh --deps-only
+
+# Test all Lua versions with all dependencies
+./scripts/run-all-tests.sh --lua-only
+
+# Test a specific Lua version
+./scripts/run-all-tests.sh --lua 51
+
+# Test a specific dependency combination (N=1, A=0, P=1 means NumericSwift+PlotSwift)
+./scripts/run-all-tests.sh --combo "1 0 1"
+```
+
+### Legacy Script
+
+The original dependency combinations script is still available:
+
+```bash
+# Test all 8 dependency combinations
+./scripts/test-combinations.sh
+
+# Run in parallel
+./scripts/test-combinations.sh --parallel
+```
+
+## Centralized Configuration
+
+Test configuration is centralized in `scripts/test-matrix.json`. Both the local test scripts and GitHub CI workflow read from this file.
+
+```json
+{
+  "lua_versions": [
+    {"code": "51", "name": "Lua 5.1"},
+    {"code": "52", "name": "Lua 5.2"},
+    ...
+  ],
+  "default_lua_version": "54",
+  "optional_dependencies": [
+    {
+      "short": "N",
+      "name": "NumericSwift",
+      "env_var": "LUASWIFT_INCLUDE_NUMERICSWIFT",
+      "repo": "https://github.com/ChrisGVE/NumericSwift.git"
+    },
+    ...
+  ]
+}
+```
+
+## Adding a New Optional Dependency
+
+To add a new optional dependency (e.g., `StatSwift`):
+
+1. **Update `scripts/test-matrix.json`**:
+   ```json
+   {
+     "optional_dependencies": [
+       ... existing deps ...,
+       {
+         "short": "S",
+         "name": "StatSwift",
+         "env_var": "LUASWIFT_INCLUDE_STATSWIFT",
+         "repo": "https://github.com/ChrisGVE/StatSwift.git"
+       }
+     ]
+   }
+   ```
+
+2. **Update `Package.swift`**:
+   ```swift
+   let includeStatSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_STATSWIFT"] != "0"
+
+   // In dependencies:
+   if includeStatSwift {
+       deps.append(.package(url: "https://github.com/ChrisGVE/StatSwift.git", from: "0.1.0"))
+   }
+
+   // In target dependencies:
+   if includeStatSwift {
+       deps.append("StatSwift")
+   }
+
+   // In swiftSettings:
+   if includeStatSwift {
+       settings.append(.define("LUASWIFT_STATSWIFT"))
+   }
+   ```
+
+3. **Write conditional code and tests**:
+   ```swift
+   #if LUASWIFT_STATSWIFT
+   import StatSwift
+   // ... module implementation
+   #endif
+   ```
+
+The CI workflow and test scripts will automatically pick up the new dependency and generate the expanded test matrix (2^n combinations where n = number of optional dependencies).
+
 ## Performance Testing
 
 Benchmarks are in `BenchmarkTests.swift`:

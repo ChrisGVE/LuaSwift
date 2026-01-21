@@ -103,19 +103,21 @@ declare -a PASSED_TESTS=()
 declare -a FAILED_TESTS=()
 START_TIME=$(date +%s)
 
-# Test result files for parallel mode
-RESULTS_DIR="/tmp/luaswift_test_$$"
+# Test result files - persistent in /tmp with timestamp
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+RESULTS_DIR="/tmp/luaswift_test_$TIMESTAMP"
 mkdir -p "$RESULTS_DIR"
 
-# Cleanup on exit
-cleanup() {
-    rm -rf "$RESULTS_DIR"
-}
-trap cleanup EXIT
+# No cleanup - logs persist in /tmp for review
 
-# Log function
+# Main log file
+MAIN_LOG="$RESULTS_DIR/run.log"
+
+# Log function - outputs to both stdout and log file
 log() {
     echo -e "$1"
+    # Strip ANSI codes for log file
+    echo -e "$1" | perl -pe 's/\e\[[0-9;]*m//g' >> "$MAIN_LOG"
 }
 
 # Run a single test configuration
@@ -243,17 +245,17 @@ print_summary() {
     log "Results: ${GREEN}$passed passed${NC}, ${RED}$failed failed${NC} of $total total"
     log "Duration: ${duration}s"
 
+    log ""
+    log "Logs saved to: $RESULTS_DIR"
+
     if [ $failed -gt 0 ]; then
         log ""
         log "${RED}Failed tests:${NC}"
         for t in "${failed_tests[@]}"; do
             log "  ${RED}✗${NC} $t"
         done
-
-        # Show error details
         log ""
-        log "Error logs saved to: $RESULTS_DIR/error_*.log"
-
+        log "Error logs: $RESULTS_DIR/error_*.log"
         return 1
     else
         log ""

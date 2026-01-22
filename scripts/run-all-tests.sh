@@ -5,8 +5,7 @@ set -euo pipefail
 # Runs tests across all Lua versions and dependency combinations
 #
 # Usage:
-#   ./scripts/run-all-tests.sh                    # Run all tests (sequential)
-#   ./scripts/run-all-tests.sh --parallel         # Run all tests (parallel)
+#   ./scripts/run-all-tests.sh                    # Run all tests
 #   ./scripts/run-all-tests.sh --deps-only        # Only dependency combinations
 #   ./scripts/run-all-tests.sh --lua-only         # Only Lua versions
 #   ./scripts/run-all-tests.sh --quick            # Quick test (default Lua, all deps)
@@ -28,7 +27,6 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Options
-PARALLEL=false
 DEPS_ONLY=false
 LUA_ONLY=false
 QUICK=false
@@ -39,10 +37,6 @@ VERBOSE=false
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --parallel|-p)
-            PARALLEL=true
-            shift
-            ;;
         --deps-only|-d)
             DEPS_ONLY=true
             shift
@@ -73,7 +67,6 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --parallel, -p    Run tests in parallel"
             echo "  --deps-only, -d   Only test dependency combinations (default Lua)"
             echo "  --lua-only, -l    Only test Lua versions (all deps)"
             echo "  --quick, -q       Quick test (default Lua, all deps only)"
@@ -84,7 +77,6 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Examples:"
             echo "  $0                        # Full test matrix"
-            echo "  $0 --parallel             # Full matrix in parallel"
             echo "  $0 --deps-only            # All dep combinations with Lua 5.4"
             echo "  $0 --lua-only             # All Lua versions with all deps"
             echo "  $0 --lua 51               # Test only Lua 5.1"
@@ -190,11 +182,6 @@ run_test() {
         cp "$log_file" "$RESULTS_DIR/error_${lua_version}_${dep_bits// /_}.log"
         return 1
     fi
-}
-
-# Run test in background (for parallel mode)
-run_test_background() {
-    run_test "$1" "$2" &
 }
 
 # Print header
@@ -335,26 +322,14 @@ main() {
                 fi
             done
 
-            if [ "$PARALLEL" = true ]; then
-                log "[$test_count/$total_tests] Starting: $lua_name / $combo_name"
-                run_test_background "$lua_ver" "$combo"
+            log "[$test_count/$total_tests] Testing: $lua_name / $combo_name"
+            if run_test "$lua_ver" "$combo"; then
+                log "  ${GREEN}PASS${NC}"
             else
-                log "[$test_count/$total_tests] Testing: $lua_name / $combo_name"
-                if run_test "$lua_ver" "$combo"; then
-                    log "  ${GREEN}PASS${NC}"
-                else
-                    log "  ${RED}FAIL${NC}"
-                fi
+                log "  ${RED}FAIL${NC}"
             fi
         done
     done
-
-    # Wait for parallel jobs
-    if [ "$PARALLEL" = true ]; then
-        log ""
-        log "Waiting for parallel tests to complete..."
-        wait
-    fi
 
     # Print summary
     print_summary

@@ -208,6 +208,9 @@ public struct ArrayModule {
             try engine.run("""
                 if not luaswift then luaswift = {} end
 
+                -- Lua 5.1 compatibility: unpack is global in 5.1, table.unpack in 5.2+
+                local _unpack = table.unpack or unpack
+
                 -- Capture function references before they're cleaned up
                 local _create = _luaswift_array_create
                 local _zeros = _luaswift_array_zeros
@@ -886,7 +889,7 @@ public struct ArrayModule {
                             for i, r in ipairs(results) do
                                 wrapped[i] = luaswift.array._wrap(r)
                             end
-                            return table.unpack(wrapped)
+                            return _unpack(wrapped)
                         end
                         return luaswift.array._wrap(results)
                     end,
@@ -1110,7 +1113,7 @@ public struct ArrayModule {
                                 wrapped[i] = luaswift.array._wrap(result[tostring(i)])
                                 i = i + 1
                             end
-                            return table.unpack(wrapped)
+                            return _unpack(wrapped)
                         end
                         return luaswift.array._wrap(result)
                     end,

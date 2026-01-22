@@ -54,12 +54,14 @@ final class LuaVersionTests: XCTestCase {
         let engine = try LuaEngine(configuration: LuaEngineConfiguration(sandboxed: false, packagePath: nil, memoryLimit: 0))
         let result = try engine.evaluate("return loadstring ~= nil")
 
-        #if LUA_VERSION_51 || LUA_VERSION_52
-        // loadstring exists as a global in 5.1 and 5.2
-        XCTAssertTrue(result.boolValue ?? false, "loadstring should exist in Lua 5.1/5.2")
+        #if LUA_VERSION_51 || LUA_VERSION_52 || LUA_VERSION_53
+        // loadstring exists in 5.1 natively, and in 5.2/5.3 via compatibility mode
+        // (LUA_COMPAT_ALL for 5.2, LUA_COMPAT_5_1 for 5.3)
+        XCTAssertTrue(result.boolValue ?? false, "loadstring should exist in Lua 5.1/5.2/5.3 (with compat)")
         #else
-        // loadstring was removed in 5.3+ (use load instead)
-        XCTAssertFalse(result.boolValue ?? true, "loadstring should not exist in Lua 5.3+")
+        // loadstring was fully removed in 5.4+ (use load instead)
+        // No compatibility option exists to bring it back
+        XCTAssertFalse(result.boolValue ?? true, "loadstring should not exist in Lua 5.4+")
         #endif
     }
 

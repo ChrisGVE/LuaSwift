@@ -451,6 +451,111 @@ public struct TableXModule {
             return true
         end
 
+        -- Comprehension: collect(t, transform_fn, filter_fn)
+        -- Iterates ipairs of t, optionally filters by filter_fn(v, k),
+        -- then transforms each passing element with transform_fn(v, k).
+        -- Returns a new array. filter_fn is applied BEFORE transform_fn
+        -- so the predicate sees original values.
+        function luaswift.tablex.collect(t, transform, filter)
+            local result = {}
+            for k, v in ipairs(t) do
+                if filter == nil or filter(v, k) then
+                    result[#result + 1] = transform(v, k)
+                end
+            end
+            return result
+        end
+
+        -- Dict comprehension: dict_from(t, key_fn, value_fn, filter_fn)
+        -- Builds a {key=value} table from iterable t.
+        -- filter_fn(v, k) is evaluated on original items before key/value fns.
+        function luaswift.tablex.dict_from(t, key_fn, value_fn, filter)
+            local result = {}
+            for k, v in ipairs(t) do
+                if filter == nil or filter(v, k) then
+                    result[key_fn(v, k)] = value_fn(v, k)
+                end
+            end
+            return result
+        end
+
+        -- Set comprehension: set_from(t, transform_fn, filter_fn)
+        -- Returns {value=true} table of unique transformed values.
+        -- filter_fn is applied BEFORE transform_fn.
+        function luaswift.tablex.set_from(t, transform, filter)
+            local result = {}
+            for k, v in ipairs(t) do
+                if filter == nil or filter(v, k) then
+                    result[transform(v, k)] = true
+                end
+            end
+            return result
+        end
+
+        -- Chain wrapper: tablex.chain(t) returns a chainable object.
+        -- Methods: :map(fn), :filter(fn), :collect(), :dict(key_fn, val_fn), :set()
+        -- :map and :filter return the chain for further chaining.
+        -- :collect, :dict, :set terminate the chain and return a table.
+        function luaswift.tablex.chain(t)
+            -- Internal state: list of pending operations and the source array.
+            -- We eagerly apply operations to keep the implementation simple and
+            -- avoid capturing closures that reference a mutable items list.
+            local self = {}
+            local items = {}
+            -- Copy ipairs portion of t into items
+            for _, v in ipairs(t) do
+                items[#items + 1] = v
+            end
+
+            function self:map(fn)
+                local next_items = {}
+                for i, v in ipairs(items) do
+                    next_items[#next_items + 1] = fn(v, i)
+                end
+                items = next_items
+                return self
+            end
+
+            function self:filter(fn)
+                local next_items = {}
+                local idx = 1
+                for i, v in ipairs(items) do
+                    if fn(v, i) then
+                        next_items[idx] = v
+                        idx = idx + 1
+                    end
+                end
+                items = next_items
+                return self
+            end
+
+            function self:collect()
+                local result = {}
+                for i, v in ipairs(items) do
+                    result[i] = v
+                end
+                return result
+            end
+
+            function self:dict(key_fn, val_fn)
+                local result = {}
+                for i, v in ipairs(items) do
+                    result[key_fn(v, i)] = val_fn(v, i)
+                end
+                return result
+            end
+
+            function self:set()
+                local result = {}
+                for _, v in ipairs(items) do
+                    result[v] = true
+                end
+                return result
+            end
+
+            return self
+        end
+
         -- import() extends the table library
         function luaswift.tablex.import()
             table.deepcopy = luaswift.tablex.deepcopy
@@ -477,6 +582,10 @@ public struct TableXModule {
             table.difference = luaswift.tablex.difference
             table.equals = luaswift.tablex.equals
             table.deepequals = luaswift.tablex.deepequals
+            table.collect = luaswift.tablex.collect
+            table.dict_from = luaswift.tablex.dict_from
+            table.set_from = luaswift.tablex.set_from
+            table.chain = luaswift.tablex.chain
             -- Note: we don't override table.sort as it exists in Lua stdlib
         end
 

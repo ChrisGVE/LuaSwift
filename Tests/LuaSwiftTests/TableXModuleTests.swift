@@ -1891,4 +1891,420 @@ final class TableXModuleTests: XCTestCase {
     XCTAssertEqual(array[0].numberValue, 30)
     XCTAssertEqual(array[2].numberValue, 10)
   }
+
+  // MARK: - Collect (List Comprehension) Tests
+
+  func testCollectTransformOnly() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.collect({1, 2, 3, 4, 5}, function(v) return v * v end)
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 5)
+    XCTAssertEqual(array[0].numberValue, 1)
+    XCTAssertEqual(array[1].numberValue, 4)
+    XCTAssertEqual(array[2].numberValue, 9)
+    XCTAssertEqual(array[3].numberValue, 16)
+    XCTAssertEqual(array[4].numberValue, 25)
+  }
+
+  func testCollectTransformWithFilter() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.collect(
+          {1, 2, 3, 4, 5},
+          function(v) return v * v end,
+          function(v) return v % 2 == 0 end)
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 2)
+    XCTAssertEqual(array[0].numberValue, 4)
+    XCTAssertEqual(array[1].numberValue, 16)
+  }
+
+  func testCollectFilterSeesOriginalValue() throws {
+    // filter receives original value, transform receives original value too
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      -- Keep items > 2, then double them
+      return tablex.collect(
+          {1, 2, 3, 4},
+          function(v) return v * 2 end,
+          function(v) return v > 2 end)
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 2)
+    XCTAssertEqual(array[0].numberValue, 6)
+    XCTAssertEqual(array[1].numberValue, 8)
+  }
+
+  func testCollectEmptyTable() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.collect({}, function(v) return v end)
+      """)
+    // An empty table may be returned as .array([]) or .table([:]) — both are correct.
+    let count = result.arrayValue?.count ?? result.tableValue?.count ?? -1
+    XCTAssertEqual(count, 0)
+  }
+
+  func testCollectFilterRemovesAll() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.collect(
+          {1, 2, 3},
+          function(v) return v end,
+          function(v) return false end)
+      """)
+    // An empty table may be returned as .array([]) or .table([:]) — both are correct.
+    let count = result.arrayValue?.count ?? result.tableValue?.count ?? -1
+    XCTAssertEqual(count, 0)
+  }
+
+  func testCollectKeyPassedToTransform() throws {
+    // transform receives (value, key) — key is the 1-based index
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.collect({10, 20, 30}, function(v, k) return k end)
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 3)
+    XCTAssertEqual(array[0].numberValue, 1)
+    XCTAssertEqual(array[1].numberValue, 2)
+    XCTAssertEqual(array[2].numberValue, 3)
+  }
+
+  // MARK: - Dict From (Dict Comprehension) Tests
+
+  func testDictFromBasic() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      local users = {
+          {name = "Alice", age = 30},
+          {name = "Bob",   age = 25},
+      }
+      return tablex.dict_from(
+          users,
+          function(v) return v.name end,
+          function(v) return v.age end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertEqual(table["Alice"]?.numberValue, 30)
+    XCTAssertEqual(table["Bob"]?.numberValue, 25)
+  }
+
+  func testDictFromWithFilter() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      local users = {
+          {name = "Alice", age = 30},
+          {name = "Bob",   age = 17},
+          {name = "Carol", age = 22},
+      }
+      return tablex.dict_from(
+          users,
+          function(v) return v.name end,
+          function(v) return v.age end,
+          function(v) return v.age >= 18 end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertEqual(table["Alice"]?.numberValue, 30)
+    XCTAssertNil(table["Bob"])
+    XCTAssertEqual(table["Carol"]?.numberValue, 22)
+  }
+
+  func testDictFromEmptyTable() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.dict_from(
+          {},
+          function(v) return v end,
+          function(v) return v end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertTrue(table.isEmpty)
+  }
+
+  func testDictFromDuplicateKeyLastWins() throws {
+    // When two items produce the same key, the last one wins
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.dict_from(
+          {1, 2, 3},
+          function(v) return "key" end,
+          function(v) return v end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertEqual(table["key"]?.numberValue, 3)
+  }
+
+  // MARK: - Set From (Set Comprehension) Tests
+
+  func testSetFromBasic() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.set_from({1, "hello", 2, true}, function(v) return type(v) end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertEqual(table["number"]?.boolValue, true)
+    XCTAssertEqual(table["string"]?.boolValue, true)
+    XCTAssertEqual(table["boolean"]?.boolValue, true)
+    XCTAssertEqual(table.count, 3)
+  }
+
+  func testSetFromDeduplicates() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      -- Same transform result for multiple inputs → appears once in set
+      return tablex.set_from({1, 2, 3, 4, 5, 6},
+          function(v) return v % 2 == 0 and "even" or "odd" end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertEqual(table["even"]?.boolValue, true)
+    XCTAssertEqual(table["odd"]?.boolValue, true)
+    XCTAssertEqual(table.count, 2)
+  }
+
+  func testSetFromWithFilter() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.set_from(
+          {1, 2, 3, 4, 5},
+          function(v) return v end,
+          function(v) return v > 3 end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertNil(table["1"])
+    XCTAssertNil(table["2"])
+    XCTAssertNil(table["3"])
+    XCTAssertEqual(table["4"]?.boolValue, true)
+    XCTAssertEqual(table["5"]?.boolValue, true)
+  }
+
+  func testSetFromEmptyTable() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.set_from({}, function(v) return v end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertTrue(table.isEmpty)
+  }
+
+  // MARK: - Chain Tests
+
+  func testChainCollect() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.chain({1, 2, 3, 4, 5}):collect()
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 5)
+    XCTAssertEqual(array[0].numberValue, 1)
+    XCTAssertEqual(array[4].numberValue, 5)
+  }
+
+  func testChainMapCollect() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.chain({1, 2, 3}):map(function(v) return v * 10 end):collect()
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 3)
+    XCTAssertEqual(array[0].numberValue, 10)
+    XCTAssertEqual(array[1].numberValue, 20)
+    XCTAssertEqual(array[2].numberValue, 30)
+  }
+
+  func testChainFilterCollect() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.chain({1, 2, 3, 4, 5})
+          :filter(function(v) return v % 2 == 0 end)
+          :collect()
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 2)
+    XCTAssertEqual(array[0].numberValue, 2)
+    XCTAssertEqual(array[1].numberValue, 4)
+  }
+
+  func testChainFilterThenMap() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.chain({1, 2, 3, 4, 5})
+          :filter(function(v) return v % 2 == 0 end)
+          :map(function(v) return v * v end)
+          :collect()
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 2)
+    XCTAssertEqual(array[0].numberValue, 4)
+    XCTAssertEqual(array[1].numberValue, 16)
+  }
+
+  func testChainMapThenFilter() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      -- map first (square), then filter (> 5)
+      return tablex.chain({1, 2, 3, 4})
+          :map(function(v) return v * v end)
+          :filter(function(v) return v > 5 end)
+          :collect()
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 2)
+    XCTAssertEqual(array[0].numberValue, 9)
+    XCTAssertEqual(array[1].numberValue, 16)
+  }
+
+  func testChainDict() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      local words = {"apple", "banana", "cherry"}
+      return tablex.chain(words)
+          :dict(function(v) return v end, function(v) return #v end)
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertEqual(table["apple"]?.numberValue, 5)
+    XCTAssertEqual(table["banana"]?.numberValue, 6)
+    XCTAssertEqual(table["cherry"]?.numberValue, 6)
+  }
+
+  func testChainSet() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.chain({"a", "b", "a", "c", "b"}):set()
+      """)
+    guard let table = result.tableValue else {
+      XCTFail("Expected table result")
+      return
+    }
+    XCTAssertEqual(table["a"]?.boolValue, true)
+    XCTAssertEqual(table["b"]?.boolValue, true)
+    XCTAssertEqual(table["c"]?.boolValue, true)
+    XCTAssertEqual(table.count, 3)
+  }
+
+  func testChainEmptyTable() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.chain({}):map(function(v) return v end):collect()
+      """)
+    // An empty table may be returned as .array([]) or .table([:]) — both are correct.
+    let count = result.arrayValue?.count ?? result.tableValue?.count ?? -1
+    XCTAssertEqual(count, 0)
+  }
+
+  func testChainMultipleMapSteps() throws {
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      return tablex.chain({1, 2, 3})
+          :map(function(v) return v + 10 end)
+          :map(function(v) return v * 2 end)
+          :collect()
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 3)
+    XCTAssertEqual(array[0].numberValue, 22)  // (1+10)*2
+    XCTAssertEqual(array[1].numberValue, 24)  // (2+10)*2
+    XCTAssertEqual(array[2].numberValue, 26)  // (3+10)*2
+  }
+
+  func testCollectViaImport() throws {
+    // Verify that import() makes collect available on the table global
+    let result = try engine.evaluate(
+      """
+      local tablex = luaswift.tablex
+      tablex.import()
+      return table.collect({2, 4, 6}, function(v) return v / 2 end)
+      """)
+    guard let array = result.arrayValue else {
+      XCTFail("Expected array result")
+      return
+    }
+    XCTAssertEqual(array.count, 3)
+    XCTAssertEqual(array[0].numberValue, 1)
+    XCTAssertEqual(array[1].numberValue, 2)
+    XCTAssertEqual(array[2].numberValue, 3)
+  }
 }

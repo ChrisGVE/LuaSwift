@@ -4,7 +4,7 @@
 
 ## Overview
 
-LuaSwift is a lightweight Swift wrapper for embedding Lua in iOS and macOS applications. This documentation covers the core API, optional powerpack modules, and advanced usage patterns.
+LuaSwift is a lightweight Swift wrapper for embedding Lua in iOS and macOS applications. This documentation covers the core API, optional extension modules, and advanced usage patterns.
 
 ## Quick Navigation
 
@@ -47,7 +47,7 @@ let result = try engine.evaluate("return 1 + 2")
 print(result.numberValue!)  // 3.0
 ```
 
-### 2. With Powerpack
+### 2. With Extensions
 
 ```swift
 let engine = try LuaEngine()
@@ -80,7 +80,7 @@ LuaSwift
 │   ├── LuaValue         - Type-safe values
 │   └── LuaValueServer   - Expose Swift data
 │
-└── Powerpack Modules (compile-time optional)
+└── Extension Modules (compile-time optional)
     ├── Standard Library Extensions (core)
     │   ├── stringx      → extends string.*
     │   ├── tablex       → extends table.*

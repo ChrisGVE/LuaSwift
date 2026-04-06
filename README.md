@@ -63,7 +63,7 @@ engine.register(server: AppData())
 let version = try engine.evaluate("return App.version")
 ```
 
-### With Powerpack Modules
+### With Extension Modules
 
 ```swift
 // Install all modules

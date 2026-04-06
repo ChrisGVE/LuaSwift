@@ -3235,6 +3235,65 @@
       XCTAssertEqual(result.boolValue, true)
     }
 
+    // MARK: - Colormap Tests
+
+    /// Test: Scatter with numeric color array and colormap
+    func testScatterColormap() throws {
+      let result = try engine.evaluate(
+        """
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local x = {1, 2, 3, 4, 5}
+            local y = {1, 4, 9, 16, 25}
+            local c = {0, 25, 50, 75, 100}  -- numeric values for colormap
+
+            ax:scatter(x, y, {c = c, cmap = "viridis"})
+
+            return fig:get_context():command_count() > 0
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Scatter with different colormaps
+    func testScatterColormapVariants() throws {
+      let result = try engine.evaluate(
+        """
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local x = {1, 2, 3}
+            local y = {1, 2, 3}
+            local c = {0, 0.5, 1.0}
+
+            -- Each colormap should work
+            for _, cmap in ipairs({"viridis", "plasma", "inferno", "magma", "cividis", "hot", "gray", "coolwarm"}) do
+                ax:scatter(x, y, {c = c, cmap = cmap})
+            end
+
+            return fig:get_context():command_count() > 0
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    /// Test: Scatter with vmin/vmax override
+    func testScatterColormapVminVmax() throws {
+      let result = try engine.evaluate(
+        """
+            local plt = require("luaswift.plot")
+            local fig, ax = plt.subplots()
+
+            local x = {1, 2, 3, 4}
+            local y = {1, 2, 3, 4}
+            local c = {10, 20, 30, 40}
+
+            ax:scatter(x, y, {c = c, cmap = "plasma", vmin = 0, vmax = 50})
+
+            return fig:get_context():command_count() > 0
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
     // MARK: - Edge Case Tests
 
     /// Test: Empty data handling

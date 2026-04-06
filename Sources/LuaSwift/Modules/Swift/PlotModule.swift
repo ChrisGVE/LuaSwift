@@ -718,6 +718,101 @@
           return color, linestyle, marker
       end
 
+      -- Portable math helpers (math.log10/math.pow removed in Lua 5.4+)
+      local log10 = math.log10 or function(x) return math.log(x, 10) end
+      local pow10 = math.pow and function(e) return math.pow(10, e) end or function(e) return 10 ^ e end
+
+      -- Shared colormap definitions
+      local colormaps = {
+          viridis = function(t)
+              local r = 0.267 + 0.004*t + 2.737*t^2 - 4.433*t^3 + 1.741*t^4
+              local g = 0.004 + 1.384*t - 0.814*t^2 + 0.401*t^3
+              local b = 0.329 + 1.422*t - 1.578*t^2 + 0.510*t^3
+              return r, g, b
+          end,
+          plasma = function(t)
+              local r = 0.050 + 2.735*t - 3.066*t^2 + 1.316*t^3
+              local g = 0.030 + 0.059*t + 1.206*t^2 - 0.713*t^3
+              local b = 0.530 + 1.681*t - 4.668*t^2 + 2.830*t^3
+              return math.max(0, math.min(1, r)), math.max(0, math.min(1, g)), math.max(0, math.min(1, b))
+          end,
+          inferno = function(t)
+              local r = 0.001 + 1.225*t + 1.978*t^2 - 2.367*t^3
+              local g = 0.001 + 0.005*t + 2.936*t^2 - 2.448*t^3
+              local b = 0.014 + 2.068*t - 4.072*t^2 + 2.156*t^3
+              return math.max(0, math.min(1, r)), math.max(0, math.min(1, g)), math.max(0, math.min(1, b))
+          end,
+          magma = function(t)
+              local r = 0.001 + 1.009*t + 2.448*t^2 - 2.619*t^3
+              local g = 0.001 + 0.021*t + 2.186*t^2 - 1.580*t^3
+              local b = 0.014 + 2.573*t - 4.791*t^2 + 2.719*t^3
+              return math.max(0, math.min(1, r)), math.max(0, math.min(1, g)), math.max(0, math.min(1, b))
+          end,
+          cividis = function(t)
+              local r = 0.000 + 0.349*t + 0.814*t^2 - 0.257*t^3
+              local g = 0.135 + 0.471*t + 0.334*t^2 - 0.177*t^3
+              local b = 0.328 + 0.404*t - 1.032*t^2 + 0.576*t^3
+              return math.max(0, math.min(1, r)), math.max(0, math.min(1, g)), math.max(0, math.min(1, b))
+          end,
+          gray = function(t) return t, t, t end,
+          hot = function(t)
+              local r = math.min(1, t * 3)
+              local g = math.max(0, math.min(1, (t - 0.33) * 3))
+              local b = math.max(0, math.min(1, (t - 0.67) * 3))
+              return r, g, b
+          end,
+          coolwarm = function(t)
+              local r = 0.230 + 2.311*t - 2.714*t^2 + 1.168*t^3
+              local g = 0.299 + 1.876*t - 4.694*t^2 + 2.899*t^3
+              local b = 0.754 - 0.237*t - 1.102*t^2 + 1.038*t^3
+              return math.max(0, math.min(1, r)), math.max(0, math.min(1, g)), math.max(0, math.min(1, b))
+          end,
+      }
+
+      -- Map a scalar value to a hex color using a colormap.
+      local function cmap_to_hex(t, cmap_name)
+          local cmap_fn = colormaps[cmap_name or "viridis"] or colormaps.viridis
+          local r, g, b = cmap_fn(math.max(0, math.min(1, t)))
+          return string.format("#%02X%02X%02X",
+              math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
+      end
+
+      -- Scale transform functions
+      local function apply_scale(v, scale, linthresh)
+          if scale == "log" then
+              if v <= 0 then return nil end
+              return log10(v)
+          elseif scale == "symlog" then
+              linthresh = linthresh or 1
+              if math.abs(v) <= linthresh then
+                  return v / linthresh
+              elseif v > 0 then
+                  return 1 + log10(v / linthresh)
+              else
+                  return -1 - log10(-v / linthresh)
+              end
+          else
+              return v
+          end
+      end
+
+      local function inverse_scale(v, scale, linthresh)
+          if scale == "log" then
+              return pow10(v)
+          elseif scale == "symlog" then
+              linthresh = linthresh or 1
+              if math.abs(v) <= 1 then
+                  return v * linthresh
+              elseif v > 0 then
+                  return linthresh * pow10(v - 1)
+              else
+                  return -linthresh * pow10(-v - 1)
+              end
+          else
+              return v
+          end
+      end
+
       -- Draw a marker at (cx, cy) with given size
       local function draw_marker(ctx, marker, cx, cy, size, fill_color, edge_color, edge_width)
           local r = size / 2
@@ -1009,7 +1104,10 @@
       function Axes:scatter(x, y, opts)
           opts = opts or {}
           local s = opts.s or 20  -- Can be scalar or array
-          local c = opts.c or opts.color or "blue"  -- Can be scalar or array
+          local c = opts.c or opts.color or "blue"  -- Can be scalar, color array, or numeric array
+          local cmap_name = opts.cmap or "viridis"
+          local vmin = opts.vmin
+          local vmax = opts.vmax
           local marker = opts.marker or "o"
           local alpha = opts.alpha or 1.0
           local edgecolors = opts.edgecolors or opts.edgecolor
@@ -1019,8 +1117,31 @@
 
           -- Check if s is array-valued
           local s_is_array = type(s) == "table"
-          -- Check if c is array-valued (for colormap support)
+          -- Check if c is array-valued
           local c_is_array = type(c) == "table"
+          -- Check if c is a numeric array (for colormap mapping)
+          local c_is_numeric = c_is_array and #c > 0 and type(c[1]) == "number"
+
+          -- If c is numeric, compute vmin/vmax and prepare colormap
+          local c_norm_min, c_norm_max
+          if c_is_numeric then
+              c_norm_min = vmin or c[1]
+              c_norm_max = vmax or c[1]
+              if not vmin or not vmax then
+                  for i = 1, #c do
+                      if not vmin and c[i] < c_norm_min then c_norm_min = c[i] end
+                      if not vmax and c[i] > c_norm_max then c_norm_max = c[i] end
+                  end
+              end
+              if c_norm_max == c_norm_min then c_norm_max = c_norm_min + 1 end
+
+              -- Store for colorbar
+              self._scatter_cmap = {
+                  vmin = c_norm_min,
+                  vmax = c_norm_max,
+                  cmap = cmap_name,
+              }
+          end
 
           -- Transform coordinates
           local xmin, xmax = x[1], x[1]
@@ -1046,11 +1167,23 @@
               local point_size = s_is_array and s[i] or s
               local radius = math.sqrt(point_size) / 2
 
-              -- Get per-point color (array of colors or single color)
-              local point_color = c_is_array and c[i] or c
+              -- Get per-point color
+              local point_color
+              if c_is_numeric then
+                  local t = (c[i] - c_norm_min) / (c_norm_max - c_norm_min)
+                  point_color = cmap_to_hex(t, cmap_name)
+              elseif c_is_array then
+                  point_color = c[i]
+              else
+                  point_color = c
+              end
 
               -- Draw marker
-              draw_marker(ctx, marker, tx(x[i]), ty(y[i]), radius * 2, point_color, edgecolors, linewidths)
+              local px = tx(x[i])
+              local py = ty(y[i])
+              if px and py then
+                  draw_marker(ctx, marker, px, py, radius * 2, point_color, edgecolors, linewidths)
+              end
           end
 
           ctx:restore()
@@ -1481,48 +1614,6 @@
           return self._yscale or "linear"
       end
 
-      -- Portable math helpers (math.log10/math.pow removed in Lua 5.4+)
-      local log10 = math.log10 or function(x) return math.log(x, 10) end
-      local pow10 = math.pow and function(e) return math.pow(10, e) end or function(e) return 10 ^ e end
-
-      -- Scale transform functions
-      local function apply_scale(v, scale, linthresh)
-          if scale == "log" then
-              -- Log scale: values must be positive
-              if v <= 0 then return nil end
-              return log10(v)
-          elseif scale == "symlog" then
-              -- Symmetric log: linear near 0, log for larger values
-              linthresh = linthresh or 1
-              if math.abs(v) <= linthresh then
-                  return v / linthresh
-              elseif v > 0 then
-                  return 1 + log10(v / linthresh)
-              else
-                  return -1 - log10(-v / linthresh)
-              end
-          else
-              return v  -- linear
-          end
-      end
-
-      local function inverse_scale(v, scale, linthresh)
-          if scale == "log" then
-              return pow10(v)
-          elseif scale == "symlog" then
-              linthresh = linthresh or 1
-              if math.abs(v) <= 1 then
-                  return v * linthresh
-              elseif v > 0 then
-                  return linthresh * pow10(v - 1)
-              else
-                  return -linthresh * pow10(-v - 1)
-              end
-          else
-              return v
-          end
-      end
-
       -- Build scale-aware coordinate transform functions.
       -- Returns tx, ty functions and the scaled min/max values.
       function Axes:_make_transforms(xmin, xmax, ymin, ymax)
@@ -1730,48 +1821,6 @@
           if vmax == vmin then vmax = vmin + 1 end
 
           -- Colormap lookup tables
-          local colormaps = {
-              viridis = function(t)
-                  local r = 0.267 + 0.004*t + 2.737*t^2 - 4.433*t^3 + 1.741*t^4
-                  local g = 0.004 + 1.384*t - 0.814*t^2 + 0.401*t^3
-                  local b = 0.329 + 1.422*t - 1.578*t^2 + 0.510*t^3
-                  return r, g, b
-              end,
-              plasma = function(t)
-                  local r = 0.050 + 2.735*t - 2.814*t^2 + 0.885*t^3
-                  local g = 0.030 + 0.114*t + 0.892*t^2 - 0.115*t^3
-                  local b = 0.528 + 1.266*t - 3.018*t^2 + 1.446*t^3
-                  return r, g, b
-              end,
-              inferno = function(t)
-                  local r = 0.001 + 1.244*t + 0.617*t^2 - 0.851*t^3
-                  local g = 0.001 + 0.047*t + 1.691*t^2 - 0.923*t^3
-                  local b = 0.014 + 1.689*t - 2.639*t^2 + 1.128*t^3
-                  return r, g, b
-              end,
-              gray = function(t)
-                  return t, t, t
-              end,
-              hot = function(t)
-                  local r = math.min(1, t * 3)
-                  local g = math.max(0, math.min(1, (t - 0.33) * 3))
-                  local b = math.max(0, math.min(1, (t - 0.67) * 3))
-                  return r, g, b
-              end,
-              cool = function(t)
-                  return t, 1 - t, 1
-              end,
-              coolwarm = function(t)
-                  if t < 0.5 then
-                      local s = t * 2
-                      return 0.227 + 0.706*s, 0.298 + 0.659*s, 0.753
-                  else
-                      local s = (t - 0.5) * 2
-                      return 0.706 + 0.294*s, 0.016 + 0.141*s, 0.150 - 0.133*s
-                  end
-              end
-          }
-
           local colormap = colormaps[cmap] or colormaps.viridis
 
           local ctx = self:get_context()
@@ -2179,21 +2228,6 @@
           local cmap = ax._imshow_data.cmap
 
           -- Colormap lookup
-          local colormaps = {
-              viridis = function(t)
-                  local r = 0.267 + 0.004*t + 2.737*t^2 - 4.433*t^3 + 1.741*t^4
-                  local g = 0.004 + 1.384*t - 0.814*t^2 + 0.401*t^3
-                  local b = 0.329 + 1.422*t - 1.578*t^2 + 0.510*t^3
-                  return r, g, b
-              end,
-              gray = function(t) return t, t, t end,
-              hot = function(t)
-                  local r = math.min(1, t * 3)
-                  local g = math.max(0, math.min(1, (t - 0.33) * 3))
-                  local b = math.max(0, math.min(1, (t - 0.67) * 3))
-                  return r, g, b
-              end
-          }
           local colormap = colormaps[cmap] or colormaps.viridis
 
           -- Draw colorbar on right side

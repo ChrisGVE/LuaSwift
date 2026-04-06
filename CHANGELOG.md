@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-04-06
+
+### Added
+- **Plot Colormaps** - Colormap support for scatter plots with numeric color arrays
+- **Plot Axis Scaling** - Integrated axis scaling (log, symlog, logit) into all plot functions
+- **HTTP Follow Redirects** - `follow_redirects` option for HTTP module
+- **LuaFunction Auto-Release** - Automatic Lua function reference release mechanism for safer memory management
+- **Lua Version Matrix CI** - CI now tests all 5 Lua versions (5.1-5.5)
+- **Pure Lua Test Suite** - Standalone Lua test framework with test runner for cross-interpreter validation
+- **Version-Specific Tests** - Swift tests with conditional compilation for Lua version differences
+- **Test Infrastructure** - Centralized test configuration with data-driven dependency combinations
+- **TESTING.md** - Comprehensive documentation for all test configurations and patterns
+- **DocC Articles** - Documentation for compat and serialize Lua modules
+
+### Fixed
+- **Lua 5.1/5.2 Compatibility** - Enable LUA_COMPAT mode for backwards-compatible features across all supported versions
+- **Array Module** - Use Lua 5.1-compatible `unpack` function instead of `table.unpack`
+- **Optimize Module** - Use unpack compatibility shim for Lua 5.1
+- **String Bridging** - Support embedded NUL bytes in string conversion
+- **LuaValue.intValue** - Now returns nil for fractional numbers instead of truncating
+- **Sandbox Security** - Harden sandbox to prevent `require()` bypass attempts
+- **IO Sandbox** - Resolve symlinks to prevent sandbox directory escape
+
+### Performance
+- **HTTP Module** - Reuse URLSession instances per engine instead of creating new sessions per request
+
 ## [1.6.0] - 2026-01-19
 
 ### Changed

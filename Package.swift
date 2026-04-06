@@ -133,11 +133,22 @@ let package = Package(
             path: cluaPath,
             sources: cluaSources,
             publicHeadersPath: "include",
-            cSettings: [
-                .define("LUA_USE_IOS", .when(platforms: [.iOS, .visionOS, .watchOS, .tvOS])),
-                .define("LUA_USE_MACOSX", .when(platforms: [.macOS])),
-                .headerSearchPath(".")
-            ]
+            cSettings: {
+                var settings: [CSetting] = [
+                    .define("LUA_USE_IOS", .when(platforms: [.iOS, .visionOS, .watchOS, .tvOS])),
+                    .define("LUA_USE_MACOSX", .when(platforms: [.macOS])),
+                    .headerSearchPath(".")
+                ]
+                // Enable compatibility mode for Lua 5.2 and 5.3 to support loadstring, unpack, etc.
+                if selectedVersion == "52" {
+                    settings.append(.define("LUA_COMPAT_ALL"))
+                }
+                if selectedVersion == "53" {
+                    settings.append(.define("LUA_COMPAT_5_1"))
+                    settings.append(.define("LUA_COMPAT_5_2"))
+                }
+                return settings
+            }()
         ),
         // Swift wrapper
         .target(

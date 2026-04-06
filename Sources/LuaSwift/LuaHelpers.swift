@@ -450,3 +450,35 @@ func luaL_dostring(_ L: OpaquePointer?, _ s: String) -> Int32 {
     }
     return lua_pcall(L, 0, LUA_MULTRET, 0)
 }
+
+// MARK: - Binary-Safe String Operations
+
+/// Get a string from the stack preserving embedded NUL bytes
+/// Uses lua_tolstring to get the actual length instead of stopping at NUL
+/// - Parameters:
+///   - L: Lua state
+///   - index: Stack index
+/// - Returns: Swift String or nil if not a string, with embedded NULs preserved
+@inline(__always)
+func lua_getstring(_ L: OpaquePointer?, _ index: Int32) -> String? {
+    var len: Int = 0
+    guard let ptr = lua_tolstring(L, index, &len) else { return nil }
+    // Create Data from the raw bytes, then convert to String
+    // This preserves embedded NUL characters
+    let data = Data(bytes: ptr, count: len)
+    return String(data: data, encoding: .utf8)
+}
+
+/// Push a string to the Lua stack preserving embedded NUL bytes
+/// Uses lua_pushlstring to push the exact byte count instead of stopping at NUL
+/// - Parameters:
+///   - L: Lua state
+///   - str: Swift String to push
+@inline(__always)
+func lua_pushstring_binary(_ L: OpaquePointer?, _ str: String) {
+    str.withCString { ptr in
+        // Get the UTF-8 byte count (not character count)
+        let len = str.utf8.count
+        lua_pushlstring(L, ptr, len)
+    }
+}

@@ -277,7 +277,9 @@ public struct MathXModule {
                 _luaswift_math_clog = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] MathXModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -113,7 +113,9 @@ public struct UTF8XModule {
                 _luaswift_utf8x_chars = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] UTF8XModule setup failed: \(error)")
+            #endif
         }
     }
 

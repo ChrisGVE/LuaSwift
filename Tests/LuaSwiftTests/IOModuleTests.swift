@@ -383,4 +383,126 @@ final class IOModuleTests: XCTestCase {
 
         XCTAssertEqual(result.stringValue, "function")
     }
+
+    // MARK: - Symlink Escape Tests
+
+    func testSymlinkEscapeBlocked() throws {
+        // Create a directory outside the allowed directory
+        let outsideDir = FileManager.default.temporaryDirectory.appendingPathComponent("LuaSwiftIOTests-outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+
+        // Create a secret file outside allowed directory
+        let secretFile = outsideDir.appendingPathComponent("secret.txt")
+        try "secret data".write(to: secretFile, atomically: true, encoding: .utf8)
+
+        // Create a symlink inside the allowed directory pointing outside
+        let symlink = tempDir.appendingPathComponent("escape_link")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outsideDir)
+
+        // Attempting to read via the symlink should fail
+        XCTAssertThrowsError(try engine.run("""
+            local iox = luaswift.iox
+            iox.read_file("\(symlink.path)/secret.txt")
+        """)) { error in
+            let errorStr = String(describing: error)
+            XCTAssertTrue(errorStr.contains("outside allowed") || errorStr.contains("Access denied"),
+                          "Expected access denied error, got: \(errorStr)")
+        }
+    }
+
+    func testSymlinkChainEscapeBlocked() throws {
+        // Create directories for the chain
+        let outsideDir = FileManager.default.temporaryDirectory.appendingPathComponent("LuaSwiftIOTests-outside2-\(UUID().uuidString)")
+        let middleDir = tempDir.appendingPathComponent("middle")
+        try FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: middleDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+
+        // Create a secret file outside
+        let secretFile = outsideDir.appendingPathComponent("secret.txt")
+        try "secret".write(to: secretFile, atomically: true, encoding: .utf8)
+
+        // Create a chain: allowed/link1 -> allowed/middle, allowed/middle/link2 -> outside
+        let link2 = middleDir.appendingPathComponent("link2")
+        try FileManager.default.createSymbolicLink(at: link2, withDestinationURL: outsideDir)
+
+        // Accessing via the chain should fail
+        XCTAssertThrowsError(try engine.run("""
+            local iox = luaswift.iox
+            iox.read_file("\(middleDir.path)/link2/secret.txt")
+        """)) { error in
+            let errorStr = String(describing: error)
+            XCTAssertTrue(errorStr.contains("outside allowed") || errorStr.contains("Access denied"),
+                          "Expected access denied error for symlink chain, got: \(errorStr)")
+        }
+    }
+
+    func testExistsReturnsFalseForSymlinkEscape() throws {
+        // Create outside directory and symlink
+        let outsideDir = FileManager.default.temporaryDirectory.appendingPathComponent("LuaSwiftIOTests-outside3-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+
+        let secretFile = outsideDir.appendingPathComponent("secret.txt")
+        try "secret".write(to: secretFile, atomically: true, encoding: .utf8)
+
+        let symlink = tempDir.appendingPathComponent("escape_link2")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outsideDir)
+
+        // exists() should return false for symlink escape (not throw)
+        let result = try engine.evaluate("""
+            local iox = luaswift.iox
+            return iox.exists("\(symlink.path)/secret.txt")
+        """)
+
+        XCTAssertEqual(result.boolValue, false)
+    }
+
+    func testSymlinkWithinAllowedDirectoryWorks() throws {
+        // Create a subdirectory and file
+        let subdir = tempDir.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+
+        let realFile = subdir.appendingPathComponent("real.txt")
+        try "real content".write(to: realFile, atomically: true, encoding: .utf8)
+
+        // Create a symlink within allowed directory pointing to another allowed location
+        let symlink = tempDir.appendingPathComponent("internal_link")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: subdir)
+
+        // This should work - symlink stays within allowed directory
+        let result = try engine.evaluate("""
+            local iox = luaswift.iox
+            return iox.read_file("\(symlink.path)/real.txt")
+        """)
+
+        XCTAssertEqual(result.stringValue, "real content")
+    }
+
+    func testWriteViaSymlinkEscapeBlocked() throws {
+        // Create outside directory
+        let outsideDir = FileManager.default.temporaryDirectory.appendingPathComponent("LuaSwiftIOTests-outside4-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+
+        // Create symlink pointing outside
+        let symlink = tempDir.appendingPathComponent("write_escape_link")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outsideDir)
+
+        // Attempting to write via the symlink should fail
+        XCTAssertThrowsError(try engine.run("""
+            local iox = luaswift.iox
+            iox.write_file("\(symlink.path)/hacked.txt", "hacked!")
+        """)) { error in
+            let errorStr = String(describing: error)
+            XCTAssertTrue(errorStr.contains("outside allowed") || errorStr.contains("Access denied"),
+                          "Expected access denied error for write via symlink, got: \(errorStr)")
+        }
+
+        // Verify the file was NOT created outside
+        let wouldBeFile = outsideDir.appendingPathComponent("hacked.txt")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: wouldBeFile.path),
+                       "File should not have been created outside allowed directory")
+    }
 }

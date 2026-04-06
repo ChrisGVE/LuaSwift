@@ -63,7 +63,7 @@ engine.register(server: AppData())
 let version = try engine.evaluate("return App.version")
 ```
 
-### With Powerpack Modules
+### With Extension Modules
 
 ```swift
 // Install all modules
@@ -205,7 +205,16 @@ local svg_string = fig:render()
 
 | Module | Global | Description |
 |--------|--------|-------------|
-| regex | `regex` | ICU regular expressions (also extends `string` after extend_stdlib) |
+| regex | `regex` | ICU regular expressions |
+
+### Utilities
+
+| Module | Global | Description |
+|--------|--------|-------------|
+| types | `types` | Type detection, conversion, and inspection |
+| debug | `dbg` | Structured logging with levels (debug, info, warn, error) |
+| serialize | `serialize` | Table serialization and deserialization |
+| svg | `svg` | Standalone SVG document generation |
 
 ### File and Network Access
 
@@ -260,11 +269,18 @@ LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 LUASWIFT_INCLUDE_NUME
 
 **NumericSwift** powers these Lua modules:
 - `math.complex` - Complex number arithmetic
-- `math.geometry` - 2D/3D vectors and transforms
-- `math.stats` - Statistical functions
-- `math.special` - Special mathematical functions
+- `math.geo` - 2D/3D vectors and transforms
+- `math.stats` / `math.distributions` - Statistics and probability distributions
+- `math.special` - Special mathematical functions (Bessel, gamma, erf, elliptic)
 - `math.numtheory` - Number theory (primes, factorization)
-- Extended math utilities (vDSP-accelerated array operations)
+- `math.linalg` - Linear algebra (BLAS/LAPACK via Accelerate)
+- `math.regress` - Regression analysis (OLS, WLS, GLM, ARIMA)
+- `math.optimize` - Minimization, root finding, curve fitting
+- `math.integrate` - Numerical integration, ODE solvers
+- `math.interpolate` - Splines, PCHIP, Akima interpolation
+- `math.cluster` - K-means, hierarchical, DBSCAN
+- `math.spatial` - KDTree, Voronoi, Delaunay
+- `math.series` - Taylor polynomials, summation
 
 **ArraySwift** powers:
 - `array` - N-dimensional arrays with NumPy-like semantics
@@ -302,30 +318,9 @@ For consumers who want fine-grained control, there are two approaches:
 
 The environment variable approach is used for maximum compatibility. Future versions may adopt [SPM Traits](https://theswiftdev.com/2025/all-about-swift-package-manager-traits/) when Swift 6.1+ becomes the minimum supported version.
 
-## Module Selection
+## Runtime Module Installation
 
-LuaSwift also supports compile-time module selection via environment variables for built-in modules:
-
-```bash
-# Build with specific module groups
-LUASWIFT_MODULES=core swift build                    # Core wrapper only
-LUASWIFT_MODULES=core,data swift build               # + JSON, YAML, TOML
-LUASWIFT_MODULES=core,data,math swift build          # + Math namespace
-LUASWIFT_MODULES=all swift build                     # Everything (default)
-```
-
-| Module Group | Contents |
-|--------------|----------|
-| `core` | Wrapper + stdlib extensions (stringx, tablex, utf8x, compat, regex) |
-| `data` | Data formats (json, yaml, toml) |
-| `math` | Math namespace (linalg, complex, geo, stats, optimize, etc.) |
-| `array` | N-dimensional arrays |
-| `plot` | Visualization (plot with SVG) |
-| `iox` | Sandboxed file I/O |
-| `http` | HTTP client |
-| `all` | All modules (default) |
-
-At runtime, install only what you need:
+At runtime, install only the modules you need:
 
 ```swift
 let engine = try LuaEngine()
@@ -349,7 +344,7 @@ let engine = try LuaEngine()
 let config = LuaEngineConfiguration(
     sandboxed: true,              // Remove dangerous functions
     packagePath: "/path/to/lua",  // Custom require() path
-    memoryLimit: 50_000_000       // 50 MB limit
+    memoryLimit: 50_000_000       // 50 MB limit for Swift modules (array, linalg, etc.)
 )
 let engine = try LuaEngine(configuration: config)
 
@@ -361,13 +356,57 @@ let engine = try LuaEngine(configuration: .unrestricted)
 
 ## App Store Compliance
 
-LuaSwift is designed to be App Store compliant:
+LuaSwift is designed to be App Store compliant per Apple's [App Store Review Guidelines 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements).
+
+### Core Compliance
 
 - **Bundled interpreter**: Lua source compiled into app (no code download)
+- **No JIT**: Standard interpreter only, not LuaJIT
 - **Sandboxing**: Dangerous functions disabled by default
-- **No JIT**: Standard interpreter, not LuaJIT
 
-Per Apple's [App Store Review Guidelines 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements).
+### Sandbox Security
+
+The default sandboxed mode provides defense-in-depth:
+
+| Disabled | Reason |
+|----------|--------|
+| `os.execute`, `os.exit` | System command execution |
+| `io.*` library | File system access |
+| `debug.*` library | Runtime introspection |
+| `loadfile`, `dofile`, `load` | External code loading |
+| `package.loadlib` | Dynamic library loading |
+| `require('io')`, `require('debug')` | Library restoration bypass |
+
+### Security Warnings
+
+> **packagePath Security**: Never set `packagePath` to a writable directory (Documents, Caches, tmp) when running user-provided scripts. This would allow downloaded Lua code to be executed via `require()`, violating App Store guidelines.
+
+```swift
+// SAFE: Read-only bundle resources
+let config = LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: Bundle.main.resourcePath! + "/Lua"
+)
+
+// UNSAFE: Writable directory - don't do this with untrusted scripts
+let config = LuaEngineConfiguration(
+    sandboxed: true,
+    packagePath: documentsDirectory  // Dangerous!
+)
+```
+
+### App Store Submission Checklist
+
+Before submitting to the App Store, verify:
+
+- [ ] Use sandboxed mode (default) for any user-provided scripts
+- [ ] If using `packagePath`, ensure it points only to read-only directories
+- [ ] Validate all inputs to Swift callbacks registered with Lua
+- [ ] If using IOModule, restrict `allowedDirectories` to app-controlled paths
+- [ ] Consider implementing script execution timeouts for untrusted code
+- [ ] Don't combine HTTP + IO modules with `packagePath` for untrusted scripts
+
+See the [Sandboxing Guide](Sources/LuaSwift/Documentation.docc/Articles/Sandboxing.md) for detailed security information.
 
 ## License
 

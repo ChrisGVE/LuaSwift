@@ -71,7 +71,9 @@ public struct YAMLModule {
                 _luaswift_yaml_decode_all = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] YAMLModule setup failed: \(error)")
+            #endif
         }
     }
 

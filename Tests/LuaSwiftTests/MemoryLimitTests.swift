@@ -14,6 +14,36 @@ import XCTest
 /// Tests for memory limit enforcement in LuaEngine and Swift modules.
 final class MemoryLimitTests: XCTestCase {
 
+    // MARK: - Memory Limit Scope Documentation
+
+    /// Documents that memoryLimit only applies to Swift module allocations, NOT Lua VM.
+    ///
+    /// This is an important limitation: Lua strings, tables, and other Lua-native
+    /// objects can grow without bound even with memoryLimit set. Only Swift-backed
+    /// modules (array, linalg, etc.) respect this limit via trackAllocation().
+    func testMemoryLimitAppliesToSwiftModulesOnly() throws {
+        // Set a very low memory limit (1KB)
+        let engine = try LuaEngine(configuration: .init(
+            sandboxed: true,
+            packagePath: nil,
+            memoryLimit: 1024
+        ))
+
+        // Lua table and string allocations are NOT limited
+        // This should succeed even though we're creating more than 1KB of data
+        XCTAssertNoThrow(try engine.evaluate("""
+            local t = {}
+            for i = 1, 1000 do
+                t[i] = string.rep('x', 100)  -- 100KB+ of string data
+            end
+            return #t
+        """))
+
+        // Verify the allocated bytes tracker is still at 0 (Lua didn't track)
+        XCTAssertEqual(engine.allocatedBytes, 0,
+            "Lua VM allocations should not be tracked by memoryLimit")
+    }
+
     // MARK: - LuaEngine Memory Tracking
 
     func testEngineMemoryTrackingProperties() throws {

@@ -128,6 +128,14 @@ public enum LuaValue: Equatable, Sendable {
     /// Represents a Lua table that has string keys. This is used when
     /// the table contains at least one non-integer key or when the
     /// integer keys don't form a contiguous sequence starting at 1.
+    ///
+    /// - Important: **Numeric Key Conversion**: When Lua tables are converted
+    ///   to Swift, numeric keys are cast to `Int`. This has two implications:
+    ///   1. **Fractional keys are truncated**: A Lua key of `1.5` becomes `1`
+    ///   2. **Large keys may overflow**: Keys outside `Int` range may wrap
+    ///
+    ///   If you need to preserve non-integer numeric keys, use string keys
+    ///   in your Lua code (e.g., `t["1.5"] = value` instead of `t[1.5] = value`).
     case table([String: LuaValue])
 
     /// A table with integer keys (array).
@@ -148,8 +156,27 @@ public enum LuaValue: Equatable, Sendable {
     /// Swift callbacks to receive and call Lua functions passed as arguments.
     /// The reference is an index in the Lua registry.
     ///
-    /// Note: This case should only be created by LuaEngine when converting
-    /// from the Lua stack. Use `LuaEngine.callLuaFunction(ref:args:)` to call it.
+    /// - Important: This case should only be created by `LuaEngine` when converting
+    ///   from the Lua stack. Use ``LuaEngine/callLuaFunction(ref:args:)`` to call it.
+    ///
+    /// ## Memory Management
+    ///
+    /// Function references must be explicitly released when no longer needed to
+    /// prevent memory leaks. Use one of these approaches:
+    ///
+    /// - **Manual release**: Call ``LuaEngine/releaseLuaFunction(ref:)`` when done
+    /// - **Auto-release**: Use ``LuaEngine/withLuaFunction(_:args:action:)`` or
+    ///   ``LuaEngine/callAndReleaseLuaFunction(_:args:)`` for one-shot calls
+    ///
+    /// ```swift
+    /// // Manual (retain for later use)
+    /// guard case .luaFunction(let ref) = funcValue else { return }
+    /// // ... use ref multiple times ...
+    /// engine.releaseLuaFunction(ref: ref)
+    ///
+    /// // Auto-release (one-shot call)
+    /// let result = try engine.callAndReleaseLuaFunction(funcValue, args: [.number(1)])
+    /// ```
     case luaFunction(Int32)
 
     // MARK: - Convenience Accessors
@@ -166,10 +193,22 @@ public enum LuaValue: Equatable, Sendable {
         return nil
     }
 
-    /// Returns the integer value if this is a number, nil otherwise.
+    /// Returns the integer value if this is a number with no fractional part, nil otherwise.
+    ///
+    /// Returns `nil` if:
+    /// - The value is not a number
+    /// - The number has a fractional component (e.g., 1.5)
+    ///
+    /// ```swift
+    /// LuaValue.number(42.0).intValue  // 42
+    /// LuaValue.number(1.5).intValue   // nil (has fractional part)
+    /// LuaValue.number(-3.0).intValue  // -3
+    /// ```
     public var intValue: Int? {
-        if case .number(let value) = self { return Int(value) }
-        return nil
+        guard case .number(let value) = self else { return nil }
+        // Return nil if the number has a fractional component
+        guard value.truncatingRemainder(dividingBy: 1) == 0 else { return nil }
+        return Int(value)
     }
 
     /// Returns the complex value if this is a complex number, nil otherwise.

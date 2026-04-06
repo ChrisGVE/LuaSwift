@@ -39,6 +39,12 @@ import CLua
 /// - `io.*` (all IO functions)
 /// - `debug.*` (all debug functions)
 /// - `loadfile`, `dofile`, `load`, `loadstring`
+/// - `package.loadlib` (dynamic library loading)
+///
+/// Additionally, the `require()` system is hardened:
+/// - `package.loaded.io` and `package.loaded.debug` are cleared to prevent bypass via `require()`
+/// - File-based `package.searchers` are removed, keeping only the preload searcher
+/// - `package.path` and `package.cpath` are cleared (unless `packagePath` is set)
 ///
 /// Safe libraries remain available: `math`, `string`, `table`, `coroutine`, `utf8`
 public struct LuaEngineConfiguration {
@@ -62,11 +68,20 @@ public struct LuaEngineConfiguration {
     /// Default: `nil` (use Lua's default package path)
     public var packagePath: String?
 
-    /// Memory limit in bytes (0 = unlimited).
+    /// Memory limit in bytes for Swift module allocations (0 = unlimited).
     ///
-    /// When set to a positive value, limits the total memory the Lua
-    /// state can allocate. Exceeding this limit will cause memory
-    /// allocation to fail.
+    /// When set to a positive value, limits memory allocated by Swift-backed
+    /// modules such as `array`, `linalg`, `plot`, etc. Exceeding this limit
+    /// causes those allocations to fail with a memory error.
+    ///
+    /// - Important: This limit applies **only** to Swift module allocations
+    ///   (tracked via ``LuaEngine/trackAllocation(bytes:)``), **not** to Lua VM
+    ///   allocations. Lua strings, tables, and other Lua-native objects are not
+    ///   tracked by this limit. To limit total Lua VM memory, a custom allocator
+    ///   via `lua_setallocf` would be required (not currently implemented).
+    ///
+    /// - Note: Each `Double` in array modules consumes 8 bytes. A 1000-element
+    ///   array requires approximately 8KB of tracked memory.
     ///
     /// Default: `0` (unlimited)
     public var memoryLimit: Int
@@ -98,7 +113,8 @@ public struct LuaEngineConfiguration {
     /// - Parameters:
     ///   - sandboxed: Whether to disable dangerous functions. Default `true`.
     ///   - packagePath: Custom path for Lua module loading. Default `nil`.
-    ///   - memoryLimit: Maximum memory in bytes (0 = unlimited). Default `0`.
+    ///   - memoryLimit: Maximum memory in bytes for Swift module allocations
+    ///     (0 = unlimited). Does not limit Lua VM allocations. Default `0`.
     public init(sandboxed: Bool, packagePath: String?, memoryLimit: Int) {
         self.sandboxed = sandboxed
         self.packagePath = packagePath
@@ -333,7 +349,7 @@ public final class LuaEngine {
 
         // Apply sandboxing if enabled
         if configuration.sandboxed {
-            applySandbox()
+            applySandbox(hasPackagePath: configuration.packagePath != nil)
         }
 
         // Set package path if provided
@@ -568,16 +584,141 @@ public final class LuaEngine {
     /// Release a Lua function reference.
     ///
     /// Call this when you're done with a function reference to allow
-    /// the Lua garbage collector to reclaim the function. This is important
-    /// to prevent memory leaks when storing function references long-term.
+    /// the Lua garbage collector to reclaim the function.
     ///
     /// - Parameter ref: The registry reference to release
+    ///
+    /// ## Memory Management
+    ///
+    /// When a Lua function is passed to a Swift callback, it's stored in the Lua
+    /// registry to prevent garbage collection. This creates a reference that must
+    /// be explicitly released when no longer needed.
+    ///
+    /// **Important**: Failing to release function references will cause memory leaks
+    /// in long-running applications. Each unreleased reference keeps the Lua function
+    /// and its upvalues alive in memory.
+    ///
+    /// For one-shot function calls, consider using ``withLuaFunction(_:args:action:)``
+    /// which automatically releases the reference after use.
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// // Store a function reference for later use
+    /// var storedRef: Int32?
+    ///
+    /// engine.registerFunction(name: "storeCallback") { args in
+    ///     guard case .luaFunction(let ref) = args.first else {
+    ///         throw LuaError.callbackError("Expected function")
+    ///     }
+    ///     storedRef = ref
+    ///     return .nil
+    /// }
+    ///
+    /// // Later, when done with the callback:
+    /// if let ref = storedRef {
+    ///     engine.releaseLuaFunction(ref: ref)
+    ///     storedRef = nil
+    /// }
+    /// ```
+    ///
+    /// - Note: It is safe to release references even after the engine is deinitialized;
+    ///   the call will simply have no effect.
     public func releaseLuaFunction(ref: Int32) {
         lock.lock()
         defer { lock.unlock() }
 
         guard let L = L else { return }
         luaL_unref(L, LUA_REGISTRYINDEX, ref)
+    }
+
+    /// Execute an action with a Lua function, automatically releasing the reference afterward.
+    ///
+    /// This is a convenience method for one-shot function calls where you don't need
+    /// to retain the function reference. The reference is automatically released when
+    /// the action completes (whether by normal return or by throwing an error).
+    ///
+    /// - Parameters:
+    ///   - funcValue: A `LuaValue.luaFunction` value containing the function reference
+    ///   - args: Arguments to pass to the Lua function
+    ///   - action: A closure that receives the function reference and can call it
+    /// - Returns: The result of the action closure
+    /// - Throws: `LuaError.callbackError` if `funcValue` is not a function,
+    ///   or any error thrown by the action closure
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// engine.registerFunction(name: "applyToValue") { args in
+    ///     guard args.count >= 2 else {
+    ///         throw LuaError.callbackError("Expected function and value")
+    ///     }
+    ///
+    ///     let funcValue = args[0]
+    ///     let value = args[1]
+    ///
+    ///     // Function reference is automatically released after this block
+    ///     return try engine.withLuaFunction(funcValue, args: [value]) { ref in
+    ///         return try engine.callLuaFunction(ref: ref, args: [value])
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ## Comparison with Manual Management
+    ///
+    /// ```swift
+    /// // Manual management (error-prone):
+    /// guard case .luaFunction(let ref) = funcValue else { throw ... }
+    /// defer { engine.releaseLuaFunction(ref: ref) }
+    /// let result = try engine.callLuaFunction(ref: ref, args: args)
+    ///
+    /// // Using withLuaFunction (safer):
+    /// let result = try engine.withLuaFunction(funcValue, args: args) { ref in
+    ///     try engine.callLuaFunction(ref: ref, args: args)
+    /// }
+    /// ```
+    @discardableResult
+    public func withLuaFunction<T>(
+        _ funcValue: LuaValue,
+        args: [LuaValue] = [],
+        action: (Int32) throws -> T
+    ) throws -> T {
+        guard case .luaFunction(let ref) = funcValue else {
+            throw LuaError.callbackError("Expected LuaValue.luaFunction, got \(funcValue)")
+        }
+
+        defer { releaseLuaFunction(ref: ref) }
+        return try action(ref)
+    }
+
+    /// Call a Lua function and automatically release its reference.
+    ///
+    /// This is a convenience overload that calls the function and returns its result
+    /// in one step, automatically releasing the function reference afterward.
+    ///
+    /// - Parameters:
+    ///   - funcValue: A `LuaValue.luaFunction` value containing the function reference
+    ///   - args: Arguments to pass to the Lua function
+    /// - Returns: The return value from the Lua function
+    /// - Throws: `LuaError.callbackError` if `funcValue` is not a function,
+    ///   or `LuaError.runtimeError` if the function call fails
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// engine.registerFunction(name: "runCallback") { args in
+    ///     guard args.count >= 1 else {
+    ///         throw LuaError.callbackError("Expected callback function")
+    ///     }
+    ///
+    ///     // Call the function with some arguments and auto-release
+    ///     return try engine.callAndReleaseLuaFunction(args[0], args: [.number(42)])
+    /// }
+    /// ```
+    public func callAndReleaseLuaFunction(_ funcValue: LuaValue, args: [LuaValue] = []) throws -> LuaValue {
+        try withLuaFunction(funcValue, args: args) { ref in
+            try callLuaFunction(ref: ref, args: args)
+        }
     }
 
     // MARK: - Random Seeding
@@ -771,7 +912,7 @@ public final class LuaEngine {
     private func pushValueOnThread(_ thread: OpaquePointer, _ value: LuaValue) {
         switch value {
         case .string(let str):
-            lua_pushstring(thread, str)
+            lua_pushstring_binary(thread, str)
         case .number(let num):
             lua_pushnumber(thread, num)
         case .complex(let re, let im):
@@ -784,7 +925,7 @@ public final class LuaEngine {
         case .table(let dict):
             lua_newtable(thread)
             for (k, v) in dict {
-                lua_pushstring(thread, k)
+                lua_pushstring_binary(thread, k)
                 pushValueOnThread(thread, v)
                 lua_settable(thread, -3)
             }
@@ -845,8 +986,8 @@ public final class LuaEngine {
             return .number(lua_tonumber(thread, index))
 
         case LUA_TSTRING:
-            guard let cstr = lua_tostring(thread, index) else { return .nil }
-            return .string(String(cString: cstr))
+            guard let str = lua_getstring(thread, index) else { return .nil }
+            return .string(str)
 
         case LUA_TTABLE:
             return tableFromThread(thread, at: index)
@@ -874,8 +1015,7 @@ public final class LuaEngine {
                 intKeyedValues[keyNum] = value
             } else if keyType == LUA_TSTRING {
                 hasStringKeys = true
-                if let keyStr = lua_tostring(thread, -2) {
-                    let key = String(cString: keyStr)
+                if let key = lua_getstring(thread, -2) {
                     dict[key] = value
                 }
             }
@@ -908,11 +1048,18 @@ public final class LuaEngine {
 
     // MARK: - Private Methods
 
-    private func applySandbox() {
+    private func applySandbox(hasPackagePath: Bool) {
         guard let L = L else { return }
 
-        // Remove dangerous functions
+        // Remove dangerous functions and harden package system
+        // This multi-step approach ensures:
+        // 1. Dangerous globals are removed
+        // 2. package.loaded entries are cleared so require() can't restore them
+        // 3. package.loadlib is disabled to prevent dynamic library loading
+        // 4. If no packagePath configured, searchers are cleared to prevent disk loading
+        //    If packagePath configured, searchers kept but path cleared (will be set later)
         let dangerous = """
+            -- Remove dangerous globals
             os.execute = nil
             os.exit = nil
             os.remove = nil
@@ -926,15 +1073,49 @@ public final class LuaEngine {
             dofile = nil
             load = nil
             loadstring = nil
+
+            -- Clear package.loaded for restricted libraries to prevent require() bypass
+            package.loaded.io = nil
+            package.loaded.debug = nil
+            -- Note: os is partially restricted, leave in loaded but with dangerous funcs removed
+
+            -- Disable dynamic library loading (App Store compliance)
+            package.loadlib = nil
+            package.cpath = ''
+
+            -- Clear package.path (will be set to configured path if packagePath provided)
+            package.path = ''
         """
 
         luaL_dostring(L, dangerous)
+
+        // If no packagePath is configured, also remove file-based searchers
+        // This prevents any file loading via require()
+        // If packagePath IS configured, keep searchers so files can be loaded from
+        // the explicitly allowed directory
+        if !hasPackagePath {
+            let removeSearchers = """
+                -- Clear file-based searchers, keeping only preload searcher
+                -- Lua 5.2+ uses package.searchers, Lua 5.1 uses package.loaders
+                local searchers = package.searchers or package.loaders
+                if searchers then
+                    -- Keep only the preload searcher (index 1), remove file searchers
+                    for i = #searchers, 2, -1 do
+                        searchers[i] = nil
+                    end
+                end
+            """
+            luaL_dostring(L, removeSearchers)
+        }
     }
 
     private func setPackagePath(_ path: String) {
         guard let L = L else { return }
 
-        let code = "package.path = '\(path)/?.lua;' .. package.path"
+        // Set package.path to the specified path only (don't append to existing)
+        // This is intentional: in sandboxed mode, we've cleared package.path
+        // and only want to allow loading from explicitly specified directories
+        let code = "package.path = '\(path)/?.lua'"
         luaL_dostring(L, code)
     }
 
@@ -1029,8 +1210,8 @@ public final class LuaEngine {
             return .number(lua_tonumber(L, index))
 
         case LUA_TSTRING:
-            guard let cstr = lua_tostring(L, index) else { return .nil }
-            return .string(String(cString: cstr))
+            guard let str = lua_getstring(L, index) else { return .nil }
+            return .string(str)
 
         case LUA_TTABLE:
             return tableFromStack(at: index)
@@ -1068,8 +1249,7 @@ public final class LuaEngine {
                 intKeyedValues[keyNum] = value
             } else if keyType == LUA_TSTRING {
                 hasStringKeys = true
-                if let keyStr = lua_tostring(L, -2) {
-                    let key = String(cString: keyStr)
+                if let key = lua_getstring(L, -2) {
                     dict[key] = value
                 }
             }
@@ -1159,7 +1339,7 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
 
     // Get the key being accessed
     guard lua_isstring(L, 2) != 0 else { return 0 }
-    let key = String(cString: lua_tostring(L, 2)!)
+    guard let key = lua_getstring(L, 2) else { return 0 }
 
     // Get metatable to access _engine and _namespace
     guard lua_getmetatable(L, 1) != 0 else { return 0 }
@@ -1190,8 +1370,8 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
         // Iterate path array
         lua_pushnil(L)
         while lua_next(L, -2) != 0 {
-            if lua_isstring(L, -1) != 0, let pStr = lua_tostring(L, -1) {
-                path.append(String(cString: pStr))
+            if lua_isstring(L, -1) != 0, let pStr = lua_getstring(L, -1) {
+                path.append(pStr)
             }
             lua_pop(L, 1)
         }
@@ -1223,7 +1403,7 @@ private func serverNewIndexCallback(_ L: OpaquePointer?) -> Int32 {
 
     // Get the key being set
     guard lua_isstring(L, 2) != 0 else { return 0 }
-    let key = String(cString: lua_tostring(L, 2)!)
+    guard let key = lua_getstring(L, 2) else { return 0 }
 
     // Get metatable to access _engine and _namespace
     guard lua_getmetatable(L, 1) != 0 else { return 0 }
@@ -1254,8 +1434,8 @@ private func serverNewIndexCallback(_ L: OpaquePointer?) -> Int32 {
         // Iterate path array
         lua_pushnil(L)
         while lua_next(L, -2) != 0 {
-            if lua_isstring(L, -1) != 0, let pStr = lua_tostring(L, -1) {
-                path.append(String(cString: pStr))
+            if lua_isstring(L, -1) != 0, let pStr = lua_getstring(L, -1) {
+                path.append(pStr)
             }
             lua_pop(L, 1)
         }
@@ -1290,7 +1470,7 @@ private func serverNewIndexCallback(_ L: OpaquePointer?) -> Int32 {
 private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String, path: [String], enginePtr: UnsafeMutableRawPointer) {
     switch value {
     case .string(let str):
-        lua_pushstring(L, str)
+        lua_pushstring_binary(L, str)
 
     case .number(let num):
         lua_pushnumber(L, num)
@@ -1309,7 +1489,7 @@ private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String,
         // Store path using raw access to avoid triggering __newindex
         lua_newtable(L)
         for (i, p) in path.enumerated() {
-            lua_pushstring(L, p)
+            lua_pushstring_binary(L, p)
             lua_rawseti(L, -2, lua_Integer(i + 1))
         }
         lua_pushstring(L, "_path")
@@ -1331,7 +1511,7 @@ private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String,
     case .table(let dict):
         lua_newtable(L)
         for (k, v) in dict {
-            lua_pushstring(L, k)
+            lua_pushstring_binary(L, k)
             pushSimpleValue(L, v)
             lua_settable(L, -3)
         }
@@ -1364,8 +1544,8 @@ private func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
         return .number(lua_tonumber(L, index))
 
     case LUA_TSTRING:
-        guard let cstr = lua_tostring(L, index) else { return .nil }
-        return .string(String(cString: cstr))
+        guard let str = lua_getstring(L, index) else { return .nil }
+        return .string(str)
 
     case LUA_TTABLE:
         return tableFromLuaStack(L, at: index)
@@ -1431,8 +1611,7 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
             intKeyedValues[keyNum] = value
         } else if keyType == LUA_TSTRING {
             hasStringKeys = true
-            if let keyStr = lua_tostring(L, -2) {
-                let key = String(cString: keyStr)
+            if let key = lua_getstring(L, -2) {
                 dict[key] = value
             }
         }
@@ -1467,7 +1646,7 @@ private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
 private func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
     switch value {
     case .string(let str):
-        lua_pushstring(L, str)
+        lua_pushstring_binary(L, str)
     case .number(let num):
         lua_pushnumber(L, num)
     case .complex(let re, let im):
@@ -1479,7 +1658,7 @@ private func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
     case .table(let dict):
         lua_newtable(L)
         for (k, v) in dict {
-            lua_pushstring(L, k)
+            lua_pushstring_binary(L, k)
             pushSimpleValue(L, v)
             lua_settable(L, -3)
         }

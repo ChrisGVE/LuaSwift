@@ -291,7 +291,9 @@ public struct StringXModule {
                 _luaswift_stringx_truncate = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] StringXModule setup failed: \(error)")
+            #endif
         }
     }
 

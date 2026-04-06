@@ -432,7 +432,9 @@ public struct InterpolateModule {
                 end
                 """)
         } catch {
-            // Silently fail
+            #if DEBUG
+            print("[LuaSwift] InterpolateModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -163,7 +163,9 @@ public struct DebugModule {
                 _luaswift_debug_console_assert = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] DebugModule setup failed: \(error)")
+            #endif
         }
     }
 

@@ -209,6 +209,62 @@ final class LuaEngineTests: XCTestCase {
         XCTAssertEqual(array?[2].stringValue, "c")
     }
 
+    // MARK: - Numeric Table Key Behavior (Known Limitations)
+
+    /// Documents that fractional numeric keys are truncated to Int.
+    ///
+    /// This is a known limitation: Lua allows any numeric value as a table key,
+    /// but when converting to Swift, numeric keys are cast to Int, truncating
+    /// any fractional part. Key 1.5 becomes key 1, potentially overwriting values.
+    func testNumericKeyFractionalTruncation() throws {
+        let engine = try LuaEngine()
+        // Create table with fractional key 1.5 and integer key 1
+        let result = try engine.evaluate("""
+            local t = {}
+            t[1] = "integer-one"
+            t[1.5] = "fractional-one-point-five"
+            return t
+        """)
+
+        // Due to truncation, both keys map to Int(1), and the second overwrites the first
+        // This documents current behavior, not necessarily desired behavior
+        // With only integer key (after truncation), it becomes a 1-element array
+        if let array = result.arrayValue {
+            // The table becomes a single-element array since 1.5 truncates to 1
+            XCTAssertEqual(array.count, 1, "Fractional key 1.5 truncates to 1, overwriting")
+            XCTAssertEqual(array[0].stringValue, "fractional-one-point-five")
+        } else if let table = result.tableValue {
+            XCTAssertEqual(table.count, 1, "Fractional key 1.5 truncates to 1, overwriting")
+        } else {
+            XCTFail("Expected table or array")
+        }
+    }
+
+    /// Documents that integer numeric keys work correctly.
+    func testNumericKeyIntegerWorks() throws {
+        let engine = try LuaEngine()
+        let result = try engine.evaluate("""
+            local t = {}
+            t[1] = "one"
+            t[2] = "two"
+            t[100] = "hundred"
+            return t
+        """)
+
+        // Non-contiguous integer keys (1, 2, 100) become a table with string keys
+        // because they don't form a contiguous array starting at 1
+        guard result.tableValue != nil || result.arrayValue != nil else {
+            XCTFail("Expected table or array")
+            return
+        }
+        // The values should be accessible via the appropriate accessor
+        if let table = result.tableValue {
+            XCTAssertEqual(table["1"]?.stringValue, "one")
+            XCTAssertEqual(table["2"]?.stringValue, "two")
+            XCTAssertEqual(table["100"]?.stringValue, "hundred")
+        }
+    }
+
     // MARK: - Math Library Tests
 
     func testMathSqrt() throws {
@@ -493,6 +549,128 @@ final class LuaEngineTests: XCTestCase {
         // Should now fail (Test is nil)
         let result = try engine.evaluate("return Test")
         XCTAssertTrue(result.isNil)
+    }
+
+    // MARK: - Binary-Safe String Tests (Embedded NUL)
+
+    func testStringWithEmbeddedNulRoundTrip() throws {
+        let engine = try LuaEngine()
+
+        // Create a string with embedded NUL in Lua and return it
+        let result = try engine.evaluate("""
+            local s = "hello\\0world"
+            return s
+        """)
+
+        // The string should preserve the embedded NUL
+        XCTAssertEqual(result.stringValue, "hello\0world")
+        XCTAssertEqual(result.stringValue?.count, 11)  // 5 + 1 + 5
+    }
+
+    func testStringWithEmbeddedNulInTable() throws {
+        let engine = try LuaEngine()
+
+        // Create a table with a string value containing embedded NUL
+        let result = try engine.evaluate("""
+            return { data = "ab\\0cd" }
+        """)
+
+        XCTAssertEqual(result.tableValue?["data"]?.stringValue, "ab\0cd")
+        XCTAssertEqual(result.tableValue?["data"]?.stringValue?.count, 5)
+    }
+
+    func testStringWithMultipleEmbeddedNuls() throws {
+        let engine = try LuaEngine()
+
+        let result = try engine.evaluate("""
+            return "a\\0b\\0c\\0d"
+        """)
+
+        let expected = "a\0b\0c\0d"
+        XCTAssertEqual(result.stringValue, expected)
+        XCTAssertEqual(result.stringValue?.count, 7)  // a + NUL + b + NUL + c + NUL + d
+    }
+
+    func testCallbackReceivesStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        var receivedString: String?
+        engine.registerFunction(name: "checkString") { args in
+            receivedString = args.first?.stringValue
+            return .number(Double(receivedString?.count ?? 0))
+        }
+
+        let result = try engine.evaluate("""
+            local s = "test\\0data"
+            return checkString(s)
+        """)
+
+        XCTAssertEqual(receivedString, "test\0data")
+        XCTAssertEqual(result.numberValue, 9.0)  // 4 + 1 + 4
+    }
+
+    func testCallbackReturnsStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        engine.registerFunction(name: "makeString") { _ in
+            return .string("prefix\0suffix")
+        }
+
+        let result = try engine.evaluate("return makeString()")
+
+        XCTAssertEqual(result.stringValue, "prefix\0suffix")
+        XCTAssertEqual(result.stringValue?.count, 13)  // 6 + 1 + 6
+    }
+
+    func testTableKeyWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        // Create a table with a key containing embedded NUL
+        let result = try engine.evaluate("""
+            local t = {}
+            t["key\\0name"] = "value"
+            return t
+        """)
+
+        // The key should preserve the embedded NUL
+        XCTAssertEqual(result.tableValue?["key\0name"]?.stringValue, "value")
+    }
+
+    func testValueServerWriteStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+        let server = TestValueServer()
+        engine.register(server: server)
+
+        try engine.run("Test.Cache.binary = 'data\\0with\\0nuls'")
+
+        XCTAssertEqual(server.cache["binary"]?.stringValue, "data\0with\0nuls")
+        XCTAssertEqual(server.cache["binary"]?.stringValue?.count, 14)  // 4 + 1 + 4 + 1 + 4
+    }
+
+    func testCoroutineStringWithEmbeddedNul() throws {
+        let engine = try LuaEngine()
+
+        let handle = try engine.createCoroutine(code: """
+            local function gen()
+                coroutine.yield("hello\\0world")
+                return "done\\0!"
+            end
+            return gen()
+        """)
+
+        let result1 = try engine.resume(handle)
+        if case .yielded(let values) = result1 {
+            XCTAssertEqual(values.first?.stringValue, "hello\0world")
+        } else {
+            XCTFail("Expected yielded result")
+        }
+
+        let result2 = try engine.resume(handle)
+        if case .completed(let value) = result2 {
+            XCTAssertEqual(value.stringValue, "done\0!")
+        } else {
+            XCTFail("Expected completed result")
+        }
     }
 
 }

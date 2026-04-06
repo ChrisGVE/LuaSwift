@@ -78,7 +78,9 @@ public struct JSONModule {
                 _luaswift_json_decode_json5 = nil
                 """)
         } catch {
-            // Silently fail if setup fails - callbacks are still registered
+            #if DEBUG
+            print("[LuaSwift] JSONModule setup failed: \(error)")
+            #endif
         }
     }
 

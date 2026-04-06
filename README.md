@@ -207,6 +207,15 @@ local svg_string = fig:render()
 |--------|--------|-------------|
 | regex | `regex` | ICU regular expressions |
 
+### Utilities
+
+| Module | Global | Description |
+|--------|--------|-------------|
+| types | `types` | Type detection, conversion, and inspection |
+| debug | `dbg` | Structured logging with levels (debug, info, warn, error) |
+| serialize | `serialize` | Table serialization and deserialization |
+| svg | `svg` | Standalone SVG document generation |
+
 ### File and Network Access
 
 These modules require explicit installation and configuration.
@@ -260,11 +269,18 @@ LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 LUASWIFT_INCLUDE_NUME
 
 **NumericSwift** powers these Lua modules:
 - `math.complex` - Complex number arithmetic
-- `math.geometry` - 2D/3D vectors and transforms
-- `math.stats` - Statistical functions
-- `math.special` - Special mathematical functions
+- `math.geo` - 2D/3D vectors and transforms
+- `math.stats` / `math.distributions` - Statistics and probability distributions
+- `math.special` - Special mathematical functions (Bessel, gamma, erf, elliptic)
 - `math.numtheory` - Number theory (primes, factorization)
-- Extended math utilities (vDSP-accelerated array operations)
+- `math.linalg` - Linear algebra (BLAS/LAPACK via Accelerate)
+- `math.regress` - Regression analysis (OLS, WLS, GLM, ARIMA)
+- `math.optimize` - Minimization, root finding, curve fitting
+- `math.integrate` - Numerical integration, ODE solvers
+- `math.interpolate` - Splines, PCHIP, Akima interpolation
+- `math.cluster` - K-means, hierarchical, DBSCAN
+- `math.spatial` - KDTree, Voronoi, Delaunay
+- `math.series` - Taylor polynomials, summation
 
 **ArraySwift** powers:
 - `array` - N-dimensional arrays with NumPy-like semantics

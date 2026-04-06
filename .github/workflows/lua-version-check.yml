@@ -68,6 +68,9 @@ jobs:
     needs: check-versions
     if: needs.check-versions.outputs.new_versions != ''
     runs-on: macos-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:

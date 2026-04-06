@@ -68,792 +68,891 @@ import Foundation
 /// ```
 public struct StringXModule {
 
-    /// Register the StringX module with a LuaEngine.
-    ///
-    /// This creates a global table `luaswift` with a nested `stringx` table containing
-    /// string utility functions.
-    ///
-    /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
-        // Register Swift callbacks
-        engine.registerFunction(name: "_luaswift_stringx_strip", callback: stripCallback)
-        engine.registerFunction(name: "_luaswift_stringx_lstrip", callback: lstripCallback)
-        engine.registerFunction(name: "_luaswift_stringx_rstrip", callback: rstripCallback)
-        engine.registerFunction(name: "_luaswift_stringx_split", callback: splitCallback)
-        engine.registerFunction(name: "_luaswift_stringx_replace", callback: replaceCallback)
-        engine.registerFunction(name: "_luaswift_stringx_join", callback: joinCallback)
-        engine.registerFunction(name: "_luaswift_stringx_startswith", callback: startswithCallback)
-        engine.registerFunction(name: "_luaswift_stringx_endswith", callback: endswithCallback)
-        engine.registerFunction(name: "_luaswift_stringx_contains", callback: containsCallback)
-        engine.registerFunction(name: "_luaswift_stringx_count", callback: countCallback)
-        engine.registerFunction(name: "_luaswift_stringx_capitalize", callback: capitalizeCallback)
-        engine.registerFunction(name: "_luaswift_stringx_title", callback: titleCallback)
-        engine.registerFunction(name: "_luaswift_stringx_lpad", callback: lpadCallback)
-        engine.registerFunction(name: "_luaswift_stringx_rpad", callback: rpadCallback)
-        engine.registerFunction(name: "_luaswift_stringx_center", callback: centerCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_alpha", callback: isAlphaCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_digit", callback: isDigitCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_alnum", callback: isAlnumCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_space", callback: isSpaceCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_upper", callback: isUpperCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_lower", callback: isLowerCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_empty", callback: isEmptyCallback)
-        engine.registerFunction(name: "_luaswift_stringx_is_blank", callback: isBlankCallback)
-        engine.registerFunction(name: "_luaswift_stringx_splitlines", callback: splitlinesCallback)
-        engine.registerFunction(name: "_luaswift_stringx_wrap", callback: wrapCallback)
-        engine.registerFunction(name: "_luaswift_stringx_truncate", callback: truncateCallback)
+  /// Register the StringX module with a LuaEngine.
+  ///
+  /// This creates a global table `luaswift` with a nested `stringx` table containing
+  /// string utility functions.
+  ///
+  /// - Parameter engine: The Lua engine to register with
+  public static func register(in engine: LuaEngine) {
+    // Register Swift callbacks
+    engine.registerFunction(name: "_luaswift_stringx_strip", callback: stripCallback)
+    engine.registerFunction(name: "_luaswift_stringx_lstrip", callback: lstripCallback)
+    engine.registerFunction(name: "_luaswift_stringx_rstrip", callback: rstripCallback)
+    engine.registerFunction(name: "_luaswift_stringx_split", callback: splitCallback)
+    engine.registerFunction(name: "_luaswift_stringx_replace", callback: replaceCallback)
+    engine.registerFunction(name: "_luaswift_stringx_join", callback: joinCallback)
+    engine.registerFunction(name: "_luaswift_stringx_startswith", callback: startswithCallback)
+    engine.registerFunction(name: "_luaswift_stringx_endswith", callback: endswithCallback)
+    engine.registerFunction(name: "_luaswift_stringx_contains", callback: containsCallback)
+    engine.registerFunction(name: "_luaswift_stringx_count", callback: countCallback)
+    engine.registerFunction(name: "_luaswift_stringx_capitalize", callback: capitalizeCallback)
+    engine.registerFunction(name: "_luaswift_stringx_title", callback: titleCallback)
+    engine.registerFunction(name: "_luaswift_stringx_lpad", callback: lpadCallback)
+    engine.registerFunction(name: "_luaswift_stringx_rpad", callback: rpadCallback)
+    engine.registerFunction(name: "_luaswift_stringx_center", callback: centerCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_alpha", callback: isAlphaCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_digit", callback: isDigitCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_alnum", callback: isAlnumCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_space", callback: isSpaceCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_upper", callback: isUpperCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_lower", callback: isLowerCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_empty", callback: isEmptyCallback)
+    engine.registerFunction(name: "_luaswift_stringx_is_blank", callback: isBlankCallback)
+    engine.registerFunction(name: "_luaswift_stringx_splitlines", callback: splitlinesCallback)
+    engine.registerFunction(name: "_luaswift_stringx_wrap", callback: wrapCallback)
+    engine.registerFunction(name: "_luaswift_stringx_truncate", callback: truncateCallback)
+    engine.registerFunction(name: "_luaswift_stringx_slice", callback: sliceCallback)
 
-        // Set up the luaswift.stringx namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
+    // Set up the luaswift.stringx namespace
+    do {
+      try engine.run(
+        """
+        if not luaswift then luaswift = {} end
 
-                -- Store references to C functions before clearing globals
-                local strip_fn = _luaswift_stringx_strip
-                local lstrip_fn = _luaswift_stringx_lstrip
-                local rstrip_fn = _luaswift_stringx_rstrip
-                local split_fn = _luaswift_stringx_split
-                local replace_fn = _luaswift_stringx_replace
-                local join_fn = _luaswift_stringx_join
-                local startswith_fn = _luaswift_stringx_startswith
-                local endswith_fn = _luaswift_stringx_endswith
-                local contains_fn = _luaswift_stringx_contains
-                local count_fn = _luaswift_stringx_count
-                local capitalize_fn = _luaswift_stringx_capitalize
-                local title_fn = _luaswift_stringx_title
-                local lpad_fn = _luaswift_stringx_lpad
-                local rpad_fn = _luaswift_stringx_rpad
-                local center_fn = _luaswift_stringx_center
-                local is_alpha_fn = _luaswift_stringx_is_alpha
-                local is_digit_fn = _luaswift_stringx_is_digit
-                local is_alnum_fn = _luaswift_stringx_is_alnum
-                local is_space_fn = _luaswift_stringx_is_space
-                local is_upper_fn = _luaswift_stringx_is_upper
-                local is_lower_fn = _luaswift_stringx_is_lower
-                local is_empty_fn = _luaswift_stringx_is_empty
-                local is_blank_fn = _luaswift_stringx_is_blank
-                local splitlines_fn = _luaswift_stringx_splitlines
-                local wrap_fn = _luaswift_stringx_wrap
-                local truncate_fn = _luaswift_stringx_truncate
+        -- Store references to C functions before clearing globals
+        local strip_fn = _luaswift_stringx_strip
+        local lstrip_fn = _luaswift_stringx_lstrip
+        local rstrip_fn = _luaswift_stringx_rstrip
+        local split_fn = _luaswift_stringx_split
+        local replace_fn = _luaswift_stringx_replace
+        local join_fn = _luaswift_stringx_join
+        local startswith_fn = _luaswift_stringx_startswith
+        local endswith_fn = _luaswift_stringx_endswith
+        local contains_fn = _luaswift_stringx_contains
+        local count_fn = _luaswift_stringx_count
+        local capitalize_fn = _luaswift_stringx_capitalize
+        local title_fn = _luaswift_stringx_title
+        local lpad_fn = _luaswift_stringx_lpad
+        local rpad_fn = _luaswift_stringx_rpad
+        local center_fn = _luaswift_stringx_center
+        local is_alpha_fn = _luaswift_stringx_is_alpha
+        local is_digit_fn = _luaswift_stringx_is_digit
+        local is_alnum_fn = _luaswift_stringx_is_alnum
+        local is_space_fn = _luaswift_stringx_is_space
+        local is_upper_fn = _luaswift_stringx_is_upper
+        local is_lower_fn = _luaswift_stringx_is_lower
+        local is_empty_fn = _luaswift_stringx_is_empty
+        local is_blank_fn = _luaswift_stringx_is_blank
+        local splitlines_fn = _luaswift_stringx_splitlines
+        local wrap_fn = _luaswift_stringx_wrap
+        local truncate_fn = _luaswift_stringx_truncate
+        local slice_fn = _luaswift_stringx_slice
 
-                luaswift.stringx = {
-                    strip = strip_fn,
-                    lstrip = lstrip_fn,
-                    rstrip = rstrip_fn,
-                    split = split_fn,
-                    replace = replace_fn,
-                    join = join_fn,
-                    startswith = startswith_fn,
-                    endswith = endswith_fn,
-                    contains = contains_fn,
-                    count = count_fn,
-                    capitalize = capitalize_fn,
-                    title = title_fn,
-                    lpad = lpad_fn,
-                    rpad = rpad_fn,
-                    center = center_fn,
-                    -- Character classification (new is_<name> convention)
-                    is_alpha = is_alpha_fn,
-                    is_digit = is_digit_fn,
-                    is_alnum = is_alnum_fn,
-                    is_space = is_space_fn,
-                    is_upper = is_upper_fn,
-                    is_lower = is_lower_fn,
-                    is_empty = is_empty_fn,
-                    is_blank = is_blank_fn,
-                    -- Backward compatibility aliases (deprecated, use is_<name> instead)
-                    isalpha = is_alpha_fn,
-                    isdigit = is_digit_fn,
-                    isalnum = is_alnum_fn,
-                    isspace = is_space_fn,
-                    isupper = is_upper_fn,
-                    islower = is_lower_fn,
-                    isempty = is_empty_fn,
-                    isblank = is_blank_fn,
-                    splitlines = splitlines_fn,
-                    wrap = wrap_fn,
-                    truncate = truncate_fn,
+        luaswift.stringx = {
+            strip = strip_fn,
+            lstrip = lstrip_fn,
+            rstrip = rstrip_fn,
+            split = split_fn,
+            replace = replace_fn,
+            join = join_fn,
+            startswith = startswith_fn,
+            endswith = endswith_fn,
+            contains = contains_fn,
+            count = count_fn,
+            capitalize = capitalize_fn,
+            title = title_fn,
+            lpad = lpad_fn,
+            rpad = rpad_fn,
+            center = center_fn,
+            -- Character classification (new is_<name> convention)
+            is_alpha = is_alpha_fn,
+            is_digit = is_digit_fn,
+            is_alnum = is_alnum_fn,
+            is_space = is_space_fn,
+            is_upper = is_upper_fn,
+            is_lower = is_lower_fn,
+            is_empty = is_empty_fn,
+            is_blank = is_blank_fn,
+            -- Backward compatibility aliases (deprecated, use is_<name> instead)
+            isalpha = is_alpha_fn,
+            isdigit = is_digit_fn,
+            isalnum = is_alnum_fn,
+            isspace = is_space_fn,
+            isupper = is_upper_fn,
+            islower = is_lower_fn,
+            isempty = is_empty_fn,
+            isblank = is_blank_fn,
+            splitlines = splitlines_fn,
+            wrap = wrap_fn,
+            truncate = truncate_fn,
+            slice = slice_fn,
 
-                    -- import() extends the string table and metatable
-                    import = function()
-                        -- Add functions to string table
-                        string.strip = strip_fn
-                        string.lstrip = lstrip_fn
-                        string.rstrip = rstrip_fn
-                        string.split = split_fn
-                        string.replace = replace_fn
-                        string.join = join_fn
-                        string.startswith = startswith_fn
-                        string.endswith = endswith_fn
-                        string.contains = contains_fn
-                        string.count = count_fn
-                        string.capitalize = capitalize_fn
-                        string.title = title_fn
-                        string.lpad = lpad_fn
-                        string.rpad = rpad_fn
-                        string.center = center_fn
+            -- import() extends the string table and metatable
+            import = function()
+                -- Add functions to string table
+                string.strip = strip_fn
+                string.lstrip = lstrip_fn
+                string.rstrip = rstrip_fn
+                string.split = split_fn
+                string.replace = replace_fn
+                string.join = join_fn
+                string.startswith = startswith_fn
+                string.endswith = endswith_fn
+                string.contains = contains_fn
+                string.count = count_fn
+                string.capitalize = capitalize_fn
+                string.title = title_fn
+                string.lpad = lpad_fn
+                string.rpad = rpad_fn
+                string.center = center_fn
+                -- Character classification (new is_<name> convention)
+                string.is_alpha = is_alpha_fn
+                string.is_digit = is_digit_fn
+                string.is_alnum = is_alnum_fn
+                string.is_space = is_space_fn
+                string.is_upper = is_upper_fn
+                string.is_lower = is_lower_fn
+                string.is_empty = is_empty_fn
+                string.is_blank = is_blank_fn
+                -- Backward compatibility aliases
+                string.isalpha = is_alpha_fn
+                string.isdigit = is_digit_fn
+                string.isalnum = is_alnum_fn
+                string.isspace = is_space_fn
+                string.isupper = is_upper_fn
+                string.islower = is_lower_fn
+                string.isempty = is_empty_fn
+                string.isblank = is_blank_fn
+                string.splitlines = splitlines_fn
+                string.wrap = wrap_fn
+                string.truncate = truncate_fn
+                string.slice = slice_fn
+
+                -- Add to string metatable for s:method() syntax
+                local mt = getmetatable("")
+                if mt and mt.__index then
+                    local idx = mt.__index
+                    if type(idx) == "table" then
+                        idx.strip = strip_fn
+                        idx.lstrip = lstrip_fn
+                        idx.rstrip = rstrip_fn
+                        idx.split = split_fn
+                        idx.replace = replace_fn
+                        idx.startswith = startswith_fn
+                        idx.endswith = endswith_fn
+                        idx.contains = contains_fn
+                        idx.count = count_fn
+                        idx.capitalize = capitalize_fn
+                        idx.title = title_fn
+                        idx.lpad = lpad_fn
+                        idx.rpad = rpad_fn
+                        idx.center = center_fn
                         -- Character classification (new is_<name> convention)
-                        string.is_alpha = is_alpha_fn
-                        string.is_digit = is_digit_fn
-                        string.is_alnum = is_alnum_fn
-                        string.is_space = is_space_fn
-                        string.is_upper = is_upper_fn
-                        string.is_lower = is_lower_fn
-                        string.is_empty = is_empty_fn
-                        string.is_blank = is_blank_fn
+                        idx.is_alpha = is_alpha_fn
+                        idx.is_digit = is_digit_fn
+                        idx.is_alnum = is_alnum_fn
+                        idx.is_space = is_space_fn
+                        idx.is_upper = is_upper_fn
+                        idx.is_lower = is_lower_fn
+                        idx.is_empty = is_empty_fn
+                        idx.is_blank = is_blank_fn
                         -- Backward compatibility aliases
-                        string.isalpha = is_alpha_fn
-                        string.isdigit = is_digit_fn
-                        string.isalnum = is_alnum_fn
-                        string.isspace = is_space_fn
-                        string.isupper = is_upper_fn
-                        string.islower = is_lower_fn
-                        string.isempty = is_empty_fn
-                        string.isblank = is_blank_fn
-                        string.splitlines = splitlines_fn
-                        string.wrap = wrap_fn
-                        string.truncate = truncate_fn
-
-                        -- Add to string metatable for s:method() syntax
-                        local mt = getmetatable("")
-                        if mt and mt.__index then
-                            local idx = mt.__index
-                            if type(idx) == "table" then
-                                idx.strip = strip_fn
-                                idx.lstrip = lstrip_fn
-                                idx.rstrip = rstrip_fn
-                                idx.split = split_fn
-                                idx.replace = replace_fn
-                                idx.startswith = startswith_fn
-                                idx.endswith = endswith_fn
-                                idx.contains = contains_fn
-                                idx.count = count_fn
-                                idx.capitalize = capitalize_fn
-                                idx.title = title_fn
-                                idx.lpad = lpad_fn
-                                idx.rpad = rpad_fn
-                                idx.center = center_fn
-                                -- Character classification (new is_<name> convention)
-                                idx.is_alpha = is_alpha_fn
-                                idx.is_digit = is_digit_fn
-                                idx.is_alnum = is_alnum_fn
-                                idx.is_space = is_space_fn
-                                idx.is_upper = is_upper_fn
-                                idx.is_lower = is_lower_fn
-                                idx.is_empty = is_empty_fn
-                                idx.is_blank = is_blank_fn
-                                -- Backward compatibility aliases
-                                idx.isalpha = is_alpha_fn
-                                idx.isdigit = is_digit_fn
-                                idx.isalnum = is_alnum_fn
-                                idx.isspace = is_space_fn
-                                idx.isupper = is_upper_fn
-                                idx.islower = is_lower_fn
-                                idx.isempty = is_empty_fn
-                                idx.isblank = is_blank_fn
-                                idx.splitlines = splitlines_fn
-                                idx.wrap = wrap_fn
-                                idx.truncate = truncate_fn
-                            end
-                        end
+                        idx.isalpha = is_alpha_fn
+                        idx.isdigit = is_digit_fn
+                        idx.isalnum = is_alnum_fn
+                        idx.isspace = is_space_fn
+                        idx.isupper = is_upper_fn
+                        idx.islower = is_lower_fn
+                        idx.isempty = is_empty_fn
+                        idx.isblank = is_blank_fn
+                        idx.splitlines = splitlines_fn
+                        idx.wrap = wrap_fn
+                        idx.truncate = truncate_fn
+                        idx.slice = slice_fn
                     end
-                }
-
-                -- Create top-level global alias
-                stringx = luaswift.stringx
-
-                -- Clean up global namespace
-                _luaswift_stringx_strip = nil
-                _luaswift_stringx_lstrip = nil
-                _luaswift_stringx_rstrip = nil
-                _luaswift_stringx_split = nil
-                _luaswift_stringx_replace = nil
-                _luaswift_stringx_join = nil
-                _luaswift_stringx_startswith = nil
-                _luaswift_stringx_endswith = nil
-                _luaswift_stringx_contains = nil
-                _luaswift_stringx_count = nil
-                _luaswift_stringx_capitalize = nil
-                _luaswift_stringx_title = nil
-                _luaswift_stringx_lpad = nil
-                _luaswift_stringx_rpad = nil
-                _luaswift_stringx_center = nil
-                _luaswift_stringx_is_alpha = nil
-                _luaswift_stringx_is_digit = nil
-                _luaswift_stringx_is_alnum = nil
-                _luaswift_stringx_is_space = nil
-                _luaswift_stringx_is_upper = nil
-                _luaswift_stringx_is_lower = nil
-                _luaswift_stringx_is_empty = nil
-                _luaswift_stringx_is_blank = nil
-                _luaswift_stringx_splitlines = nil
-                _luaswift_stringx_wrap = nil
-                _luaswift_stringx_truncate = nil
-                """)
-        } catch {
-            #if DEBUG
-            print("[LuaSwift] StringXModule setup failed: \(error)")
-            #endif
+                end
+            end
         }
+
+        -- Create top-level global alias
+        stringx = luaswift.stringx
+
+        -- Clean up global namespace
+        _luaswift_stringx_strip = nil
+        _luaswift_stringx_lstrip = nil
+        _luaswift_stringx_rstrip = nil
+        _luaswift_stringx_split = nil
+        _luaswift_stringx_replace = nil
+        _luaswift_stringx_join = nil
+        _luaswift_stringx_startswith = nil
+        _luaswift_stringx_endswith = nil
+        _luaswift_stringx_contains = nil
+        _luaswift_stringx_count = nil
+        _luaswift_stringx_capitalize = nil
+        _luaswift_stringx_title = nil
+        _luaswift_stringx_lpad = nil
+        _luaswift_stringx_rpad = nil
+        _luaswift_stringx_center = nil
+        _luaswift_stringx_is_alpha = nil
+        _luaswift_stringx_is_digit = nil
+        _luaswift_stringx_is_alnum = nil
+        _luaswift_stringx_is_space = nil
+        _luaswift_stringx_is_upper = nil
+        _luaswift_stringx_is_lower = nil
+        _luaswift_stringx_is_empty = nil
+        _luaswift_stringx_is_blank = nil
+        _luaswift_stringx_splitlines = nil
+        _luaswift_stringx_wrap = nil
+        _luaswift_stringx_truncate = nil
+        _luaswift_stringx_slice = nil
+        """)
+    } catch {
+      #if DEBUG
+        print("[LuaSwift] StringXModule setup failed: \(error)")
+      #endif
+    }
+  }
+
+  // MARK: - Callbacks
+
+  /// Strip (trim) leading and trailing characters
+  private static func stripCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.strip requires a string argument")
     }
 
-    // MARK: - Callbacks
-
-    /// Strip (trim) leading and trailing characters
-    private static func stripCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.strip requires a string argument")
-        }
-
-        if args.count > 1, let chars = args[1].stringValue {
-            let charSet = CharacterSet(charactersIn: chars)
-            return .string(s.trimmingCharacters(in: charSet))
-        }
-
-        return .string(s.trimmingCharacters(in: .whitespacesAndNewlines))
+    if args.count > 1, let chars = args[1].stringValue {
+      let charSet = CharacterSet(charactersIn: chars)
+      return .string(s.trimmingCharacters(in: charSet))
     }
 
-    /// Strip (trim) leading characters only
-    private static func lstripCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.lstrip requires a string argument")
-        }
+    return .string(s.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
 
-        let charSet = args.count > 1 && args[1].stringValue != nil
-            ? CharacterSet(charactersIn: args[1].stringValue!)
-            : .whitespacesAndNewlines
-
-        var result = s
-        while let first = result.first, charSet.contains(first.unicodeScalars.first!) {
-            result.removeFirst()
-        }
-
-        return .string(result)
+  /// Strip (trim) leading characters only
+  private static func lstripCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.lstrip requires a string argument")
     }
 
-    /// Strip (trim) trailing characters only
-    private static func rstripCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.rstrip requires a string argument")
-        }
+    let charSet =
+      args.count > 1 && args[1].stringValue != nil
+      ? CharacterSet(charactersIn: args[1].stringValue!)
+      : .whitespacesAndNewlines
 
-        let charSet = args.count > 1 && args[1].stringValue != nil
-            ? CharacterSet(charactersIn: args[1].stringValue!)
-            : .whitespacesAndNewlines
-
-        var result = s
-        while let last = result.last, charSet.contains(last.unicodeScalars.first!) {
-            result.removeLast()
-        }
-
-        return .string(result)
+    var result = s
+    while let first = result.first, charSet.contains(first.unicodeScalars.first!) {
+      result.removeFirst()
     }
 
-    /// Split string by separator
-    private static func splitCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let sep = args[1].stringValue else {
-            throw LuaError.callbackError("stringx.split requires string and separator arguments")
-        }
+    return .string(result)
+  }
 
-        if sep.isEmpty {
-            // Split into individual characters
-            let chars = s.map { LuaValue.string(String($0)) }
-            return .array(chars)
-        }
-
-        let parts = s.components(separatedBy: sep)
-        return .array(parts.map { .string($0) })
+  /// Strip (trim) trailing characters only
+  private static func rstripCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.rstrip requires a string argument")
     }
 
-    /// Replace occurrences of old string with new string
-    private static func replaceCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 3,
-              let s = args[0].stringValue,
-              let old = args[1].stringValue,
-              let new = args[2].stringValue else {
-            throw LuaError.callbackError("stringx.replace requires string, old, and new arguments")
-        }
+    let charSet =
+      args.count > 1 && args[1].stringValue != nil
+      ? CharacterSet(charactersIn: args[1].stringValue!)
+      : .whitespacesAndNewlines
 
-        if old.isEmpty {
-            return .string(s)
-        }
-
-        // Optional count limit
-        let count = args.count > 3 ? args[3].intValue : nil
-
-        var result = s
-        if let maxReplacements = count {
-            var replaced = 0
-            var searchStartIndex = result.startIndex
-
-            while replaced < maxReplacements,
-                  let range = result.range(of: old, range: searchStartIndex..<result.endIndex) {
-                result.replaceSubrange(range, with: new)
-                replaced += 1
-
-                // Move search position forward
-                let newStartOffset = result.distance(from: result.startIndex, to: range.lowerBound) + new.count
-                searchStartIndex = result.index(result.startIndex, offsetBy: newStartOffset)
-
-                if searchStartIndex >= result.endIndex {
-                    break
-                }
-            }
-        } else {
-            result = result.replacingOccurrences(of: old, with: new)
-        }
-
-        return .string(result)
+    var result = s
+    while let last = result.last, charSet.contains(last.unicodeScalars.first!) {
+      result.removeLast()
     }
 
-    /// Join array elements with separator
-    private static func joinCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let sep = args[1].stringValue else {
-            throw LuaError.callbackError("stringx.join requires array and separator arguments")
-        }
+    return .string(result)
+  }
 
-        // Handle both array and table (for empty tables)
-        let array: [LuaValue]
-        if let arrayValue = args[0].arrayValue {
-            array = arrayValue
-        } else if let tableValue = args[0].tableValue, tableValue.isEmpty {
-            // Empty table is treated as empty array
-            array = []
-        } else {
-            throw LuaError.callbackError("stringx.join requires array and separator arguments")
-        }
-
-        let strings = array.compactMap { $0.stringValue }
-        return .string(strings.joined(separator: sep))
+  /// Split string by separator
+  private static func splitCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let sep = args[1].stringValue
+    else {
+      throw LuaError.callbackError("stringx.split requires string and separator arguments")
     }
 
-    /// Check if string starts with prefix
-    private static func startswithCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let prefix = args[1].stringValue else {
-            throw LuaError.callbackError("stringx.startswith requires string and prefix arguments")
-        }
-
-        return .bool(s.hasPrefix(prefix))
+    if sep.isEmpty {
+      // Split into individual characters
+      let chars = s.map { LuaValue.string(String($0)) }
+      return .array(chars)
     }
 
-    /// Check if string ends with suffix
-    private static func endswithCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let suffix = args[1].stringValue else {
-            throw LuaError.callbackError("stringx.endswith requires string and suffix arguments")
-        }
+    let parts = s.components(separatedBy: sep)
+    return .array(parts.map { .string($0) })
+  }
 
-        return .bool(s.hasSuffix(suffix))
+  /// Replace occurrences of old string with new string
+  private static func replaceCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 3,
+      let s = args[0].stringValue,
+      let old = args[1].stringValue,
+      let new = args[2].stringValue
+    else {
+      throw LuaError.callbackError("stringx.replace requires string, old, and new arguments")
     }
 
-    /// Check if string contains substring
-    private static func containsCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let substring = args[1].stringValue else {
-            throw LuaError.callbackError("stringx.contains requires string and substring arguments")
-        }
-
-        // Empty substring is always contained in any string
-        if substring.isEmpty {
-            return .bool(true)
-        }
-
-        return .bool(s.contains(substring))
+    if old.isEmpty {
+      return .string(s)
     }
 
-    /// Count occurrences of pattern in string
-    private static func countCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let pattern = args[1].stringValue else {
-            throw LuaError.callbackError("stringx.count requires string and pattern arguments")
+    // Optional count limit
+    let count = args.count > 3 ? args[3].intValue : nil
+
+    var result = s
+    if let maxReplacements = count {
+      var replaced = 0
+      var searchStartIndex = result.startIndex
+
+      while replaced < maxReplacements,
+        let range = result.range(of: old, range: searchStartIndex..<result.endIndex)
+      {
+        result.replaceSubrange(range, with: new)
+        replaced += 1
+
+        // Move search position forward
+        let newStartOffset =
+          result.distance(from: result.startIndex, to: range.lowerBound) + new.count
+        searchStartIndex = result.index(result.startIndex, offsetBy: newStartOffset)
+
+        if searchStartIndex >= result.endIndex {
+          break
         }
-
-        if pattern.isEmpty {
-            return .number(0)
-        }
-
-        var count = 0
-        var searchRange = s.startIndex..<s.endIndex
-
-        while let range = s.range(of: pattern, range: searchRange) {
-            count += 1
-            searchRange = range.upperBound..<s.endIndex
-
-            if searchRange.isEmpty {
-                break
-            }
-        }
-
-        return .number(Double(count))
+      }
+    } else {
+      result = result.replacingOccurrences(of: old, with: new)
     }
 
-    // MARK: - Case Conversion Callbacks
+    return .string(result)
+  }
 
-    /// Capitalize first letter, lowercase rest
-    private static func capitalizeCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.capitalize requires a string argument")
-        }
-
-        if s.isEmpty {
-            return .string("")
-        }
-
-        let first = s.prefix(1).uppercased()
-        let rest = s.dropFirst().lowercased()
-        return .string(first + rest)
+  /// Join array elements with separator
+  private static func joinCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let sep = args[1].stringValue
+    else {
+      throw LuaError.callbackError("stringx.join requires array and separator arguments")
     }
 
-    /// Title case (capitalize first letter of each word)
-    private static func titleCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.title requires a string argument")
-        }
-
-        if s.isEmpty {
-            return .string("")
-        }
-
-        // Use Swift's capitalized for proper Unicode handling
-        return .string(s.capitalized)
+    // Handle both array and table (for empty tables)
+    let array: [LuaValue]
+    if let arrayValue = args[0].arrayValue {
+      array = arrayValue
+    } else if let tableValue = args[0].tableValue, tableValue.isEmpty {
+      // Empty table is treated as empty array
+      array = []
+    } else {
+      throw LuaError.callbackError("stringx.join requires array and separator arguments")
     }
 
-    // MARK: - Padding Callbacks
+    let strings = array.compactMap { $0.stringValue }
+    return .string(strings.joined(separator: sep))
+  }
 
-    /// Left pad string to width with character (default space)
-    private static func lpadCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let width = args[1].intValue else {
-            throw LuaError.callbackError("stringx.lpad requires string and width arguments")
-        }
-
-        let padChar: Character
-        if args.count > 2, let charStr = args[2].stringValue, !charStr.isEmpty {
-            padChar = charStr.first!
-        } else {
-            padChar = " "
-        }
-
-        let currentLength = s.count
-        if currentLength >= width {
-            return .string(s)
-        }
-
-        let padding = String(repeating: padChar, count: width - currentLength)
-        return .string(padding + s)
+  /// Check if string starts with prefix
+  private static func startswithCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let prefix = args[1].stringValue
+    else {
+      throw LuaError.callbackError("stringx.startswith requires string and prefix arguments")
     }
 
-    /// Right pad string to width with character (default space)
-    private static func rpadCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let width = args[1].intValue else {
-            throw LuaError.callbackError("stringx.rpad requires string and width arguments")
-        }
+    return .bool(s.hasPrefix(prefix))
+  }
 
-        let padChar: Character
-        if args.count > 2, let charStr = args[2].stringValue, !charStr.isEmpty {
-            padChar = charStr.first!
-        } else {
-            padChar = " "
-        }
-
-        let currentLength = s.count
-        if currentLength >= width {
-            return .string(s)
-        }
-
-        let padding = String(repeating: padChar, count: width - currentLength)
-        return .string(s + padding)
+  /// Check if string ends with suffix
+  private static func endswithCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let suffix = args[1].stringValue
+    else {
+      throw LuaError.callbackError("stringx.endswith requires string and suffix arguments")
     }
 
-    /// Center pad string to width with character (default space)
-    private static func centerCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let width = args[1].intValue else {
-            throw LuaError.callbackError("stringx.center requires string and width arguments")
-        }
+    return .bool(s.hasSuffix(suffix))
+  }
 
-        let padChar: Character
-        if args.count > 2, let charStr = args[2].stringValue, !charStr.isEmpty {
-            padChar = charStr.first!
-        } else {
-            padChar = " "
-        }
-
-        let currentLength = s.count
-        if currentLength >= width {
-            return .string(s)
-        }
-
-        let totalPadding = width - currentLength
-        let leftPadding = totalPadding / 2
-        let rightPadding = totalPadding - leftPadding
-
-        let left = String(repeating: padChar, count: leftPadding)
-        let right = String(repeating: padChar, count: rightPadding)
-        return .string(left + s + right)
+  /// Check if string contains substring
+  private static func containsCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let substring = args[1].stringValue
+    else {
+      throw LuaError.callbackError("stringx.contains requires string and substring arguments")
     }
 
-    // MARK: - Character Classification Callbacks
-
-    /// Check if all characters are letters
-    private static func isAlphaCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_alpha requires a string argument")
-        }
-
-        if s.isEmpty {
-            return .bool(false)
-        }
-
-        return .bool(s.allSatisfy { $0.isLetter })
+    // Empty substring is always contained in any string
+    if substring.isEmpty {
+      return .bool(true)
     }
 
-    /// Check if all characters are digits
-    private static func isDigitCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_digit requires a string argument")
-        }
+    return .bool(s.contains(substring))
+  }
 
-        if s.isEmpty {
-            return .bool(false)
-        }
-
-        // Use isWholeNumber for standard digit check (0-9)
-        return .bool(s.allSatisfy { $0.isWholeNumber })
+  /// Count occurrences of pattern in string
+  private static func countCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let pattern = args[1].stringValue
+    else {
+      throw LuaError.callbackError("stringx.count requires string and pattern arguments")
     }
 
-    /// Check if all characters are alphanumeric
-    private static func isAlnumCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_alnum requires a string argument")
-        }
-
-        if s.isEmpty {
-            return .bool(false)
-        }
-
-        return .bool(s.allSatisfy { $0.isLetter || $0.isWholeNumber })
+    if pattern.isEmpty {
+      return .number(0)
     }
 
-    /// Check if all characters are whitespace
-    private static func isSpaceCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_space requires a string argument")
-        }
+    var count = 0
+    var searchRange = s.startIndex..<s.endIndex
 
-        if s.isEmpty {
-            return .bool(false)
-        }
+    while let range = s.range(of: pattern, range: searchRange) {
+      count += 1
+      searchRange = range.upperBound..<s.endIndex
 
-        return .bool(s.allSatisfy { $0.isWhitespace })
+      if searchRange.isEmpty {
+        break
+      }
     }
 
-    /// Check if all characters are uppercase letters
-    private static func isUpperCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_upper requires a string argument")
-        }
+    return .number(Double(count))
+  }
 
-        if s.isEmpty {
-            return .bool(false)
-        }
+  // MARK: - Case Conversion Callbacks
 
-        // Check if all letters are uppercase (non-letters are ignored)
-        let letters = s.filter { $0.isLetter }
-        if letters.isEmpty {
-            return .bool(false)
-        }
-
-        return .bool(letters.allSatisfy { $0.isUppercase })
+  /// Capitalize first letter, lowercase rest
+  private static func capitalizeCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.capitalize requires a string argument")
     }
 
-    /// Check if all characters are lowercase letters
-    private static func isLowerCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_lower requires a string argument")
-        }
-
-        if s.isEmpty {
-            return .bool(false)
-        }
-
-        // Check if all letters are lowercase (non-letters are ignored)
-        let letters = s.filter { $0.isLetter }
-        if letters.isEmpty {
-            return .bool(false)
-        }
-
-        return .bool(letters.allSatisfy { $0.isLowercase })
+    if s.isEmpty {
+      return .string("")
     }
 
-    /// Check if string is empty
-    private static func isEmptyCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_empty requires a string argument")
-        }
+    let first = s.prefix(1).uppercased()
+    let rest = s.dropFirst().lowercased()
+    return .string(first + rest)
+  }
 
-        return .bool(s.isEmpty)
+  /// Title case (capitalize first letter of each word)
+  private static func titleCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.title requires a string argument")
     }
 
-    /// Check if string is empty or only whitespace
-    private static func isBlankCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.is_blank requires a string argument")
-        }
-
-        return .bool(s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    if s.isEmpty {
+      return .string("")
     }
 
-    // MARK: - Text Processing Callbacks
+    // Use Swift's capitalized for proper Unicode handling
+    return .string(s.capitalized)
+  }
 
-    /// Split string on newlines (handles \n, \r\n, \r)
-    private static func splitlinesCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard let s = args.first?.stringValue else {
-            throw LuaError.callbackError("stringx.splitlines requires a string argument")
-        }
+  // MARK: - Padding Callbacks
 
-        if s.isEmpty {
-            return .array([])
-        }
+  /// Left pad string to width with character (default space)
+  private static func lpadCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let width = args[1].intValue
+    else {
+      throw LuaError.callbackError("stringx.lpad requires string and width arguments")
+    }
 
-        // Use unicodeScalars to properly handle CR-LF as separate characters
-        // Swift's Character type treats CR-LF as a single grapheme cluster
-        var lines: [String] = []
-        var currentLine = ""
-        let scalars = Array(s.unicodeScalars)
-        var i = 0
+    let padChar: Character
+    if args.count > 2, let charStr = args[2].stringValue, !charStr.isEmpty {
+      padChar = charStr.first!
+    } else {
+      padChar = " "
+    }
 
-        while i < scalars.count {
-            let scalar = scalars[i]
+    let currentLength = s.count
+    if currentLength >= width {
+      return .string(s)
+    }
 
-            if scalar == "\r" {
-                lines.append(currentLine)
-                currentLine = ""
+    let padding = String(repeating: padChar, count: width - currentLength)
+    return .string(padding + s)
+  }
 
-                // Check for \r\n
-                if i + 1 < scalars.count && scalars[i + 1] == "\n" {
-                    i += 1  // Skip the \n in CR-LF pair
-                }
-            } else if scalar == "\n" {
-                lines.append(currentLine)
-                currentLine = ""
-            } else {
-                currentLine.append(Character(scalar))
-            }
+  /// Right pad string to width with character (default space)
+  private static func rpadCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let width = args[1].intValue
+    else {
+      throw LuaError.callbackError("stringx.rpad requires string and width arguments")
+    }
 
-            i += 1
-        }
+    let padChar: Character
+    if args.count > 2, let charStr = args[2].stringValue, !charStr.isEmpty {
+      padChar = charStr.first!
+    } else {
+      padChar = " "
+    }
 
-        // Add the last line if there's content or if string ended with newline
+    let currentLength = s.count
+    if currentLength >= width {
+      return .string(s)
+    }
+
+    let padding = String(repeating: padChar, count: width - currentLength)
+    return .string(s + padding)
+  }
+
+  /// Center pad string to width with character (default space)
+  private static func centerCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let width = args[1].intValue
+    else {
+      throw LuaError.callbackError("stringx.center requires string and width arguments")
+    }
+
+    let padChar: Character
+    if args.count > 2, let charStr = args[2].stringValue, !charStr.isEmpty {
+      padChar = charStr.first!
+    } else {
+      padChar = " "
+    }
+
+    let currentLength = s.count
+    if currentLength >= width {
+      return .string(s)
+    }
+
+    let totalPadding = width - currentLength
+    let leftPadding = totalPadding / 2
+    let rightPadding = totalPadding - leftPadding
+
+    let left = String(repeating: padChar, count: leftPadding)
+    let right = String(repeating: padChar, count: rightPadding)
+    return .string(left + s + right)
+  }
+
+  // MARK: - Character Classification Callbacks
+
+  /// Check if all characters are letters
+  private static func isAlphaCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_alpha requires a string argument")
+    }
+
+    if s.isEmpty {
+      return .bool(false)
+    }
+
+    return .bool(s.allSatisfy { $0.isLetter })
+  }
+
+  /// Check if all characters are digits
+  private static func isDigitCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_digit requires a string argument")
+    }
+
+    if s.isEmpty {
+      return .bool(false)
+    }
+
+    // Use isWholeNumber for standard digit check (0-9)
+    return .bool(s.allSatisfy { $0.isWholeNumber })
+  }
+
+  /// Check if all characters are alphanumeric
+  private static func isAlnumCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_alnum requires a string argument")
+    }
+
+    if s.isEmpty {
+      return .bool(false)
+    }
+
+    return .bool(s.allSatisfy { $0.isLetter || $0.isWholeNumber })
+  }
+
+  /// Check if all characters are whitespace
+  private static func isSpaceCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_space requires a string argument")
+    }
+
+    if s.isEmpty {
+      return .bool(false)
+    }
+
+    return .bool(s.allSatisfy { $0.isWhitespace })
+  }
+
+  /// Check if all characters are uppercase letters
+  private static func isUpperCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_upper requires a string argument")
+    }
+
+    if s.isEmpty {
+      return .bool(false)
+    }
+
+    // Check if all letters are uppercase (non-letters are ignored)
+    let letters = s.filter { $0.isLetter }
+    if letters.isEmpty {
+      return .bool(false)
+    }
+
+    return .bool(letters.allSatisfy { $0.isUppercase })
+  }
+
+  /// Check if all characters are lowercase letters
+  private static func isLowerCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_lower requires a string argument")
+    }
+
+    if s.isEmpty {
+      return .bool(false)
+    }
+
+    // Check if all letters are lowercase (non-letters are ignored)
+    let letters = s.filter { $0.isLetter }
+    if letters.isEmpty {
+      return .bool(false)
+    }
+
+    return .bool(letters.allSatisfy { $0.isLowercase })
+  }
+
+  /// Check if string is empty
+  private static func isEmptyCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_empty requires a string argument")
+    }
+
+    return .bool(s.isEmpty)
+  }
+
+  /// Check if string is empty or only whitespace
+  private static func isBlankCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.is_blank requires a string argument")
+    }
+
+    return .bool(s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+  }
+
+  // MARK: - Text Processing Callbacks
+
+  /// Split string on newlines (handles \n, \r\n, \r)
+  private static func splitlinesCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.splitlines requires a string argument")
+    }
+
+    if s.isEmpty {
+      return .array([])
+    }
+
+    // Use unicodeScalars to properly handle CR-LF as separate characters
+    // Swift's Character type treats CR-LF as a single grapheme cluster
+    var lines: [String] = []
+    var currentLine = ""
+    let scalars = Array(s.unicodeScalars)
+    var i = 0
+
+    while i < scalars.count {
+      let scalar = scalars[i]
+
+      if scalar == "\r" {
         lines.append(currentLine)
+        currentLine = ""
 
-        return .array(lines.map { .string($0) })
+        // Check for \r\n
+        if i + 1 < scalars.count && scalars[i + 1] == "\n" {
+          i += 1  // Skip the \n in CR-LF pair
+        }
+      } else if scalar == "\n" {
+        lines.append(currentLine)
+        currentLine = ""
+      } else {
+        currentLine.append(Character(scalar))
+      }
+
+      i += 1
     }
 
-    /// Word wrap text to specified width
-    private static func wrapCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let width = args[1].intValue else {
-            throw LuaError.callbackError("stringx.wrap requires string and width arguments")
-        }
+    // Add the last line if there's content or if string ended with newline
+    lines.append(currentLine)
 
-        if s.isEmpty || width <= 0 {
-            return .string(s)
-        }
+    return .array(lines.map { .string($0) })
+  }
 
-        var result: [String] = []
-        let words = s.split(separator: " ", omittingEmptySubsequences: false)
-        var currentLine = ""
-
-        for word in words {
-            let wordStr = String(word)
-
-            if currentLine.isEmpty {
-                // Start a new line
-                if wordStr.count > width {
-                    // Word is longer than width, need to break it
-                    var remaining = wordStr
-                    while remaining.count > width {
-                        let breakPoint = remaining.index(remaining.startIndex, offsetBy: width)
-                        result.append(String(remaining[..<breakPoint]))
-                        remaining = String(remaining[breakPoint...])
-                    }
-                    currentLine = remaining
-                } else {
-                    currentLine = wordStr
-                }
-            } else {
-                // Check if word fits on current line
-                let testLine = currentLine + " " + wordStr
-                if testLine.count <= width {
-                    currentLine = testLine
-                } else {
-                    // Word doesn't fit, start a new line
-                    result.append(currentLine)
-
-                    if wordStr.count > width {
-                        // Word is longer than width, need to break it
-                        var remaining = wordStr
-                        while remaining.count > width {
-                            let breakPoint = remaining.index(remaining.startIndex, offsetBy: width)
-                            result.append(String(remaining[..<breakPoint]))
-                            remaining = String(remaining[breakPoint...])
-                        }
-                        currentLine = remaining
-                    } else {
-                        currentLine = wordStr
-                    }
-                }
-            }
-        }
-
-        // Add the last line
-        if !currentLine.isEmpty {
-            result.append(currentLine)
-        }
-
-        return .string(result.joined(separator: "\n"))
+  /// Word wrap text to specified width
+  private static func wrapCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let width = args[1].intValue
+    else {
+      throw LuaError.callbackError("stringx.wrap requires string and width arguments")
     }
 
-    /// Truncate string to width with suffix (default "...")
-    private static func truncateCallback(_ args: [LuaValue]) throws -> LuaValue {
-        guard args.count >= 2,
-              let s = args[0].stringValue,
-              let width = args[1].intValue else {
-            throw LuaError.callbackError("stringx.truncate requires string and width arguments")
-        }
+    if s.isEmpty || width <= 0 {
+      return .string(s)
+    }
 
-        let suffix: String
-        if args.count > 2, let suffixStr = args[2].stringValue {
-            suffix = suffixStr
+    var result: [String] = []
+    let words = s.split(separator: " ", omittingEmptySubsequences: false)
+    var currentLine = ""
+
+    for word in words {
+      let wordStr = String(word)
+
+      if currentLine.isEmpty {
+        // Start a new line
+        if wordStr.count > width {
+          // Word is longer than width, need to break it
+          var remaining = wordStr
+          while remaining.count > width {
+            let breakPoint = remaining.index(remaining.startIndex, offsetBy: width)
+            result.append(String(remaining[..<breakPoint]))
+            remaining = String(remaining[breakPoint...])
+          }
+          currentLine = remaining
         } else {
-            suffix = "..."
+          currentLine = wordStr
         }
+      } else {
+        // Check if word fits on current line
+        let testLine = currentLine + " " + wordStr
+        if testLine.count <= width {
+          currentLine = testLine
+        } else {
+          // Word doesn't fit, start a new line
+          result.append(currentLine)
 
-        if s.count <= width {
-            return .string(s)
+          if wordStr.count > width {
+            // Word is longer than width, need to break it
+            var remaining = wordStr
+            while remaining.count > width {
+              let breakPoint = remaining.index(remaining.startIndex, offsetBy: width)
+              result.append(String(remaining[..<breakPoint]))
+              remaining = String(remaining[breakPoint...])
+            }
+            currentLine = remaining
+          } else {
+            currentLine = wordStr
+          }
         }
-
-        let truncateLength = width - suffix.count
-        if truncateLength <= 0 {
-            // If suffix is longer than or equal to width, just return truncated suffix
-            return .string(String(suffix.prefix(width)))
-        }
-
-        let truncated = String(s.prefix(truncateLength))
-        return .string(truncated + suffix)
+      }
     }
+
+    // Add the last line
+    if !currentLine.isEmpty {
+      result.append(currentLine)
+    }
+
+    return .string(result.joined(separator: "\n"))
+  }
+
+  /// Truncate string to width with suffix (default "...")
+  private static func truncateCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard args.count >= 2,
+      let s = args[0].stringValue,
+      let width = args[1].intValue
+    else {
+      throw LuaError.callbackError("stringx.truncate requires string and width arguments")
+    }
+
+    let suffix: String
+    if args.count > 2, let suffixStr = args[2].stringValue {
+      suffix = suffixStr
+    } else {
+      suffix = "..."
+    }
+
+    if s.count <= width {
+      return .string(s)
+    }
+
+    let truncateLength = width - suffix.count
+    if truncateLength <= 0 {
+      // If suffix is longer than or equal to width, just return truncated suffix
+      return .string(String(suffix.prefix(width)))
+    }
+
+    let truncated = String(s.prefix(truncateLength))
+    return .string(truncated + suffix)
+  }
+
+  // MARK: - Slice
+
+  /// Extract a slice of a string using Python-style start/stop/step semantics.
+  ///
+  /// Indices are 1-based (Lua convention). Negative indices count from the end.
+  /// `stop` defaults to end-of-string; `step` defaults to 1.
+  /// A step of -1 reverses the selection.
+  private static func sliceCallback(_ args: [LuaValue]) throws -> LuaValue {
+    guard let s = args.first?.stringValue else {
+      throw LuaError.callbackError("stringx.slice requires a string as first argument")
+    }
+    let chars = Array(s)
+    let len = chars.count
+    guard len > 0 else { return .string("") }
+
+    let step = args.count >= 4 ? (args[3].intValue ?? 1) : 1
+    guard step != 0 else {
+      throw LuaError.callbackError("stringx.slice: step cannot be zero")
+    }
+
+    let (start, stop) = resolveSliceIndices(
+      rawStart: args.count >= 2 ? args[1].intValue : nil,
+      rawStop: args.count >= 3 ? args[2].intValue : nil,
+      len: len, step: step)
+
+    var result: [Character] = []
+    if step > 0 {
+      var i = start
+      while i < stop {
+        result.append(chars[i])
+        i += step
+      }
+    } else {
+      var i = start
+      while i > stop {
+        result.append(chars[i])
+        i += step
+      }
+    }
+    return .string(String(result))
+  }
+
+  /// Resolve Python-style slice indices to zero-based Swift indices.
+  ///
+  /// - Parameters:
+  ///   - rawStart: 1-based Lua start index (nil = use default for step direction)
+  ///   - rawStop:  1-based Lua stop index, inclusive (nil = use default for step direction)
+  ///   - len:      Collection length
+  ///   - step:     Step value (must not be zero)
+  /// - Returns: (startIdx, stopIdx) as zero-based half-open range edges for the given step.
+  static func resolveSliceIndices(
+    rawStart: Int?, rawStop: Int?, len: Int, step: Int
+  ) -> (Int, Int) {
+    func normalize(_ idx: Int) -> Int {
+      idx < 0 ? len + idx : idx - 1  // convert 1-based Lua → 0-based Swift
+    }
+
+    let start: Int
+    if let raw = rawStart {
+      start = max(0, min(normalize(raw), len - 1))
+    } else {
+      start = step > 0 ? 0 : len - 1
+    }
+
+    let stop: Int
+    if let raw = rawStop {
+      // stop is inclusive in Lua convention; convert to exclusive bound
+      let s = normalize(raw)
+      stop = step > 0 ? min(s + 1, len) : max(s - 1, -1)
+    } else {
+      stop = step > 0 ? len : -1
+    }
+
+    return (start, stop)
+  }
 }

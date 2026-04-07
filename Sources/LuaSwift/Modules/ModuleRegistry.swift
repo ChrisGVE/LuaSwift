@@ -106,6 +106,11 @@ public struct ModuleRegistry {
       installNumberTheoryModule(in: engine)
     #endif
 
+    // Thales CAS module
+    #if LUASWIFT_THALES
+      installThalesModule(in: engine)
+    #endif
+
     #if DEBUG
       installDebugModule(in: engine)
     #endif
@@ -439,6 +444,18 @@ public struct ModuleRegistry {
     /// - Parameter engine: The Lua engine to install the module in
     public static func installNumberTheoryModule(in engine: LuaEngine) {
       NumberTheoryModule.register(in: engine)
+    }
+  #endif
+
+  #if LUASWIFT_THALES
+    /// Install only the Thales CAS module.
+    ///
+    /// This module provides symbolic mathematics via the Thales Computer Algebra System:
+    /// simplification, equation solving, calculus, series, ODEs, and LaTeX formatting.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installThalesModule(in engine: LuaEngine) {
+      ThalesModule.register(in: engine)
     }
   #endif
 

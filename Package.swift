@@ -27,6 +27,7 @@ let selectedVersion = validVersions.contains(luaVersion) ? luaVersion : "54"
 let includePlotSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_PLOTSWIFT"] != "0"
 let includeArraySwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_ARRAYSWIFT"] != "0"
 let includeNumericSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_NUMERICSWIFT"] != "0"
+let includeThales = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_THALES"] == "1"
 
 // Map version to directory path
 let cluaPath: String = {
@@ -124,6 +125,9 @@ let package = Package(
         if includeNumericSwift {
             deps.append(.package(url: "https://github.com/ChrisGVE/NumericSwift.git", from: "0.1.4"))
         }
+        if includeThales {
+            deps.append(.package(path: "../thales"))
+        }
         return deps
     }(),
     targets: [
@@ -168,6 +172,9 @@ let package = Package(
                 if includeNumericSwift {
                     deps.append("NumericSwift")
                 }
+                if includeThales {
+                    deps.append(.product(name: "Thales", package: "Thales"))
+                }
                 return deps
             }(),
             path: "Sources/LuaSwift",
@@ -188,8 +195,14 @@ let package = Package(
                 if includeNumericSwift {
                     settings.append(.define("LUASWIFT_NUMERICSWIFT"))
                 }
+                if includeThales {
+                    settings.append(.define("LUASWIFT_THALES"))
+                }
                 return settings
-            }()
+            }(),
+            linkerSettings: includeThales ? [
+                .unsafeFlags(["-L../thales/target/release"])
+            ] : []
         ),
         // Tests
         .testTarget(
@@ -207,6 +220,9 @@ let package = Package(
                 }
                 if includeNumericSwift {
                     settings.append(.define("LUASWIFT_NUMERICSWIFT"))
+                }
+                if includeThales {
+                    settings.append(.define("LUASWIFT_THALES"))
                 }
                 return settings
             }()

@@ -126,7 +126,7 @@ let package = Package(
             deps.append(.package(url: "https://github.com/ChrisGVE/NumericSwift.git", from: "0.1.4"))
         }
         if includeThales {
-            deps.append(.package(path: "../thales"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/thales.git", from: "0.4.2"))
         }
         return deps
     }(),
@@ -200,9 +200,14 @@ let package = Package(
                 }
                 return settings
             }(),
-            linkerSettings: includeThales ? [
-                .unsafeFlags(["-L../thales/target/release"])
-            ] : []
+            linkerSettings: {
+                var settings: [LinkerSetting] = []
+                if includeThales,
+                   let thalesLibPath = ProcessInfo.processInfo.environment["THALES_LIB_PATH"] {
+                    settings.append(.unsafeFlags(["-L\(thalesLibPath)"]))
+                }
+                return settings
+            }()
         ),
         // Tests
         .testTarget(

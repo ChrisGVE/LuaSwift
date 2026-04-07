@@ -119,8 +119,8 @@ extension ThalesModule {
         return _maclaurin(expr, variable or "x", terms or 5)
     end
 
-    function cas.laurent(expr, variable, around, terms)
-        return _laurent(expr, variable or "x", around or 0, terms or 5)
+    function cas.laurent(expr, variable, center, neg_order, pos_order)
+        return _laurent(expr, variable or "x", center or 0, neg_order or 3, pos_order or 3)
     end
 
     -- Formatting
@@ -138,8 +138,8 @@ extension ThalesModule {
     end
 
     -- ODE
-    function cas.solve_ode(equation, independent_var, dependent_func)
-        return _solve_ode(equation, independent_var or "x", dependent_func or "y")
+    function cas.solve_ode(equation, dependent_var, independent_var)
+        return _solve_ode(equation, dependent_var or "y", independent_var or "x")
     end
 
     -- Special operations
@@ -155,6 +155,7 @@ extension ThalesModule {
         math.cas = cas
     end
 
+    package.loaded["thales"] = cas
     package.loaded["luaswift.cas"] = cas
 
     -- Clean up global Swift function references

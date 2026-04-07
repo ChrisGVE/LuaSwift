@@ -243,8 +243,8 @@ extension ThalesModule {
             return .table([
                 "original": .string(result.original),
                 "variable": .string(result.variable),
-                "expression": .string(result.limitValue),
-                "latex": .string(result.limitLatex)
+                "expression": .string(result.value),
+                "latex": .string(result.valueLatex)
             ])
         } catch {
             throw LuaError.callbackError("cas.limit: \(error)")
@@ -261,8 +261,8 @@ extension ThalesModule {
             return .table([
                 "original": .string(result.original),
                 "variable": .string(result.variable),
-                "expression": .string(result.limitValue),
-                "latex": .string(result.limitLatex)
+                "expression": .string(result.value),
+                "latex": .string(result.valueLatex)
             ])
         } catch {
             throw LuaError.callbackError("cas.limit_to_infinity: \(error)")

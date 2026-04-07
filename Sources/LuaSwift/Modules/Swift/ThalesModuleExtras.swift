@@ -22,18 +22,18 @@ extension ThalesModule {
               let variable = args[1].stringValue else {
             throw LuaError.callbackError("cas.taylor requires (expression, variable[, around, terms])")
         }
-        let around = args.count > 2 ? args[2].numberValue ?? 0.0 : 0.0
-        let terms = args.count > 3 ? UInt32(args[3].numberValue ?? 5) : 5
+        let center = args.count > 2 ? args[2].numberValue ?? 0.0 : 0.0
+        let order = args.count > 3 ? UInt32(args[3].numberValue ?? 5) : 5
         do {
             let result = try Thales.taylorSeries(
-                of: expr, variable: variable, around: around, terms: terms)
+                expr, variable: variable, center: center, order: order)
             return .table([
                 "original": .string(result.original),
                 "variable": .string(result.variable),
                 "expression": .string(result.series),
                 "latex": .string(result.seriesLatex),
                 "center": .number(result.center),
-                "terms": .number(Double(result.numTerms))
+                "terms": .number(Double(result.order))
             ])
         } catch {
             throw LuaError.callbackError("cas.taylor: \(error)")
@@ -46,15 +46,15 @@ extension ThalesModule {
               let variable = args[1].stringValue else {
             throw LuaError.callbackError("cas.maclaurin requires (expression, variable[, terms])")
         }
-        let terms = args.count > 2 ? UInt32(args[2].numberValue ?? 5) : 5
+        let order = args.count > 2 ? UInt32(args[2].numberValue ?? 5) : 5
         do {
-            let result = try Thales.maclaurinSeries(of: expr, variable: variable, terms: terms)
+            let result = try Thales.maclaurinSeries(expr, variable: variable, order: order)
             return .table([
                 "original": .string(result.original),
                 "variable": .string(result.variable),
                 "expression": .string(result.series),
                 "latex": .string(result.seriesLatex),
-                "terms": .number(Double(result.numTerms))
+                "terms": .number(Double(result.order))
             ])
         } catch {
             throw LuaError.callbackError("cas.maclaurin: \(error)")
@@ -65,20 +65,22 @@ extension ThalesModule {
         guard args.count >= 2,
               let expr = args[0].stringValue,
               let variable = args[1].stringValue else {
-            throw LuaError.callbackError("cas.laurent requires (expression, variable[, around, terms])")
+            throw LuaError.callbackError(
+                "cas.laurent requires (expression, variable[, center, neg_order, pos_order])")
         }
-        let around = args.count > 2 ? args[2].numberValue ?? 0.0 : 0.0
-        let terms = args.count > 3 ? UInt32(args[3].numberValue ?? 5) : 5
+        let center = args.count > 2 ? args[2].numberValue ?? 0.0 : 0.0
+        let negOrder = args.count > 3 ? UInt32(args[3].numberValue ?? 3) : 3
+        let posOrder = args.count > 4 ? UInt32(args[4].numberValue ?? 3) : 3
         do {
             let result = try Thales.laurentSeries(
-                of: expr, variable: variable, around: around, terms: terms)
+                expr, variable: variable, center: center,
+                negOrder: negOrder, posOrder: posOrder)
             return .table([
                 "original": .string(result.original),
                 "variable": .string(result.variable),
                 "expression": .string(result.series),
                 "latex": .string(result.seriesLatex),
-                "center": .number(result.center),
-                "terms": .number(Double(result.numTerms))
+                "center": .number(result.center)
             ])
         } catch {
             throw LuaError.callbackError("cas.laurent: \(error)")
@@ -124,7 +126,7 @@ extension ThalesModule {
         }
         do {
             let result = try Thales.evaluate(expr, with: values)
-            return .number(result.numericResult)
+            return .number(result.value)
         } catch {
             throw LuaError.callbackError("cas.evaluate: \(error)")
         }
@@ -139,16 +141,16 @@ extension ThalesModule {
         guard let equation = args.first?.stringValue else {
             throw LuaError.callbackError("cas.solve_ode requires an ODE string")
         }
-        let indepVar = args.count > 1 ? args[1].stringValue ?? "x" : "x"
-        let depFunc = args.count > 2 ? args[2].stringValue ?? "y" : "y"
+        let depVar = args.count > 1 ? args[1].stringValue ?? "y" : "y"
+        let indepVar = args.count > 2 ? args[2].stringValue ?? "x" : "x"
         do {
             let result = try Thales.solveODE(
-                equation: equation, independentVar: indepVar, dependentFunc: depFunc)
+                equation, dependent: depVar, independent: indepVar)
             return .table([
                 "equation": .string(result.equation),
                 "solution": .string(result.solution),
                 "latex": .string(result.solutionLatex),
-                "method": .string(result.method)
+                "method": .string(result.methodUsed)
             ])
         } catch {
             throw LuaError.callbackError("cas.solve_ode: \(error)")

@@ -135,7 +135,7 @@ let package = Package(
             publicHeadersPath: "include",
             cSettings: {
                 var settings: [CSetting] = [
-                    .define("LUA_USE_IOS", .when(platforms: [.iOS, .visionOS, .watchOS, .tvOS])),
+                    .define("LUA_USE_IOS", .when(platforms: [.iOS, .macCatalyst, .visionOS, .watchOS, .tvOS])),
                     .define("LUA_USE_MACOSX", .when(platforms: [.macOS])),
                     .headerSearchPath(".")
                 ]

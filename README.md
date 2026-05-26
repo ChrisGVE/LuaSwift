@@ -2,7 +2,7 @@
 
 A lightweight Swift wrapper for Lua with optional extensions for scientific computing, data formats, and visualization.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-yellow.svg?style=flat)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/ChrisGVE/LuaSwift?style=flat&logo=github)](https://github.com/ChrisGVE/LuaSwift/releases)
 [![CI](https://github.com/ChrisGVE/LuaSwift/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrisGVE/LuaSwift/actions/workflows/ci.yml)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FChrisGVE%2FLuaSwift%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/ChrisGVE/LuaSwift)
@@ -410,9 +410,9 @@ See the [Sandboxing Guide](Sources/LuaSwift/Documentation.docc/Articles/Sandboxi
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+Apache License 2.0. See [LICENSE](LICENSE) for details.
 
-Lua is also MIT licensed. See https://www.lua.org/license.html
+Lua is MIT licensed. See https://www.lua.org/license.html
 
 ## Acknowledgments
 

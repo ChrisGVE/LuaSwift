@@ -105,6 +105,14 @@ public struct MathXModule {
         engine.registerFunction(name: "_luaswift_math_csqrt", callback: csqrtCallback)
         engine.registerFunction(name: "_luaswift_math_clog", callback: clogCallback)
 
+        // Complex-dispatch trig/exp/log/sqrt (real or complex input)
+        engine.registerFunction(name: "_luaswift_math_sin",  callback: sinCallback)
+        engine.registerFunction(name: "_luaswift_math_cos",  callback: cosCallback)
+        engine.registerFunction(name: "_luaswift_math_tan",  callback: tanCallback)
+        engine.registerFunction(name: "_luaswift_math_exp",  callback: expCallback)
+        engine.registerFunction(name: "_luaswift_math_log",  callback: logCallback)
+        engine.registerFunction(name: "_luaswift_math_sqrt", callback: sqrtCallback)
+
         // Set up the luaswift.mathx namespace
         do {
             try engine.run("""
@@ -143,8 +151,24 @@ public struct MathXModule {
                 local binomial_fn = _luaswift_math_binomial
                 local csqrt_fn = _luaswift_math_csqrt
                 local clog_fn = _luaswift_math_clog
+                local sin_fn  = _luaswift_math_sin
+                local cos_fn  = _luaswift_math_cos
+                local tan_fn  = _luaswift_math_tan
+                local exp_fn  = _luaswift_math_exp
+                local log_fn  = _luaswift_math_log
+                local sqrt_fn = _luaswift_math_sqrt
 
                 luaswift.mathx = {
+                    -- Trig with complex dispatch
+                    sin  = sin_fn,
+                    cos  = cos_fn,
+                    tan  = tan_fn,
+
+                    -- Exponential/log/sqrt with complex dispatch
+                    exp  = exp_fn,
+                    log  = log_fn,
+                    sqrt = sqrt_fn,
+
                     -- Hyperbolic functions
                     sinh = sinh_fn,
                     cosh = cosh_fn,
@@ -275,6 +299,12 @@ public struct MathXModule {
                 _luaswift_math_binomial = nil
                 _luaswift_math_csqrt = nil
                 _luaswift_math_clog = nil
+                _luaswift_math_sin  = nil
+                _luaswift_math_cos  = nil
+                _luaswift_math_tan  = nil
+                _luaswift_math_exp  = nil
+                _luaswift_math_log  = nil
+                _luaswift_math_sqrt = nil
                 """)
         } catch {
             #if DEBUG
@@ -1088,6 +1118,100 @@ public struct MathXModule {
             throw LuaError.callbackError("clog: logarithm of zero")
         }
         return ComplexHelper.toLua(re, im)
+    }
+
+    // MARK: - Complex-dispatch trig/exp/log/sqrt
+
+    /// Generic complex-dispatching scalar fn: real or complex input → result.
+    ///
+    /// Handles three forms of complex input:
+    ///   - `LuaValue.complex(re:, im:)` — native complex from luaswift.complex module
+    ///   - `LuaValue.table(["re":..., "im":...])` — raw complex table
+    ///   - `LuaValue.number` — real scalar
+    private static func complexDispatch(
+        _ args: [LuaValue],
+        name: String,
+        realFn: (Double) -> Double,
+        complexFn: (Double, Double) -> (Double, Double)
+    ) throws -> LuaValue {
+        guard let arg = args.first else {
+            throw LuaError.callbackError("\(name) requires an argument")
+        }
+        // Native complex case (luaswift.complex objects have __luaswift_type="complex")
+        if let (a, b) = arg.complexValue {
+            let (re, im) = complexFn(a, b)
+            // Always return a complex table when input was complex
+            return ComplexHelper.toLua(re, im)
+        }
+        // Raw complex table {re=..., im=...}
+        if ComplexHelper.isComplex(arg) {
+            guard let (a, b) = ComplexHelper.toComplex(arg) else {
+                throw LuaError.callbackError("\(name): invalid complex argument")
+            }
+            let (re, im) = complexFn(a, b)
+            return ComplexHelper.toLua(re, im)
+        }
+        // Real scalar
+        guard let x = arg.numberValue else {
+            throw LuaError.callbackError("\(name) requires a number or complex")
+        }
+        return .number(realFn(x))
+    }
+
+    /// sin with complex dispatch.  sin(a+bi) = sin(a)cosh(b) + i·cos(a)sinh(b)
+    private static func sinCallback(_ args: [LuaValue]) throws -> LuaValue {
+        try complexDispatch(args, name: "sin",
+            realFn: Darwin.sin,
+            complexFn: { a, b in (Darwin.sin(a) * Darwin.cosh(b), Darwin.cos(a) * Darwin.sinh(b)) })
+    }
+
+    /// cos with complex dispatch.  cos(a+bi) = cos(a)cosh(b) − i·sin(a)sinh(b)
+    private static func cosCallback(_ args: [LuaValue]) throws -> LuaValue {
+        try complexDispatch(args, name: "cos",
+            realFn: Darwin.cos,
+            complexFn: { a, b in (Darwin.cos(a) * Darwin.cosh(b), -Darwin.sin(a) * Darwin.sinh(b)) })
+    }
+
+    /// tan with complex dispatch.  tan(z) = sin(z)/cos(z)
+    private static func tanCallback(_ args: [LuaValue]) throws -> LuaValue {
+        try complexDispatch(args, name: "tan",
+            realFn: Darwin.tan,
+            complexFn: { a, b in
+                let sinA = Darwin.sin(a); let cosA = Darwin.cos(a)
+                let sinhB = Darwin.sinh(b); let coshB = Darwin.cosh(b)
+                let denom = cosA * cosA * coshB * coshB + sinA * sinA * sinhB * sinhB
+                guard denom > 1e-300 else { return (Darwin.tan(a), 0) }
+                return ((sinA * cosA) / denom, (sinhB * coshB) / denom)
+            })
+    }
+
+    /// exp with complex dispatch.  exp(a+bi) = e^a·(cos(b) + i·sin(b))
+    private static func expCallback(_ args: [LuaValue]) throws -> LuaValue {
+        try complexDispatch(args, name: "exp",
+            realFn: Darwin.exp,
+            complexFn: { a, b in let ea = Darwin.exp(a); return (ea * Darwin.cos(b), ea * Darwin.sin(b)) })
+    }
+
+    /// log with complex dispatch.  log(z) = ln|z| + i·arg(z)
+    private static func logCallback(_ args: [LuaValue]) throws -> LuaValue {
+        try complexDispatch(args, name: "log",
+            realFn: Darwin.log,
+            complexFn: { a, b in
+                let r = Darwin.sqrt(a * a + b * b)
+                guard r > 0 else { return (-.infinity, 0) }
+                return (Darwin.log(r), Darwin.atan2(b, a))
+            })
+    }
+
+    /// sqrt with complex dispatch.  sqrt(z) = sqrt(r)·e^(i·θ/2)
+    private static func sqrtCallback(_ args: [LuaValue]) throws -> LuaValue {
+        try complexDispatch(args, name: "sqrt",
+            realFn: Darwin.sqrt,
+            complexFn: { a, b in
+                let r = Darwin.sqrt(Darwin.sqrt(a * a + b * b))
+                let theta = Darwin.atan2(b, a) / 2.0
+                return (r * Darwin.cos(theta), r * Darwin.sin(theta))
+            })
     }
 
     // MARK: - Helper Functions

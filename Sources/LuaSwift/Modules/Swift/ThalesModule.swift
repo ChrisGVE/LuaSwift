@@ -79,7 +79,9 @@ public struct ThalesModule {
         do {
             try engine.run(casLuaWrapper)
         } catch {
-            // Module setup failed
+            #if DEBUG
+            print("[LuaSwift] Thales CAS module setup failed: \(error)")
+            #endif
         }
     }
 }

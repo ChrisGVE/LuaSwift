@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-05-29
+
+### Fixed
+- **Cross-Version Bytecode C-API** - Gated `lua_dump`/`luaL_loadbuffer` bytecode calls by Lua version so the bytecode-compilation path builds correctly on Lua 5.1 and 5.2 (the 1.8.0 release failed to compile on those versions). Lua 5.3–5.5 are unaffected.
+
 ## [1.8.0] - 2026-05-29
 
 ### Added

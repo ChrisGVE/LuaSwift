@@ -1245,6 +1245,9 @@
       } catch {
         print("ArrayModule: Failed to initialize Lua wrapper: \(error)")
       }
+
+      // Register Phase-2 bindings (dtype, bool ops, FFT, set ops, indexing)
+      registerPhase2(in: engine)
     }
 
     // MARK: - Memory Tracking
@@ -1355,7 +1358,15 @@
         return ArrayData(shape: shape, dtype: .complex128, real: data, imag: imag)
       }
 
-      return ArrayData(shape: shape, data: data)
+      // Preserve int64 and bool dtypes
+      switch dtype {
+      case .int64:
+        return NDArray(shape: shape, int64Data: data.map { Int64($0) })
+      case .bool:
+        return NDArray(shape: shape, boolData: data.map { $0 != 0 })
+      default:
+        return ArrayData(shape: shape, data: data)
+      }
     }
 
     /// Create a LuaValue table from ArrayData
@@ -1529,16 +1540,7 @@
       let size = shape.reduce(1, *)
       try trackArrayAllocation(count: size * (dtype.isComplex ? 2 : 1))
 
-      if dtype.isComplex {
-        return createArrayTable(
-          ArrayData(
-            shape: shape,
-            dtype: .complex128,
-            real: [Double](repeating: 0, count: size),
-            imag: [Double](repeating: 0, count: size)
-          ))
-      }
-      return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: 0, count: size)))
+      return createArrayTable(NDArray.zeros(shape, dtype: dtype))
     }
 
     private static func onesCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1568,17 +1570,7 @@
       let size = shape.reduce(1, *)
       try trackArrayAllocation(count: size * (dtype.isComplex ? 2 : 1))
 
-      if dtype.isComplex {
-        // Complex ones: 1+0i
-        return createArrayTable(
-          ArrayData(
-            shape: shape,
-            dtype: .complex128,
-            real: [Double](repeating: 1, count: size),
-            imag: [Double](repeating: 0, count: size)
-          ))
-      }
-      return createArrayTable(ArrayData(shape: shape, data: [Double](repeating: 1, count: size)))
+      return createArrayTable(NDArray.ones(shape, dtype: dtype))
     }
 
     private static func fullCallback(_ args: [LuaValue]) throws -> LuaValue {
@@ -1607,10 +1599,12 @@
         throw LuaError.callbackError("array.full: value must be a number")
       }
 
+      // Optional dtype parameter (third argument)
+      let dtype = ArrayDType(from: args.count > 2 ? args[2].stringValue : nil)
       let size = shape.reduce(1, *)
-      try trackArrayAllocation(count: size)
-      return createArrayTable(
-        ArrayData(shape: shape, data: [Double](repeating: value, count: size)))
+      try trackArrayAllocation(count: size * (dtype.isComplex ? 2 : 1))
+
+      return createArrayTable(NDArray.full(shape, value: value, dtype: dtype))
     }
 
     // MARK: - Complex Array Creation Callbacks
@@ -3612,39 +3606,28 @@
       guard args.count >= 1 else {
         throw LuaError.callbackError("array.isnan: requires an array argument")
       }
-
       let arrayData = try extractArrayData(args[0])
-      var result = [Double](repeating: 0, count: arrayData.size)
-      for i in 0..<arrayData.size {
-        result[i] = arrayData.data[i].isNaN ? 1.0 : 0.0
-      }
-      return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+      // Use NDArray.isnan() which returns a .bool dtype array
+      let result = arrayData.isnan()
+      return createArrayTable(result)
     }
 
     private static func isinfCallback(_ args: [LuaValue]) throws -> LuaValue {
       guard args.count >= 1 else {
         throw LuaError.callbackError("array.isinf: requires an array argument")
       }
-
       let arrayData = try extractArrayData(args[0])
-      var result = [Double](repeating: 0, count: arrayData.size)
-      for i in 0..<arrayData.size {
-        result[i] = arrayData.data[i].isInfinite ? 1.0 : 0.0
-      }
-      return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+      let result = arrayData.isinf()
+      return createArrayTable(result)
     }
 
     private static func isfiniteCallback(_ args: [LuaValue]) throws -> LuaValue {
       guard args.count >= 1 else {
         throw LuaError.callbackError("array.isfinite: requires an array argument")
       }
-
       let arrayData = try extractArrayData(args[0])
-      var result = [Double](repeating: 0, count: arrayData.size)
-      for i in 0..<arrayData.size {
-        result[i] = arrayData.data[i].isFinite ? 1.0 : 0.0
-      }
-      return createArrayTable(ArrayData(shape: arrayData.shape, data: result))
+      let result = arrayData.isfinite()
+      return createArrayTable(result)
     }
 
     private static func comparisonOp(

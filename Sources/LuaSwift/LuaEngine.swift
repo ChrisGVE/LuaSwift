@@ -552,6 +552,163 @@ public final class LuaEngine {
         return result
     }
 
+    // MARK: - Bytecode
+
+    /// Precompile Lua source code to bytecode.
+    ///
+    /// Use this to cache compiled Lua expressions and avoid repeated parsing overhead.
+    /// The resulting `Data` can be passed to ``runBytecode(_:)`` or ``evaluateBytecode(_:)``.
+    ///
+    /// - Parameter code: Valid Lua source code to compile
+    /// - Returns: Compiled bytecode as `Data`
+    /// - Throws: `LuaError.syntaxError` if the source has syntax errors,
+    ///   `LuaError.runtimeError` if the bytecode dump fails
+    public func compile(_ code: String) throws -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let L = L else {
+            throw LuaError.initializationFailed
+        }
+
+        // Load source — leaves compiled function on stack top on success
+        let loadResult = luaL_loadstring(L, code)
+        if loadResult != LUA_OK {
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(L, 1)
+            throw LuaError.syntaxError(message)
+        }
+
+        // Collect dumped bytes via lua_Writer into a heap-allocated Data box.
+        // Pass the box as ud pointer (unretained — box outlives the dump call).
+        let box = BytecodeBuffer()
+        let ud = Unmanaged.passUnretained(box).toOpaque()
+        let dumpResult = lua_dump(L, luaBytecodeWriter, ud, 0)
+
+        // Pop the function regardless of dump result
+        lua_pop(L, 1)
+
+        if dumpResult != 0 {
+            throw LuaError.runtimeError("bytecode dump failed")
+        }
+
+        return box.data
+    }
+
+    /// Execute precompiled Lua bytecode without returning a result.
+    ///
+    /// The instruction-count limit (set via ``setInstructionLimit(_:)``) applies
+    /// on this path exactly as it does for ``run(_:)``.
+    ///
+    /// - Parameter bytecode: Bytecode previously produced by ``compile(_:)``
+    /// - Throws: `LuaError.syntaxError` if the bytecode is corrupt or invalid,
+    ///   `LuaError.runtimeError` on runtime failure,
+    ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
+    public func runBytecode(_ bytecode: Data) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let L = L else {
+            throw LuaError.initializationFailed
+        }
+
+        // Clear any previous write error
+        lastWriteError = nil
+
+        // Load bytecode — mode "b" accepts binary only
+        let loadResult = bytecode.withUnsafeBytes { raw -> Int32 in
+            guard let ptr = raw.baseAddress else { return LUA_ERRSYNTAX }
+            return luaL_loadbufferx(L, ptr.assumingMemoryBound(to: CChar.self),
+                                    bytecode.count, "=bytecode", "b")
+        }
+        if loadResult != LUA_OK {
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(L, 1)
+            throw LuaError.syntaxError(message)
+        }
+
+        // Arm instruction-count hook (or disarm if limit is 0)
+        if instructionLimit > 0 {
+            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
+        } else {
+            lua_sethook(L, nil, 0, 0)
+        }
+
+        // Execute with nresults=0 (discard any return values)
+        let callResult = lua_pcall(L, 0, 0, 0)
+        if callResult != LUA_OK {
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(L, 1)
+
+            if let writeError = lastWriteError {
+                lastWriteError = nil
+                throw writeError
+            }
+
+            throw errorFromCode(callResult, message: message)
+        }
+    }
+
+    /// Execute precompiled Lua bytecode and return the result.
+    ///
+    /// The instruction-count limit (set via ``setInstructionLimit(_:)``) applies
+    /// on this path exactly as it does for ``evaluate(_:)``.
+    ///
+    /// - Parameter bytecode: Bytecode previously produced by ``compile(_:)``
+    /// - Returns: The result of the execution as a ``LuaValue``
+    /// - Throws: `LuaError.syntaxError` if the bytecode is corrupt or invalid,
+    ///   `LuaError.runtimeError` on runtime failure,
+    ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
+    public func evaluateBytecode(_ bytecode: Data) throws -> LuaValue {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let L = L else {
+            throw LuaError.initializationFailed
+        }
+
+        // Clear any previous write error
+        lastWriteError = nil
+
+        // Load bytecode — mode "b" accepts binary only
+        let loadResult = bytecode.withUnsafeBytes { raw -> Int32 in
+            guard let ptr = raw.baseAddress else { return LUA_ERRSYNTAX }
+            return luaL_loadbufferx(L, ptr.assumingMemoryBound(to: CChar.self),
+                                    bytecode.count, "=bytecode", "b")
+        }
+        if loadResult != LUA_OK {
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(L, 1)
+            throw LuaError.syntaxError(message)
+        }
+
+        // Arm instruction-count hook (or disarm if limit is 0)
+        if instructionLimit > 0 {
+            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
+        } else {
+            lua_sethook(L, nil, 0, 0)
+        }
+
+        // Execute with nresults=1 (expect one return value)
+        let callResult = lua_pcall(L, 0, 1, 0)
+        if callResult != LUA_OK {
+            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
+            lua_pop(L, 1)
+
+            if let writeError = lastWriteError {
+                lastWriteError = nil
+                throw writeError
+            }
+
+            throw errorFromCode(callResult, message: message)
+        }
+
+        // Convert result
+        let result = valueFromStack(at: -1)
+        lua_pop(L, 1)
+        return result
+    }
+
     // MARK: - Lua Function Calls
 
     /// Call a Lua function by its registry reference.
@@ -1367,6 +1524,31 @@ public final class LuaEngine {
         }
         return server.canWrite(path: path)
     }
+}
+
+// MARK: - Bytecode Writer Support
+
+/// Heap-allocated buffer used to accumulate bytes during `lua_dump`.
+///
+/// Passed as the `ud` pointer to the `lua_Writer` callback via `Unmanaged`.
+private final class BytecodeBuffer {
+    var data = Data()
+}
+
+/// `lua_Writer` callback that appends each chunk emitted by `lua_dump` into a `BytecodeBuffer`.
+///
+/// The `ud` parameter is an unretained `Unmanaged<BytecodeBuffer>` raw pointer created in
+/// `LuaEngine.compile(_:)`.  Returns 0 on success (Lua convention).
+private func luaBytecodeWriter(
+    _ L: OpaquePointer?,
+    _ p: UnsafeRawPointer?,
+    _ sz: Int,
+    _ ud: UnsafeMutableRawPointer?
+) -> Int32 {
+    guard let p = p, sz > 0, let ud = ud else { return 0 }
+    let box = Unmanaged<BytecodeBuffer>.fromOpaque(ud).takeUnretainedValue()
+    box.data.append(p.assumingMemoryBound(to: UInt8.self), count: sz)
+    return 0
 }
 
 // MARK: - Instruction Count Hook

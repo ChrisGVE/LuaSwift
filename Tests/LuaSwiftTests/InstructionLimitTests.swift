@@ -106,4 +106,71 @@ final class InstructionLimitTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - callLuaFunction() Path
+
+    /// Verifies a stored Lua function invoked via callLuaFunction is also bounded.
+    /// Regression: previously callLuaFunction never armed the hook, so a runaway
+    /// loop in a stored function ran unbounded.
+    func testCallLuaFunctionRespectsLimit() throws {
+        let engine = try LuaEngine()
+        engine.setInstructionLimit(1_000)
+
+        let fn = try engine.evaluate("return function() while true do end end")
+        guard case .luaFunction(let ref) = fn else {
+            return XCTFail("Expected .luaFunction, got \(fn)")
+        }
+
+        XCTAssertThrowsError(try engine.callLuaFunction(ref: ref, args: [])) { error in
+            guard let luaError = error as? LuaError,
+                  case .instructionLimitExceeded = luaError else {
+                XCTFail("Expected .instructionLimitExceeded, got \(error)")
+                return
+            }
+        }
+    }
+
+    // MARK: - Coroutine resume() Path
+
+    /// Verifies a runaway loop inside a coroutine is interrupted by the limit.
+    /// Regression: previously resume never armed the hook on the coroutine
+    /// thread, so coroutine code ran unbounded.
+    func testCoroutineResumeRespectsLimit() throws {
+        let engine = try LuaEngine()
+        engine.setInstructionLimit(1_000)
+
+        let handle = try engine.createCoroutine(code: "while true do end")
+        let result = try engine.resume(handle)
+
+        guard case .error(let error) = result else {
+            return XCTFail("Expected .error result, got \(result)")
+        }
+        guard let luaError = error as? LuaError,
+              case .instructionLimitExceeded = luaError else {
+            return XCTFail("Expected .instructionLimitExceeded, got \(error)")
+        }
+    }
+
+    // MARK: - Overflow Clamp
+
+    /// Verifies that a limit above Int32.max is clamped rather than trapping.
+    /// Regression: Int32(instructionLimit) trapped fatally for large values.
+    func testSetInstructionLimitClampsAboveInt32Max() throws {
+        let engine = try LuaEngine()
+        // Would previously crash the process via Int32() overflow trap.
+        engine.setInstructionLimit(Int(Int32.max) + 1_000)
+
+        // Engine remains usable; large limit behaves as a high (non-tripping) bound.
+        let result = try engine.evaluate("return 1 + 2")
+        XCTAssertEqual(result.numberValue, 3)
+    }
+
+    /// Verifies negative limits are treated as 0 (disabled), not as a trap.
+    func testSetInstructionLimitNegativeTreatedAsDisabled() throws {
+        let engine = try LuaEngine()
+        engine.setInstructionLimit(-5)
+
+        let result = try engine.evaluate("return 6 * 7")
+        XCTAssertEqual(result.numberValue, 42)
+    }
 }

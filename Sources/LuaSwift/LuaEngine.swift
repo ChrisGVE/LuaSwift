@@ -344,12 +344,29 @@ public final class LuaEngine {
     /// The limit is re-applied before every `pcall`, so it applies equally to
     /// each individual `run` and `evaluate` invocation.
     ///
+    /// The limit is enforced on every execution entry point — `run`, `evaluate`,
+    /// `runBytecode`, `evaluateBytecode`, `callLuaFunction`, and coroutine `resume`.
+    ///
     /// - Parameter count: Maximum instruction count per call. Pass `0` to disable
-    ///   the hook entirely (the default).
+    ///   the hook entirely (the default). Negative values are treated as `0`.
+    ///   Values above `Int32.max` are clamped to `Int32.max` (the hook count is a
+    ///   C `int`), avoiding a runtime overflow trap.
     public func setInstructionLimit(_ count: Int) {
         lock.lock()
         defer { lock.unlock() }
-        instructionLimit = count
+        instructionLimit = max(0, min(count, Int(Int32.max)))
+    }
+
+    /// Arm (or disarm, when the limit is 0) the instruction-count hook on the
+    /// given Lua state. Called before every protected call so the limit applies
+    /// to every execution entry point, including coroutine threads. Centralized
+    /// here so no entry point can silently omit it.
+    private func armInstructionHook(on state: OpaquePointer) {
+        if instructionLimit > 0 {
+            lua_sethook(state, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
+        } else {
+            lua_sethook(state, nil, 0, 0)
+        }
     }
 
     // MARK: - Initialization
@@ -478,11 +495,7 @@ public final class LuaEngine {
         }
 
         // Arm instruction-count hook (or disarm if limit is 0)
-        if instructionLimit > 0 {
-            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
-        } else {
-            lua_sethook(L, nil, 0, 0)
-        }
+        armInstructionHook(on: L)
 
         // Execute with nresults=0 (discard any return values)
         let callResult = lua_pcall(L, 0, 0, 0)
@@ -525,11 +538,7 @@ public final class LuaEngine {
         }
 
         // Arm instruction-count hook (or disarm if limit is 0)
-        if instructionLimit > 0 {
-            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
-        } else {
-            lua_sethook(L, nil, 0, 0)
-        }
+        armInstructionHook(on: L)
 
         // Execute with nresults=1 (expect one return value)
         let callResult = lua_pcall(L, 0, 1, 0)
@@ -558,6 +567,14 @@ public final class LuaEngine {
     ///
     /// Use this to cache compiled Lua expressions and avoid repeated parsing overhead.
     /// The resulting `Data` can be passed to ``runBytecode(_:)`` or ``evaluateBytecode(_:)``.
+    ///
+    /// - Important: Bytecode is **not portable**. It is only valid for the same
+    ///   Lua version and CPU architecture/word-size/endianness that produced it,
+    ///   and ``runBytecode(_:)``/``evaluateBytecode(_:)`` perform no verification of
+    ///   the chunk's provenance — feeding them bytecode from an untrusted source
+    ///   (or compiled by a different Lua build) is unsafe and can corrupt the VM.
+    ///   Treat compiled bytecode as an in-process / same-build cache only; recompile
+    ///   from source after a version or platform change.
     ///
     /// - Parameter code: Valid Lua source code to compile
     /// - Returns: Compiled bytecode as `Data`
@@ -628,11 +645,7 @@ public final class LuaEngine {
         }
 
         // Arm instruction-count hook (or disarm if limit is 0)
-        if instructionLimit > 0 {
-            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
-        } else {
-            lua_sethook(L, nil, 0, 0)
-        }
+        armInstructionHook(on: L)
 
         // Execute with nresults=0 (discard any return values)
         let callResult = lua_pcall(L, 0, 0, 0)
@@ -683,11 +696,7 @@ public final class LuaEngine {
         }
 
         // Arm instruction-count hook (or disarm if limit is 0)
-        if instructionLimit > 0 {
-            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
-        } else {
-            lua_sethook(L, nil, 0, 0)
-        }
+        armInstructionHook(on: L)
 
         // Execute with nresults=1 (expect one return value)
         let callResult = lua_pcall(L, 0, 1, 0)
@@ -761,12 +770,17 @@ public final class LuaEngine {
             pushSimpleValue(L, arg)
         }
 
+        // Arm instruction-count hook so stored-function calls are bounded too
+        armInstructionHook(on: L)
+
         // Call the function
         let callResult = lua_pcall(L, Int32(args.count), 1, 0)
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
-            throw LuaError.runtimeError(message)
+            // Classify via errorFromCode so the instruction-limit sentinel surfaces
+            // as .instructionLimitExceeded, consistent with the other call paths.
+            throw errorFromCode(callResult, message: message)
         }
 
         // Get the result
@@ -1014,6 +1028,10 @@ public final class LuaEngine {
             pushValueOnThread(thread, value)
         }
 
+        // Arm instruction-count hook on the coroutine thread so code running
+        // inside the coroutine is bounded too (hooks are per-lua_State in 5.4).
+        armInstructionHook(on: thread)
+
         // Resume the coroutine
         var nresults: Int32 = 0
         let status = lua_resume(thread, L, Int32(values.count), &nresults)
@@ -1043,6 +1061,11 @@ public final class LuaEngine {
             // Error occurred
             let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(thread, 1)
+            // Classify the instruction-limit sentinel consistently with the other
+            // execution paths; otherwise surface as a coroutine error.
+            if message.contains(instructionLimitSentinel) {
+                return .error(LuaError.instructionLimitExceeded)
+            }
             return .error(LuaError.coroutineError(message))
         }
     }
@@ -1468,8 +1491,8 @@ public final class LuaEngine {
     }
 
     private func errorFromCode(_ code: Int32, message: String) -> LuaError {
-        // The instruction-count hook raises a runtime error with this exact message.
-        if code == LUA_ERRRUN && message.contains("instruction limit exceeded") {
+        // The instruction-count hook raises a runtime error carrying this sentinel.
+        if code == LUA_ERRRUN && message.contains(instructionLimitSentinel) {
             return .instructionLimitExceeded
         }
         switch code {
@@ -1560,9 +1583,15 @@ private func luaBytecodeWriter(
 /// surfaces as ``LuaError/instructionLimitExceeded``.
 private func instructionHook(_ L: OpaquePointer?, _ ar: UnsafeMutablePointer<lua_Debug>?) -> Void {
     guard let L = L else { return }
-    lua_pushstring(L, "instruction limit exceeded")
+    // Private sentinel (not a human-facing string) so detection cannot collide
+    // with user Lua code calling `error("instruction limit exceeded")`.
+    lua_pushstring(L, instructionLimitSentinel)
     _ = lua_error(L)
 }
+
+/// Internal marker raised by ``instructionHook`` and matched in ``errorFromCode``.
+/// Deliberately unlikely to be produced by user Lua code.
+private let instructionLimitSentinel = "__luaswift_instruction_limit_exceeded__"
 
 // MARK: - Lua C Callbacks
 

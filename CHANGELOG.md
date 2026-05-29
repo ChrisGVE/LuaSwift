@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-29
+
+### Added
+- **Instruction-Count Limit** - `LuaEngine.setInstructionLimit(_:)` installs a `lua_sethook` count hook that deterministically aborts runaway Lua code (e.g. infinite loops) with the new `LuaError.instructionLimitExceeded`. The limit re-arms before every `run`/`evaluate` call; pass `0` to disable (default).
+- **Bytecode Compilation** - `LuaEngine.compile(_:)`, `runBytecode(_:)`, `evaluateBytecode(_:)` for precompiling Lua source to bytecode and executing it; instruction-count limit applies on the bytecode path.
+- **Complex-Dispatch Math** - `mathx` `sin`/`cos`/`tan`/`exp`/`log`/`sqrt` now dispatch on complex arguments, returning complex results while remaining real-valued for real inputs.
+- **ArraySwift 0.2.0 Bindings** - Exposed ArraySwift's dtype infrastructure (float64/int64/bool/complex128/date with NumPy-style promotion), FFT family (`fft`/`ifft`/`rfft`/`fft2`/`fftn`/`fftfreq`), set operations (`intersect1d`/`union1d`/`setdiff1d`/`setxor1d`/`in1d`), and boolean/fancy/negative indexing to the Lua `array` module.
+- **Power-Series Object** - `series.power` power-series type with `add`/`multiply`/`truncate`/`eval` operations.
+- **Thales CAS Module** *(optional, opt-in)* - When built with `LUASWIFT_INCLUDE_THALES=1`, exposes computer-algebra operations to Lua: `asymptotic`, `compose_series`, `revert_series`, `puiseux`, `residue`, `convergence_radius`. Built on the optional Thales v0.4.2 dependency; off by default.
+- **Table Comprehensions** - Python-style list/dict/set comprehensions in the `tablex` module.
+- **Dialog Module** - UI `alert` and confirmation dialog module.
+- **Slice Notation** - Python-style slice notation for `string`, `table`, and `array` modules.
+
+### Changed
+- **Dependency Bumps** - ArraySwift → 0.2.0, NumericSwift → 0.2.1.
+- **MathExprModule** - Updated to the NumericSwift 0.2.1 parser API (`MathLexExpression`) after NumericSwift removed its public `tokenize` entry point.
+
+### Fixed
+- **CI Permissions** - Added write permissions to the Lua version-check workflow.
+
 ## [1.7.0] - 2026-04-06
 
 ### Added

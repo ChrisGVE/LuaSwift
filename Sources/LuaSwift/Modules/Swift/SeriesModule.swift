@@ -71,9 +71,14 @@ public struct SeriesModule {
         engine.registerFunction(name: "_luaswift_series_partial_sums", callback: partialSumsCallback)
         engine.registerFunction(name: "_luaswift_series_eval_poly", callback: evalPolyCallback)
 
+        // Power series object callbacks (Part 1a)
+        SeriesModulePower.registerCallbacks(in: engine)
+
         // Set up the Lua namespace
         do {
             try engine.run(seriesLuaWrapper)
+            // Power series Lua extensions and symbolic dispatchers
+            try engine.run(SeriesModulePower.luaExtensions)
         } catch {
             // Module setup failed - callbacks still registered
         }

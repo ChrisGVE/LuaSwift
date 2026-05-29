@@ -45,6 +45,9 @@ public enum LuaError: Error, LocalizedError {
     /// Error related to coroutine operations
     case coroutineError(String)
 
+    /// Instruction count limit exceeded — possible infinite loop
+    case instructionLimitExceeded
+
     /// Unknown error
     case unknown(code: Int, message: String?)
 
@@ -72,6 +75,8 @@ public enum LuaError: Error, LocalizedError {
             return "Swift callback error: \(message)"
         case .coroutineError(let message):
             return "Lua coroutine error: \(message)"
+        case .instructionLimitExceeded:
+            return "Instruction limit exceeded (possible infinite loop)"
         case .unknown(let code, let message):
             if let message = message {
                 return "Lua error (code \(code)): \(message)"

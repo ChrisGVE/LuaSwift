@@ -27,6 +27,7 @@ let selectedVersion = validVersions.contains(luaVersion) ? luaVersion : "54"
 let includePlotSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_PLOTSWIFT"] != "0"
 let includeArraySwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_ARRAYSWIFT"] != "0"
 let includeNumericSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_NUMERICSWIFT"] != "0"
+let includeThales = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_THALES"] == "1"
 
 // Map version to directory path
 let cluaPath: String = {
@@ -119,10 +120,13 @@ let package = Package(
             deps.append(.package(url: "https://github.com/ChrisGVE/PlotSwift.git", from: "0.1.0"))
         }
         if includeArraySwift {
-            deps.append(.package(url: "https://github.com/ChrisGVE/ArraySwift.git", from: "0.1.0"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/ArraySwift.git", from: "0.2.0"))
         }
         if includeNumericSwift {
-            deps.append(.package(url: "https://github.com/ChrisGVE/NumericSwift.git", from: "0.1.4"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/NumericSwift.git", from: "0.2.1"))
+        }
+        if includeThales {
+            deps.append(.package(url: "https://github.com/ChrisGVE/thales.git", from: "0.4.2"))
         }
         return deps
     }(),
@@ -168,6 +172,9 @@ let package = Package(
                 if includeNumericSwift {
                     deps.append("NumericSwift")
                 }
+                if includeThales {
+                    deps.append(.product(name: "Thales", package: "Thales"))
+                }
                 return deps
             }(),
             path: "Sources/LuaSwift",
@@ -188,6 +195,17 @@ let package = Package(
                 if includeNumericSwift {
                     settings.append(.define("LUASWIFT_NUMERICSWIFT"))
                 }
+                if includeThales {
+                    settings.append(.define("LUASWIFT_THALES"))
+                }
+                return settings
+            }(),
+            linkerSettings: {
+                var settings: [LinkerSetting] = []
+                if includeThales,
+                   let thalesLibPath = ProcessInfo.processInfo.environment["THALES_LIB_PATH"] {
+                    settings.append(.unsafeFlags(["-L\(thalesLibPath)"]))
+                }
                 return settings
             }()
         ),
@@ -207,6 +225,9 @@ let package = Package(
                 }
                 if includeNumericSwift {
                     settings.append(.define("LUASWIFT_NUMERICSWIFT"))
+                }
+                if includeThales {
+                    settings.append(.define("LUASWIFT_THALES"))
                 }
                 return settings
             }()

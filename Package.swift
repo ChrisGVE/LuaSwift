@@ -120,10 +120,10 @@ let package = Package(
             deps.append(.package(url: "https://github.com/ChrisGVE/PlotSwift.git", from: "0.1.0"))
         }
         if includeArraySwift {
-            deps.append(.package(url: "https://github.com/ChrisGVE/ArraySwift.git", from: "0.1.0"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/ArraySwift.git", from: "0.2.0"))
         }
         if includeNumericSwift {
-            deps.append(.package(url: "https://github.com/ChrisGVE/NumericSwift.git", from: "0.1.4"))
+            deps.append(.package(url: "https://github.com/ChrisGVE/NumericSwift.git", from: "0.2.1"))
         }
         if includeThales {
             deps.append(.package(url: "https://github.com/ChrisGVE/thales.git", from: "0.4.2"))

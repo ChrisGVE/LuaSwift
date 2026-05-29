@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Instruction-Count Limit** - `LuaEngine.setInstructionLimit(_:)` installs a `lua_sethook` count hook that deterministically aborts runaway Lua code (e.g. infinite loops) with the new `LuaError.instructionLimitExceeded`. The limit re-arms before every `run`/`evaluate` call; pass `0` to disable (default).
+
 ## [1.7.0] - 2026-04-06
 
 ### Added

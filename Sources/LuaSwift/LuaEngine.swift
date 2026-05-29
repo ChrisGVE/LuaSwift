@@ -245,6 +245,9 @@ public final class LuaEngine {
     /// Lock for thread safety
     private let lock = NSRecursiveLock()
 
+    /// Maximum instruction count per pcall (0 = unlimited).
+    private var instructionLimit: Int = 0
+
     /// Separate lock for memory tracking to avoid deadlock with main lock.
     /// The main lock is held during Lua execution, and callbacks during execution
     /// may need to track memory allocations.
@@ -327,6 +330,26 @@ public final class LuaEngine {
     /// Clear the current engine from thread-local storage.
     private func clearCurrentEngine() {
         Thread.current.threadDictionary.removeObject(forKey: Self.currentEngineKey)
+    }
+
+    // MARK: - Instruction Limit
+
+    /// Set the maximum number of Lua VM instructions per `run`/`evaluate` call.
+    ///
+    /// When the running chunk executes more than `count` instructions, a
+    /// ``LuaError/instructionLimitExceeded`` error is thrown.  This provides a
+    /// deterministic way to abort runaway Lua code (e.g. infinite loops) without
+    /// relying on OS-level timeouts or threads.
+    ///
+    /// The limit is re-applied before every `pcall`, so it applies equally to
+    /// each individual `run` and `evaluate` invocation.
+    ///
+    /// - Parameter count: Maximum instruction count per call. Pass `0` to disable
+    ///   the hook entirely (the default).
+    public func setInstructionLimit(_ count: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        instructionLimit = count
     }
 
     // MARK: - Initialization
@@ -454,6 +477,13 @@ public final class LuaEngine {
             throw LuaError.syntaxError(message)
         }
 
+        // Arm instruction-count hook (or disarm if limit is 0)
+        if instructionLimit > 0 {
+            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
+        } else {
+            lua_sethook(L, nil, 0, 0)
+        }
+
         // Execute with nresults=0 (discard any return values)
         let callResult = lua_pcall(L, 0, 0, 0)
         if callResult != LUA_OK {
@@ -492,6 +522,13 @@ public final class LuaEngine {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
             throw LuaError.syntaxError(message)
+        }
+
+        // Arm instruction-count hook (or disarm if limit is 0)
+        if instructionLimit > 0 {
+            lua_sethook(L, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
+        } else {
+            lua_sethook(L, nil, 0, 0)
         }
 
         // Execute with nresults=1 (expect one return value)
@@ -1274,6 +1311,10 @@ public final class LuaEngine {
     }
 
     private func errorFromCode(_ code: Int32, message: String) -> LuaError {
+        // The instruction-count hook raises a runtime error with this exact message.
+        if code == LUA_ERRRUN && message.contains("instruction limit exceeded") {
+            return .instructionLimitExceeded
+        }
         switch code {
         case LUA_ERRSYNTAX:
             return .syntaxError(message)
@@ -1326,6 +1367,19 @@ public final class LuaEngine {
         }
         return server.canWrite(path: path)
     }
+}
+
+// MARK: - Instruction Count Hook
+
+/// Lua debug hook fired when the instruction count limit is reached.
+///
+/// Called by the Lua VM every N instructions (set via `lua_sethook` with
+/// `LUA_MASKCOUNT`).  Raises a Lua runtime error that `pcall` catches and
+/// surfaces as ``LuaError/instructionLimitExceeded``.
+private func instructionHook(_ L: OpaquePointer?, _ ar: UnsafeMutablePointer<lua_Debug>?) -> Void {
+    guard let L = L else { return }
+    lua_pushstring(L, "instruction limit exceeded")
+    _ = lua_error(L)
 }
 
 // MARK: - Lua C Callbacks

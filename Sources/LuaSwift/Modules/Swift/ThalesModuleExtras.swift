@@ -88,6 +88,164 @@ extension ThalesModule {
     }
 }
 
+// MARK: - Extended Series Callbacks (asymptotic, compose, revert, puiseux, residue, convergence_radius)
+
+extension ThalesModule {
+
+    static let asymptoticCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 2,
+              let expr = args[0].stringValue,
+              let variable = args[1].stringValue else {
+            throw LuaError.callbackError(
+                "cas.asymptotic requires (expression, variable[, direction, terms])")
+        }
+        let directionStr = args.count > 2 ? args[2].stringValue ?? "pos_infinity" : "pos_infinity"
+        let numTerms = args.count > 3 ? UInt32(args[3].numberValue ?? 5) : 5
+        let direction: AsymptoticDirection
+        switch directionStr {
+        case "neg_infinity": direction = .negInfinity
+        case "zero": direction = .zero
+        default: direction = .posInfinity
+        }
+        do {
+            let result = try Thales.asymptoticSeries(
+                expr, variable: variable, direction: direction, numTerms: numTerms)
+            return .table([
+                "original": .string(result.original),
+                "variable": .string(result.variable),
+                "direction": .string(result.direction),
+                "expression": .string(result.series),
+                "latex": .string(result.seriesLatex)
+            ])
+        } catch {
+            throw LuaError.callbackError("cas.asymptotic: \(error)")
+        }
+    }
+
+    static let composeSeriesCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 3,
+              let outer = args[0].stringValue,
+              let inner = args[1].stringValue,
+              let variable = args[2].stringValue else {
+            throw LuaError.callbackError(
+                "cas.compose_series requires (outer, inner, variable[, order])")
+        }
+        let order = args.count > 3 ? UInt32(args[3].numberValue ?? 5) : 5
+        do {
+            let result = try Thales.composeSeries(
+                outer: outer, inner: inner, variable: variable, order: order)
+            return .table([
+                "original": .string(result.original),
+                "variable": .string(result.variable),
+                "expression": .string(result.series),
+                "latex": .string(result.seriesLatex),
+                "center": .number(result.center),
+                "terms": .number(Double(result.order))
+            ])
+        } catch {
+            throw LuaError.callbackError("cas.compose_series: \(error)")
+        }
+    }
+
+    static let revertSeriesCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 2,
+              let expr = args[0].stringValue,
+              let variable = args[1].stringValue else {
+            throw LuaError.callbackError(
+                "cas.revert_series requires (expression, variable[, order])")
+        }
+        let order = args.count > 2 ? UInt32(args[2].numberValue ?? 5) : 5
+        do {
+            let result = try Thales.reversionSeries(expr, variable: variable, order: order)
+            return .table([
+                "original": .string(result.original),
+                "variable": .string(result.variable),
+                "expression": .string(result.series),
+                "latex": .string(result.seriesLatex),
+                "center": .number(result.center),
+                "terms": .number(Double(result.order))
+            ])
+        } catch {
+            throw LuaError.callbackError("cas.revert_series: \(error)")
+        }
+    }
+
+    static let puiseuxCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 2,
+              let expr = args[0].stringValue,
+              let variable = args[1].stringValue else {
+            throw LuaError.callbackError(
+                "cas.puiseux requires (expression, variable[, center, order])")
+        }
+        let center = args.count > 2 ? args[2].numberValue ?? 0.0 : 0.0
+        let order = args.count > 3 ? UInt32(args[3].numberValue ?? 5) : 5
+        do {
+            let result = try Thales.puiseuxSeries(
+                expr, variable: variable, center: center, order: order)
+            return .table([
+                "original": .string(result.original),
+                "variable": .string(result.variable),
+                "expression": .string(result.series),
+                "latex": .string(result.seriesLatex),
+                "center": .number(result.center),
+                "success": .bool(result.success)
+            ])
+        } catch {
+            throw LuaError.callbackError("cas.puiseux: \(error)")
+        }
+    }
+
+    static let residueCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 2,
+              let expr = args[0].stringValue,
+              let variable = args[1].stringValue else {
+            throw LuaError.callbackError(
+                "cas.residue requires (expression, variable[, point])")
+        }
+        let point = args.count > 2 ? args[2].numberValue ?? 0.0 : 0.0
+        do {
+            let result = try Thales.residue(expr, variable: variable, at: point)
+            return .table([
+                "original": .string(result.original),
+                "variable": .string(result.variable),
+                "point": .number(result.point),
+                "value": .string(result.value),
+                "latex": .string(result.valueLatex),
+                "success": .bool(result.success)
+            ])
+        } catch {
+            throw LuaError.callbackError("cas.residue: \(error)")
+        }
+    }
+
+    static let convergenceRadiusCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard args.count >= 2,
+              let expr = args[0].stringValue,
+              let variable = args[1].stringValue else {
+            throw LuaError.callbackError(
+                "cas.convergence_radius requires (expression, variable[, center, order])")
+        }
+        let center = args.count > 2 ? args[2].numberValue ?? 0.0 : 0.0
+        let order = args.count > 3 ? UInt32(args[3].numberValue ?? 20) : 20
+        do {
+            let result = try Thales.convergenceRadius(
+                expr, variable: variable, center: center, order: order)
+            let radius: LuaValue = result.radius.isNaN ? .nil : .number(result.radius)
+            let radiusInf: LuaValue = result.radius.isInfinite ? .bool(true) : .bool(false)
+            return .table([
+                "expression": .string(result.expression),
+                "variable": .string(result.variable),
+                "center": .number(result.center),
+                "radius": radius,
+                "is_entire": .bool(result.isEntire),
+                "success": .bool(result.success)
+            ])
+        } catch {
+            throw LuaError.callbackError("cas.convergence_radius: \(error)")
+        }
+    }
+}
+
 // MARK: - Formatting Callbacks
 
 extension ThalesModule {

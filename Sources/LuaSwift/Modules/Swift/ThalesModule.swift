@@ -57,6 +57,12 @@ public struct ThalesModule {
         engine.registerFunction(name: "_luaswift_cas_taylor", callback: taylorCallback)
         engine.registerFunction(name: "_luaswift_cas_maclaurin", callback: maclaurinCallback)
         engine.registerFunction(name: "_luaswift_cas_laurent", callback: laurentCallback)
+        engine.registerFunction(name: "_luaswift_cas_asymptotic", callback: asymptoticCallback)
+        engine.registerFunction(name: "_luaswift_cas_compose_series", callback: composeSeriesCallback)
+        engine.registerFunction(name: "_luaswift_cas_revert_series", callback: revertSeriesCallback)
+        engine.registerFunction(name: "_luaswift_cas_puiseux", callback: puiseuxCallback)
+        engine.registerFunction(name: "_luaswift_cas_residue", callback: residueCallback)
+        engine.registerFunction(name: "_luaswift_cas_convergence_radius", callback: convergenceRadiusCallback)
 
         // Formatting
         engine.registerFunction(name: "_luaswift_cas_to_latex", callback: toLatexCallback)

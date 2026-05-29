@@ -34,6 +34,12 @@ extension ThalesModule {
     local _taylor = _luaswift_cas_taylor
     local _maclaurin = _luaswift_cas_maclaurin
     local _laurent = _luaswift_cas_laurent
+    local _asymptotic = _luaswift_cas_asymptotic
+    local _compose_series = _luaswift_cas_compose_series
+    local _revert_series = _luaswift_cas_revert_series
+    local _puiseux = _luaswift_cas_puiseux
+    local _residue = _luaswift_cas_residue
+    local _convergence_radius = _luaswift_cas_convergence_radius
     local _to_latex = _luaswift_cas_to_latex
     local _parse_latex = _luaswift_cas_parse_latex
     local _evaluate = _luaswift_cas_evaluate
@@ -123,6 +129,30 @@ extension ThalesModule {
         return _laurent(expr, variable or "x", center or 0, neg_order or 3, pos_order or 3)
     end
 
+    function cas.asymptotic(expr, variable, direction, terms)
+        return _asymptotic(expr, variable or "x", direction or "pos_infinity", terms or 5)
+    end
+
+    function cas.compose_series(outer, inner, variable, order)
+        return _compose_series(outer, inner, variable or "x", order or 5)
+    end
+
+    function cas.revert_series(expr, variable, order)
+        return _revert_series(expr, variable or "x", order or 5)
+    end
+
+    function cas.puiseux(expr, variable, center, order)
+        return _puiseux(expr, variable or "x", center or 0, order or 5)
+    end
+
+    function cas.residue(expr, variable, point)
+        return _residue(expr, variable or "x", point or 0)
+    end
+
+    function cas.convergence_radius(expr, variable, center, order)
+        return _convergence_radius(expr, variable or "x", center or 0, order or 20)
+    end
+
     -- Formatting
     function cas.to_latex(expr)
         return _to_latex(expr)
@@ -176,6 +206,12 @@ extension ThalesModule {
     _luaswift_cas_taylor = nil
     _luaswift_cas_maclaurin = nil
     _luaswift_cas_laurent = nil
+    _luaswift_cas_asymptotic = nil
+    _luaswift_cas_compose_series = nil
+    _luaswift_cas_revert_series = nil
+    _luaswift_cas_puiseux = nil
+    _luaswift_cas_residue = nil
+    _luaswift_cas_convergence_radius = nil
     _luaswift_cas_to_latex = nil
     _luaswift_cas_parse_latex = nil
     _luaswift_cas_evaluate = nil

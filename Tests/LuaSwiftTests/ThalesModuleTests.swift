@@ -332,6 +332,133 @@
       XCTAssertNotNil(result.stringValue)
     }
 
+    // MARK: - Extended Series (asymptotic, compose_series, revert_series, puiseux, residue, convergence_radius)
+
+    func testAsymptotic() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        local r = cas.asymptotic("1/x + 1/x^2", "x")
+        return type(r) == "table" and r.expression ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testAsymptoticDirectionZero() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        local r = cas.asymptotic("1/x", "x", "zero", 3)
+        return type(r) == "table" and r.direction ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testComposeSeries() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        local r = cas.compose_series("exp(x)", "sin(x)", "x", 5)
+        return type(r) == "table" and r.expression ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testRevertSeries() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        -- Revert sin(x) ≈ arcsin(x)
+        local r = cas.revert_series("sin(x)", "x", 7)
+        return type(r) == "table" and r.expression ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testPuiseux() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        local r = cas.puiseux("sqrt(x)", "x", 0, 4)
+        return type(r) == "table" and r.expression ~= nil and r.success ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testResidue() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        -- Residue of 1/x at x=0 should be 1
+        local r = cas.residue("1/x", "x", 0)
+        return type(r) == "table" and r.value ~= nil and r.success ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testResidueValue() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        local r = cas.residue("1/x", "x", 0)
+        return r.value
+        """)
+      XCTAssertNotNil(result.stringValue)
+      // Residue of 1/x at 0 is 1
+      let val = result.stringValue ?? ""
+      XCTAssertTrue(val.contains("1"), "Expected residue value to contain '1', got: \(val)")
+    }
+
+    func testConvergenceRadius() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        local r = cas.convergence_radius("sin(x)", "x")
+        return type(r) == "table" and r.is_entire ~= nil and r.success ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testConvergenceRadiusEntireFunction() throws {
+      let result = try engine.evaluate(
+        """
+        local cas = require("thales")
+        local r = cas.convergence_radius("sin(x)", "x")
+        return r.is_entire
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    // MARK: - series.taylor_symbolic delegates to math.cas.taylor when Thales present
+
+    func testTaylorSymbolicDelegatesToCas() throws {
+      let result = try engine.evaluate(
+        """
+        -- math.cas is available in this build
+        local r = math.series.taylor_symbolic("sin(x)", {variable="x", around=0, terms=5})
+        return type(r) == "table" and r.expression ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testLaurentDelegatesToCas() throws {
+      let result = try engine.evaluate(
+        """
+        local r = math.series.laurent("1/x + x", {variable="x", center=0, neg_order=1, pos_order=2})
+        return type(r) == "table" and r.expression ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testPuiseuxDelegatesToCas() throws {
+      let result = try engine.evaluate(
+        """
+        local r = math.series.puiseux("sqrt(x)", {variable="x", center=0, order=4})
+        return type(r) == "table" and r.expression ~= nil
+        """)
+      XCTAssertEqual(result.boolValue, true)
+    }
+
     // MARK: - Error Handling
 
     func testSimplifyErrorOnBadInput() throws {

@@ -347,6 +347,13 @@ public final class LuaEngine {
     /// The limit is enforced on every execution entry point — `run`, `evaluate`,
     /// `runBytecode`, `evaluateBytecode`, `callLuaFunction`, and coroutine `resume`.
     ///
+    /// - Note: The count is **per call**, not a lifetime budget. For coroutines the
+    ///   count is reset to the full limit on every `resume`, so a coroutine that
+    ///   yields can execute up to `count` instructions between each resume. Do not
+    ///   treat the limit as a total instruction ceiling for adversarial code that can
+    ///   call `coroutine.yield()`; if you need a hard sandbox, also restrict or remove
+    ///   the `coroutine` library.
+    ///
     /// - Parameter count: Maximum instruction count per call. Pass `0` to disable
     ///   the hook entirely (the default). Negative values are treated as `0`.
     ///   Values above `Int32.max` are clamped to `Int32.max` (the hook count is a
@@ -909,7 +916,8 @@ public final class LuaEngine {
     ///   - args: Arguments to pass to the Lua function
     /// - Returns: The return value from the Lua function
     /// - Throws: `LuaError.callbackError` if `funcValue` is not a function,
-    ///   or `LuaError.runtimeError` if the function call fails
+    ///   `LuaError.instructionLimitExceeded` if an instruction limit is set and
+    ///   tripped, or `LuaError.runtimeError` if the function call otherwise fails
     ///
     /// ## Example
     ///

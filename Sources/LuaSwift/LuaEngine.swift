@@ -607,7 +607,12 @@ public final class LuaEngine {
         // Pass the box as ud pointer (unretained — box outlives the dump call).
         let box = BytecodeBuffer()
         let ud = Unmanaged.passUnretained(box).toOpaque()
+        // The `strip` 4th argument was added in Lua 5.3; 5.1/5.2 take 3 args.
+        #if LUA_VERSION_51 || LUA_VERSION_52
+        let dumpResult = lua_dump(L, luaBytecodeWriter, ud)
+        #else
         let dumpResult = lua_dump(L, luaBytecodeWriter, ud, 0)
+        #endif
 
         // Pop the function regardless of dump result
         lua_pop(L, 1)
@@ -642,8 +647,15 @@ public final class LuaEngine {
         // Load bytecode — mode "b" accepts binary only
         let loadResult = bytecode.withUnsafeBytes { raw -> Int32 in
             guard let ptr = raw.baseAddress else { return LUA_ERRSYNTAX }
+            // luaL_loadbufferx (with mode) was added in Lua 5.2; 5.1 has only
+            // luaL_loadbuffer, which accepts both text and binary chunks.
+            #if LUA_VERSION_51
+            return luaL_loadbuffer(L, ptr.assumingMemoryBound(to: CChar.self),
+                                   bytecode.count, "=bytecode")
+            #else
             return luaL_loadbufferx(L, ptr.assumingMemoryBound(to: CChar.self),
                                     bytecode.count, "=bytecode", "b")
+            #endif
         }
         if loadResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
@@ -693,8 +705,15 @@ public final class LuaEngine {
         // Load bytecode — mode "b" accepts binary only
         let loadResult = bytecode.withUnsafeBytes { raw -> Int32 in
             guard let ptr = raw.baseAddress else { return LUA_ERRSYNTAX }
+            // luaL_loadbufferx (with mode) was added in Lua 5.2; 5.1 has only
+            // luaL_loadbuffer, which accepts both text and binary chunks.
+            #if LUA_VERSION_51
+            return luaL_loadbuffer(L, ptr.assumingMemoryBound(to: CChar.self),
+                                   bytecode.count, "=bytecode")
+            #else
             return luaL_loadbufferx(L, ptr.assumingMemoryBound(to: CChar.self),
                                     bytecode.count, "=bytecode", "b")
+            #endif
         }
         if loadResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"

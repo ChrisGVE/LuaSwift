@@ -50,19 +50,49 @@ public struct MathExprModule {
             let num = v ?? Double.nan
             return .table(["type": .string("number"), "value": .number(num)])
         case .constant(let c):
-            return .table(["type": .string("constant"), "name": .string(c.rawValue)])
+            // Map MathLexConstant enum to the lowercase names the Lua eval_ast expects
+            let constName: String
+            switch c {
+            case .pi: constName = "pi"
+            case .e: constName = "e"
+            case .i, .j, .k: constName = "i"
+            case .infinity: constName = "inf"
+            case .negInfinity: constName = "-inf"
+            case .nan: constName = "nan"
+            }
+            return .table(["type": .string("constant"), "name": .string(constName)])
         case .variable(let name):
             return .table(["type": .string("variable"), "name": .string(name)])
         case .unary(let op, let operand):
+            // Map NumericSwift UnaryOp enum to the symbol strings the Lua eval_ast expects
+            let opSym: String
+            switch op {
+            case .neg: opSym = "-"
+            case .pos: opSym = "+"
+            case .factorial: opSym = "!"
+            case .transpose: opSym = "T"
+            }
             return .table([
                 "type": .string("unary"),
-                "op": .string(op.rawValue),
+                "op": .string(opSym),
                 "operand": astToLua(operand)
             ])
         case .binary(let op, let left, let right):
+            // Map NumericSwift BinaryOp enum to the symbol strings the Lua eval_ast expects
+            let opSym: String
+            switch op {
+            case .add: opSym = "+"
+            case .sub: opSym = "-"
+            case .mul: opSym = "*"
+            case .div: opSym = "/"
+            case .pow: opSym = "^"
+            case .mod: opSym = "%"
+            case .plusMinus: opSym = "±"
+            case .minusPlus: opSym = "∓"
+            }
             return .table([
                 "type": .string("binop"),
-                "op": .string(op.rawValue),
+                "op": .string(opSym),
                 "left": astToLua(left),
                 "right": astToLua(right)
             ])
@@ -115,13 +145,23 @@ public struct MathExprModule {
             return .float(n)
 
         case "constant":
-            guard let name = table["name"]?.stringValue,
-                  let c = MathLexConstant(rawValue: name) else {
-                // Fall back to variable for unrecognised constant names
-                let nm = table["name"]?.stringValue ?? "unknown"
-                return .variable(nm)
+            guard let name = table["name"]?.stringValue else {
+                throw LuaError.callbackError("Invalid constant node: missing name")
             }
-            return .constant(c)
+            // Accept both lowercase symbols ("pi", "e") and MathLexConstant rawValues ("Pi", "E")
+            let mathConst: MathLexConstant
+            switch name.lowercased() {
+            case "pi": mathConst = .pi
+            case "e": mathConst = .e
+            case "i", "j", "k": mathConst = .i
+            case "inf", "infinity": mathConst = .infinity
+            case "-inf", "-infinity", "neginf": mathConst = .negInfinity
+            case "nan": mathConst = .nan
+            default:
+                // Fall back to variable for unrecognised constant names
+                return .variable(name)
+            }
+            return .constant(mathConst)
 
         case "variable":
             guard let name = table["name"]?.stringValue else {
@@ -131,23 +171,45 @@ public struct MathExprModule {
 
         case "unary":
             guard let opStr = table["op"]?.stringValue,
-                  let op = UnaryOp(rawValue: opStr),
                   let operandValue = table["operand"] else {
                 throw LuaError.callbackError("Invalid unary node: missing op or operand")
             }
+            // Accept both symbol strings ("-", "+") and rawValue names ("Neg", "Pos")
+            let unaryOp: UnaryOp
+            switch opStr {
+            case "-", "Neg": unaryOp = .neg
+            case "+", "Pos": unaryOp = .pos
+            case "!", "Factorial": unaryOp = .factorial
+            case "T", "Transpose": unaryOp = .transpose
+            default:
+                throw LuaError.callbackError("Unknown unary op: \(opStr)")
+            }
             let operand = try luaToAst(operandValue)
-            return .unary(op: op, operand: operand)
+            return .unary(op: unaryOp, operand: operand)
 
         case "binop":
             guard let opStr = table["op"]?.stringValue,
-                  let op = BinaryOp(rawValue: opStr),
                   let leftValue = table["left"],
                   let rightValue = table["right"] else {
                 throw LuaError.callbackError("Invalid binop node: missing op, left, or right")
             }
+            // Accept both symbol strings ("+", "-") and rawValue names ("Add", "Sub")
+            let binaryOp: BinaryOp
+            switch opStr {
+            case "+", "Add": binaryOp = .add
+            case "-", "Sub": binaryOp = .sub
+            case "*", "Mul": binaryOp = .mul
+            case "/", "Div": binaryOp = .div
+            case "^", "Pow": binaryOp = .pow
+            case "%", "Mod": binaryOp = .mod
+            case "±", "PlusMinus": binaryOp = .plusMinus
+            case "∓", "MinusPlus": binaryOp = .minusPlus
+            default:
+                throw LuaError.callbackError("Unknown binary op: \(opStr)")
+            }
             let left = try luaToAst(leftValue)
             let right = try luaToAst(rightValue)
-            return .binary(op: op, left: left, right: right)
+            return .binary(op: binaryOp, left: left, right: right)
 
         case "call":
             guard let name = table["name"]?.stringValue,
@@ -198,11 +260,165 @@ public struct MathExprModule {
 
     // MARK: - Callbacks
 
-    /// Tokenize an expression string — NumericSwift 0.2.1 removed the public
-    /// tokenise API; this stub returns an empty array and is kept for Lua-side
-    /// backward compat.  Callers should use `_luaswift_mathexpr_parse_string`.
-    private static let tokenizeCallback: ([LuaValue]) throws -> LuaValue = { _ in
-        return .array([])
+    // MARK: - Built-in tokenizer (NumericSwift 0.2.1 removed the public API)
+
+    /// Token types produced by the built-in tokenizer.
+    private enum ExprToken {
+        case number(Double)
+        case imaginary(Double)
+        case `operator`(String)
+        case function(String)
+        case variable(String)
+        case constant(String)
+        case lparen
+        case rparen
+        case comma
+    }
+
+    /// Known mathematical constants (case-sensitive matching after lowercasing).
+    private static let knownConstants: Set<String> = ["pi", "e", "inf", "nan", "i", "j", "k"]
+
+    /// Known mathematical function names.
+    private static let knownFunctions: Set<String> = [
+        "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+        "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+        "sqrt", "cbrt", "exp", "log", "log2", "log10", "ln",
+        "abs", "sign", "floor", "ceil", "round", "trunc",
+        "pow", "min", "max", "clamp", "lerp", "rad", "deg",
+        "mod", "gcd", "lcm", "factorial"
+    ]
+
+    /// Tokenize a mathematical expression string.
+    ///
+    /// Handles: numbers (integer/decimal/scientific/imaginary), operators
+    /// (`+` `-` `*` `/` `^` `%`), parentheses, commas, named identifiers
+    /// (constants + functions + variables).
+    private static func tokenize(_ expression: String) throws -> [ExprToken] {
+        var tokens: [ExprToken] = []
+        var idx = expression.startIndex
+        let end = expression.endIndex
+
+        while idx < end {
+            let ch = expression[idx]
+
+            // Skip whitespace
+            if ch.isWhitespace {
+                idx = expression.index(after: idx)
+                continue
+            }
+
+            // Operators
+            if "+-*/^%".contains(ch) {
+                tokens.append(.operator(String(ch)))
+                idx = expression.index(after: idx)
+                continue
+            }
+
+            // Parentheses / comma
+            if ch == "(" { tokens.append(.lparen); idx = expression.index(after: idx); continue }
+            if ch == ")" { tokens.append(.rparen); idx = expression.index(after: idx); continue }
+            if ch == "," { tokens.append(.comma);  idx = expression.index(after: idx); continue }
+
+            // Numbers (integer, decimal, scientific notation, optional imaginary suffix)
+            if ch.isNumber || (ch == "." && {
+                let next = expression.index(after: idx)
+                return next < end && expression[next].isNumber
+            }()) {
+                var numStr = ""
+                while idx < end && (expression[idx].isNumber || expression[idx] == ".") {
+                    numStr.append(expression[idx])
+                    idx = expression.index(after: idx)
+                }
+                // Scientific notation: e+3 / e-3 / e3
+                if idx < end && (expression[idx] == "e" || expression[idx] == "E") {
+                    let eIdx = idx
+                    numStr.append(expression[idx])
+                    idx = expression.index(after: idx)
+                    if idx < end && (expression[idx] == "+" || expression[idx] == "-") {
+                        numStr.append(expression[idx])
+                        idx = expression.index(after: idx)
+                    }
+                    if idx < end && expression[idx].isNumber {
+                        while idx < end && expression[idx].isNumber {
+                            numStr.append(expression[idx])
+                            idx = expression.index(after: idx)
+                        }
+                    } else {
+                        // Not valid scientific: backtrack 'e'
+                        numStr.removeLast()
+                        idx = eIdx
+                    }
+                }
+                guard let value = Double(numStr) else {
+                    throw LuaError.callbackError("tokenize: invalid number '\(numStr)'")
+                }
+                // Imaginary suffix: 2i
+                if idx < end && expression[idx] == "i" {
+                    tokens.append(.imaginary(value))
+                    idx = expression.index(after: idx)
+                } else {
+                    tokens.append(.number(value))
+                }
+                continue
+            }
+
+            // Identifiers: letters/underscore followed by alphanumeric/underscore
+            if ch.isLetter || ch == "_" {
+                var name = ""
+                while idx < end && (expression[idx].isLetter || expression[idx].isNumber
+                                    || expression[idx] == "_") {
+                    name.append(expression[idx])
+                    idx = expression.index(after: idx)
+                }
+                // Imaginary suffix on identifier (rare: "ni" patterns already handled above)
+                let lower = name.lowercased()
+                if knownConstants.contains(lower) {
+                    tokens.append(.constant(lower))
+                } else if knownFunctions.contains(lower) {
+                    tokens.append(.function(lower))
+                } else {
+                    tokens.append(.variable(name))
+                }
+                continue
+            }
+
+            // Unknown character — skip with warning
+            idx = expression.index(after: idx)
+        }
+        return tokens
+    }
+
+    /// Convert an `ExprToken` to a Lua table representation.
+    private static func tokenToLua(_ token: ExprToken) -> LuaValue {
+        switch token {
+        case .number(let n):
+            return .table(["type": .string("number"), "value": .number(n)])
+        case .imaginary(let n):
+            return .table(["type": .string("imaginary"), "value": .number(n)])
+        case .operator(let op):
+            return .table(["type": .string("operator"), "value": .string(op)])
+        case .function(let name):
+            return .table(["type": .string("function"), "value": .string(name)])
+        case .variable(let name):
+            return .table(["type": .string("variable"), "value": .string(name)])
+        case .constant(let name):
+            return .table(["type": .string("constant"), "value": .string(name)])
+        case .lparen:
+            return .table(["type": .string("lparen")])
+        case .rparen:
+            return .table(["type": .string("rparen")])
+        case .comma:
+            return .table(["type": .string("comma")])
+        }
+    }
+
+    /// Tokenize an expression string into a Lua array of token tables.
+    private static let tokenizeCallback: ([LuaValue]) throws -> LuaValue = { args in
+        guard let expression = args.first?.stringValue else {
+            throw LuaError.callbackError("eval.tokenize requires a string argument")
+        }
+        let tokens = try tokenize(expression)
+        return .array(tokens.map { tokenToLua($0) })
     }
 
     /// Parse a string expression into an AST (Lua table representation).
@@ -218,11 +434,59 @@ public struct MathExprModule {
         }
     }
 
-    /// Parse a tokens array — kept for backward compat; simply re-parses the
-    /// first string token if any, otherwise returns an empty-unknown node.
+    /// Reconstruct an expression string from a Lua token-table array.
+    ///
+    /// Used by ``parseCallback`` when a token array is passed.
+    private static func tokensToExprString(_ tokensValue: LuaValue) -> String? {
+        let tokensArray: [LuaValue]
+        if case .array(let arr) = tokensValue {
+            tokensArray = arr
+        } else if case .table(let tbl) = tokensValue {
+            tokensArray = (1...Swift.max(1, tbl.count)).compactMap { tbl[String($0)] }
+        } else {
+            return nil
+        }
+        var parts: [String] = []
+        for token in tokensArray {
+            guard case .table(let t) = token,
+                  let typeName = t["type"]?.stringValue else { continue }
+            switch typeName {
+            case "number":
+                if let n = t["value"]?.numberValue {
+                    if n == Foundation.floor(n) && !n.isInfinite {
+                        parts.append(String(Int64(n)))
+                    } else {
+                        parts.append(String(n))
+                    }
+                }
+            case "imaginary":
+                if let n = t["value"]?.numberValue { parts.append("\(n)i") }
+            case "operator":
+                if let op = t["value"]?.stringValue { parts.append(op) }
+            case "function":
+                if let name = t["value"]?.stringValue { parts.append(name) }
+            case "variable":
+                if let name = t["value"]?.stringValue { parts.append(name) }
+            case "constant":
+                if let name = t["value"]?.stringValue { parts.append(name) }
+            case "lparen":  parts.append("(")
+            case "rparen":  parts.append(")")
+            case "comma":   parts.append(",")
+            default: break
+            }
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// Parse a token array or expression string into an AST Lua table.
+    ///
+    /// Accepts both a token-table array (backward compat) and a bare string.
     private static let parseCallback: ([LuaValue]) throws -> LuaValue = { args in
-        // Legacy compatibility: if first arg is a string, parse it directly.
-        if let expr = args.first?.stringValue {
+        guard let first = args.first else {
+            throw LuaError.callbackError("eval.parse requires a string or token array")
+        }
+        // Direct string: parse immediately
+        if let expr = first.stringValue {
             do {
                 let ast = try MathExpr.parse(expr)
                 return astToLua(ast)
@@ -230,15 +494,16 @@ public struct MathExprModule {
                 throw LuaError.callbackError("eval.parse error: \(error.description)")
             }
         }
-        // Token array input is no longer supported — return an error node.
-        guard args.first != nil else {
-            throw LuaError.callbackError("eval.parse requires a string argument")
+        // Token array: reconstruct expression string, then parse
+        if let expr = tokensToExprString(first), !expr.isEmpty {
+            do {
+                let ast = try MathExpr.parse(expr)
+                return astToLua(ast)
+            } catch let error as MathExprError {
+                throw LuaError.callbackError("eval.parse (from tokens) error: \(error.description)")
+            }
         }
-        // Fall through: caller passed a token array. We can't reconstruct the
-        // original expression from tokens, so return an unknown placeholder.
-        return .table(["type": .string("unknown"), "note": .string(
-            "Token-array parse removed in NumericSwift 0.2.1; use parse_string"
-        )])
+        throw LuaError.callbackError("eval.parse: invalid argument (expected string or token array)")
     }
 
     /// Evaluate an expression string or AST table with variable bindings.
@@ -276,9 +541,65 @@ public struct MathExprModule {
         }
     }
 
-    /// Convert an expression string to its normalised plain-text form.
+    /// Operator precedence for binop string reconstruction.
+    private static func binopPrecedence(_ op: String) -> Int {
+        switch op {
+        case "+", "-": return 1
+        case "*", "/", "%": return 2
+        case "^": return 3
+        default: return 0
+        }
+    }
+
+    /// Reconstruct an expression string from a Lua AST table.
     ///
-    /// In NumericSwift 0.2.1, `MathExpr.toString` accepts a `String` (not an AST).
+    /// Adds parentheses only where precedence requires it (left-to-right evaluation).
+    private static func luaAstToString(_ value: LuaValue, parentPrec: Int = 0) -> String {
+        guard case .table(let table) = value,
+              let typeName = table["type"]?.stringValue else { return "?" }
+        switch typeName {
+        case "number":
+            if let n = table["value"]?.numberValue {
+                if n == Foundation.floor(n) && !n.isInfinite && !n.isNaN {
+                    return String(Int64(n))
+                }
+                return String(n)
+            }
+            return "?"
+        case "imaginary":
+            if let n = table["value"]?.numberValue { return "\(n)i" }
+            return "?"
+        case "constant":
+            return table["name"]?.stringValue ?? "?"
+        case "variable":
+            return table["name"]?.stringValue ?? "?"
+        case "unary":
+            let op = table["op"]?.stringValue ?? "-"
+            if let operand = table["operand"] {
+                let s = luaAstToString(operand, parentPrec: 10)
+                return "\(op)\(s)"
+            }
+            return "?"
+        case "binop":
+            let op = table["op"]?.stringValue ?? "?"
+            let myPrec = binopPrecedence(op)
+            let left  = table["left"].map  { luaAstToString($0, parentPrec: myPrec) } ?? "?"
+            let right = table["right"].map { luaAstToString($0, parentPrec: myPrec + 1) } ?? "?"
+            let expr = "\(left) \(op) \(right)"
+            return myPrec < parentPrec ? "(\(expr))" : expr
+        case "call":
+            let name = table["name"]?.stringValue ?? "?"
+            var argStrs: [String] = []
+            if case .array(let argsArr)? = table["args"] {
+                argStrs = argsArr.map { luaAstToString($0, parentPrec: 0) }
+            }
+            return "\(name)(\(argStrs.joined(separator: ", ")))"
+        default:
+            return "?"
+        }
+    }
+
+    /// Convert an expression string or AST table to a normalised plain-text form.
     private static let toStringCallback: ([LuaValue]) throws -> LuaValue = { args in
         guard args.count >= 1 else {
             throw LuaError.callbackError("eval.to_string requires a string or AST argument")
@@ -291,10 +612,8 @@ public struct MathExprModule {
                 throw LuaError.callbackError("eval.to_string error: \(error.description)")
             }
         }
-        // AST input: reconstruct expression via evaluate path
-        let ast = try luaToAst(args[0])
-        _ = ast  // keep compile-path alive; we can't toString an AST in 0.2.1
-        return .string("<ast>")
+        // AST table input: reconstruct from Lua AST representation
+        return .string(luaAstToString(args[0]))
     }
 
     /// Substitute variables in an AST with values or sub-expressions.
@@ -436,9 +755,10 @@ public struct MathExprModule {
         return expr:match("\\\\") ~= nil
     end
 
-    -- Constants for evaluation
-    -- Note: 'i' is NOT included to avoid conflicts with loop variables.
-    -- Use '1i' syntax for pure imaginary unit.
+    -- Constants for evaluation.
+    -- Note: 'i', 'j', 'k' are NOT in this table to avoid conflicts with loop
+    -- variables (e.g. for i=1,n). The imaginary unit is handled as a special
+    -- case in the AST evaluator when a "constant" node has name "i"/"j"/"k".
     eval.constants = {
         pi = math.pi,
         e = math.exp(1),
@@ -534,14 +854,12 @@ public struct MathExprModule {
         return _evaluate(expr, vars or {})
     end
 
-    -- Parse expression string to AST (delegates to Swift/NumericSwift)
-    -- In NumericSwift 0.2.1 the token-array path was removed; parse now takes a string.
+    -- Parse expression string or token array to AST (delegates to Swift/NumericSwift).
+    -- In NumericSwift 0.2.1 the public token-array parse was removed; the Swift
+    -- parseCallback reconstructs the expression string from token tables internally.
     function eval.parse(expr_or_tokens)
-        if type(expr_or_tokens) == "string" then
-            return _parse_string(expr_or_tokens)
-        end
-        -- Legacy: token array passed — not supported in 0.2.1; return empty node
-        return {type = "unknown"}
+        -- Call the Swift parseCallback which handles both strings and token arrays
+        return _parse(expr_or_tokens)
     end
 
     -- Alias: parse_string takes a plain expression string and returns an AST table
@@ -629,6 +947,14 @@ public struct MathExprModule {
             -- Imaginary literal: ni -> {re=0, im=n}
             return {re = 0, im = ast.value}
         elseif ast.type == "constant" then
+            -- Special case: imaginary unit i/j/k — but only when not shadowed by a variable.
+            -- If vars["i"] is provided (e.g. summation index), use the variable value instead.
+            if ast.name == "i" or ast.name == "j" or ast.name == "k" then
+                if vars[ast.name] ~= nil then
+                    return vars[ast.name]
+                end
+                return {re = 0, im = 1}
+            end
             return eval.constants[ast.name]
         elseif ast.type == "variable" then
             return vars[ast.name] or error("undefined variable: " .. ast.name)
@@ -719,6 +1045,19 @@ public struct MathExprModule {
             -- Imaginary literal: ni -> {re=0, im=n}
             return {re = 0, im = ast.value}
         elseif ast.type == "constant" then
+            -- Special case: imaginary unit i/j/k — shadowed by variable if present in scope.
+            if ast.name == "i" or ast.name == "j" or ast.name == "k" then
+                if raw_scope[ast.name] ~= nil then
+                    -- Fall through to variable resolution
+                    local name = ast.name
+                    if resolved_cache[name] ~= nil then return resolved_cache[name] end
+                    local raw_value = raw_scope[name]
+                    local resolved = eval._resolve_value(raw_value, raw_scope, resolved_cache)
+                    resolved_cache[name] = resolved
+                    return resolved
+                end
+                return {re = 0, im = 1}
+            end
             return eval.constants[ast.name]
         elseif ast.type == "variable" then
             local name = ast.name
@@ -998,8 +1337,11 @@ public struct MathExprModule {
             ast = eval.parse(input)
         elseif type(input) == "table" then
             if input.type then
-                -- Already an AST
+                -- Already an AST node
                 ast = input
+            elseif #input > 0 then
+                -- Token array: parse through eval.parse (which calls the Swift parseCallback)
+                ast = eval.parse(input)
             else
                 error("compile: invalid input")
             end

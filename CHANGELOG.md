@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Repository hygiene** - Stopped tracking developer-local files (`CLAUDE.md`, `code_audit.md`) in version control; these are now ignored locally. No public-facing or packaged code is affected.
+
 ## [1.8.2] - 2026-05-30
 
 ### Changed

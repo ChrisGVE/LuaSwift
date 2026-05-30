@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.5] - 2026-05-30
+
 ### Changed
 - **License header consistency** - Corrected source-file license headers to match the project's Apache License 2.0 (LICENSE). Stale `Licensed under the MIT License` headers in 74 Swift/Lua source and test files were replaced with `SPDX-License-Identifier: Apache-2.0`. Bundled Lua C sources retain their own (correct) MIT license.
 

@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_TOMLKIT
 import Foundation
 import TOMLKit
 
@@ -261,3 +262,4 @@ private enum TOMLError: Error, LocalizedError {
         }
     }
 }
+#endif

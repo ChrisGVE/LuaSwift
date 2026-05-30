@@ -24,6 +24,9 @@ swift test --filter LuaEngineTests/testValueServerWrite
 # Run tests for a specific test class
 swift test --filter LuaEngineTests
 
+# Build without optional data-format dependencies (nimble binary)
+LUASWIFT_INCLUDE_YAMS=0 LUASWIFT_INCLUDE_TOMLKIT=0 swift build
+
 # Build for release
 swift build -c release
 ```

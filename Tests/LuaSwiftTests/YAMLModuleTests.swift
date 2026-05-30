@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_YAMS
 import XCTest
 @testable import LuaSwift
 
@@ -256,3 +257,4 @@ final class YAMLModuleTests: XCTestCase {
         XCTAssertEqual(table["pi"]!.numberValue!, 3.14159, accuracy: 0.00001)
     }
 }
+#endif

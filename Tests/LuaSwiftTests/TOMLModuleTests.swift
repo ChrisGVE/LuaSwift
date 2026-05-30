@@ -6,6 +6,7 @@
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
 
+#if LUASWIFT_TOMLKIT
 import XCTest
 @testable import LuaSwift
 
@@ -277,3 +278,4 @@ final class TOMLModuleTests: XCTestCase {
         XCTAssertEqual(products[1].tableValue?["name"]?.stringValue, "Nail")
     }
 }
+#endif

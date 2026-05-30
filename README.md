@@ -238,12 +238,14 @@ The `iox` module restricts file operations to explicitly allowed directories—L
 
 ## Optional Swift Package Dependencies
 
-LuaSwift can optionally include three companion Swift packages that provide enhanced implementations for specific module groups. These packages are developed as independent Swift libraries that can also be used directly without Lua.
+LuaSwift can optionally include companion Swift packages that provide enhanced implementations for specific module groups. These packages are developed as independent Swift libraries that can also be used directly without Lua.
 
 ### Available Optional Packages
 
 | Package | Environment Variable | Description |
 |---------|---------------------|-------------|
+| [Yams](https://github.com/jpsim/Yams) | `LUASWIFT_INCLUDE_YAMS` | YAML encoding/decoding |
+| [TOMLKit](https://github.com/LebJe/TOMLKit) | `LUASWIFT_INCLUDE_TOMLKIT` | TOML encoding/decoding |
 | [NumericSwift](https://github.com/ChrisGVE/NumericSwift) | `LUASWIFT_INCLUDE_NUMERICSWIFT` | Complex numbers, statistics, geometry, special functions |
 | [ArraySwift](https://github.com/ChrisGVE/ArraySwift) | `LUASWIFT_INCLUDE_ARRAYSWIFT` | N-dimensional arrays with broadcasting |
 | [PlotSwift](https://github.com/ChrisGVE/PlotSwift) | `LUASWIFT_INCLUDE_PLOTSWIFT` | Matplotlib-inspired plotting with SVG output |
@@ -254,15 +256,19 @@ By default, all optional packages are included. To exclude packages and reduce b
 
 ```bash
 # Exclude specific packages
-LUASWIFT_INCLUDE_PLOTSWIFT=0 swift build           # No PlotSwift
-LUASWIFT_INCLUDE_ARRAYSWIFT=0 swift build          # No ArraySwift
-LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build        # No NumericSwift
+LUASWIFT_INCLUDE_YAMS=0 swift build                # No Yams (YAML)
+LUASWIFT_INCLUDE_TOMLKIT=0 swift build             # No TOMLKit (TOML)
+LUASWIFT_INCLUDE_PLOTSWIFT=0 swift build            # No PlotSwift
+LUASWIFT_INCLUDE_ARRAYSWIFT=0 swift build           # No ArraySwift
+LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build         # No NumericSwift
 
 # Exclude multiple packages
 LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 swift build
 
-# Minimal build (core wrapper only)
-LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build
+# Minimal build (zero external dependencies, JSON only)
+LUASWIFT_INCLUDE_YAMS=0 LUASWIFT_INCLUDE_TOMLKIT=0 \
+LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 \
+LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build
 ```
 
 ### What Each Package Provides

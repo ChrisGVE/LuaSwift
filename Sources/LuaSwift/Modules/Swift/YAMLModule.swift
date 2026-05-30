@@ -8,6 +8,7 @@
 //  Licensed under the MIT License.
 //
 
+#if LUASWIFT_YAMS
 import Foundation
 import Yams
 
@@ -296,3 +297,4 @@ public struct YAMLModule {
         }
     }
 }
+#endif

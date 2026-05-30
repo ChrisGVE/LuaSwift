@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-05-30
+
+### Changed
+- **Optional Data-Format Dependencies** - Yams (YAML) and TOMLKit (TOML) are now optional dependencies, following the same env-var pattern as NumericSwift/ArraySwift/PlotSwift. Set `LUASWIFT_INCLUDE_YAMS=0` or `LUASWIFT_INCLUDE_TOMLKIT=0` to exclude. Both included by default for backward compatibility. A minimal build with all optional deps excluded has zero external dependencies (JSON via Foundation only).
+
 ## [1.8.1] - 2026-05-29
 
 ### Fixed

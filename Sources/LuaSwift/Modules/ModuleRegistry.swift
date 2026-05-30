@@ -67,8 +67,12 @@ public struct ModuleRegistry {
   public static func installModules(in engine: LuaEngine) {
     // Core modules (always available)
     installJSONModule(in: engine)
-    installYAMLModule(in: engine)
-    installTOMLModule(in: engine)
+    #if LUASWIFT_YAMS
+      installYAMLModule(in: engine)
+    #endif
+    #if LUASWIFT_TOMLKIT
+      installTOMLModule(in: engine)
+    #endif
     installRegexModule(in: engine)
     installMathModule(in: engine)
     installUTF8XModule(in: engine)
@@ -132,8 +136,8 @@ public struct ModuleRegistry {
 
         -- Create top-level global aliases for all modules
         json = luaswift.json
-        yaml = luaswift.yaml
-        toml = luaswift.toml
+        if luaswift.yaml then yaml = luaswift.yaml end
+        if luaswift.toml then toml = luaswift.toml end
         regex = luaswift.regex
         linalg = luaswift.linalg
         array = luaswift.array
@@ -198,19 +202,23 @@ public struct ModuleRegistry {
     JSONModule.register(in: engine)
   }
 
-  /// Install only the YAML module.
-  ///
-  /// - Parameter engine: The Lua engine to install the module in
-  public static func installYAMLModule(in engine: LuaEngine) {
-    YAMLModule.register(in: engine)
-  }
+  #if LUASWIFT_YAMS
+    /// Install only the YAML module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installYAMLModule(in engine: LuaEngine) {
+      YAMLModule.register(in: engine)
+    }
+  #endif
 
-  /// Install only the TOML module.
-  ///
-  /// - Parameter engine: The Lua engine to install the module in
-  public static func installTOMLModule(in engine: LuaEngine) {
-    TOMLModule.register(in: engine)
-  }
+  #if LUASWIFT_TOMLKIT
+    /// Install only the TOML module.
+    ///
+    /// - Parameter engine: The Lua engine to install the module in
+    public static func installTOMLModule(in engine: LuaEngine) {
+      TOMLModule.register(in: engine)
+    }
+  #endif
 
   /// Install only the Regex module.
   ///

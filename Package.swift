@@ -19,11 +19,15 @@ let selectedVersion = validVersions.contains(luaVersion) ? luaVersion : "54"
 
 // MARK: - Optional Dependencies Selection
 // Set environment variables to control which optional dependencies are included:
+//   LUASWIFT_INCLUDE_YAMS=0 to exclude Yams/YAML support (default: 1)
+//   LUASWIFT_INCLUDE_TOMLKIT=0 to exclude TOMLKit/TOML support (default: 1)
 //   LUASWIFT_INCLUDE_PLOTSWIFT=0 to exclude PlotSwift (default: 1)
 //   LUASWIFT_INCLUDE_ARRAYSWIFT=0 to exclude ArraySwift (default: 1)
 //   LUASWIFT_INCLUDE_NUMERICSWIFT=0 to exclude NumericSwift (default: 1)
 // Example: LUASWIFT_INCLUDE_PLOTSWIFT=0 swift build
 
+let includeYams = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_YAMS"] != "0"
+let includeTOMLKit = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_TOMLKIT"] != "0"
 let includePlotSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_PLOTSWIFT"] != "0"
 let includeArraySwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_ARRAYSWIFT"] != "0"
 let includeNumericSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_NUMERICSWIFT"] != "0"
@@ -112,10 +116,14 @@ let package = Package(
     ],
     dependencies: {
         var deps: [Package.Dependency] = [
-            .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
-            .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
             .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         ]
+        if includeYams {
+            deps.append(.package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"))
+        }
+        if includeTOMLKit {
+            deps.append(.package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"))
+        }
         if includePlotSwift {
             deps.append(.package(url: "https://github.com/ChrisGVE/PlotSwift.git", from: "0.1.0"))
         }
@@ -160,9 +168,13 @@ let package = Package(
             dependencies: {
                 var deps: [Target.Dependency] = [
                     "CLua",
-                    .product(name: "Yams", package: "Yams"),
-                    .product(name: "TOMLKit", package: "TOMLKit"),
                 ]
+                if includeYams {
+                    deps.append(.product(name: "Yams", package: "Yams"))
+                }
+                if includeTOMLKit {
+                    deps.append(.product(name: "TOMLKit", package: "TOMLKit"))
+                }
                 if includePlotSwift {
                     deps.append("PlotSwift")
                 }
@@ -186,6 +198,12 @@ let package = Package(
                 var settings: [SwiftSetting] = [
                     .define("LUA_VERSION_\(selectedVersion)")
                 ]
+                if includeYams {
+                    settings.append(.define("LUASWIFT_YAMS"))
+                }
+                if includeTOMLKit {
+                    settings.append(.define("LUASWIFT_TOMLKIT"))
+                }
                 if includePlotSwift {
                     settings.append(.define("LUASWIFT_PLOTSWIFT"))
                 }
@@ -217,6 +235,12 @@ let package = Package(
                 var settings: [SwiftSetting] = [
                     .define("LUA_VERSION_\(selectedVersion)")
                 ]
+                if includeYams {
+                    settings.append(.define("LUASWIFT_YAMS"))
+                }
+                if includeTOMLKit {
+                    settings.append(.define("LUASWIFT_TOMLKIT"))
+                }
                 if includePlotSwift {
                     settings.append(.define("LUASWIFT_PLOTSWIFT"))
                 }

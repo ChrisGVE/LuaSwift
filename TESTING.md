@@ -57,16 +57,20 @@ The `LuaVersionTests.swift` file contains tests that validate these version-spec
 
 ## Optional Dependency Testing
 
-LuaSwift has three optional dependencies: NumericSwift, ArraySwift, and PlotSwift. Use environment variables to include or exclude them:
+LuaSwift has five optional dependencies: Yams, TOMLKit, NumericSwift, ArraySwift, and PlotSwift. Use environment variables to include or exclude them:
 
 ```bash
-# Test without any optional dependencies (core only)
+# Test without any optional dependencies (core only, JSON as sole data format)
+LUASWIFT_INCLUDE_YAMS=0 \
+LUASWIFT_INCLUDE_TOMLKIT=0 \
 LUASWIFT_INCLUDE_NUMERICSWIFT=0 \
 LUASWIFT_INCLUDE_ARRAYSWIFT=0 \
 LUASWIFT_INCLUDE_PLOTSWIFT=0 \
 swift test
 
 # Test with only ArraySwift
+LUASWIFT_INCLUDE_YAMS=0 \
+LUASWIFT_INCLUDE_TOMLKIT=0 \
 LUASWIFT_INCLUDE_NUMERICSWIFT=0 \
 LUASWIFT_INCLUDE_ARRAYSWIFT=1 \
 LUASWIFT_INCLUDE_PLOTSWIFT=0 \

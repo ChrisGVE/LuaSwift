@@ -20,17 +20,17 @@ let selectedVersion = validVersions.contains(luaVersion) ? luaVersion : "54"
 // MARK: - Optional Dependencies Selection
 // Set environment variables to control which optional dependencies are included:
 //   LUASWIFT_INCLUDE_YAMS=0 to exclude Yams/YAML support (default: 1)
-//   LUASWIFT_INCLUDE_TOMLKIT=0 to exclude TOMLKit/TOML support (default: 1)
-//   LUASWIFT_INCLUDE_PLOTSWIFT=0 to exclude PlotSwift (default: 1)
-//   LUASWIFT_INCLUDE_ARRAYSWIFT=0 to exclude ArraySwift (default: 1)
-//   LUASWIFT_INCLUDE_NUMERICSWIFT=0 to exclude NumericSwift (default: 1)
-// Example: LUASWIFT_INCLUDE_PLOTSWIFT=0 swift build
+//   LUASWIFT_INCLUDE_TOMLKIT=1 to include TOMLKit/TOML support (default: 0)
+//   LUASWIFT_INCLUDE_PLOTSWIFT=1 to include PlotSwift (default: 0)
+//   LUASWIFT_INCLUDE_ARRAYSWIFT=1 to include ArraySwift (default: 0)
+//   LUASWIFT_INCLUDE_NUMERICSWIFT=1 to include NumericSwift (default: 0)
+// Example: LUASWIFT_INCLUDE_PLOTSWIFT=1 swift build
 
 let includeYams = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_YAMS"] != "0"
-let includeTOMLKit = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_TOMLKIT"] != "0"
-let includePlotSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_PLOTSWIFT"] != "0"
-let includeArraySwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_ARRAYSWIFT"] != "0"
-let includeNumericSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_NUMERICSWIFT"] != "0"
+let includeTOMLKit = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_TOMLKIT"] == "1"
+let includePlotSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_PLOTSWIFT"] == "1"
+let includeArraySwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_ARRAYSWIFT"] == "1"
+let includeNumericSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_NUMERICSWIFT"] == "1"
 let includeThales = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_THALES"] == "1"
 
 // Map version to directory path

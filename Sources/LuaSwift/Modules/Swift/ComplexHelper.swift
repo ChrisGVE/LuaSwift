@@ -5,7 +5,7 @@
 //  Created by Claude on 2026-01-10.
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 
 import Foundation

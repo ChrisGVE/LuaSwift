@@ -4,7 +4,7 @@
 //
 //  Lua wrapper code for the Thales CAS module.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 
 #if LUASWIFT_THALES

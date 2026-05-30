@@ -5,7 +5,7 @@
 //  Created by Christian C. Berclaz on 2026-04-07.
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 
 #if LUASWIFT_THALES

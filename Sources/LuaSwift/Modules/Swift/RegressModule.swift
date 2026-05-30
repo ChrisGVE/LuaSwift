@@ -5,7 +5,7 @@
 //  Created by Christian C. Berclaz on 2026-01-09.
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 //  REFACTORED: Now uses NumericSwift for all numerical computations.
 //  This module provides thin Lua bindings to NumericSwift regression functions.

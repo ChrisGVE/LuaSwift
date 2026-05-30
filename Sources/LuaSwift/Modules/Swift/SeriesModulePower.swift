@@ -10,7 +10,7 @@
 //  when compiled with LUASWIFT_THALES; in DEFAULT mode they provide graceful
 //  fallback behaviour documented in the function body.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 
 #if LUASWIFT_NUMERICSWIFT

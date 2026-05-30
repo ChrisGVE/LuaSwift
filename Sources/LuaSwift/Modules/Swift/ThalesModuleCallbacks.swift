@@ -4,7 +4,7 @@
 //
 //  Swift callbacks that bridge Thales CAS operations to Lua.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 
 #if LUASWIFT_THALES

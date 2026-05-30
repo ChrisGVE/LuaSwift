@@ -8,7 +8,7 @@
 //  Created by Christian C. Berclaz on 2026-05-29.
 //  Copyright © 2026 Christian C. Berclaz. All rights reserved.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 
 #if LUASWIFT_ARRAYSWIFT

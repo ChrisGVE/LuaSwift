@@ -5,7 +5,7 @@
 //  Created by Christian C. Berclaz on 2025-12-28.
 //  Copyright © 2025 Christian C. Berclaz. All rights reserved.
 //
-//  Licensed under the MIT License.
+//  SPDX-License-Identifier: Apache-2.0
 //
 //  Swift wrappers for Lua C macros that cannot be imported directly.
 //

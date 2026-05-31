@@ -305,9 +305,16 @@ public struct UIModule {
       // presentation-controller delegate stays alive until completion.
       var dismissReporter: AlertDismissReporter?
 
+      // Weak handle to the presented alert, used as a fail-safe: the dismissal
+      // delegate is not invoked for *programmatic* dismissals (e.g. the
+      // presenter being torn down), so the wait loops also watch for the alert
+      // leaving the window after it was shown and treat that as a dismissal.
+      weak var presentedAlert: UIAlertController?
+
       let block = {
         let style: UIAlertController.Style = preferActionSheet ? .actionSheet : .alert
         let alert = UIAlertController(title: title, message: message, preferredStyle: style)
+        presentedAlert = alert
 
         for (index, button) in buttons.enumerated() {
           let capturedIndex = index + 1
@@ -345,20 +352,46 @@ public struct UIModule {
         presentingVC.present(alert, animated: true)
       }
 
+      // Tracks whether the alert was ever actually on screen, so the fail-safe
+      // only fires on a real disappearance (not before presentation completes).
+      var wasOnScreen = false
+
+      // Returns true once the alert has been shown and has since left the
+      // window — i.e. dismissed by some path that did not run a handler.
+      let dismissedWithoutAction: () -> Bool = {
+        if presentedAlert?.viewIfLoaded?.window != nil {
+          wasOnScreen = true
+          return false
+        }
+        return wasOnScreen
+      }
+
       if Thread.isMainThread {
         // The alert is presented asynchronously and its action handler runs on
         // the main thread. Blocking the main thread on a semaphore would prevent
         // that handler from ever running (deadlock, issue #10). Instead, spin the
         // main run loop so UIKit can present the alert and deliver the tap, until
         // `complete` sets `done`. Single-threaded on the main thread, so reading
-        // `done` here needs no synchronization.
+        // `done`/`wasOnScreen` here needs no synchronization.
         block()
         while !done {
           CFRunLoopRunInMode(.defaultMode, 0.05, true)
+          if dismissedWithoutAction() {
+            complete(dismissIndex)
+          }
         }
       } else {
         DispatchQueue.main.async(execute: block)
-        semaphore.wait()
+        // Wait in short slices so the main thread can be polled for a
+        // programmatic dismissal that bypassed both the action handlers and the
+        // dismissal delegate. The semaphore signal ends the loop normally.
+        while semaphore.wait(timeout: .now() + 0.1) == .timedOut {
+          DispatchQueue.main.sync {
+            if dismissedWithoutAction() {
+              complete(dismissIndex)
+            }
+          }
+        }
       }
 
       // Keep the dismissal delegate alive for the whole wait (the presentation

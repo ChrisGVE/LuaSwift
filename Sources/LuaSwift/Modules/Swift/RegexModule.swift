@@ -266,9 +266,8 @@ public struct RegexModule {
 
         let nsText = text as NSString
         let range = NSRange(location: 0, length: nsText.length)
-        let result = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: replacement)
 
-        // Only replace first match - need to find first match and replace only that
+        // Only replace the first match: find it and replace only that occurrence.
         if let match = regex.firstMatch(in: text, range: range) {
             let replaced = regex.replacementString(for: match, in: text, offset: 0, template: replacement)
             let mutableString = NSMutableString(string: text)

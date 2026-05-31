@@ -145,8 +145,9 @@ final class InstructionLimitTests: XCTestCase {
         guard case .error(let error) = result else {
             return XCTFail("Expected .error result, got \(result)")
         }
-        guard let luaError = error as? LuaError,
-              case .instructionLimitExceeded = luaError else {
+        // `error` is already a `LuaError` (the coroutine result's error case),
+        // so match the enum directly rather than via a redundant cast.
+        guard case .instructionLimitExceeded = error else {
             return XCTFail("Expected .instructionLimitExceeded, got \(error)")
         }
     }

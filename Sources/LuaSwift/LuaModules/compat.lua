@@ -450,8 +450,8 @@ function compat.check_deprecated(code)
 	if code:match("module%s*%(") then
 		table.insert(warnings, "module() is deprecated since Lua 5.2")
 	end
-	if code:match("bit32%.") and minor >= 4 then
-		table.insert(warnings, "bit32 was removed in Lua 5.4, use native operators")
+	if code:match("bit32%.") and minor >= 3 then
+		table.insert(warnings, "bit32 is deprecated since Lua 5.3 and removed in 5.4, use native bitwise operators")
 	end
 
 	return warnings

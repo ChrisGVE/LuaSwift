@@ -317,6 +317,30 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertEqual(result.tableValue?["bitwise_ops"]?.boolValue, expectedBitwise)
     }
 
+    func testCheckDeprecatedBit32() throws {
+        let engine = try createEngineWithLuaModules()
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            local warnings = compat.check_deprecated("local x = bit32.band(1, 2)")
+            local has_bit32 = false
+            for _, w in ipairs(warnings) do
+                if w:match("bit32") then has_bit32 = true end
+            end
+            return { version = compat.version, has_bit32 = has_bit32 }
+        """)
+
+        let version = result.tableValue?["version"]?.stringValue ?? "5.4"
+        let minor = Int(version.split(separator: ".").last ?? "4") ?? 4
+        let hasBit32 = result.tableValue?["has_bit32"]?.boolValue ?? false
+
+        // bit32 was deprecated in Lua 5.3 and removed in 5.4, so the deprecation
+        // warning must fire on 5.3 and later (not only on 5.4+).
+        XCTAssertEqual(
+            hasBit32, minor >= 3,
+            "bit32 deprecation warning should fire for Lua 5.3+ (version \(version))")
+    }
+
     func testCompatBit32Band() throws {
         let engine = try createEngineWithLuaModules()
 

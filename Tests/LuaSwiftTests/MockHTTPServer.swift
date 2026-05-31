@@ -36,9 +36,19 @@ final class MockHTTPServer {
     private let queue = DispatchQueue(label: "MockHTTPServer", attributes: .concurrent)
     private let started = DispatchSemaphore(value: 0)
 
+    /// Hard cap on accumulated request bytes. The tests never send bodies near
+    /// this size; the cap exists purely to bound memory if a misbehaving (or
+    /// malicious-on-loopback) client streams an oversized request or lies about
+    /// `Content-Length`. Connections exceeding it are dropped.
+    private static let maxRequestBytes = 8 * 1024 * 1024
+
     init() throws {
         let params = NWParameters.tcp
-        // Loopback only.
+        // Loopback only. Note: on a real iOS device the loopback interface is
+        // not generally available to third-party apps, so NWListener would fail
+        // here and the static `mockServer` in HTTPModuleTests becomes nil,
+        // surfacing as a test failure (not a silent skip). The HTTP suite is
+        // therefore expected to run on macOS / the iOS Simulator.
         params.requiredInterfaceType = .loopback
         listener = try NWListener(using: params)
 
@@ -92,7 +102,7 @@ final class MockHTTPServer {
                 return
             }
 
-            if error != nil || isComplete {
+            if error != nil || isComplete || accumulated.count > Self.maxRequestBytes {
                 connection.cancel()
                 return
             }
@@ -312,11 +322,34 @@ private struct HTTPResponse {
     static func reason(_ status: Int) -> String {
         switch status {
         case 200: return "OK"
+        case 201: return "Created"
+        case 202: return "Accepted"
+        case 204: return "No Content"
+        case 301: return "Moved Permanently"
         case 302: return "Found"
+        case 304: return "Not Modified"
+        case 400: return "Bad Request"
+        case 401: return "Unauthorized"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
+        case 405: return "Method Not Allowed"
+        case 418: return "I'm a teapot"
+        case 429: return "Too Many Requests"
         case 500: return "Internal Server Error"
+        case 502: return "Bad Gateway"
         case 503: return "Service Unavailable"
-        default: return "Status"
+        case 504: return "Gateway Timeout"
+        default:
+            // Generic class-based phrase keeps the status line a valid token
+            // for any code httpbin's /status/{code} might be asked to emit.
+            switch status / 100 {
+            case 1: return "Informational"
+            case 2: return "Success"
+            case 3: return "Redirection"
+            case 4: return "Client Error"
+            case 5: return "Server Error"
+            default: return "Unknown"
+            }
         }
     }
 }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-05-31
+
 ### Added
 - **Symmetric JSON `null`** - Decoding a JSON `null` now yields a truthy `luaswift.json.null` marker table instead of Lua `nil`, so object keys with `null` values are preserved across a decode/encode round-trip. Encoding the marker (or `luaswift.json.null`) emits `null`. Test membership with `luaswift.json.is_null(v)`. Only a single-key marker table is treated as `null` (collision guard), so ordinary tables are unaffected.
 

@@ -81,12 +81,55 @@ final class JSONModuleTests: XCTestCase {
     }
 
     func testDecodeNull() throws {
+        // JSON null decodes to the json.null marker (not Lua nil) so the key is
+        // preserved and the value round-trips back to JSON null.
         let result = try engine.evaluate("""
             local tbl = luaswift.json.decode('{"value":null}')
-            return tbl.value
+            return luaswift.json.is_null(tbl.value)
             """)
 
-        XCTAssertTrue(result.isNil)
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testEncodeNullSentinel() throws {
+        let result = try engine.evaluate("""
+            return luaswift.json.encode({value = luaswift.json.null})
+            """)
+
+        XCTAssertEqual(result.stringValue, "{\"value\":null}")
+    }
+
+    func testNullRoundTrip() throws {
+        // Decoding then re-encoding a JSON null must reproduce the null.
+        let result = try engine.evaluate("""
+            local tbl = luaswift.json.decode('{"value":null}')
+            return luaswift.json.encode(tbl)
+            """)
+
+        XCTAssertEqual(result.stringValue, "{\"value\":null}")
+    }
+
+    func testIsNullOnSentinelAndPlain() throws {
+        let result = try engine.evaluate("""
+            local decoded = luaswift.json.decode('{"a":null}')
+            return {
+                luaswift.json.is_null(luaswift.json.null),
+                luaswift.json.is_null(decoded.a),
+                luaswift.json.is_null(nil),
+                luaswift.json.is_null(42),
+                luaswift.json.is_null({})
+            }
+            """)
+
+        guard let arr = result.arrayValue, arr.count >= 5 else {
+            XCTFail("Expected 5-element array")
+            return
+        }
+        XCTAssertEqual(arr[0].boolValue, true, "json.null is null")
+        XCTAssertEqual(arr[1].boolValue, true, "decoded null is null")
+        XCTAssertEqual(arr[2].boolValue, false, "nil is not the json null marker")
+        XCTAssertEqual(arr[3].boolValue, false, "number is not null")
+        XCTAssertEqual(arr[4].boolValue, false, "plain table is not null")
     }
 
     func testDecodeString() throws {
@@ -833,18 +876,18 @@ final class JSONModuleTests: XCTestCase {
     }
 
     func testDecodeJSON5Infinity() throws {
-        // JSON doesn't support Infinity, so it gets converted to null (nil in Lua)
+        // JSON has no Infinity, so JSON5 Infinity normalises to null, which
+        // decodes to the json.null marker.
         let result = try engine.evaluate("""
             local json5 = [[{
                 "positive": Infinity,
                 "negative": -Infinity
             }]]
             local tbl = luaswift.json.decode_json5(json5)
-            return tbl.positive, tbl.negative
+            return luaswift.json.is_null(tbl.positive) and luaswift.json.is_null(tbl.negative)
             """)
 
-        // Infinity values should be converted to nil (since JSON doesn't support them)
-        XCTAssertTrue(result.isNil)
+        XCTAssertEqual(result.boolValue, true)
     }
 
     func testDecodeJSON5NaN() throws {
@@ -853,11 +896,11 @@ final class JSONModuleTests: XCTestCase {
                 "value": NaN
             }]]
             local tbl = luaswift.json.decode_json5(json5)
-            return tbl.value
+            return luaswift.json.is_null(tbl.value)
             """)
 
-        // NaN is converted to null, which becomes nil in Lua
-        XCTAssertTrue(result.isNil)
+        // NaN has no JSON representation, so it normalises to null → json.null marker.
+        XCTAssertEqual(result.boolValue, true)
     }
 
     func testDecodeJSON5Complex() throws {

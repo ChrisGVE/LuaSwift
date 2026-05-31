@@ -35,6 +35,13 @@ public struct JSONModule {
     /// Sentinel value for JSON null
     public static let null = JSONNull()
 
+    /// Marker field used to represent a JSON null on the Lua side. The
+    /// `luaswift.json.null` sentinel carries it, decoding a JSON null produces a
+    /// table carrying it, and encoding any table carrying it emits JSON null —
+    /// giving JSON null a symmetric round-trip through Lua (where a bare nil
+    /// table value would otherwise vanish).
+    static let jsonNullMarker = "__luaswift_json_null"
+
     /// Register the JSON module with a LuaEngine.
     ///
     /// This creates a global table `luaswift` with a nested `json` table containing:
@@ -67,11 +74,21 @@ public struct JSONModule {
                     decode = _luaswift_json_decode,
                     decode_jsonc = _luaswift_json_decode_jsonc,
                     decode_json5 = _luaswift_json_decode_json5,
-                    null = setmetatable({}, {
+                    -- The __luaswift_json_null marker makes this sentinel encode
+                    -- back to JSON null and lets json.is_null recognise it.
+                    -- Decoding a JSON null yields a table carrying the same
+                    -- marker, so JSON null round-trips symmetrically.
+                    null = setmetatable({__luaswift_json_null = true}, {
                         __tostring = function() return "null" end,
                         __type = "json.null"
                     })
                 }
+                -- True for the json.null sentinel and for any value produced by
+                -- decoding a JSON null. Use this rather than `== json.null`,
+                -- since decoded nulls are distinct table instances.
+                function luaswift.json.is_null(v)
+                    return type(v) == "table" and v.__luaswift_json_null == true
+                end
                 _luaswift_json_encode = nil
                 _luaswift_json_decode = nil
                 _luaswift_json_decode_jsonc = nil
@@ -233,6 +250,12 @@ public struct JSONModule {
             return try arr.map { try convertLuaToJSON($0) }
 
         case .table(let dict):
+            // The JSON null sentinel (luaswift.json.null) and any value produced
+            // by decoding a JSON null both carry this marker; serialize them back
+            // to a JSON null so that null round-trips symmetrically.
+            if case .bool(true)? = dict[jsonNullMarker] {
+                return NSNull()
+            }
             var jsonDict: [String: Any] = [:]
             for (key, val) in dict {
                 jsonDict[key] = try convertLuaToJSON(val)
@@ -563,7 +586,12 @@ public struct JSONModule {
     /// Convert Foundation JSON types to LuaValue
     private static func convertJSONToLua(_ value: Any) -> LuaValue {
         if value is NSNull {
-            return .nil
+            // Map JSON null to the json.null marker table rather than Lua nil:
+            // a Lua nil value would drop its key from the containing table, so
+            // null could not survive a round-trip. The marker table is truthy,
+            // preserves the key, encodes back to JSON null, and is recognised by
+            // json.is_null(). The setup code canonicalises it to luaswift.json.null.
+            return .table([jsonNullMarker: .bool(true)])
         }
 
         // Check for NSNumber first with robust boolean detection

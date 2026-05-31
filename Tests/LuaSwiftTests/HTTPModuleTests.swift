@@ -443,62 +443,18 @@ final class HTTPModuleTests: XCTestCase {
 
     // MARK: - Helper Methods
 
-    /// httpbin-compatible bases, tried in order. httpbin.org is primary; the
-    /// others are faithful httpbin reimplementations used as fallbacks when
-    /// httpbin.org is unavailable, so the live tests still exercise a real
-    /// httpbin-style API instead of failing on a third-party outage.
-    private static let httpBaseCandidates = [
-        "https://httpbin.org",
-        "https://httpbingo.org",
-        "https://nghttp2.org/httpbin",
-    ]
+    /// In-process httpbin-compatible server, started once for the whole test
+    /// run. Replaces the previous live-network dependency (httpbin.org and
+    /// fallbacks) so the HTTP tests are hermetic and deterministic — no third-
+    /// party outages, no rate limiting, nothing skipped. See `MockHTTPServer`.
+    private static let mockServer: MockHTTPServer? = try? MockHTTPServer()
 
-    /// First reachable base, resolved once for the whole test run. A static
-    /// `let` initialiser runs exactly once and is therefore safe to share
-    /// across the test methods. `nil` means no candidate answered.
-    private static let resolvedHTTPBase: String? = {
-        for base in httpBaseCandidates {
-            guard let url = URL(string: base + "/get") else { continue }
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.timeoutInterval = 6
-
-            let semaphore = DispatchSemaphore(value: 0)
-            let reachable = NSLock()
-            var isReachable = false
-            let task = URLSession.shared.dataTask(with: request) { _, response, _ in
-                if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    reachable.lock()
-                    isReachable = true
-                    reachable.unlock()
-                }
-                semaphore.signal()
-            }
-            task.resume()
-
-            // If the probe overruns its own timeout, cancel the task so its
-            // completion can't race with the next candidate, then move on.
-            if semaphore.wait(timeout: .now() + 8) == .timedOut {
-                task.cancel()
-                continue
-            }
-
-            reachable.lock()
-            let ok = isReachable
-            reachable.unlock()
-            if ok {
-                return base
-            }
-        }
-        return nil
-    }()
-
-    /// Return the first reachable httpbin-compatible base URL, or skip the test
-    /// when httpbin.org and all fallbacks are unavailable.
+    /// Return the local mock server's base URL (e.g. `http://127.0.0.1:54321`).
+    /// Fails the test if the server could not start — it is in-process, so a
+    /// failure here is a real bug, not an environmental skip.
     private static func requireHTTPBase() throws -> String {
-        guard let base = resolvedHTTPBase else {
-            throw XCTSkip(
-                "No reachable httpbin-compatible host (httpbin.org and fallbacks unavailable)")
+        guard let base = mockServer?.baseURL, !base.isEmpty else {
+            throw LuaError.runtimeError("MockHTTPServer failed to start")
         }
         return base
     }

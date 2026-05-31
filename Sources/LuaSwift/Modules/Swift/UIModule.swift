@@ -281,21 +281,29 @@ public struct UIModule {
       var done = false
       let semaphore = DispatchSemaphore(value: 0)
 
-      // Completion is invoked from UIAlertAction handlers (always on the main
-      // thread) and from the no-presenter fallback. It records the result and
-      // unblocks whichever wait strategy is in use: the run-loop spin on the
+      // Completion is invoked from UIAlertAction handlers, from the no-presenter
+      // fallback, and from the dismissal delegate below. It records the result
+      // and unblocks whichever wait strategy is in use: the run-loop spin on the
       // main-thread path or the semaphore on the background-thread path.
       let complete: (Int) -> Void = { index in
-        // Idempotent: only the first completion wins. Guards against any path
-        // that could deliver more than one result. (Note: if an action sheet
-        // were dismissed without selecting any action — e.g. an iPad popover
-        // dismissed by an outside tap — no action handler fires and this is
-        // never called; callers should always include a cancel button.)
+        // Idempotent: only the first completion wins. A user-initiated dismissal
+        // also fires the dismissal delegate after an action handler has already
+        // completed, so the guard makes that second call a no-op.
         guard !done else { return }
         result = index
         done = true
         semaphore.signal()
       }
+
+      // If an action sheet is dismissed without choosing an action (e.g. an iPad
+      // popover dismissed by an outside tap) no action handler fires. Map that
+      // to the cancel button's 1-indexed position if one exists, otherwise 0
+      // ("dismissed without selection"), so the wait always terminates.
+      let dismissIndex = buttons.firstIndex { $0.role == .cancel }.map { $0 + 1 } ?? 0
+
+      // Retained for the lifetime of this call so the alert's (weakly held)
+      // presentation-controller delegate stays alive until completion.
+      var dismissReporter: AlertDismissReporter?
 
       let block = {
         let style: UIAlertController.Style = preferActionSheet ? .actionSheet : .alert
@@ -326,6 +334,10 @@ public struct UIModule {
           return
         }
 
+        let reporter = AlertDismissReporter { complete(dismissIndex) }
+        dismissReporter = reporter
+        alert.presentationController?.delegate = reporter
+
         var presentingVC = rootVC
         while let presented = presentingVC.presentedViewController {
           presentingVC = presented
@@ -349,7 +361,24 @@ public struct UIModule {
         semaphore.wait()
       }
 
+      // Keep the dismissal delegate alive for the whole wait (the presentation
+      // controller holds it weakly).
+      withExtendedLifetime(dismissReporter) {}
       return result
+    }
+
+    /// Reports an interactive dismissal of the alert/action sheet (one not
+    /// triggered by tapping an action), so the blocking call can terminate.
+    private final class AlertDismissReporter: NSObject, UIAdaptivePresentationControllerDelegate {
+      private let onDismiss: () -> Void
+
+      init(onDismiss: @escaping () -> Void) {
+        self.onDismiss = onDismiss
+      }
+
+      func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        onDismiss()
+      }
     }
 
   #endif

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Symmetric JSON `null`** - Decoding a JSON `null` now yields a truthy `luaswift.json.null` marker table instead of Lua `nil`, so object keys with `null` values are preserved across a decode/encode round-trip. Encoding the marker (or `luaswift.json.null`) emits `null`. Test membership with `luaswift.json.is_null(v)`. Only a single-key marker table is treated as `null` (collision guard), so ordinary tables are unaffected.
+
+### Changed
+- **`bit32` deprecation gate** - The `bit32` compatibility shim now emits its deprecation warning from Lua 5.3 onward (previously 5.4+), matching when upstream Lua deprecated the library.
+- **Hermetic HTTP tests** - The HTTP module test suite now runs against an in-process httpbin-compatible server instead of live third-party hosts, making it deterministic and network-independent. No change to the shipped `luaswift.http` API.
+
+### Fixed
+- **iOS alert deadlock** - Fixed a main-thread deadlock when presenting the UI `alert`/confirm dialog on iOS. The presentation wait now terminates on every path: button tap (idempotent completion), interactive dismissal, programmatic dismissal, and a watchdog for the never-presented case.
+- **`require()` access for Swift-backed modules** - Registered `package.loaded` entries so `require("luaswift.<module>")` resolves the same instances as the `luaswift.*` globals across all Swift-backed modules (including `luaswift.ui`).
+- **`linalg.norm` string orders** - `norm` now accepts string orders (`"fro"`, `"inf"`) and rejects unsupported orders with a clear error instead of misbehaving.
+
+### Documentation
+- **Module docs rewrite** - All module articles in the DocC catalog were rewritten to match the current implementation.
+
 ## [1.8.5] - 2026-05-30
 
 ### Changed
@@ -16,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Repository hygiene** - Stopped tracking developer-local files (`CLAUDE.md`, `code_audit.md`) in version control; these are now ignored locally. No public-facing or packaged code is affected.
+
+## [1.8.3] - 2026-05-30
+
+### Changed
+- **Optional dependency defaults flipped to OFF** - NumericSwift, ArraySwift, PlotSwift, and TOMLKit are now excluded by default; only Yams (YAML) remains on by default. Set the corresponding `LUASWIFT_INCLUDE_*=1` env var to opt in. This makes the default build lighter; opt into the scientific-computing and TOML stacks explicitly.
 
 ## [1.8.2] - 2026-05-30
 

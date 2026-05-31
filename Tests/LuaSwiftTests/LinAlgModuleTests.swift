@@ -314,6 +314,25 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 6)
     }
 
+    func testNormFrobenius() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1, 2}, {3, 4}})
+            return m:norm("fro")
+            """)
+
+        // Frobenius norm = sqrt(1 + 4 + 9 + 16) = sqrt(30)
+        XCTAssertEqual(try XCTUnwrap(result.numberValue), 30.0.squareRoot(), accuracy: 1e-9)
+    }
+
+    func testNormUnsupportedOrderThrows() throws {
+        XCTAssertThrowsError(
+            try engine.evaluate("""
+                local m = luaswift.linalg.matrix({{1, 2}, {3, 4}})
+                return m:norm("nuc")
+                """),
+            "an unsupported string order should raise an error, not silently fall back")
+    }
+
     func testRank() throws {
         let result = try engine.evaluate("""
             local m = luaswift.linalg.matrix({{1,2,3},{4,5,6},{7,8,9}})

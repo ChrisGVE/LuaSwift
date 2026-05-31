@@ -488,6 +488,7 @@ public struct LinAlgModule {
                 _luaswift_linalg_funm = nil
                 _luaswift_linalg_cond = nil
                 _luaswift_linalg_pinv = nil
+                package.loaded["luaswift.linalg"] = luaswift.linalg
                 """)
         } catch {
             #if DEBUG
@@ -1143,7 +1144,30 @@ public struct LinAlgModule {
         }
 
         let m = try extractMatrix(arg)
-        let p = args.count > 1 ? (args[1].numberValue ?? 2) : 2
+
+        // Resolve the order argument. A number is passed through; the string
+        // "fro"/"frobenius" selects the Frobenius norm. NumericSwift computes
+        // the Frobenius norm for any matrix order other than 1 or infinity, and
+        // for a vector the 2-norm equals the Frobenius norm, so "fro" maps to 2.
+        // Unknown string orders are rejected rather than silently treated as 2.
+        let p: Double
+        if args.count > 1 {
+            if let num = args[1].numberValue {
+                p = num
+            } else if let ord = args[1].stringValue {
+                switch ord.lowercased() {
+                case "fro", "frobenius":
+                    p = 2
+                default:
+                    throw LuaError.callbackError(
+                        "linalg.norm: unsupported order '\(ord)'; use a number or 'fro'")
+                }
+            } else {
+                p = 2
+            }
+        } else {
+            p = 2
+        }
 
         return .number(LinAlg.norm(m, p))
     }

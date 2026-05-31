@@ -461,20 +461,32 @@ final class HTTPModuleTests: XCTestCase {
             guard let url = URL(string: base + "/get") else { continue }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            request.timeoutInterval = 8
+            request.timeoutInterval = 6
 
             let semaphore = DispatchSemaphore(value: 0)
-            var reachable = false
+            let reachable = NSLock()
+            var isReachable = false
             let task = URLSession.shared.dataTask(with: request) { _, response, _ in
                 if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    reachable = true
+                    reachable.lock()
+                    isReachable = true
+                    reachable.unlock()
                 }
                 semaphore.signal()
             }
             task.resume()
-            _ = semaphore.wait(timeout: .now() + 10)
 
-            if reachable {
+            // If the probe overruns its own timeout, cancel the task so its
+            // completion can't race with the next candidate, then move on.
+            if semaphore.wait(timeout: .now() + 8) == .timedOut {
+                task.cancel()
+                continue
+            }
+
+            reachable.lock()
+            let ok = isReachable
+            reachable.unlock()
+            if ok {
                 return base
             }
         }

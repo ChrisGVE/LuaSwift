@@ -161,6 +161,7 @@ public struct DebugModule {
                 _luaswift_debug_console_time = nil
                 _luaswift_debug_console_timeEnd = nil
                 _luaswift_debug_console_assert = nil
+                package.loaded["luaswift.debug"] = luaswift.debug
                 """)
         } catch {
             #if DEBUG

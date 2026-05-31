@@ -76,6 +76,7 @@ public struct JSONModule {
                 _luaswift_json_decode = nil
                 _luaswift_json_decode_jsonc = nil
                 _luaswift_json_decode_json5 = nil
+                package.loaded["luaswift.json"] = luaswift.json
                 """)
         } catch {
             #if DEBUG

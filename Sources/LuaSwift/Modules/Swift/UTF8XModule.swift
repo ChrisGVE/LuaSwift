@@ -117,6 +117,7 @@ public struct UTF8XModule {
         _luaswift_utf8x_len = nil
         _luaswift_utf8x_chars = nil
         _luaswift_utf8x_slice = nil
+        package.loaded["luaswift.utf8x"] = luaswift.utf8x
         """)
     } catch {
       #if DEBUG

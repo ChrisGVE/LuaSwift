@@ -305,6 +305,8 @@ public struct MathXModule {
                 _luaswift_math_exp  = nil
                 _luaswift_math_log  = nil
                 _luaswift_math_sqrt = nil
+                package.loaded["luaswift.mathx"] = luaswift.mathx
+                package.loaded["luaswift.math"] = luaswift.mathx
                 """)
         } catch {
             #if DEBUG

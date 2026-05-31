@@ -145,6 +145,7 @@ public struct RegexModule {
                 _luaswift_regex_replace = nil
                 _luaswift_regex_replace_all = nil
                 _luaswift_regex_split = nil
+                package.loaded["luaswift.regex"] = luaswift.regex
                 """)
         } catch {
             #if DEBUG

@@ -296,6 +296,7 @@ public struct StringXModule {
         _luaswift_stringx_wrap = nil
         _luaswift_stringx_truncate = nil
         _luaswift_stringx_slice = nil
+        package.loaded["luaswift.stringx"] = luaswift.stringx
         """)
     } catch {
       #if DEBUG

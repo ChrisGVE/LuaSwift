@@ -591,6 +591,7 @@ public struct TableXModule {
 
         -- Create top-level global alias
         tablex = luaswift.tablex
+        package.loaded["luaswift.tablex"] = luaswift.tablex
         """)
     } catch {
       #if DEBUG

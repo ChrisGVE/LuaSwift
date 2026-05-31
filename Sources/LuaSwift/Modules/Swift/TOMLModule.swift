@@ -63,6 +63,7 @@ public struct TOMLModule {
                 }
                 _luaswift_toml_encode = nil
                 _luaswift_toml_decode = nil
+                package.loaded["luaswift.toml"] = luaswift.toml
                 """)
         } catch {
             #if DEBUG

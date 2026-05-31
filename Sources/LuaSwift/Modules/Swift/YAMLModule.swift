@@ -70,6 +70,7 @@ public struct YAMLModule {
                 _luaswift_yaml_decode = nil
                 _luaswift_yaml_encode_all = nil
                 _luaswift_yaml_decode_all = nil
+                package.loaded["luaswift.yaml"] = luaswift.yaml
                 """)
         } catch {
             #if DEBUG

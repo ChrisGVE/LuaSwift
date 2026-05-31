@@ -1241,6 +1241,7 @@
           _luaswift_array_imag = nil
           _luaswift_array_conj = nil
           _luaswift_array_arg = nil
+          package.loaded["luaswift.array"] = luaswift.array
           """)
       } catch {
         print("ArrayModule: Failed to initialize Lua wrapper: \(error)")

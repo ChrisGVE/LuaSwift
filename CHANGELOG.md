@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-05-31
+
 ### Fixed
 - **Top-level JSON scalars decode** - `json.decode` now accepts bare top-level JSON values (`null`, numbers, strings, booleans) via `.fragmentsAllowed` instead of throwing, completing the JSON-`null` round-trip symmetry (`decode(encode(json.null))` now reproduces the sentinel).
 - **Build without Yams** - Fixed compilation and test failures under `LUASWIFT_INCLUDE_YAMS=0` (the optional-dependency-free "nimble" build): the YAML `require()` test now compiles only with Yams, and the optional-dependency tests no longer assert `luaswift.yaml` as unconditionally available.

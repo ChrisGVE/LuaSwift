@@ -242,33 +242,36 @@ LuaSwift can optionally include companion Swift packages that provide enhanced i
 
 ### Available Optional Packages
 
-| Package | Environment Variable | Description |
-|---------|---------------------|-------------|
-| [Yams](https://github.com/jpsim/Yams) | `LUASWIFT_INCLUDE_YAMS` | YAML encoding/decoding |
-| [TOMLKit](https://github.com/LebJe/TOMLKit) | `LUASWIFT_INCLUDE_TOMLKIT` | TOML encoding/decoding |
-| [NumericSwift](https://github.com/ChrisGVE/NumericSwift) | `LUASWIFT_INCLUDE_NUMERICSWIFT` | Complex numbers, statistics, geometry, special functions |
-| [ArraySwift](https://github.com/ChrisGVE/ArraySwift) | `LUASWIFT_INCLUDE_ARRAYSWIFT` | N-dimensional arrays with broadcasting |
-| [PlotSwift](https://github.com/ChrisGVE/PlotSwift) | `LUASWIFT_INCLUDE_PLOTSWIFT` | Matplotlib-inspired plotting with SVG output |
+| Package | Environment Variable | Default | Description |
+|---------|---------------------|---------|-------------|
+| [Yams](https://github.com/jpsim/Yams) | `LUASWIFT_INCLUDE_YAMS` | **on** | YAML encoding/decoding |
+| [TOMLKit](https://github.com/LebJe/TOMLKit) | `LUASWIFT_INCLUDE_TOMLKIT` | off | TOML encoding/decoding |
+| [NumericSwift](https://github.com/ChrisGVE/NumericSwift) | `LUASWIFT_INCLUDE_NUMERICSWIFT` | off | Complex numbers, statistics, geometry, special functions |
+| [ArraySwift](https://github.com/ChrisGVE/ArraySwift) | `LUASWIFT_INCLUDE_ARRAYSWIFT` | off | N-dimensional arrays with broadcasting |
+| [PlotSwift](https://github.com/ChrisGVE/PlotSwift) | `LUASWIFT_INCLUDE_PLOTSWIFT` | off | Matplotlib-inspired plotting with SVG output |
 
 ### Compile-Time Selection
 
-By default, all optional packages are included. To exclude packages and reduce binary size or dependencies:
+By default only **Yams** is included; the other optional packages are **off** and
+must be enabled explicitly by setting their environment variable to `1` at build
+time. This keeps the default build lean and dependency-light.
 
 ```bash
-# Exclude specific packages
-LUASWIFT_INCLUDE_YAMS=0 swift build                # No Yams (YAML)
-LUASWIFT_INCLUDE_TOMLKIT=0 swift build             # No TOMLKit (TOML)
-LUASWIFT_INCLUDE_PLOTSWIFT=0 swift build            # No PlotSwift
-LUASWIFT_INCLUDE_ARRAYSWIFT=0 swift build           # No ArraySwift
-LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build         # No NumericSwift
+# Include specific packages (off by default)
+LUASWIFT_INCLUDE_TOMLKIT=1 swift build              # Add TOMLKit (TOML)
+LUASWIFT_INCLUDE_NUMERICSWIFT=1 swift build         # Add NumericSwift (math.*)
+LUASWIFT_INCLUDE_ARRAYSWIFT=1 swift build           # Add ArraySwift (array)
+LUASWIFT_INCLUDE_PLOTSWIFT=1 swift build            # Add PlotSwift (plot/svg)
 
-# Exclude multiple packages
-LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 swift build
+# Include several at once
+LUASWIFT_INCLUDE_NUMERICSWIFT=1 LUASWIFT_INCLUDE_ARRAYSWIFT=1 swift build
 
-# Minimal build (zero external dependencies, JSON only)
-LUASWIFT_INCLUDE_YAMS=0 LUASWIFT_INCLUDE_TOMLKIT=0 \
-LUASWIFT_INCLUDE_PLOTSWIFT=0 LUASWIFT_INCLUDE_ARRAYSWIFT=0 \
-LUASWIFT_INCLUDE_NUMERICSWIFT=0 swift build
+# Full build (all optional packages)
+LUASWIFT_INCLUDE_TOMLKIT=1 LUASWIFT_INCLUDE_NUMERICSWIFT=1 \
+LUASWIFT_INCLUDE_ARRAYSWIFT=1 LUASWIFT_INCLUDE_PLOTSWIFT=1 swift build
+
+# Yams is on by default; opt out with:
+LUASWIFT_INCLUDE_YAMS=0 swift build                 # No Yams (YAML)
 ```
 
 ### What Each Package Provides

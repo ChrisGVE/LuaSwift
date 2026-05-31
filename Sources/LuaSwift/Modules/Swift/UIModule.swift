@@ -356,14 +356,22 @@ public struct UIModule {
       // only fires on a real disappearance (not before presentation completes).
       var wasOnScreen = false
 
-      // Returns true once the alert has been shown and has since left the
-      // window — i.e. dismissed by some path that did not run a handler.
-      let dismissedWithoutAction: () -> Bool = {
+      // Watchdog deadline for the pathological case where presentation is
+      // requested but the alert never reaches a window at all (e.g. the
+      // presenter is already presenting something). Generous so it never trips
+      // for a normal presentation animation; only disarmed once the alert is
+      // actually shown.
+      let presentationDeadline = CFAbsoluteTimeGetCurrent() + 10.0
+
+      // Returns true when the wait should be abandoned without a user action:
+      // either the alert was shown and has since left the window (dismissed by
+      // a path that ran no handler), or it never appeared before the deadline.
+      let shouldAbandonWait: () -> Bool = {
         if presentedAlert?.viewIfLoaded?.window != nil {
           wasOnScreen = true
           return false
         }
-        return wasOnScreen
+        return wasOnScreen || CFAbsoluteTimeGetCurrent() > presentationDeadline
       }
 
       if Thread.isMainThread {
@@ -376,7 +384,7 @@ public struct UIModule {
         block()
         while !done {
           CFRunLoopRunInMode(.defaultMode, 0.05, true)
-          if dismissedWithoutAction() {
+          if shouldAbandonWait() {
             complete(dismissIndex)
           }
         }
@@ -387,7 +395,7 @@ public struct UIModule {
         // dismissal delegate. The semaphore signal ends the loop normally.
         while semaphore.wait(timeout: .now() + 0.1) == .timedOut {
           DispatchQueue.main.sync {
-            if dismissedWithoutAction() {
+            if shouldAbandonWait() {
               complete(dismissIndex)
             }
           }

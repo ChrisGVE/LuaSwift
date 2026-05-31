@@ -85,9 +85,16 @@ public struct JSONModule {
                 }
                 -- True for the json.null sentinel and for any value produced by
                 -- decoding a JSON null. Use this rather than `== json.null`,
-                -- since decoded nulls are distinct table instances.
+                -- since decoded nulls are distinct table instances. Requires the
+                -- marker to be the table's only field, so an ordinary object
+                -- that merely contains the marker key is not treated as null
+                -- (mirrors the encoder's single-key check).
                 function luaswift.json.is_null(v)
-                    return type(v) == "table" and v.__luaswift_json_null == true
+                    if type(v) ~= "table" or v.__luaswift_json_null ~= true then
+                        return false
+                    end
+                    local k = next(v)
+                    return next(v, k) == nil
                 end
                 _luaswift_json_encode = nil
                 _luaswift_json_decode = nil
@@ -251,9 +258,12 @@ public struct JSONModule {
 
         case .table(let dict):
             // The JSON null sentinel (luaswift.json.null) and any value produced
-            // by decoding a JSON null both carry this marker; serialize them back
-            // to a JSON null so that null round-trips symmetrically.
-            if case .bool(true)? = dict[jsonNullMarker] {
+            // by decoding a JSON null both carry this marker as their sole field;
+            // serialize them back to a JSON null so that null round-trips
+            // symmetrically. The single-key check avoids coercing an ordinary
+            // object that merely happens to contain the marker key (e.g. from
+            // untrusted input) — such a table is encoded as a normal object.
+            if dict.count == 1, case .bool(true)? = dict[jsonNullMarker] {
                 return NSNull()
             }
             var jsonDict: [String: Any] = [:]

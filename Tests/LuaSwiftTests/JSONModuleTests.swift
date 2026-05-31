@@ -109,6 +109,57 @@ final class JSONModuleTests: XCTestCase {
         XCTAssertEqual(result.stringValue, "{\"value\":null}")
     }
 
+    func testEncodeTopLevelNull() throws {
+        let result = try engine.evaluate("""
+            return luaswift.json.encode(luaswift.json.null)
+            """)
+
+        XCTAssertEqual(result.stringValue, "null")
+    }
+
+    func testNullRoundTripInArray() throws {
+        let result = try engine.evaluate("""
+            local tbl = luaswift.json.decode('{"arr":[1,null,3]}')
+            return luaswift.json.encode(tbl)
+            """)
+
+        XCTAssertEqual(result.stringValue, "{\"arr\":[1,null,3]}")
+    }
+
+    func testNullRoundTripNested() throws {
+        let result = try engine.evaluate("""
+            local tbl = luaswift.json.decode('{"a":{"b":null}}')
+            return luaswift.json.encode(tbl)
+            """)
+
+        XCTAssertEqual(result.stringValue, "{\"a\":{\"b\":null}}")
+    }
+
+    func testMarkerKeyWithOtherFieldsIsNotNull() throws {
+        // An ordinary object that merely contains the marker key (e.g. from
+        // untrusted input) must NOT be coerced to null — only a marker-only
+        // table is the null sentinel.
+        let result = try engine.evaluate("""
+            local tbl = luaswift.json.decode('{"__luaswift_json_null":true,"x":1}')
+            local out = luaswift.json.encode(tbl)
+            -- Order of keys is not guaranteed; assert it is an object, not null,
+            -- and that both fields survive.
+            return {
+                out ~= "null",
+                luaswift.json.is_null(tbl) == false,
+                tbl.x == 1
+            }
+            """)
+
+        guard let arr = result.arrayValue, arr.count >= 3 else {
+            XCTFail("Expected 3-element array")
+            return
+        }
+        XCTAssertEqual(arr[0].boolValue, true, "object with extra keys must not encode to null")
+        XCTAssertEqual(arr[1].boolValue, true, "object with extra keys is not the null sentinel")
+        XCTAssertEqual(arr[2].boolValue, true, "other fields must survive")
+    }
+
     func testIsNullOnSentinelAndPlain() throws {
         let result = try engine.evaluate("""
             local decoded = luaswift.json.decode('{"a":null}')

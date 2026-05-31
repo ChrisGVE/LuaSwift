@@ -98,4 +98,25 @@ final class ModuleRequireTests: XCTestCase {
             try assertRequireExposes("luaswift.debug", member: "log", ofType: "table")
         }
     #endif
+
+    #if LUASWIFT_ARRAYSWIFT
+        func testArrayRequire() throws {
+            ModuleRegistry.installArrayModule(in: engine)
+            try assertRequireExposes("luaswift.array", member: "array", ofType: "function")
+        }
+    #endif
+
+    #if LUASWIFT_NUMERICSWIFT
+        func testLinAlgRequire() throws {
+            ModuleRegistry.installLinAlgModule(in: engine)
+            try assertRequireExposes("luaswift.linalg", member: "matrix", ofType: "function")
+        }
+    #endif
+
+    #if LUASWIFT_TOMLKIT
+        func testTOMLRequire() throws {
+            ModuleRegistry.installTOMLModule(in: engine)
+            try assertRequireExposes("luaswift.toml", member: "encode", ofType: "function")
+        }
+    #endif
 }

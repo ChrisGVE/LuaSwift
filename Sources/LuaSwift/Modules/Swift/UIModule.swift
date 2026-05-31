@@ -286,6 +286,12 @@ public struct UIModule {
       // unblocks whichever wait strategy is in use: the run-loop spin on the
       // main-thread path or the semaphore on the background-thread path.
       let complete: (Int) -> Void = { index in
+        // Idempotent: only the first completion wins. Guards against any path
+        // that could deliver more than one result. (Note: if an action sheet
+        // were dismissed without selecting any action — e.g. an iPad popover
+        // dismissed by an outside tap — no action handler fires and this is
+        // never called; callers should always include a cancel button.)
+        guard !done else { return }
         result = index
         done = true
         semaphore.signal()

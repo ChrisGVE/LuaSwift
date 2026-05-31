@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Top-level JSON scalars decode** - `json.decode` now accepts bare top-level JSON values (`null`, numbers, strings, booleans) via `.fragmentsAllowed` instead of throwing, completing the JSON-`null` round-trip symmetry (`decode(encode(json.null))` now reproduces the sentinel).
+- **Build without Yams** - Fixed compilation and test failures under `LUASWIFT_INCLUDE_YAMS=0` (the optional-dependency-free "nimble" build): the YAML `require()` test now compiles only with Yams, and the optional-dependency tests no longer assert `luaswift.yaml` as unconditionally available.
+- **iOS alert dismissal delegate** - The alert dismissal delegate is now assigned after presentation begins, so interactive dismissals (notably iPad popover-backed action sheets) are detected promptly instead of relying on the watchdog fallback.
+
 ## [1.9.0] - 2026-05-31
 
 ### Added
@@ -18,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **iOS alert deadlock** - Fixed a main-thread deadlock when presenting the UI `alert`/confirm dialog on iOS. The presentation wait now terminates on every path: button tap (idempotent completion), interactive dismissal, programmatic dismissal, and a watchdog for the never-presented case.
-- **`require()` access for Swift-backed modules** - Registered `package.loaded` entries so `require("luaswift.<module>")` resolves the same instances as the `luaswift.*` globals across all Swift-backed modules (including `luaswift.ui`).
+- **`require()` access for Swift-backed modules** - Registered `package.loaded` entries so `require("luaswift.<module>")` resolves the same instances as the `luaswift.*` globals for every module exposed under that namespace (`array`, `complex`, `debug`, `geometry`, `http`, `iox`, `json`, `linalg`, `math`/`mathx`, `mathexpr`, `plot`, `regex`, `stringx`, `svg`, `tablex`, `toml`, `types`, `ui`, `utf8x`, `yaml`, plus `cas` when Thales is enabled). The SciPy-style scientific modules are reached through the `math.*` namespace (e.g. `math.stats`, `math.integrate`) rather than a `luaswift.<name>` require path.
 - **`linalg.norm` string orders** - `norm` now accepts string orders (`"fro"`, `"inf"`) and rejects unsupported orders with a clear error instead of misbehaving.
 
 ### Documentation

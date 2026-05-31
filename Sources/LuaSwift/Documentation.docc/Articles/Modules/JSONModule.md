@@ -166,9 +166,9 @@ Because the sentinel and each decoded null are distinct table instances, do not 
 
 ### is_null(v)
 
-Returns `true` if `v` is the `json.null` sentinel or any value produced by decoding a JSON `null`. Returns `false` for every other value, including plain Lua `nil` and ordinary tables that happen to contain the internal marker key.
+Returns `true` if `v` is the `json.null` sentinel or any value produced by decoding a JSON `null`. Returns `false` for every other value, including plain Lua `nil` and ordinary tables.
 
-The function checks that `v` is a table whose **only** field is the internal `__luaswift_json_null` marker. An ordinary object that merely contains that key is not considered null and encodes as a normal JSON object.
+`is_null` is the only supported way to detect a JSON-null value; treat the sentinel as opaque. The internal representation (a single-key marker table) is an implementation detail that may change, so do not inspect its fields directly. An ordinary decoded object is never misclassified as null, even in the rare case it carries the same marker key alongside other fields.
 
 **Example:**
 

@@ -324,6 +324,16 @@ final class LinAlgModuleTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(result.numberValue), 30.0.squareRoot(), accuracy: 1e-9)
     }
 
+    func testNormInfinityString() throws {
+        let result = try engine.evaluate("""
+            local m = luaswift.linalg.matrix({{1, 2}, {3, 4}})
+            return m:norm("inf")
+            """)
+
+        // Infinity norm of a matrix = max row sum = max(1+2, 3+4) = 7
+        XCTAssertEqual(try XCTUnwrap(result.numberValue), 7.0, accuracy: 1e-9)
+    }
+
     func testNormUnsupportedOrderThrows() throws {
         XCTAssertThrowsError(
             try engine.evaluate("""

@@ -1158,9 +1158,13 @@ public struct LinAlgModule {
                 switch ord.lowercased() {
                 case "fro", "frobenius":
                     p = 2
+                case "inf", "infinity":
+                    // Infinity norm: max absolute value (vectors) / max row sum
+                    // (matrices), both handled by NumericSwift for p == infinity.
+                    p = Double.infinity
                 default:
                     throw LuaError.callbackError(
-                        "linalg.norm: unsupported order '\(ord)'; use a number or 'fro'")
+                        "linalg.norm: unsupported order '\(ord)'; use a number, 'fro', or 'inf'")
                 }
             } else {
                 p = 2

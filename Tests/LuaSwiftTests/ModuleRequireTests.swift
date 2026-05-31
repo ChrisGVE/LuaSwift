@@ -99,6 +99,11 @@ final class ModuleRequireTests: XCTestCase {
         }
     #endif
 
+    func testUIRequire() throws {
+        ModuleRegistry.installUIModule(in: engine)
+        try assertRequireExposes("luaswift.ui", member: "alert", ofType: "function")
+    }
+
     #if LUASWIFT_ARRAYSWIFT
         func testArrayRequire() throws {
             ModuleRegistry.installArrayModule(in: engine)

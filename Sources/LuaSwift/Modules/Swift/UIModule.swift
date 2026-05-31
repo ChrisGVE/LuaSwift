@@ -87,6 +87,7 @@ public struct UIModule {
         }
         _luaswift_ui_alert = nil
         _luaswift_ui_confirm = nil
+        package.loaded["luaswift.ui"] = luaswift.ui
         """)
     } catch {
       #if DEBUG

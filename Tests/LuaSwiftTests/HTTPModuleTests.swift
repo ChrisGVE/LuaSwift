@@ -83,17 +83,15 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     // MARK: - Live HTTP Tests (requires network)
-    // These tests make real network requests to httpbin.org
+    // These tests make real network requests to httpbin.org (or a reachable
+    // httpbin-compatible fallback resolved by requireHTTPBase()).
 
     func testSimpleGet() throws {
-        // Skip if no network
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/get")
+            local resp = http.get("\(base)/get")
             return {resp.status, resp.ok, type(resp.body), type(resp.headers)}
         """)
 
@@ -108,32 +106,33 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testGetWithHeaders() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
             local json = luaswift.json
-            local resp = http.get("https://httpbin.org/headers", {
+            local resp = http.get("\(base)/headers", {
                 headers = {["X-Custom-Header"] = "test-value"}
             })
             local data = json.decode(resp.body)
-            return data.headers["X-Custom-Header"]
+            -- Different httpbin implementations echo header values either as a
+            -- string (httpbin.org, nghttp2) or as an array (go-httpbin); accept
+            -- both — the point is that the client sent the header.
+            local h = data.headers["X-Custom-Header"]
+            if type(h) == "table" then h = h[1] end
+            return h
         """)
 
         XCTAssertEqual(result.stringValue, "test-value")
     }
 
     func testPostWithBody() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
             local json = luaswift.json
-            local resp = http.post("https://httpbin.org/post", {
+            local resp = http.post("\(base)/post", {
                 headers = {["Content-Type"] = "text/plain"},
                 body = "Hello, World!"
             })
@@ -145,14 +144,12 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testPostWithJSON() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
             local json = luaswift.json
-            local resp = http.post("https://httpbin.org/post", {
+            local resp = http.post("\(base)/post", {
                 json = {name = "John", age = 30}
             })
             local data = json.decode(resp.body)
@@ -169,14 +166,12 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testPutRequest() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
             local json = luaswift.json
-            local resp = http.put("https://httpbin.org/put", {
+            local resp = http.put("\(base)/put", {
                 json = {updated = true}
             })
             local data = json.decode(resp.body)
@@ -187,13 +182,11 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testDeleteRequest() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.delete("https://httpbin.org/delete")
+            local resp = http.delete("\(base)/delete")
             return resp.status
         """)
 
@@ -201,13 +194,11 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testHeadRequest() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.head("https://httpbin.org/get")
+            local resp = http.head("\(base)/get")
             return {resp.status, resp.body}
         """)
 
@@ -221,13 +212,11 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testStatusCode404() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/status/404")
+            local resp = http.get("\(base)/status/404")
             return {resp.status, resp.ok}
         """)
 
@@ -240,14 +229,12 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testResponseHeaders() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         // HTTP headers are case-insensitive, so check both possible casings
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/response-headers?X-Test=hello")
+            local resp = http.get("\(base)/response-headers?X-Test=hello")
             -- Check for header with various casings (HTTP headers are case-insensitive)
             return resp.headers["X-Test"] or resp.headers["x-test"] or resp.headers["X-test"]
         """)
@@ -256,14 +243,12 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testTimeout() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         XCTAssertThrowsError(try engine.run("""
             local http = luaswift.http
             -- httpbin.org/delay/10 delays for 10 seconds
-            http.get("https://httpbin.org/delay/10", {timeout = 1})
+            http.get("\(base)/delay/10", {timeout = 1})
         """)) { error in
             let errorStr = String(describing: error)
             XCTAssertTrue(errorStr.contains("timed out") || errorStr.contains("timeout") || errorStr.contains("cancelled"))
@@ -273,13 +258,11 @@ final class HTTPModuleTests: XCTestCase {
     // MARK: - Redirect Tests
 
     func testFollowRedirectsTrue() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/redirect/1", {
+            local resp = http.get("\(base)/redirect/1", {
                 follow_redirects = true
             })
             return {resp.status, resp.ok}
@@ -294,13 +277,11 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testFollowRedirectsFalse() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/redirect/1", {
+            local resp = http.get("\(base)/redirect/1", {
                 follow_redirects = false
             })
             return {resp.status, resp.ok}
@@ -315,14 +296,12 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testFollowRedirectsDefaultBehavior() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         // Default behavior should follow redirects
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/redirect/1")
+            local resp = http.get("\(base)/redirect/1")
             return resp.status
         """)
 
@@ -330,14 +309,12 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testFollowRedirectsChain() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         // Test that multiple redirects are followed
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/redirect/3", {
+            local resp = http.get("\(base)/redirect/3", {
                 follow_redirects = true
             })
             return resp.status
@@ -347,13 +324,11 @@ final class HTTPModuleTests: XCTestCase {
     }
 
     func testFollowRedirectsFalseReturnsLocationHeader() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/redirect/1", {
+            local resp = http.get("\(base)/redirect/1", {
                 follow_redirects = false
             })
             -- Check for Location header (case may vary)
@@ -372,18 +347,16 @@ final class HTTPModuleTests: XCTestCase {
     /// This is a behavioral test - we can't directly verify session reuse,
     /// but we can verify that multiple concurrent requests work correctly.
     func testMultipleRequestsReuseSession() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         // Multiple requests should all succeed using reused session
         let result = try engine.evaluate("""
             local http = luaswift.http
 
             -- Make multiple requests sequentially
-            local r1 = http.get("https://httpbin.org/get")
-            local r2 = http.get("https://httpbin.org/headers")
-            local r3 = http.get("https://httpbin.org/ip")
+            local r1 = http.get("\(base)/get")
+            local r2 = http.get("\(base)/headers")
+            local r3 = http.get("\(base)/ip")
 
             return {
                 r1_ok = r1.ok,
@@ -410,18 +383,16 @@ final class HTTPModuleTests: XCTestCase {
 
     /// Test that requests with different redirect settings use appropriate sessions.
     func testMixedRedirectSettingsReuseCorrectSessions() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         let result = try engine.evaluate("""
             local http = luaswift.http
 
             -- Mix of following and not following redirects
-            local r1 = http.get("https://httpbin.org/redirect/1", {follow_redirects = true})
-            local r2 = http.get("https://httpbin.org/redirect/1", {follow_redirects = false})
-            local r3 = http.get("https://httpbin.org/redirect/1", {follow_redirects = true})
-            local r4 = http.get("https://httpbin.org/redirect/1", {follow_redirects = false})
+            local r1 = http.get("\(base)/redirect/1", {follow_redirects = true})
+            local r2 = http.get("\(base)/redirect/1", {follow_redirects = false})
+            local r3 = http.get("\(base)/redirect/1", {follow_redirects = true})
+            local r4 = http.get("\(base)/redirect/1", {follow_redirects = false})
 
             return {
                 r1_status = r1.status,
@@ -447,9 +418,7 @@ final class HTTPModuleTests: XCTestCase {
 
     /// Test that different engines get separate sessions.
     func testDifferentEnginesHaveSeparateSessions() throws {
-        guard hasNetworkAccess() else {
-            throw XCTSkip("No network access")
-        }
+        let base = try Self.requireHTTPBase()
 
         // Create a second engine
         let engine2 = try LuaEngine()
@@ -458,13 +427,13 @@ final class HTTPModuleTests: XCTestCase {
         // Both engines should be able to make requests independently
         let result1 = try engine.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/get")
+            local resp = http.get("\(base)/get")
             return resp.ok
         """)
 
         let result2 = try engine2.evaluate("""
             local http = luaswift.http
-            local resp = http.get("https://httpbin.org/get")
+            local resp = http.get("\(base)/get")
             return resp.ok
         """)
 
@@ -474,13 +443,51 @@ final class HTTPModuleTests: XCTestCase {
 
     // MARK: - Helper Methods
 
-    private func hasNetworkAccess() -> Bool {
-        // Simple check - try to resolve a hostname
-        let host = "httpbin.org"
-        let hostRef = CFHostCreateWithName(nil, host as CFString).takeRetainedValue()
-        var resolved = DarwinBoolean(false)
-        CFHostStartInfoResolution(hostRef, .addresses, nil)
-        CFHostGetAddressing(hostRef, &resolved)
-        return resolved.boolValue
+    /// httpbin-compatible bases, tried in order. httpbin.org is primary; the
+    /// others are faithful httpbin reimplementations used as fallbacks when
+    /// httpbin.org is unavailable, so the live tests still exercise a real
+    /// httpbin-style API instead of failing on a third-party outage.
+    private static let httpBaseCandidates = [
+        "https://httpbin.org",
+        "https://httpbingo.org",
+        "https://nghttp2.org/httpbin",
+    ]
+
+    /// First reachable base, resolved once for the whole test run. A static
+    /// `let` initialiser runs exactly once and is therefore safe to share
+    /// across the test methods. `nil` means no candidate answered.
+    private static let resolvedHTTPBase: String? = {
+        for base in httpBaseCandidates {
+            guard let url = URL(string: base + "/get") else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 8
+
+            let semaphore = DispatchSemaphore(value: 0)
+            var reachable = false
+            let task = URLSession.shared.dataTask(with: request) { _, response, _ in
+                if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                    reachable = true
+                }
+                semaphore.signal()
+            }
+            task.resume()
+            _ = semaphore.wait(timeout: .now() + 10)
+
+            if reachable {
+                return base
+            }
+        }
+        return nil
+    }()
+
+    /// Return the first reachable httpbin-compatible base URL, or skip the test
+    /// when httpbin.org and all fallbacks are unavailable.
+    private static func requireHTTPBase() throws -> String {
+        guard let base = resolvedHTTPBase else {
+            throw XCTSkip(
+                "No reachable httpbin-compatible host (httpbin.org and fallbacks unavailable)")
+        }
+        return base
     }
 }

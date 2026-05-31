@@ -278,7 +278,18 @@ public struct UIModule {
       preferActionSheet: Bool
     ) throws -> Int {
       var result = 0
+      var done = false
       let semaphore = DispatchSemaphore(value: 0)
+
+      // Completion is invoked from UIAlertAction handlers (always on the main
+      // thread) and from the no-presenter fallback. It records the result and
+      // unblocks whichever wait strategy is in use: the run-loop spin on the
+      // main-thread path or the semaphore on the background-thread path.
+      let complete: (Int) -> Void = { index in
+        result = index
+        done = true
+        semaphore.signal()
+      }
 
       let block = {
         let style: UIAlertController.Style = preferActionSheet ? .actionSheet : .alert
@@ -294,8 +305,7 @@ public struct UIModule {
           }
 
           let action = UIAlertAction(title: button.text, style: actionStyle) { _ in
-            result = capturedIndex
-            semaphore.signal()
+            complete(capturedIndex)
           }
           alert.addAction(action)
         }
@@ -306,8 +316,7 @@ public struct UIModule {
             .flatMap({ $0.windows })
             .first(where: { $0.isKeyWindow })?.rootViewController
         else {
-          result = 1
-          semaphore.signal()
+          complete(1)
           return
         }
 
@@ -319,8 +328,16 @@ public struct UIModule {
       }
 
       if Thread.isMainThread {
+        // The alert is presented asynchronously and its action handler runs on
+        // the main thread. Blocking the main thread on a semaphore would prevent
+        // that handler from ever running (deadlock, issue #10). Instead, spin the
+        // main run loop so UIKit can present the alert and deliver the tap, until
+        // `complete` sets `done`. Single-threaded on the main thread, so reading
+        // `done` here needs no synchronization.
         block()
-        semaphore.wait()
+        while !done {
+          CFRunLoopRunInMode(.defaultMode, 0.05, true)
+        }
       } else {
         DispatchQueue.main.async(execute: block)
         semaphore.wait()

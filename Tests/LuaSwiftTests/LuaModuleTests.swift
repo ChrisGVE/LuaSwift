@@ -543,13 +543,13 @@ final class LuaModuleTests: XCTestCase {
 
         // Warnings depend on version:
         // - setfenv: warning in 5.2+ (removed in 5.2)
-        // - bit32: warning in 5.4+ (removed in 5.4)
+        // - bit32: warning in 5.3+ (deprecated in 5.3, removed in 5.4)
         let version = result.tableValue?["version"]?.stringValue ?? "5.4"
         let minor = Int(version.split(separator: ".").last ?? "4") ?? 4
 
         var expectedWarnings = 0
         if minor >= 2 { expectedWarnings += 1 }  // setfenv warning
-        if minor >= 4 { expectedWarnings += 1 }  // bit32 warning
+        if minor >= 3 { expectedWarnings += 1 }  // bit32 warning
 
         XCTAssertEqual(result.tableValue?["count"]?.numberValue, Double(expectedWarnings))
     }

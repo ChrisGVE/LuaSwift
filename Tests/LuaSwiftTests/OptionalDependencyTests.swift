@@ -50,10 +50,11 @@ final class OptionalDependencyTests: XCTestCase {
 
     func testCoreModulesAlwaysAvailable() throws {
         // Core modules have no optional dependency and are always available.
-        // (TOML is excluded here: it requires TOMLKit, which defaults to OFF.)
+        // (YAML and TOML are excluded here: they require Yams / TOMLKit, both of
+        // which are gated by build flags — TOML defaults OFF, YAML defaults ON
+        // but can be excluded with LUASWIFT_INCLUDE_YAMS=0.)
         let coreModules = [
             "json",
-            "yaml",
             "regex",
             "mathx",
             "utf8x",
@@ -70,6 +71,19 @@ final class OptionalDependencyTests: XCTestCase {
             XCTAssertEqual(result.boolValue, true,
                           "Core module luaswift.\(moduleName) should always be available")
         }
+
+        // YAML is only present when built with Yams (LUASWIFT_INCLUDE_YAMS != 0).
+        #if LUASWIFT_YAMS
+            let yamlResult = try engine.evaluate("return luaswift.yaml ~= nil")
+            XCTAssertEqual(
+                yamlResult.boolValue, true,
+                "luaswift.yaml should be available when LUASWIFT_YAMS is defined")
+        #else
+            let yamlResult = try engine.evaluate("return luaswift.yaml == nil")
+            XCTAssertEqual(
+                yamlResult.boolValue, true,
+                "luaswift.yaml should be absent when LUASWIFT_YAMS is not defined")
+        #endif
 
         // TOML is only present when built with LUASWIFT_INCLUDE_TOMLKIT=1.
         #if LUASWIFT_TOMLKIT
@@ -347,15 +361,15 @@ final class OptionalDependencyTests: XCTestCase {
     // MARK: - Combination Tests
 
     func testCoreAndOptionalModulesCoexist() throws {
-        // Core data-format modules should work together. TOML is only present
-        // when built with TOMLKit, so it is asserted conditionally.
-        let result = try engine.evaluate("""
-            local json_ok = luaswift.json ~= nil
-            local yaml_ok = luaswift.yaml ~= nil
-
-            return json_ok and yaml_ok
-            """)
+        // Core data-format modules should work together. YAML (Yams) and TOML
+        // (TOMLKit) are build-flag gated, so they are asserted conditionally.
+        let result = try engine.evaluate("return luaswift.json ~= nil")
         XCTAssertEqual(result.boolValue, true)
+
+        #if LUASWIFT_YAMS
+            let yamlResult = try engine.evaluate("return luaswift.yaml ~= nil")
+            XCTAssertEqual(yamlResult.boolValue, true)
+        #endif
 
         #if LUASWIFT_TOMLKIT
             let tomlResult = try engine.evaluate("return luaswift.toml ~= nil")

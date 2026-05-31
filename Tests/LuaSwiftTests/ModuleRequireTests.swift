@@ -60,10 +60,12 @@ final class ModuleRequireTests: XCTestCase {
         try assertRequireExposes("luaswift.json", member: "decode", ofType: "function")
     }
 
-    func testYAMLRequire() throws {
-        ModuleRegistry.installYAMLModule(in: engine)
-        try assertRequireExposes("luaswift.yaml", member: "encode", ofType: "function")
-    }
+    #if LUASWIFT_YAMS
+        func testYAMLRequire() throws {
+            ModuleRegistry.installYAMLModule(in: engine)
+            try assertRequireExposes("luaswift.yaml", member: "encode", ofType: "function")
+        }
+    #endif
 
     func testRegexRequire() throws {
         ModuleRegistry.installRegexModule(in: engine)

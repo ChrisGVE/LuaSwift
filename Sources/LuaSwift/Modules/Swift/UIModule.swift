@@ -344,13 +344,17 @@ public struct UIModule {
 
         let reporter = AlertDismissReporter { complete(dismissIndex) }
         dismissReporter = reporter
-        alert.presentationController?.delegate = reporter
 
         var presentingVC = rootVC
         while let presented = presentingVC.presentedViewController {
           presentingVC = presented
         }
         presentingVC.present(alert, animated: true)
+        // Assign the dismissal delegate after present(): the presentation
+        // controller is only guaranteed to exist once presentation has begun,
+        // so assigning earlier could silently no-op (notably for iPad
+        // popover-backed action sheets) and miss interactive dismissals.
+        alert.presentationController?.delegate = reporter
       }
 
       // Tracks whether the alert was ever actually on screen, so the fail-safe

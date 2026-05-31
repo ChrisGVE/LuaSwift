@@ -11,10 +11,13 @@ import XCTest
 
 /// Tests for optional dependency combinations.
 ///
-/// LuaSwift has three optional dependencies controlled by environment variables:
-/// - LUASWIFT_INCLUDE_NUMERICSWIFT (default: 1) - enables 14 NumericSwift-dependent modules
-/// - LUASWIFT_INCLUDE_ARRAYSWIFT (default: 1) - enables ArrayModule
-/// - LUASWIFT_INCLUDE_PLOTSWIFT (default: 1) - enables PlotModule
+/// LuaSwift has several optional dependencies controlled by environment
+/// variables. All except Yams default to OFF:
+/// - LUASWIFT_INCLUDE_NUMERICSWIFT (default: 0) - enables 14 NumericSwift-dependent modules
+/// - LUASWIFT_INCLUDE_ARRAYSWIFT (default: 0) - enables ArrayModule
+/// - LUASWIFT_INCLUDE_PLOTSWIFT (default: 0) - enables PlotModule
+/// - LUASWIFT_INCLUDE_TOMLKIT (default: 0) - enables TOMLModule
+/// - LUASWIFT_INCLUDE_YAMS (default: 1) - enables YAMLModule
 ///
 /// These tests verify that:
 /// 1. Modules are available when their dependency is included
@@ -46,11 +49,11 @@ final class OptionalDependencyTests: XCTestCase {
     }
 
     func testCoreModulesAlwaysAvailable() throws {
-        // Core modules should always be available regardless of optional dependencies
+        // Core modules have no optional dependency and are always available.
+        // (TOML is excluded here: it requires TOMLKit, which defaults to OFF.)
         let coreModules = [
             "json",
             "yaml",
-            "toml",
             "regex",
             "mathx",
             "utf8x",
@@ -67,6 +70,19 @@ final class OptionalDependencyTests: XCTestCase {
             XCTAssertEqual(result.boolValue, true,
                           "Core module luaswift.\(moduleName) should always be available")
         }
+
+        // TOML is only present when built with LUASWIFT_INCLUDE_TOMLKIT=1.
+        #if LUASWIFT_TOMLKIT
+            let tomlResult = try engine.evaluate("return luaswift.toml ~= nil")
+            XCTAssertEqual(
+                tomlResult.boolValue, true,
+                "luaswift.toml should be available when LUASWIFT_TOMLKIT is defined")
+        #else
+            let tomlResult = try engine.evaluate("return luaswift.toml == nil")
+            XCTAssertEqual(
+                tomlResult.boolValue, true,
+                "luaswift.toml should be absent when LUASWIFT_TOMLKIT is not defined")
+        #endif
     }
 
     func testExtendStdlibAvailable() throws {
@@ -331,15 +347,20 @@ final class OptionalDependencyTests: XCTestCase {
     // MARK: - Combination Tests
 
     func testCoreAndOptionalModulesCoexist() throws {
-        // Core modules and optional modules should work together
+        // Core data-format modules should work together. TOML is only present
+        // when built with TOMLKit, so it is asserted conditionally.
         let result = try engine.evaluate("""
             local json_ok = luaswift.json ~= nil
             local yaml_ok = luaswift.yaml ~= nil
-            local toml_ok = luaswift.toml ~= nil
 
-            return json_ok and yaml_ok and toml_ok
+            return json_ok and yaml_ok
             """)
         XCTAssertEqual(result.boolValue, true)
+
+        #if LUASWIFT_TOMLKIT
+            let tomlResult = try engine.evaluate("return luaswift.toml ~= nil")
+            XCTAssertEqual(tomlResult.boolValue, true)
+        #endif
     }
 
     #if LUASWIFT_NUMERICSWIFT && LUASWIFT_ARRAYSWIFT

@@ -4,7 +4,7 @@ Type detection and conversion utilities for LuaSwift interoperability.
 
 ## Overview
 
-The Types module provides utilities for detecting and working with LuaSwift types. It enables runtime type checking, category classification, type conversion, and deep cloning while preserving type information. This is essential for writing type-safe code that works with multiple LuaSwift modules.
+The Types module provides utilities for detecting and working with LuaSwift types. It enables runtime type checking, category classification, type conversion, and cloning while preserving type information. This is essential for writing type-safe code that works with multiple LuaSwift modules.
 
 ## Installation
 
@@ -27,6 +27,10 @@ print(types.typeof(v))           -- "vec2"
 print(types.is(v, "vec2"))       -- true
 print(types.is_luaswift(v))      -- true
 
+-- Callable and iterable checks
+print(types.is_callable(print))  -- true
+print(types.is_iterable({1,2}))  -- true
+
 -- Category checks
 print(types.is_vector(v))        -- true
 print(types.is_geometry(v))      -- true
@@ -43,7 +47,7 @@ local v2 = types.clone(v)
 ### Type Detection
 
 #### typeof(value)
-Returns the type name of any value. For LuaSwift objects, returns the `__luaswift_type` field; for primitives, returns the Lua type.
+Returns the type name of any value. For LuaSwift objects, returns the `__luaswift_type` field; for primitives, returns the Lua type. Plain tables without `__luaswift_type` return `"table"`.
 
 ```lua
 -- Primitives
@@ -86,7 +90,7 @@ types.is("hi", "string")         -- true
 ```
 
 #### is_luaswift(value)
-Checks if a value is any LuaSwift type (has `__luaswift_type` field).
+Checks if a value is any LuaSwift type (has `__luaswift_type` field). Returns `false` for primitives and plain tables.
 
 ```lua
 types.is_luaswift(geo.vec2(1, 2))     -- true
@@ -98,12 +102,42 @@ types.is_luaswift(42)                 -- false (primitive)
 types.is_luaswift("hello")            -- false (primitive)
 ```
 
+#### is_callable(value)
+Returns `true` if the value is a function or a table with a `__call` metamethod.
+
+```lua
+types.is_callable(print)              -- true (function)
+types.is_callable(math.sqrt)          -- true (function)
+
+-- Table with __call metamethod
+local functor = setmetatable({}, {__call = function() end})
+types.is_callable(functor)            -- true
+
+types.is_callable({1, 2, 3})          -- false (plain table, no __call)
+types.is_callable(42)                 -- false (number)
+types.is_callable("hello")            -- false (string)
+```
+
+#### is_iterable(value)
+Returns `true` if the value is a table. All Lua tables are iterable; non-table values (functions, numbers, strings, userdata) return `false` regardless of metamethods.
+
+```lua
+types.is_iterable({1, 2, 3})          -- true
+types.is_iterable({a = 1})            -- true
+types.is_iterable(geo.vec2(1, 2))     -- true (vec2 is a table)
+types.is_iterable(np.array({1}))      -- true (array is a table)
+
+types.is_iterable(42)                 -- false
+types.is_iterable("hello")            -- false
+types.is_iterable(print)              -- false
+```
+
 ### Category Checks
 
 These functions check if a value belongs to a category of related types.
 
 #### is_numeric(value)
-Returns true for `number` or `complex` types.
+Returns `true` for `number` or `complex` types.
 
 ```lua
 types.is_numeric(42)                  -- true
@@ -114,7 +148,7 @@ types.is_numeric(geo.vec2(1, 2))      -- false
 ```
 
 #### is_vector(value)
-Returns true for `vec2`, `vec3`, or `linalg.vector` types.
+Returns `true` for `vec2`, `vec3`, or `linalg.vector` types.
 
 ```lua
 types.is_vector(geo.vec2(1, 2))       -- true
@@ -126,7 +160,7 @@ types.is_vector({1, 2, 3})            -- false (plain table)
 ```
 
 #### is_matrix(value)
-Returns true for `linalg.matrix` or `array` types.
+Returns `true` for `linalg.matrix` or `array` types.
 
 ```lua
 types.is_matrix(linalg.matrix({{1,2},{3,4}}))  -- true
@@ -137,7 +171,7 @@ types.is_matrix({{1, 2}, {3, 4}})              -- false (plain table)
 ```
 
 #### is_geometry(value)
-Returns true for `vec2`, `vec3`, `quaternion`, or `transform3d` types.
+Returns `true` for `vec2`, `vec3`, `quaternion`, or `transform3d` types.
 
 ```lua
 types.is_geometry(geo.vec2(1, 2))        -- true
@@ -171,7 +205,7 @@ print(arr:tolist())              -- {3, 4}
 local arr = types.to_array({1, 2, 3})
 print(arr:shape())               -- {3}
 
--- Array passes through
+-- Array passes through unchanged
 local arr1 = np.array({1, 2})
 local arr2 = types.to_array(arr1)
 print(arr1 == arr2)              -- true
@@ -195,7 +229,7 @@ print(v.x, v.y)                  -- 5, 6
 local v = types.to_vec2({1, 2})
 print(v.x, v.y)                  -- 1, 2
 
--- vec2 passes through
+-- vec2 passes through unchanged
 local v1 = geo.vec2(1, 2)
 local v2 = types.to_vec2(v1)
 print(v1 == v2)                  -- true
@@ -229,16 +263,16 @@ print(v.x, v.y, v.z)             -- 1, 2, 3
 Converts to `complex` type.
 
 ```lua
--- From number (real only)
+-- From number (real only, imaginary part is 0)
 local c = types.to_complex(5)
 print(c.re, c.im)                -- 5, 0
 
--- From vec2 (x=real, y=imag)
+-- From vec2 (x maps to real, y maps to imaginary)
 local v = geo.vec2(3, 4)
 local c = types.to_complex(v)
 print(c.re, c.im)                -- 3, 4
 
--- Complex passes through
+-- Complex passes through unchanged
 local c1 = complex.new(1, 2)
 local c2 = types.to_complex(c1)
 print(c1 == c2)                  -- true
@@ -284,7 +318,21 @@ print(m:rows(), m:cols())        -- 2, 3
 ### Utilities
 
 #### clone(value)
-Creates a deep copy of a value while preserving its LuaSwift type.
+Creates a copy of a value while preserving its LuaSwift type. Behavior varies by type:
+
+| Type | Copy mechanism |
+|------|----------------|
+| `complex` | Constructs new instance from `re`/`im` fields |
+| `vec2` | Constructs new instance from `x`/`y` fields |
+| `vec3` | Constructs new instance from `x`/`y`/`z` fields |
+| `quaternion` | Constructs new instance from `w`/`x`/`y`/`z` fields |
+| `transform3d` | Deep-copies internal `_m[1..16]` matrix array, then constructs |
+| `array` | Calls `value:copy()` |
+| `linalg.vector` / `linalg.matrix` | Applies `value:transpose():transpose()` — the only available copy path since linalg has no direct copy method |
+| plain `table` | Calls `luaswift.tablex.deepcopy` if tablex is loaded; **falls back to a shallow copy** (`for k,v in pairs(...)`) if tablex is unavailable |
+| primitives | Returned as-is (immutable) |
+
+> Note: Table cloning is only a true deep copy when the tablex module is loaded. If tablex is absent, nested tables are shared between the original and the copy. For guaranteed deep copies of plain tables, load the tablex module or clone manually.
 
 ```lua
 -- Clone complex numbers
@@ -293,29 +341,31 @@ local c2 = types.clone(c1)
 c2.re = 99
 print(c1.re)                     -- 3 (unchanged)
 
--- Clone vectors
+-- Clone geometry types
 local v1 = geo.vec2(1, 2)
 local v2 = types.clone(v1)
-v2.x = 99
-print(v1.x)                      -- 1 (unchanged)
 
--- Clone arrays
+-- Clone arrays (uses array:copy())
 local arr1 = np.array({1, 2, 3})
 local arr2 = types.clone(arr1)
+
+-- Clone linalg types (double-transpose copy path)
+local lv1 = linalg.vector({1, 2, 3})
+local lv2 = types.clone(lv1)    -- equivalent to lv1:transpose():transpose()
 
 -- Clone quaternions
 local q1 = geo.quaternion()
 local q2 = types.clone(q1)
 
--- Clone transforms
+-- Clone transforms (internal _m matrix is deep-copied)
 local t1 = geo.transform3d():translate(1, 2, 3)
 local t2 = types.clone(t1)
 
--- Clone plain tables (deep copy)
+-- Plain table: deep copy only if tablex is loaded; shallow copy otherwise
 local t1 = {a = 1, b = {c = 2}}
 local t2 = types.clone(t1)
-t2.b.c = 99
-print(t1.b.c)                    -- 2 (unchanged)
+-- With tablex loaded:    t2.b.c = 99  =>  t1.b.c still 2
+-- Without tablex loaded: t2.b.c = 99  =>  t1.b.c becomes 99 (shared nested table)
 
 -- Primitives return as-is (immutable)
 local n = types.clone(42)        -- 42
@@ -358,6 +408,36 @@ process_vector(linalg.vector({1, 2, 3}))
 process_vector({1, 2, 3})
 ```
 
+### Guarding Callable Arguments
+
+```lua
+local function apply(fn, value)
+    if not types.is_callable(fn) then
+        error("Expected callable, got " .. types.typeof(fn))
+    end
+    return fn(value)
+end
+
+apply(math.sqrt, 9)              -- 3.0
+apply(math.abs, -5)              -- 5
+```
+
+### Iterating Unknown Input
+
+```lua
+local function sum_all(input)
+    if not types.is_iterable(input) then
+        -- Scalar: wrap and sum directly
+        return input
+    end
+    local total = 0
+    for _, v in ipairs(input) do
+        total = total + v
+    end
+    return total
+end
+```
+
 ### Generic Numeric Operations
 
 ```lua
@@ -381,6 +461,7 @@ end
 ### Safe Deep Copy for Mixed Data
 
 ```lua
+-- Requires tablex module for guaranteed deep copies of plain tables.
 local function safe_copy(data)
     if types.is_luaswift(data) then
         return types.clone(data)

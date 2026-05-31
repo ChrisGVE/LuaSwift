@@ -22,7 +22,7 @@ import Foundation
 /// local utf8x = require("luaswift.utf8x")
 ///
 /// -- Display width (CJK-aware)
-/// local w = utf8x.width("Hello世界")  -- 11 (5 + 2*3)
+/// local w = utf8x.width("Hello世界")  -- 9 (5 + 2×2)
 ///
 /// -- Character-based substring
 /// local s = utf8x.sub("Hello世界", 6, 7)  -- "世界"

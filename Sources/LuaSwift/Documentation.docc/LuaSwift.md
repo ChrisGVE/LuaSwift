@@ -120,6 +120,10 @@ try engine.run("""
 - <doc:IOModule>
 - <doc:HTTPModule>
 
+### User Interface
+
+- <doc:UIModule>
+
 ### Utilities and Debugging
 
 - <doc:TypesModule>

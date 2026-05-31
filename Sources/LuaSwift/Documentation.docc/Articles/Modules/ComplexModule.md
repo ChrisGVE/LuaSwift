@@ -4,15 +4,27 @@ Complex number arithmetic with full mathematical function support.
 
 ## Overview
 
-The Complex module provides high-performance complex number operations using Swift's native math libraries. It supports standard arithmetic, polar form conversions, exponential and logarithmic functions, trigonometric functions, and hyperbolic functions. Complex numbers have proper operator support, allowing natural mathematical expressions.
+The Complex module provides high-performance complex number operations using Swift's native math libraries (Darwin). It supports standard arithmetic, polar form conversions, exponential and logarithmic functions, trigonometric functions, and hyperbolic functions. Complex numbers have proper operator support, allowing natural mathematical expressions.
+
+> Important: This module requires the `NumericSwift` optional dependency. It is compiled only when the `LUASWIFT_NUMERICSWIFT` build flag is set. If the flag is absent the module is not registered and `require("luaswift.complex")` will fail at runtime.
 
 ## Installation
 
+Build with the `LUASWIFT_NUMERICSWIFT` flag:
+
+```bash
+LUASWIFT_NUMERICSWIFT=1 swift build
+LUASWIFT_NUMERICSWIFT=1 swift test
+```
+
+Then install the module from Swift:
+
 ```swift
-// Install all modules
+// Install all modules (Complex included when LUASWIFT_NUMERICSWIFT is set)
 ModuleRegistry.installModules(in: engine)
 
 // Or install just the Complex module
+// Available only when compiled with LUASWIFT_NUMERICSWIFT
 ModuleRegistry.installComplexModule(in: engine)
 ```
 
@@ -201,7 +213,10 @@ print(z1.re)                     -- 3 (unchanged)
 ### Powers and Roots
 
 #### z:pow(n)
-Raises to a power using De Moivre's formula.
+Raises to a real (floating-point) power using De Moivre's formula: z^n = r^n · (cos(n·θ) + i·sin(n·θ)).
+
+**Parameters:**
+- `n` - Real exponent (integer or fractional)
 
 ```lua
 local z = complex.new(1, 1)
@@ -244,7 +259,7 @@ print(z:exp())                   -- 0 + 1i (e^(iπ/2) = i)
 ```
 
 #### z:log()
-Principal value of natural logarithm.
+Principal value of natural logarithm. Raises a Lua error if the input is zero.
 
 ```lua
 local z = complex.new(math.exp(1), 0)
@@ -282,7 +297,7 @@ print(z:cos())                   -- 1 + 0i
 ```
 
 #### z:tan()
-Complex tangent.
+Complex tangent. Raises a Lua error if the cosine of the input is numerically zero.
 
 ```lua
 local z = complex.new(0, 1)
@@ -292,7 +307,7 @@ print(z:tan())                   -- 0 + 0.761...i
 ### Inverse Trigonometric Functions
 
 #### z:asin()
-Complex arcsine.
+Complex arcsine. Raises a Lua error if the result is undefined (NaN).
 
 ```lua
 local z = complex.new(0, 2)
@@ -303,7 +318,7 @@ print(z:asin())                  -- π/2 + 0i
 ```
 
 #### z:acos()
-Complex arccosine.
+Complex arccosine. Raises a Lua error if the result is undefined (NaN).
 
 ```lua
 local z = complex.new(1, 0)
@@ -311,7 +326,7 @@ print(z:acos())                  -- 0 + 0i
 ```
 
 #### z:atan()
-Complex arctangent.
+Complex arctangent. Raises a Lua error if the result is undefined (NaN).
 
 ```lua
 local z = complex.new(1, 0)
@@ -343,7 +358,7 @@ print(z:cosh())                  -- -1 + 0i (cos(π) = -1)
 ```
 
 #### z:tanh()
-Complex hyperbolic tangent.
+Complex hyperbolic tangent. Raises a Lua error if the hyperbolic cosine of the input is numerically zero.
 
 ```lua
 local z = complex.new(1, 0)

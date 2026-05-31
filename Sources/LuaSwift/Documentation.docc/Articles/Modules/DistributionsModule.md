@@ -1,246 +1,356 @@
 # Distributions Module
 
-Probability distributions for statistical computing.
+Probability distributions and statistical tests for scientific computing.
 
 ## Overview
 
-The Distributions module provides a comprehensive set of probability distributions including PDF, CDF, quantile functions, and random sampling. Available under `math.distributions` after calling `luaswift.extend_stdlib()`.
+The Distributions module provides scipy.stats-compatible probability distributions with functional-style API: PDF, CDF, percent-point function (PPF/quantile), random sampling, and distribution statistics. Statistical tests and descriptive statistics are also included.
+
+> Important: This module requires the **NumericSwift** optional dependency. It is compiled only when `LUASWIFT_INCLUDE_NUMERICSWIFT=1` is set at build time. The flag is **off by default**. When NumericSwift is absent the `math.stats` namespace and all symbols documented here are unavailable.
 
 ## Installation
 
 ```swift
-ModuleRegistry.installMathModule(in: engine)
+// Install all modules (NumericSwift must be available)
+ModuleRegistry.installModules(in: engine)
+
+// Or install just the distributions module
+DistributionsModule.register(in: engine)
 ```
 
 ```lua
 luaswift.extend_stdlib()
-local dist = math.distributions
+-- Distributions are available under math.stats.<name>
+```
+
+## Namespace
+
+All distributions and tests live under `math.stats`. The same symbols are also aliased under `luaswift.distributions` for convenience.
+
+```lua
+math.stats.norm.pdf(0)          -- primary namespace
+luaswift.distributions.norm.pdf(0)  -- alias, identical
 ```
 
 ## Continuous Distributions
 
-### Normal Distribution
+Each distribution is a table of functions. All share the same method set: `pdf`, `cdf`, `ppf`, `rvs`, `mean`, `var`, `std`.
 
-#### dist.normal(mean?, std?)
-Creates a normal (Gaussian) distribution.
+### Normal Distribution — `math.stats.norm`
 
-```lua
--- Standard normal N(0, 1)
-local std_normal = dist.normal()
-
--- Custom parameters N(10, 2)
-local custom = dist.normal(10, 2)
-
--- PDF
-print(std_normal:pdf(0))      -- 0.3989... (peak at 0)
-print(custom:pdf(10))         -- Peak at mean=10
-
--- CDF
-print(std_normal:cdf(0))      -- 0.5
-print(std_normal:cdf(1.96))   -- ~0.975
-
--- Quantile (inverse CDF)
-print(std_normal:quantile(0.5))    -- 0
-print(std_normal:quantile(0.975))  -- ~1.96
-
--- Random sampling
-local sample = std_normal:sample()
-local samples = std_normal:sample(1000)
-```
-
-### Student's t Distribution
-
-#### dist.t(df)
-Creates a t-distribution with degrees of freedom.
+Signature group: `(x_or_p_or_size, loc=0, scale=1)`
 
 ```lua
-local t_dist = dist.t(10)  -- 10 degrees of freedom
+-- PDF: probability density at x
+local y = math.stats.norm.pdf(0)           -- ~0.3989
+local y = math.stats.norm.pdf(5, 5, 2)    -- peak of N(5, 2) at x=5
 
-print(t_dist:pdf(0))        -- Peak at 0
-print(t_dist:cdf(1.812))    -- ~0.95
-print(t_dist:quantile(0.95))
+-- CDF: cumulative probability P(X <= x)
+local p = math.stats.norm.cdf(1.96)       -- ~0.975
+local p = math.stats.norm.cdf(7, 5, 2)   -- N(5,2), x=7
+
+-- PPF: percent-point function (inverse CDF)
+local x = math.stats.norm.ppf(0.975)      -- ~1.96
+local x = math.stats.norm.ppf(0.975, 5, 2)
+
+-- RVS: random variates
+local single  = math.stats.norm.rvs()          -- 1 sample from N(0,1)
+local samples = math.stats.norm.rvs(100)       -- array of 100 samples
+local samples = math.stats.norm.rvs(100, 5, 2) -- from N(5,2)
+
+-- Distribution statistics
+local m = math.stats.norm.mean(0, 1)   -- 0.0
+local v = math.stats.norm.var(0, 1)    -- 1.0
+local s = math.stats.norm.std(0, 1)    -- 1.0
 ```
 
-### Chi-Squared Distribution
+### Uniform Distribution — `math.stats.uniform`
 
-#### dist.chi2(df)
-Creates a chi-squared distribution.
+Signature group: `(x_or_p_or_size, loc=0, scale=1)` — support is `[loc, loc+scale]`
 
 ```lua
-local chi2 = dist.chi2(5)   -- 5 degrees of freedom
-
-print(chi2:pdf(5))
-print(chi2:cdf(11.07))      -- ~0.95
+local y = math.stats.uniform.pdf(0.5)          -- 1.0 on [0,1]
+local p = math.stats.uniform.cdf(0.5)          -- 0.5
+local x = math.stats.uniform.ppf(0.75)         -- 0.75
+local s = math.stats.uniform.rvs(50, 2, 8)     -- 50 samples from [2,10]
+local m = math.stats.uniform.mean(0, 1)        -- 0.5
 ```
 
-### F Distribution
+### Exponential Distribution — `math.stats.expon`
 
-#### dist.f(df1, df2)
-Creates an F-distribution.
+Signature group: `(x_or_p_or_size, loc=0, scale=1)` — `scale` = 1/lambda
 
 ```lua
-local f_dist = dist.f(5, 10)  -- df1=5, df2=10
-
-print(f_dist:pdf(1))
-print(f_dist:cdf(3.33))       -- ~0.95
+local y = math.stats.expon.pdf(1)              -- pdf at x=1 (scale=1)
+local p = math.stats.expon.cdf(1)              -- ~0.632
+local x = math.stats.expon.ppf(0.5)            -- median ~0.693
+local s = math.stats.expon.rvs(200, 0, 2)      -- 200 samples, mean=2
+local m = math.stats.expon.mean(0, 2)          -- 2.0
 ```
 
-### Gamma Distribution
+### Student's t Distribution — `math.stats.t`
 
-#### dist.gamma(shape, scale?)
-Creates a gamma distribution.
+Signature group: `(x_or_p_or_size, df, loc=0, scale=1)` — `df` is required
 
 ```lua
-local gamma_dist = dist.gamma(2, 2)  -- shape=2, scale=2
-
-print(gamma_dist:pdf(2))
-print(gamma_dist:cdf(4))
+local y = math.stats.t.pdf(0, 10)             -- peak, 10 df
+local p = math.stats.t.cdf(1.812, 10)         -- ~0.95
+local x = math.stats.t.ppf(0.975, 29)         -- critical value, 29 df
+local s = math.stats.t.rvs(100, 10)           -- 100 samples, 10 df
+local m = math.stats.t.mean(10)               -- 0.0
+local v = math.stats.t.var(10)                -- 10/8 = 1.25
 ```
 
-### Beta Distribution
+### Chi-Squared Distribution — `math.stats.chi2`
 
-#### dist.beta(alpha, beta)
-Creates a beta distribution.
+Signature group: `(x_or_p_or_size, df, loc=0, scale=1)` — `df` is required
 
 ```lua
-local beta_dist = dist.beta(2, 5)
-
-print(beta_dist:pdf(0.3))
-print(beta_dist:cdf(0.5))
+local y = math.stats.chi2.pdf(5, 5)
+local p = math.stats.chi2.cdf(11.07, 5)       -- ~0.95
+local x = math.stats.chi2.ppf(0.95, 5)        -- ~11.07
+local s = math.stats.chi2.rvs(50, 5)
+local m = math.stats.chi2.mean(5)             -- 5.0
 ```
 
-### Exponential Distribution
+### F Distribution — `math.stats.f`
 
-#### dist.exponential(rate)
-Creates an exponential distribution.
+Signature group: `(x_or_p_or_size, dfn, dfd, loc=0, scale=1)` — both `dfn` and `dfd` are required
 
 ```lua
-local exp_dist = dist.exponential(0.5)  -- rate = 0.5
-
-print(exp_dist:pdf(2))
-print(exp_dist:cdf(5))
+local y = math.stats.f.pdf(1, 5, 10)
+local p = math.stats.f.cdf(3.33, 5, 10)       -- ~0.95
+local x = math.stats.f.ppf(0.95, 5, 10)       -- ~3.33
+local s = math.stats.f.rvs(50, 5, 10)
+local m = math.stats.f.mean(5, 10)            -- 10/8 = 1.25
 ```
 
-## Discrete Distributions
+### Gamma Distribution — `math.stats.gamma_dist`
 
-### Binomial Distribution
+Signature group: `(x_or_p_or_size, a, loc=0, scale=1)` — `a` is the shape parameter
 
-#### dist.binomial(n, p)
-Creates a binomial distribution.
+> Note: The Lua name is `gamma_dist` (not `gamma`) to avoid collision with the gamma special function in `math.stats`.
 
 ```lua
-local binom = dist.binomial(10, 0.5)  -- 10 trials, p=0.5
-
-print(binom:pmf(5))         -- P(X = 5)
-print(binom:cdf(7))         -- P(X <= 7)
-print(binom:sample())       -- Random sample
+local y = math.stats.gamma_dist.pdf(2, 2)     -- shape=2
+local p = math.stats.gamma_dist.cdf(4, 2)
+local x = math.stats.gamma_dist.ppf(0.5, 2)
+local s = math.stats.gamma_dist.rvs(100, 2, 0, 2)  -- scale=2
+local m = math.stats.gamma_dist.mean(2, 0, 1) -- a * scale = 2.0
 ```
 
-### Poisson Distribution
+### Beta Distribution — `math.stats.beta_dist`
 
-#### dist.poisson(lambda)
-Creates a Poisson distribution.
+Signature group: `(x_or_p_or_size, a, b, loc=0, scale=1)` — both `a` and `b` are required
+
+> Note: The Lua name is `beta_dist` (not `beta`) to avoid collision with the beta special function in `math.stats`.
 
 ```lua
-local poisson = dist.poisson(3)  -- lambda = 3
-
-print(poisson:pmf(3))       -- P(X = 3)
-print(poisson:cdf(5))       -- P(X <= 5)
+local y = math.stats.beta_dist.pdf(0.3, 2, 5)
+local p = math.stats.beta_dist.cdf(0.5, 2, 5)
+local x = math.stats.beta_dist.ppf(0.5, 2, 5)
+local s = math.stats.beta_dist.rvs(100, 2, 5)
+local m = math.stats.beta_dist.mean(2, 5)     -- a/(a+b) = 2/7 ~0.286
 ```
 
-## Distribution Methods
+## Method Reference
 
-All distributions support these methods:
+The table below summarises every method available on each distribution object.
 
-### PDF/PMF
-- Continuous: `dist:pdf(x)` - Probability density at x
-- Discrete: `dist:pmf(x)` - Probability mass at x
+| Method | Arguments | Returns |
+|--------|-----------|---------|
+| `pdf` | `x [, shape_params...] [, loc, scale]` | density at x |
+| `cdf` | `x [, shape_params...] [, loc, scale]` | cumulative probability P(X ≤ x) |
+| `ppf` | `p [, shape_params...] [, loc, scale]` | quantile: x such that P(X ≤ x) = p |
+| `rvs` | `size [, shape_params...] [, loc, scale]` | single number (size=1) or array |
+| `mean` | `[shape_params...] [, loc, scale]` | distribution mean |
+| `var` | `[shape_params...] [, loc, scale]` | distribution variance |
+| `std` | `[shape_params...] [, loc, scale]` | distribution standard deviation |
 
-### CDF
-- `dist:cdf(x)` - Cumulative probability P(X ≤ x)
+Shape parameters by distribution:
 
-### Quantile
-- `dist:quantile(p)` - Inverse CDF, returns x where P(X ≤ x) = p
+| Distribution | Shape params | Default loc | Default scale |
+|---|---|---|---|
+| `norm` | — | 0 | 1 |
+| `uniform` | — | 0 | 1 |
+| `expon` | — | 0 | 1 |
+| `t` | `df` (required) | 0 | 1 |
+| `chi2` | `df` (required) | 0 | 1 |
+| `f` | `dfn`, `dfd` (both required) | 0 | 1 |
+| `gamma_dist` | `a` (shape, required) | 0 | 1 |
+| `beta_dist` | `a`, `b` (both required) | 0 | 1 |
 
-### Sampling
-- `dist:sample()` - Single random sample
-- `dist:sample(n)` - Array of n samples
+## Statistical Tests
 
-## Statistical Testing Example
+### `math.stats.ttest_1samp(sample, popmean)`
+
+One-sample t-test. Tests whether the sample mean differs from `popmean`.
+
+**Returns:** `statistic, pvalue`
+
+```lua
+local data = {23, 25, 27, 24, 26, 28, 22, 29, 25, 24}
+local t, p = math.stats.ttest_1samp(data, 20)
+print(string.format("t=%.4f  p=%.4f", t, p))
+```
+
+### `math.stats.ttest_ind(sample1, sample2, equal_var?)`
+
+Independent two-sample t-test. `equal_var` defaults to `true` (pooled variance).
+
+**Returns:** `statistic, pvalue`
+
+```lua
+local a = {10, 12, 11, 13, 12}
+local b = {14, 15, 13, 16, 14}
+local t, p = math.stats.ttest_ind(a, b)
+local t2, p2 = math.stats.ttest_ind(a, b, false)  -- Welch's t-test
+```
+
+### `math.stats.pearsonr(x, y)`
+
+Pearson correlation coefficient.
+
+**Returns:** `correlation, pvalue`
+
+```lua
+local x = {1, 2, 3, 4, 5}
+local y = {2, 4, 5, 4, 5}
+local r, p = math.stats.pearsonr(x, y)
+```
+
+### `math.stats.spearmanr(x, y)`
+
+Spearman rank correlation coefficient.
+
+**Returns:** `correlation, pvalue`
+
+```lua
+local r, p = math.stats.spearmanr(x, y)
+```
+
+### `math.stats.describe(data)`
+
+Descriptive statistics for a data array.
+
+**Returns:** table with fields `nobs`, `min`, `max`, `mean`, `variance`, `skewness`, `kurtosis`
+
+```lua
+local stats = math.stats.describe({1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+print(stats.mean)      -- 5.5
+print(stats.variance)  -- 9.1667
+print(stats.skewness)  -- ~0.0
+```
+
+### `math.stats.zscore(data, ddof?)`
+
+Standardise each observation. `ddof` controls degrees of freedom (default `0`).
+
+**Returns:** array of z-scores
+
+```lua
+local z = math.stats.zscore({10, 20, 30, 40, 50})
+-- z[3] == 0.0  (median of symmetric data)
+```
+
+### `math.stats.skew(data)`
+
+Sample skewness.
+
+**Returns:** number
+
+```lua
+local s = math.stats.skew({1, 1, 1, 2, 3, 10})  -- right-skewed > 0
+```
+
+### `math.stats.kurtosis(data, fisher?)`
+
+Sample kurtosis. `fisher=true` (default) returns excess kurtosis (normal = 0); `fisher=false` returns Pearson kurtosis (normal = 3).
+
+**Returns:** number
+
+```lua
+local k = math.stats.kurtosis({1, 2, 2, 3, 3, 3, 4, 4, 5})
+```
+
+### `math.stats.mode(data)`
+
+Most frequent value in a data array.
+
+**Returns:** table with fields `mode` (value) and `count` (frequency)
+
+```lua
+local result = math.stats.mode({1, 2, 2, 3, 2, 4})
+print(result.mode)   -- 2
+print(result.count)  -- 3
+```
+
+## Practical Examples
+
+### Hypothesis Test
 
 ```lua
 luaswift.extend_stdlib()
-local dist = math.distributions
-local stats = math.stats
 
--- Sample data
 local data = {23, 25, 27, 24, 26, 28, 22, 29, 25, 24}
 
--- Test if mean is significantly different from 20
-local n = #data
-local mean = stats.mean(data)
-local std = stats.std(data)
-local se = std / math.sqrt(n)
+-- One-sample t-test against population mean of 20
+local t, p = math.stats.ttest_1samp(data, 20)
+print(string.format("t=%.4f  p=%.6f", t, p))
 
--- Calculate t-statistic
-local t_stat = (mean - 20) / se
-
--- Get p-value (two-tailed)
-local t_dist = dist.t(n - 1)
-local p_value = 2 * (1 - t_dist:cdf(math.abs(t_stat)))
-
-print("t-statistic:", t_stat)
-print("p-value:", p_value)
+if p < 0.05 then
+    print("Reject null hypothesis (p < 0.05)")
+end
 ```
 
-## Confidence Intervals
+### Confidence Interval
 
 ```lua
-local dist = math.distributions
-local stats = math.stats
+luaswift.extend_stdlib()
 
-local data = {/* your data */}
-local n = #data
-local mean = stats.mean(data)
-local std = stats.std(data)
-local se = std / math.sqrt(n)
+local data   = {23, 25, 27, 24, 26, 28, 22, 29, 25, 24}
+local n      = #data
+local stats  = math.stats.describe(data)
+local se     = math.sqrt(stats.variance / n)
 
--- 95% confidence interval
-local t_dist = dist.t(n - 1)
-local t_crit = t_dist:quantile(0.975)
+-- 95% CI using t critical value
+local t_crit = math.stats.t.ppf(0.975, n - 1)
 local margin = t_crit * se
-
-print("95% CI: [" .. (mean - margin) .. ", " .. (mean + margin) .. "]")
+print(string.format("95%% CI: [%.2f, %.2f]", stats.mean - margin, stats.mean + margin))
 ```
 
-## Monte Carlo Simulation
+### Monte Carlo Simulation
 
 ```lua
-local dist = math.distributions
+luaswift.extend_stdlib()
 
--- Simulate portfolio returns
-local stock1 = dist.normal(0.08, 0.2)  -- 8% mean, 20% volatility
-local stock2 = dist.normal(0.06, 0.15)
-
-local simulations = 10000
+-- Simulate portfolio returns: 60% stock A (N(8%,20%)), 40% stock B (N(6%,15%))
 local results = {}
-
-for i = 1, simulations do
-    local r1 = stock1:sample()
-    local r2 = stock2:sample()
-    local portfolio_return = 0.6 * r1 + 0.4 * r2
-    results[i] = portfolio_return
+for i = 1, 10000 do
+    local r1 = math.stats.norm.rvs(1, 0.08, 0.20)
+    local r2 = math.stats.norm.rvs(1, 0.06, 0.15)
+    results[i] = 0.6 * r1 + 0.4 * r2
 end
 
--- Analyze results
-local stats = math.stats
-print("Expected return:", stats.mean(results))
-print("Volatility:", stats.std(results))
-print("5th percentile (VaR):", stats.percentile(results, 5))
+local s = math.stats.describe(results)
+print(string.format("Expected return: %.4f", s.mean))
+print(string.format("Volatility:      %.4f", math.sqrt(s.variance)))
+```
+
+### Distribution Fitting Check
+
+```lua
+luaswift.extend_stdlib()
+
+-- Generate data and check normality via skew/kurtosis
+local samples = math.stats.norm.rvs(1000, 0, 1)
+local sk = math.stats.skew(samples)
+local ku = math.stats.kurtosis(samples)  -- excess kurtosis, ~0 for normal
+print(string.format("skew=%.3f  excess_kurtosis=%.3f", sk, ku))
 ```
 
 ## See Also
 
 - ``DistributionsModule``
 - ``SpecialModule``
-- <doc:Modules/SpecialModule>
+- <doc:SpecialModule>

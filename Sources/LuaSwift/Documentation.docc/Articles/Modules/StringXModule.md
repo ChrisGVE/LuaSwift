@@ -4,7 +4,7 @@ Extended string utilities beyond Lua's standard string library.
 
 ## Overview
 
-The StringX module provides comprehensive string manipulation functions using Swift's native String handling for proper Unicode support. It offers trimming, splitting, joining, pattern matching, case conversion, padding, character classification, and text processing utilities.
+The StringX module provides comprehensive string manipulation functions using Swift's native String handling for proper Unicode support. It offers trimming, splitting, joining, pattern matching, case conversion, padding, character classification, slicing, and text processing utilities.
 
 ## Installation
 
@@ -212,7 +212,7 @@ stringx.capitalize("")                   -- ""
 ```
 
 #### title(s)
-Title case - capitalizes the first letter of each word.
+Title case — capitalizes the first letter of each word.
 
 ```lua
 stringx.title("hello world")             -- "Hello World"
@@ -255,73 +255,142 @@ stringx.center("title", 11, "=")         -- "===title==="
 
 ### Character Classification
 
-#### isalpha(s)
-Checks if all characters are letters.
+The canonical naming convention uses the `is_<name>` snake_case form. All eight predicates accept a single string argument and return `false` for an empty string unless noted otherwise.
+
+#### is_alpha(s)
+Returns `true` if every character is a Unicode letter.
 
 ```lua
-stringx.isalpha("hello")                 -- true
-stringx.isalpha("Hello")                 -- true
-stringx.isalpha("hello123")              -- false
-stringx.isalpha("")                      -- false (empty string)
-stringx.isalpha("héllo")                 -- true (Unicode letters)
+stringx.is_alpha("hello")                -- true
+stringx.is_alpha("Hello")                -- true
+stringx.is_alpha("hello123")             -- false
+stringx.is_alpha("")                     -- false
+stringx.is_alpha("héllo")                -- true (Unicode letters)
 ```
 
-#### isdigit(s)
-Checks if all characters are digits (0-9).
+#### is_digit(s)
+Returns `true` if every character is a decimal digit (0–9).
 
 ```lua
-stringx.isdigit("123")                   -- true
-stringx.isdigit("123.45")                -- false (contains '.')
-stringx.isdigit("12 34")                 -- false (contains space)
-stringx.isdigit("")                      -- false (empty string)
+stringx.is_digit("123")                  -- true
+stringx.is_digit("123.45")               -- false (contains '.')
+stringx.is_digit("12 34")                -- false (contains space)
+stringx.is_digit("")                     -- false
 ```
 
-#### isalnum(s)
-Checks if all characters are alphanumeric (letters or digits).
+#### is_alnum(s)
+Returns `true` if every character is a letter or a decimal digit.
 
 ```lua
-stringx.isalnum("hello123")              -- true
-stringx.isalnum("abc")                   -- true
-stringx.isalnum("123")                   -- true
-stringx.isalnum("hello world")           -- false (contains space)
-stringx.isalnum("")                      -- false (empty string)
+stringx.is_alnum("hello123")             -- true
+stringx.is_alnum("abc")                  -- true
+stringx.is_alnum("123")                  -- true
+stringx.is_alnum("hello world")          -- false (contains space)
+stringx.is_alnum("")                     -- false
 ```
 
-#### isspace(s)
-Checks if all characters are whitespace.
+#### is_space(s)
+Returns `true` if every character is Unicode whitespace and the string is non-empty.
 
 ```lua
-stringx.isspace("   ")                   -- true
-stringx.isspace("\t\n")                  -- true
-stringx.isspace(" \t \n ")               -- true
-stringx.isspace("hello")                 -- false
-stringx.isspace("")                      -- false (empty string)
+stringx.is_space("   ")                  -- true
+stringx.is_space("\t\n")                 -- true
+stringx.is_space(" \t \n ")              -- true
+stringx.is_space("hello")                -- false
+stringx.is_space("")                     -- false
 ```
 
-#### isempty(s)
-Checks if string is empty.
+#### is_upper(s)
+Returns `true` if the string contains at least one letter and every letter is uppercase. Non-letter characters are ignored.
 
 ```lua
-stringx.isempty("")                      -- true
-stringx.isempty("hello")                 -- false
-stringx.isempty(" ")                     -- false (whitespace is not empty)
+stringx.is_upper("HELLO")               -- true
+stringx.is_upper("HELLO 123")           -- true (digits ignored)
+stringx.is_upper("Hello")               -- false
+stringx.is_upper("")                    -- false
+stringx.is_upper("123")                 -- false (no letters present)
 ```
 
-#### isblank(s)
-Checks if string is empty or contains only whitespace.
+#### is_lower(s)
+Returns `true` if the string contains at least one letter and every letter is lowercase. Non-letter characters are ignored.
 
 ```lua
-stringx.isblank("")                      -- true
-stringx.isblank("   ")                   -- true
-stringx.isblank("\t\n")                  -- true
-stringx.isblank("hello")                 -- false
-stringx.isblank("  hello  ")             -- false
+stringx.is_lower("hello")               -- true
+stringx.is_lower("hello 123")           -- true (digits ignored)
+stringx.is_lower("Hello")               -- false
+stringx.is_lower("")                    -- false
+stringx.is_lower("123")                 -- false (no letters present)
+```
+
+#### is_empty(s)
+Returns `true` if the string has zero characters.
+
+```lua
+stringx.is_empty("")                     -- true
+stringx.is_empty("hello")               -- false
+stringx.is_empty(" ")                    -- false (whitespace is not empty)
+```
+
+#### is_blank(s)
+Returns `true` if the string is empty or contains only whitespace.
+
+```lua
+stringx.is_blank("")                     -- true
+stringx.is_blank("   ")                  -- true
+stringx.is_blank("\t\n")                 -- true
+stringx.is_blank("hello")               -- false
+stringx.is_blank("  hello  ")           -- false
+```
+
+#### Deprecated aliases
+
+The following names without underscores are backward-compatible aliases and map to the canonical functions above. They will be removed in a future version.
+
+| Deprecated | Canonical |
+|---|---|
+| `isalpha` | `is_alpha` |
+| `isdigit` | `is_digit` |
+| `isalnum` | `is_alnum` |
+| `isspace` | `is_space` |
+| `isupper` | `is_upper` |
+| `islower` | `is_lower` |
+| `isempty` | `is_empty` |
+| `isblank` | `is_blank` |
+
+### Slicing
+
+#### slice(s, start?, stop?, step?)
+Extracts a substring using Lua 1-based indices and an optional step. Negative indices count from the end of the string (`-1` is the last character). `stop` is inclusive. `step` defaults to `1`; a negative step traverses the string in reverse. A step of `0` raises an error.
+
+```lua
+local s = "hello"
+
+-- Basic forward slices (1-based)
+stringx.slice(s, 2, 4)          -- "ell"  (characters 2, 3, 4)
+stringx.slice(s, 1, 3)          -- "hel"
+stringx.slice(s, 3)             -- "llo"  (from position 3 to end)
+
+-- Negative indices count from end
+stringx.slice(s, -3)            -- "llo"  (last 3 characters)
+stringx.slice(s, 1, -2)         -- "hell" (up to second-to-last, inclusive)
+
+-- Step > 1 skips characters
+stringx.slice(s, 1, 5, 2)       -- "hlo"  (positions 1, 3, 5)
+
+-- Reverse with step = -1
+stringx.slice(s, nil, nil, -1)  -- "olleh"
+
+-- Reverse a slice
+stringx.slice("abcde", 4, 2, -1) -- "dcb"  (positions 4, 3, 2)
+
+-- Out-of-range indices are clamped
+stringx.slice(s, 1, 100)        -- "hello"
 ```
 
 ### Text Processing
 
 #### wrap(s, width)
-Word-wraps text to the specified width.
+Word-wraps text to the specified width. Words longer than `width` are broken at the column boundary.
 
 ```lua
 local text = "The quick brown fox jumps over the lazy dog"
@@ -334,12 +403,12 @@ local wrapped = stringx.wrap("supercalifragilistic", 10)
 ```
 
 #### truncate(s, width, suffix?)
-Truncates string to width with a suffix. Default suffix is "...".
+Truncates string to `width` total characters including the suffix. Default suffix is `"..."`.
 
 ```lua
 stringx.truncate("hello world", 8)           -- "hello..."
 stringx.truncate("hello world", 8, ">>")     -- "hello >>"
-stringx.truncate("hi", 10)                   -- "hi" (no truncation)
+stringx.truncate("hi", 10)                   -- "hi" (no truncation needed)
 stringx.truncate("hello world", 5, "...")    -- "he..."
 ```
 
@@ -348,14 +417,14 @@ stringx.truncate("hello world", 5, "...")    -- "he..."
 ### Input Cleaning
 
 ```lua
+local stringx = require("luaswift.stringx")
+
 local function clean_input(s)
-    -- Remove leading/trailing whitespace
     s = stringx.strip(s)
-    -- Normalize internal whitespace (basic)
     local parts = stringx.split(s, " ")
     local cleaned = {}
     for _, p in ipairs(parts) do
-        if not stringx.isblank(p) then
+        if not stringx.is_blank(p) then
             table.insert(cleaned, p)
         end
     end
@@ -368,6 +437,8 @@ print(clean_input("  hello    world  "))  -- "hello world"
 ### Path Manipulation
 
 ```lua
+local stringx = require("luaswift.stringx")
+
 local function split_path(path)
     return stringx.split(path, "/")
 end
@@ -390,6 +461,8 @@ print(get_extension("document.pdf"))  -- "pdf"
 ### CSV Parsing (Simple)
 
 ```lua
+local stringx = require("luaswift.stringx")
+
 local function parse_csv_line(line)
     return stringx.split(line, ",")
 end
@@ -405,8 +478,10 @@ local fields = parse_csv_line(csv)  -- {"name", "age", "city"}
 ### Text Formatting
 
 ```lua
+local stringx = require("luaswift.stringx")
+
 local function format_column(text, width)
-    if stringx.isempty(text) then
+    if stringx.is_empty(text) then
         return stringx.rpad("", width)
     end
     if #text > width then
@@ -425,19 +500,21 @@ print(format_header("users", 20))  -- "=======Users========"
 ### Validation
 
 ```lua
+local stringx = require("luaswift.stringx")
+
 local function is_valid_identifier(s)
-    if stringx.isempty(s) then
+    if stringx.is_empty(s) then
         return false
     end
-    -- First character must be letter or underscore
+    -- First character must be a letter or underscore
     local first = s:sub(1, 1)
-    if not (stringx.isalpha(first) or first == "_") then
+    if not (stringx.is_alpha(first) or first == "_") then
         return false
     end
-    -- Rest must be alphanumeric or underscore
+    -- Remaining characters must be alphanumeric or underscore
     for i = 2, #s do
         local c = s:sub(i, i)
-        if not (stringx.isalnum(c) or c == "_") then
+        if not (stringx.is_alnum(c) or c == "_") then
             return false
         end
     end
@@ -454,17 +531,19 @@ print(is_valid_identifier("123abc"))     -- false
 All StringX functions handle Unicode strings correctly using Swift's native String type:
 
 ```lua
+local stringx = require("luaswift.stringx")
+
 -- Unicode letters
-stringx.isalpha("héllo")                 -- true
-stringx.capitalize("ñoño")               -- "Ñoño"
-stringx.title("über cool")               -- "Über Cool"
+stringx.is_alpha("héllo")                -- true
+stringx.capitalize("ñoño")              -- "Ñoño"
+stringx.title("über cool")              -- "Über Cool"
 
 -- Unicode-aware operations
-stringx.strip("  日本語  ")              -- "日本語"
+stringx.strip("  日本語  ")             -- "日本語"
 stringx.count("emoji 😀 emoji 😀", "😀") -- 2
 
 -- Proper character counting for padding
-stringx.center("中文", 8)                 -- "   中文   "
+stringx.center("中文", 8)               -- "   中文   "
 ```
 
 ## See Also

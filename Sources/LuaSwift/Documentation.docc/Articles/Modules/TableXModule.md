@@ -47,6 +47,8 @@ local keys = table.keys({x = 1, y = 2})
 local doubled = table.map({1, 2, 3}, function(v) return v * 2 end)
 ```
 
+> Note: `tablex.import()` deliberately does **not** override `table.sort`. Lua's built-in `table.sort` sorts in-place and is already available in every sandbox. The tablex-flavoured `sort` (which returns a new sorted copy) is only available as `tablex.sort`.
+
 ## API Reference
 
 ### Deep Operations
@@ -121,16 +123,21 @@ local deep = tablex.flatten({{{{1}}}}, 2)
 -- {{1}}
 ```
 
-#### slice(t, i, j?)
-Extracts a portion of an array from index `i` to `j` (inclusive). Supports negative indices.
+#### slice(t, i, j?, step?)
+Extracts a portion of an array. `i` and `j` are 1-based, inclusive, and support negative indices (counting from the end). `step` defaults to `1`; a negative step walks backwards. When `step` is negative, the default for `i` is the last element and the default for `j` is the first element. Raises an error if `step` is `0`.
 
 ```lua
 local t = {1, 2, 3, 4, 5}
 
-tablex.slice(t, 2, 4)      -- {2, 3, 4}
-tablex.slice(t, 3)         -- {3, 4, 5} (to end)
-tablex.slice(t, -3)        -- {3, 4, 5} (last 3)
-tablex.slice(t, 1, -2)     -- {1, 2, 3, 4} (up to 2nd from end)
+tablex.slice(t, 2, 4)        -- {2, 3, 4}
+tablex.slice(t, 3)           -- {3, 4, 5} (to end)
+tablex.slice(t, -3)          -- {3, 4, 5} (last 3 elements)
+tablex.slice(t, 1, -2)       -- {1, 2, 3, 4} (up to 2nd from end)
+
+-- step parameter
+tablex.slice(t, 1, 5, 2)     -- {1, 3, 5} (every other element)
+tablex.slice(t, nil, nil, -1) -- {5, 4, 3, 2, 1} (reverse)
+tablex.slice(t, 5, 1, -2)    -- {5, 3, 1} (backwards, every other)
 ```
 
 #### reverse(t)
@@ -399,6 +406,113 @@ local c = {x = 1, data = {a = 1, b = 99}}
 
 tablex.deepequals(a, b)    -- true
 tablex.deepequals(a, c)    -- false
+```
+
+### Comprehensions
+
+These functions mirror Python list/dict/set comprehensions as explicit function calls.
+
+#### collect(t, transform, filter?)
+Iterates the array part of `t` (using `ipairs`), optionally keeps only elements where `filter(value, index)` is truthy, then transforms each passing element with `transform(value, index)`. Returns a new array. The filter receives the **original** value, before transformation.
+
+```lua
+local nums = {1, 2, 3, 4, 5, 6}
+
+-- Square the even numbers
+local result = tablex.collect(
+    nums,
+    function(v) return v * v end,       -- transform
+    function(v) return v % 2 == 0 end   -- filter
+)
+-- {4, 16, 36}
+
+-- No filter: transform every element
+local doubled = tablex.collect(nums, function(v) return v * 2 end)
+-- {2, 4, 6, 8, 10, 12}
+```
+
+#### dict_from(t, key_fn, value_fn, filter?)
+Builds a `{key = value}` table from the array part of `t`. `key_fn(value, index)` produces the key, `value_fn(value, index)` produces the value. Optional `filter(value, index)` is applied to the original item before key/value functions run.
+
+```lua
+local words = {"apple", "banana", "cherry"}
+
+-- Build a word-length lookup
+local lengths = tablex.dict_from(
+    words,
+    function(w) return w end,          -- key_fn: word itself
+    function(w) return #w end          -- value_fn: its length
+)
+-- {apple = 5, banana = 6, cherry = 6}
+
+-- Only words longer than 5 characters
+local long_lengths = tablex.dict_from(
+    words,
+    function(w) return w end,
+    function(w) return #w end,
+    function(w) return #w > 5 end      -- filter
+)
+-- {banana = 6, cherry = 6}
+```
+
+#### set_from(t, transform, filter?)
+Returns a `{value = true}` table of unique transformed values. Useful for fast membership testing. `filter(value, index)` is applied before `transform(value, index)`.
+
+```lua
+local items = {"apple", "banana", "APPLE", "cherry"}
+
+-- Unique lowercase names
+local name_set = tablex.set_from(
+    items,
+    function(v) return v:lower() end
+)
+-- {apple = true, banana = true, cherry = true}
+
+-- Membership test
+print(name_set["apple"])   -- true
+print(name_set["grape"])   -- nil
+```
+
+### Fluent Chaining
+
+#### chain(t)
+Wraps the array part of `t` in a chainable object. Operations are applied eagerly in sequence. The chain is terminated by a collector method that returns a plain table.
+
+Chain methods:
+
+| Method | Description |
+|---|---|
+| `:map(fn)` | Transform each element with `fn(value, index)`; returns chain |
+| `:filter(fn)` | Keep elements where `fn(value, index)` is truthy; returns chain |
+| `:collect()` | Terminate: return new array |
+| `:dict(key_fn, val_fn)` | Terminate: return `{key=value}` table |
+| `:set()` | Terminate: return `{value=true}` table |
+
+```lua
+local nums = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+-- Filter evens, double them, collect as array
+local result = tablex.chain(nums)
+    :filter(function(v) return v % 2 == 0 end)
+    :map(function(v) return v * 2 end)
+    :collect()
+-- {4, 8, 12, 16, 20}
+
+-- Build a lookup from even numbers to their squares
+local lookup = tablex.chain(nums)
+    :filter(function(v) return v % 2 == 0 end)
+    :dict(
+        function(v) return v end,        -- key
+        function(v) return v * v end     -- value
+    )
+-- {[2]=4, [4]=16, [6]=36, [8]=64, [10]=100}
+
+-- Unique set of first characters
+local words = {"apple", "banana", "avocado", "cherry"}
+local initials = tablex.chain(words)
+    :map(function(w) return w:sub(1, 1) end)
+    :set()
+-- {a = true, b = true, c = true}
 ```
 
 ## Common Patterns

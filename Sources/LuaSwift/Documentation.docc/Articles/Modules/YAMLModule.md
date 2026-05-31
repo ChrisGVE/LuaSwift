@@ -4,12 +4,18 @@ Parse and generate YAML data with support for multi-document files.
 
 ## Overview
 
-The YAML module provides YAML encoding and decoding using the Yams library. It supports single and multi-document YAML files, making it ideal for configuration files, data serialization, and document processing.
+The YAML module provides YAML encoding and decoding using the [Yams](https://github.com/jpsim/Yams) library. It supports single and multi-document YAML files, making it ideal for configuration files, data serialization, and document processing.
+
+> **Availability:** Yams is included by default. To exclude it from your build (for example, to reduce binary size when YAML support is not needed), set the environment variable `LUASWIFT_INCLUDE_YAMS=0` before building:
+> ```bash
+> LUASWIFT_INCLUDE_YAMS=0 swift build
+> ```
+> When excluded, `require("luaswift.yaml")` and all functions documented here are unavailable.
 
 ## Installation
 
 ```swift
-// Install all modules
+// Install all modules (YAML included by default)
 ModuleRegistry.installModules(in: engine)
 
 // Or install just the YAML module

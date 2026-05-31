@@ -72,7 +72,7 @@ Parses a JSON string into a Lua value.
   - `format` (string) - Format: "json" (default), "jsonc", or "json5"
   - `comments` (boolean) - If true, use JSONC format
 
-**Returns:** Lua value (table, array, string, number, boolean, or nil)
+**Returns:** Lua value (table, array, string, number, or boolean). JSON `null` returns a truthy marker table; use `json.is_null()` to test for it.
 
 **Examples:**
 
@@ -138,7 +138,7 @@ Parses a JSON5 string. JSON5 extends JSON with more relaxed syntax.
 - Single-quoted strings
 - Hexadecimal numbers (`0xFF`)
 - Leading decimal points (`.5` becomes `0.5`)
-- Infinity and NaN (converted to `nil`)
+- Infinity and NaN (converted to the JSON null marker — test with `json.is_null()`)
 
 **Example:**
 
@@ -160,21 +160,39 @@ local data = json.decode_json5([[
 
 ### null
 
-A sentinel value representing JSON null. Use this to distinguish between absent values and explicit nulls.
+A sentinel table representing JSON null. Assigning `json.null` to a field and encoding the table emits `null` in the output. Decoding a JSON `null` produces a marker table — **not** Lua `nil` — so the key is preserved in the parent table and the value is truthy.
+
+Because the sentinel and each decoded null are distinct table instances, do not test with `== json.null`. Use `json.is_null(v)` instead.
+
+### is_null(v)
+
+Returns `true` if `v` is the `json.null` sentinel or any value produced by decoding a JSON `null`. Returns `false` for every other value, including plain Lua `nil` and ordinary tables that happen to contain the internal marker key.
+
+The function checks that `v` is a table whose **only** field is the internal `__luaswift_json_null` marker. An ordinary object that merely contains that key is not considered null and encodes as a normal JSON object.
 
 **Example:**
 
 ```lua
-local data = json.decode('{"value": null}')
-if data.value == nil then
-    print("Value is null or missing")
-end
+local json = require("luaswift.json")
 
--- Encode with explicit null
-local str = json.encode({
-    name = "Test",
-    optional = json.null
-})
+-- Decoding a JSON null produces a truthy marker table, not nil
+local data = json.decode('{"value": null, "name": "Alice"}')
+print(data.name)               -- "Alice"
+print(data.value == nil)       -- false  (key is present; value is the marker)
+print(json.is_null(data.value)) -- true
+
+-- json.null round-trips: encoding it emits JSON null
+local str = json.encode({name = "Test", optional = json.null})
+print(str)  -- {"name":"Test","optional":null}
+
+-- Decoded null also round-trips back to JSON null
+local roundtrip = json.encode(data)
+print(roundtrip)  -- {"name":"Alice","value":null}
+
+-- Safe null check — works for both the sentinel and decoded nulls
+if json.is_null(data.value) then
+    print("value was null in the original JSON")
+end
 ```
 
 ## Type Mapping
@@ -186,7 +204,7 @@ local str = json.encode({
 | string | string |
 | number | number |
 | boolean | boolean |
-| null | nil |
+| null | marker table (truthy) — test with `json.is_null()` |
 
 ## Working with Arrays
 

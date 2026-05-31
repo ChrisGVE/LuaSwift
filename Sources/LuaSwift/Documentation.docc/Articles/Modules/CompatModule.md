@@ -44,7 +44,7 @@ The current Lua version as a string (e.g., "5.4").
 
 #### lua51, lua52, lua53, lua54, lua55
 
-Boolean flags indicating the current Lua version.
+Boolean flags indicating the current Lua version. Exactly one of these is `true` at runtime.
 
 ```lua
 if compat.lua51 then
@@ -56,7 +56,7 @@ end
 
 #### luajit
 
-Boolean indicating if running on LuaJIT.
+Boolean indicating whether the runtime is LuaJIT (`type(jit) == "table"`). `luajit` and one of the `lua5x` flags may both be true simultaneously, because LuaJIT reports itself as a specific Lua version via `_VERSION`.
 
 ```lua
 if compat.luajit then
@@ -72,8 +72,8 @@ Table containing feature availability flags:
 
 | Feature | Description | Available |
 |---------|-------------|-----------|
-| `table_unpack` | `table.unpack` function | 5.2+ |
-| `table_pack` | `table.pack` function | 5.2+ |
+| `table_unpack` | `table.unpack` function | 5.2+ or LuaJIT |
+| `table_pack` | `table.pack` function | 5.2+ or LuaJIT |
 | `utf8_library` | `utf8` standard library | 5.3+ |
 | `math_type` | `math.type` function | 5.3+ |
 | `integer_division` | `//` operator | 5.3+ |
@@ -157,7 +157,15 @@ print(fn())  -- 42
 
 #### setfenv / getfenv
 
-Throws an error in Lua 5.2+ (these functions were removed).
+On Lua 5.1 these are the real `setfenv` and `getfenv` functions, which work normally. On Lua 5.2 and later, both functions throw an error because the underlying mechanism (per-function environments) was removed.
+
+```lua
+-- Lua 5.1: works as expected
+-- Lua 5.2+: raises "setfenv is not supported in Lua 5.2+"
+compat.setfenv(1, {})
+```
+
+Use `compat.features` checks or `compat.lua51` to guard code that needs `setfenv`/`getfenv`.
 
 ### Version Utilities
 
@@ -228,7 +236,18 @@ Check Lua code for deprecated features.
 **Parameters:**
 - `code` - String containing Lua source code
 
-**Returns:** Array of warning messages
+**Returns:** Array of warning strings (empty if none found)
+
+The function scans for the following patterns:
+
+| Pattern | Condition | Warning |
+|---------|-----------|---------|
+| `setfenv` | not Lua 5.1 | "setfenv is not supported in Lua 5.2+" |
+| `getfenv` | not Lua 5.1 | "getfenv is not supported in Lua 5.2+" |
+| `module(` | always | "module() is deprecated since Lua 5.2" |
+| `bit32.` | Lua 5.3+ | "bit32 is deprecated since Lua 5.3 and removed in 5.4, use native bitwise operators" |
+
+`bit32` was deprecated in Lua 5.3 (where native bitwise operators were introduced) and removed entirely in Lua 5.4. The warning fires on 5.3 and later.
 
 **Example:**
 
@@ -236,6 +255,7 @@ Check Lua code for deprecated features.
 local code = [[
     setfenv(1, {})
     module("mymod", package.seeall)
+    local x = bit32.band(a, b)
 ]]
 
 local warnings = compat.check_deprecated(code)
@@ -244,6 +264,7 @@ for _, warning in ipairs(warnings) do
 end
 -- Warning: setfenv is not supported in Lua 5.2+
 -- Warning: module() is deprecated since Lua 5.2
+-- Warning: bit32 is deprecated since Lua 5.3 and removed in 5.4, use native bitwise operators
 ```
 
 ## Common Patterns

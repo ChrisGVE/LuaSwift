@@ -1,14 +1,17 @@
 # Integrate Module
 
-Numerical integration and ODE solvers.
+Numerical integration (quadrature) and ODE solvers.
 
 ## Overview
 
-The Integrate module provides numerical integration (quadrature) and ordinary differential equation (ODE) solvers. Available under `math.integrate` after calling `luaswift.extend_stdlib()`.
+> Important: This module requires the **NumericSwift** optional dependency. It is **disabled by default**. To enable it, set `LUASWIFT_INCLUDE_NUMERICSWIFT=1` in your build environment.
+
+The Integrate module provides adaptive quadrature, multi-dimensional integration, fixed-order quadrature, array-based rules, and ODE solvers. It follows scipy's API conventions. All functions are available under `math.integrate` after calling `luaswift.extend_stdlib()`.
 
 ## Installation
 
 ```swift
+// Requires LUASWIFT_INCLUDE_NUMERICSWIFT=1 at build time
 ModuleRegistry.installMathModule(in: engine)
 ```
 
@@ -17,227 +20,438 @@ luaswift.extend_stdlib()
 local integrate = math.integrate
 ```
 
-## Definite Integrals
+## Adaptive Quadrature
 
 ### integrate.quad(f, a, b, options?)
-Compute definite integral of f from a to b.
+
+Computes the definite integral of `f` from `a` to `b` using adaptive Gauss-Kronrod quadrature. Supports both real-valued and complex-valued integrands.
+
+**Parameters:**
+- `f` — function `f(x)` returning a number or a complex table `{re=..., im=...}`
+- `a`, `b` — integration limits (use `math.huge` / `-math.huge` for infinite limits)
+- `options` (optional) — table:
+  - `epsabs` — absolute error tolerance (default: `1.49e-8`)
+  - `epsrel` — relative error tolerance (default: `1.49e-8`)
+  - `limit` — maximum number of adaptive subdivisions (default: `50`)
+
+**Returns:** `value, error` — integral value and error estimate
 
 ```lua
--- Integrate sin(x) from 0 to π
+-- Integrate sin(x) from 0 to π  → 2.0
 local function f(x)
     return math.sin(x)
 end
+local result, err = integrate.quad(f, 0, math.pi)
+print(result)  -- ~2.0
 
-local result, error = integrate.quad(f, 0, math.pi)
-print("Result:", result)     -- ~2.0
-print("Error estimate:", error)
-```
-
-### Options
-
-```lua
-local result, error = integrate.quad(f, a, b, {
-    epsabs = 1e-8,   -- Absolute error tolerance
-    epsrel = 1e-6,   -- Relative error tolerance
-    limit = 50       -- Max subdivisions
+-- With options
+local result, err = integrate.quad(f, 0, math.pi, {
+    epsabs = 1e-12,
+    epsrel = 1e-12,
+    limit  = 100
 })
 ```
 
-## Examples
-
-### Area Under Curve
+#### Infinite Limits
 
 ```lua
--- Area under Gaussian curve
-local function gaussian(x)
-    return math.exp(-x^2 / 2) / math.sqrt(2 * math.pi)
-end
-
--- Integrate from -3 to 3 (approximately 99.7% of distribution)
-local area = integrate.quad(gaussian, -3, 3)
-print("Area:", area)  -- ~0.997
+-- ∫₀^∞ e^−x dx = 1
+local result, err = integrate.quad(function(x) return math.exp(-x) end, 0, math.huge)
+print(result)  -- ~1.0
 ```
 
-### Work Done by Variable Force
+#### Complex-Valued Integrand
+
+When the integrand returns a table `{re=..., im=...}`, `quad` integrates the real and imaginary parts separately and returns a complex result table as the first return value.
 
 ```lua
--- Force F(x) = 3x^2 from x=0 to x=5
-local function force(x)
-    return 3 * x^2
-end
-
-local work = integrate.quad(force, 0, 5)
-print("Work:", work)  -- 125 Joules
-```
-
-### Volume of Revolution
-
-```lua
--- Volume when y = x^2 is rotated around x-axis from 0 to 1
+local complex = require("math.complex")
 local function f(x)
-    return math.pi * (x^2)^2
+    -- e^(ix) = cos(x) + i·sin(x)
+    return {re = math.cos(x), im = math.sin(x)}
 end
-
-local volume = integrate.quad(f, 0, 1)
-print("Volume:", volume)  -- π/5
+local result, err = integrate.quad(f, 0, math.pi)
+-- result is {re=..., im=...}
 ```
 
-## Infinite Integrals
+## Double and Triple Integration
+
+### integrate.dblquad(f, xa, xb, ya, yb, options?)
+
+Computes the double integral ∬ f(y, x) dy dx, with x from `xa` to `xb` and y from `ya(x)` to `yb(x)`.
+
+> Note: The integrand receives arguments in the order **`f(y, x)`** — inner variable first, matching scipy's convention.
+
+**Parameters:**
+- `f` — function `f(y, x)` returning a number
+- `xa`, `xb` — outer (x) integration limits
+- `ya`, `yb` — inner (y) limits: numbers or functions of `x`
+- `options` (optional) — table with `epsabs`, `epsrel`
+
+**Returns:** `value, error`
 
 ```lua
--- Integrate from 0 to infinity
-local function f(x)
-    return math.exp(-x)
-end
+-- ∫₀¹ ∫₀¹ x·y dy dx = 0.25
+local result, err = integrate.dblquad(
+    function(y, x) return x * y end,
+    0, 1,   -- x limits
+    0, 1    -- y limits
+)
+print(result)  -- ~0.25
 
-local result = integrate.quad(f, 0, math.huge)
-print("Result:", result)  -- ~1.0
+-- Variable y limits: 0 ≤ y ≤ x
+local result, err = integrate.dblquad(
+    function(y, x) return x + y end,
+    0, 1,                          -- x limits
+    function(x) return 0 end,     -- ya(x) = 0
+    function(x) return x end      -- yb(x) = x
+)
+```
+
+### integrate.tplquad(f, xa, xb, ya, yb, za, zb, options?)
+
+Computes the triple integral ∭ f(z, y, x) dz dy dx.
+
+> Note: The integrand receives arguments in the order **`f(z, y, x)`** — innermost variable first.
+
+**Parameters:**
+- `f` — function `f(z, y, x)` returning a number
+- `xa`, `xb` — outermost (x) limits
+- `ya`, `yb` — middle (y) limits: numbers or functions of `x`
+- `za`, `zb` — innermost (z) limits: numbers or functions of `x, y`
+- `options` (optional) — table with `epsabs`, `epsrel`
+
+**Returns:** `value, error`
+
+```lua
+-- ∫₀¹ ∫₀¹ ∫₀¹ x·y·z dz dy dx = 0.125
+local result, err = integrate.tplquad(
+    function(z, y, x) return x * y * z end,
+    0, 1,   -- x limits
+    0, 1,   -- y limits
+    0, 1    -- z limits
+)
+print(result)  -- ~0.125
+```
+
+## Fixed-Order and Romberg
+
+### integrate.fixed_quad(f, a, b, n?)
+
+Computes the integral using a fixed-order Gaussian quadrature rule. Faster than `quad` for smooth integrands when precision requirements are modest.
+
+**Parameters:**
+- `f` — function `f(x)`
+- `a`, `b` — limits
+- `n` — number of quadrature points (default: `5`)
+
+**Returns:** single number (no error estimate)
+
+```lua
+-- ∫₀¹ x² dx = 0.333...
+local result = integrate.fixed_quad(function(x) return x^2 end, 0, 1, 5)
+print(result)  -- ~0.333
+
+-- Higher order for better accuracy
+local result = integrate.fixed_quad(function(x) return math.sin(x) end, 0, math.pi, 10)
+```
+
+### integrate.romberg(f, a, b, options?)
+
+Computes the integral using Romberg's method (Richardson extrapolation on the trapezoidal rule).
+
+**Parameters:**
+- `f` — function `f(x)`
+- `a`, `b` — limits
+- `options` (optional):
+  - `tol` — convergence tolerance (default: `1e-8`)
+  - `divmax` — maximum number of refinement levels (default: `10`)
+
+**Returns:** `value, error`
+
+```lua
+local result, err = integrate.romberg(
+    function(x) return math.exp(x) end,
+    0, 1,
+    {tol = 1e-10}
+)
+print(result)  -- ~1.718 (e - 1)
+```
+
+## Array-Based Rules
+
+These functions operate on pre-sampled data arrays rather than on a function.
+
+### integrate.trapz(y, x?, dx?)
+
+Integrates sampled data using the composite trapezoidal rule.
+
+**Parameters:**
+- `y` — array of function values (at least 2 elements)
+- `x` — array of sample points (optional; if omitted, uniform spacing assumed)
+- `dx` — uniform spacing (default: `1`; ignored when `x` is provided)
+
+**Returns:** single number
+
+```lua
+-- Uniform spacing
+local y  = {1, 2, 3, 4, 5}
+local result = integrate.trapz(y)          -- dx=1 → 8.0
+local result = integrate.trapz(y, nil, 0.5) -- dx=0.5 → 4.0
+
+-- Non-uniform spacing
+local x = {0, 0.5, 1.0, 2.0, 4.0}
+local y = {0, 0.25, 1, 4, 16}   -- x² sampled
+local result = integrate.trapz(y, x)        -- ≈ 21.0
+```
+
+### integrate.simps(y, x?, dx?)
+
+Integrates sampled data using Simpson's rule. Requires an odd number of evenly spaced points for exact results; falls back gracefully for even-count arrays.
+
+**Parameters:**
+- `y` — array of function values (at least 3 elements)
+- `x` — array of sample points (optional)
+- `dx` — uniform spacing (default: `1`)
+
+**Returns:** single number
+
+```lua
+-- Five evenly spaced points for x² over [0, 1]
+local y = {0, 0.0625, 0.25, 0.5625, 1}  -- (0, 0.25, 0.5, 0.75, 1)²
+local result = integrate.simps(y, nil, 0.25)
+print(result)  -- ~0.333
 ```
 
 ## ODE Solvers
 
-### integrate.odeint(f, y0, t, options?)
-Solve ordinary differential equations.
+### integrate.odeint(func, y0, t, options?)
+
+Integrates a system of ODEs using an adaptive Runge-Kutta method, following scipy's `odeint` interface.
+
+> Important: The state function is called as **`func(y, t, ...)`** — state vector first, time second. This is the scipy `odeint` convention, which is the **reverse** of `solve_ivp`'s convention.
+
+**Parameters:**
+- `func` — function `func(y, t)` or `func(y, t, ...)` returning an array of derivatives
+- `y0` — initial state as an **array** (e.g. `{1.0}` for a scalar ODE)
+- `t` — array of time points to evaluate (at least 2 elements; first element is the initial time)
+- `options` (optional):
+  - `rtol` — relative tolerance (default: `1.49e-8`)
+  - `atol` — absolute tolerance (default: `1.49e-8`)
+  - `args` — extra arguments passed to `func` after `t`
+  - `full_output` — if `true`, return `y, info` instead of just `y` (default: `false`)
+
+**Returns:** array of state vectors, one per time point — `result[i]` is an array containing the state at `t[i]`
 
 ```lua
--- Solve dy/dt = -k*y with y(0) = 1
-local function dydt(t, y)
-    local k = 0.5
-    return -k * y
+-- Exponential decay: dy/dt = -0.5·y, y(0) = 1
+-- Note: y first, t second in the function signature
+local function dydt(y, t)
+    return {-0.5 * y[1]}
 end
 
-local y0 = 1.0
-local t = {0, 1, 2, 3, 4, 5}  -- Time points
+local y0 = {1.0}              -- initial state as array
+local t  = {0, 1, 2, 3, 4, 5}
 
-local solution = integrate.odeint(dydt, y0, t)
-for i, val in ipairs(solution) do
-    print("t=" .. t[i] .. ", y=" .. val)
+local sol = integrate.odeint(dydt, y0, t)
+-- sol[i] is the state array at t[i]
+for i, state in ipairs(sol) do
+    print(string.format("t=%.1f  y=%.4f", t[i], state[1]))
 end
+-- t=0.0  y=1.0000
+-- t=1.0  y=0.6065
+-- ...
 ```
 
-### System of ODEs
+#### System of ODEs
 
 ```lua
--- Solve coupled equations
--- dx/dt = y
--- dy/dt = -x (harmonic oscillator)
-local function derivatives(t, state)
-    local x, y = state[1], state[2]
-    return {y, -x}
+-- Harmonic oscillator: dx/dt = v, dv/dt = -x
+-- State vector: {x, v}
+local function derivatives(y, t)
+    local x, v = y[1], y[2]
+    return {v, -x}
 end
 
-local y0 = {1.0, 0.0}  -- Initial: x=1, y=0
-local t = {}
+local y0 = {1.0, 0.0}   -- x=1, v=0
+local t  = {}
 for i = 0, 100 do
-    t[i+1] = i * 0.1
+    t[i + 1] = i * 0.1
 end
 
-local solution = integrate.odeint(derivatives, y0, t)
--- solution[i] = {x(t[i]), y(t[i])}
+local sol = integrate.odeint(derivatives, y0, t)
+-- sol[i][1] = x(t[i]),  sol[i][2] = v(t[i])
+print(sol[1][1], sol[1][2])  -- 1.0, 0.0  (initial condition)
 ```
 
-## Advanced Integration
-
-### Improper Integrals
+#### Extra Arguments
 
 ```lua
--- Integral with singularity at endpoint
-local function f(x)
-    return 1 / math.sqrt(x)
+-- Parameterised decay: dy/dt = -k·y
+local function dydt(y, t, k)
+    return {-k * y[1]}
 end
 
--- From 0 to 1 (singularity at 0)
-local result = integrate.quad(f, 0, 1)
-print("Result:", result)  -- 2.0
+local sol = integrate.odeint(dydt, {1.0}, t, {args = {0.5}})
 ```
 
-### Oscillatory Integrands
+#### Full Output
 
 ```lua
--- Highly oscillatory function
-local function f(x)
-    return math.sin(100 * x)
+local sol, info = integrate.odeint(dydt, {1.0}, t, {full_output = true})
+print("Function evaluations:", info.nfe)
+```
+
+### integrate.solve_ivp(fun, t_span, y0, options?)
+
+Solves an IVP using an adaptive Runge-Kutta method, following scipy's `solve_ivp` interface.
+
+> Important: The derivative function is called as **`fun(t, y)`** — time first, state vector second. This is the scipy `solve_ivp` convention, which is the **reverse** of `odeint`'s convention.
+
+**Parameters:**
+- `fun` — function `fun(t, y)` returning an array of derivatives
+- `t_span` — two-element array `{t0, tf}`
+- `y0` — initial state array
+- `options` (optional):
+  - `method` — `"RK45"` (default), `"RK23"`, or `"RK4"`
+  - `t_eval` — array of times at which to store the solution (optional)
+  - `max_step` — maximum step size (default: `math.huge`)
+  - `rtol` — relative tolerance (default: `1e-3`)
+  - `atol` — absolute tolerance (default: `1e-6`)
+  - `first_step` — initial step size (optional)
+
+**Returns:** result table with fields:
+- `t` — array of time points where solution was evaluated
+- `y` — array of state vectors, `y[i]` is the state array at `t[i]`
+- `success` — boolean
+- `message` — status string
+- `nfev` — number of function evaluations
+
+```lua
+-- Note: fun(t, y) — time is the FIRST argument
+local function fun(t, y)
+    return {-0.5 * y[1]}   -- dy/dt = -0.5·y
 end
 
-local result = integrate.quad(f, 0, 2*math.pi, {
-    limit = 100  -- More subdivisions for oscillatory functions
+local result = integrate.solve_ivp(fun, {0, 10}, {1.0})
+if result.success then
+    for i, ti in ipairs(result.t) do
+        print(string.format("t=%.2f  y=%.4f", ti, result.y[i][1]))
+    end
+end
+```
+
+#### Dense Output with t_eval
+
+```lua
+local t_eval = {}
+for i = 0, 100 do t_eval[i + 1] = i * 0.1 end
+
+local result = integrate.solve_ivp(fun, {0, 10}, {1.0}, {
+    t_eval = t_eval,
+    rtol   = 1e-6,
+    atol   = 1e-9
 })
 ```
 
+#### ODE Methods
+
+| Method | Description |
+|--------|-------------|
+| `"RK45"` | Explicit Runge-Kutta 4(5) — default, general purpose |
+| `"RK23"` | Explicit Runge-Kutta 2(3) — lower order, faster for loose tolerances |
+| `"RK4"`  | Classic fixed-step Runge-Kutta 4 |
+
+## Argument Order Summary
+
+| Function | Signature | Convention |
+|----------|-----------|------------|
+| `quad` | `f(x)` | Standard |
+| `dblquad` | `f(y, x)` | Inner variable first |
+| `tplquad` | `f(z, y, x)` | Innermost variable first |
+| `odeint` | `func(y, t)` | State first, time second |
+| `solve_ivp` | `fun(t, y)` | Time first, state second |
+
 ## Physical Applications
 
-### Projectile Motion
+### Projectile with Air Resistance
 
 ```lua
--- Solve projectile with air resistance
--- dv/dt = -g - k*v^2
+-- dv/dt = -g - k·v²,  dy/dt = v
+-- State: {y_pos, v}   — solve_ivp convention: fun(t, state)
 local function derivatives(t, state)
-    local y, v = state[1], state[2]  -- position, velocity
-    local g = 9.81
-    local k = 0.01
-    local dy_dt = v
-    local dv_dt = -g - k * v^2
-    return {dy_dt, dv_dt}
+    local y_pos, v = state[1], state[2]
+    local g, k = 9.81, 0.01
+    return {v, -g - k * v^2}
 end
 
-local y0 = {0, 50}  -- Start at ground with 50 m/s upward
-local t = {}
-for i = 0, 100 do
-    t[i+1] = i * 0.1
-end
-
-local solution = integrate.odeint(derivatives, y0, t)
+local result = integrate.solve_ivp(derivatives, {0, 10}, {0, 50})
 ```
 
 ### RC Circuit
 
 ```lua
--- Charging capacitor: dV/dt = (V0 - V) / (R*C)
-local function dVdt(t, V)
-    local V0 = 10  -- Source voltage
-    local RC = 1.0 -- Time constant
-    return (V0 - V) / RC
+-- dV/dt = (V0 - V) / RC   — odeint convention: func(y, t)
+local function dVdt(y, t)
+    local V  = y[1]
+    local V0 = 10.0
+    local RC = 1.0
+    return {(V0 - V) / RC}
 end
 
-local V0 = 0  -- Initially uncharged
 local t = {0, 0.5, 1, 1.5, 2, 2.5, 3}
-
-local voltages = integrate.odeint(dVdt, V0, t)
+local sol = integrate.odeint(dVdt, {0.0}, t)
+-- sol[i][1] = voltage at t[i]
 ```
 
-### Population Dynamics (Lotka-Volterra)
+### Lotka-Volterra (Predator-Prey)
 
 ```lua
--- Predator-prey model
-local function derivatives(t, state)
-    local prey, predator = state[1], state[2]
-    local alpha, beta = 1.0, 0.1   -- Prey growth, predation rate
-    local delta, gamma = 0.1, 1.0  -- Predator efficiency, death rate
-
-    local dprey_dt = alpha * prey - beta * prey * predator
-    local dpred_dt = delta * prey * predator - gamma * predator
-
-    return {dprey_dt, dpred_dt}
+-- dx/dt = α·x - β·x·y   (prey)
+-- dy/dt = δ·x·y - γ·y   (predator)
+-- odeint convention: func(state, t)
+local function derivatives(state, t)
+    local prey, pred = state[1], state[2]
+    local alpha, beta  = 1.0, 0.1
+    local delta, gamma = 0.1, 1.0
+    return {
+        alpha * prey - beta * prey * pred,
+        delta * prey * pred - gamma * pred
+    }
 end
 
-local y0 = {10, 5}  -- Initial populations
 local t = {}
-for i = 0, 200 do
-    t[i+1] = i * 0.1
-end
+for i = 0, 200 do t[i + 1] = i * 0.1 end
 
-local solution = integrate.odeint(derivatives, y0, t)
+local sol = integrate.odeint(derivatives, {10, 5}, t)
+-- sol[i] = {prey_count, predator_count} at t[i]
+```
+
+## Error Handling
+
+All functions throw on invalid input:
+
+```lua
+local ok, err = pcall(function()
+    integrate.quad(nil, 0, 1)   -- error: function expected
+end)
+print(err)  -- "quad: expected function, lower, upper"
+
+local ok, err = pcall(function()
+    integrate.simps({1, 2})     -- error: need at least 3 points
+end)
 ```
 
 ## Performance Notes
 
-- Uses adaptive quadrature based on QUADPACK
-- ODE solver uses Runge-Kutta method (RK4)
-- For stiff equations, use smaller time steps
-- Vectorized operations improve performance for system of ODEs
+- `quad` uses adaptive Gauss-Kronrod from NumericSwift; suitable for smooth to moderately oscillatory integrands.
+- `fixed_quad` is faster for smooth, well-behaved integrands where the order `n` is known to suffice.
+- `romberg` excels when the integrand is smooth and the interval finite.
+- `simps` and `trapz` are best for pre-sampled data; `simps` achieves higher accuracy for the same number of points.
+- For stiff ODEs neither `odeint` nor `solve_ivp` provides an implicit solver; reduce step size via `atol`/`rtol` in that case.
 
 ## See Also
 
 - ``IntegrateModule``
-- <doc:Modules/OptimizeModule>
-- <doc:Modules/InterpolateModule>
+- <doc:OptimizeModule>
+- <doc:InterpolateModule>

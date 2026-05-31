@@ -2,9 +2,11 @@
 
 Hardware-accelerated linear algebra operations for vectors and matrices.
 
+> Important: This module requires the `NumericSwift` optional dependency. It is **opt-in and disabled by default**. Enable it at build time with `LUASWIFT_INCLUDE_NUMERICSWIFT=1 swift build`. Without that flag the module is not compiled and `require("luaswift.linalg")` will fail at runtime.
+
 ## Overview
 
-The LinAlg module provides comprehensive linear algebra functionality using Apple's Accelerate framework for optimal performance. It supports vector and matrix creation, arithmetic operations, matrix decompositions, and linear system solvers.
+The LinAlg module provides comprehensive linear algebra functionality using Apple's Accelerate framework for optimal performance. It supports vector and matrix creation, arithmetic operations, matrix decompositions, linear system solvers, matrix functions, and complex-matrix operations.
 
 ## Installation
 
@@ -14,6 +16,12 @@ ModuleRegistry.installModules(in: engine)
 
 // Or install just the LinAlg module
 ModuleRegistry.installLinAlgModule(in: engine)
+```
+
+Build with NumericSwift enabled:
+
+```bash
+LUASWIFT_INCLUDE_NUMERICSWIFT=1 swift build
 ```
 
 ## Basic Usage
@@ -27,18 +35,18 @@ local u = linalg.ones(4)
 
 -- Vector operations
 local sum = v + u
-local dot = v:dot(u)        -- 10 (scalar)
-print(v:norm())             -- Euclidean norm
+local d   = v:dot(u)     -- scalar dot product
+print(v:norm())           -- Euclidean norm (L2)
 
 -- Create matrices
 local A = linalg.matrix({{1, 2}, {3, 4}})
 local I = linalg.eye(2)
 
 -- Matrix operations
-local B = A + I
-local C = A:dot(A)          -- Matrix multiplication
-print(A:det())              -- Determinant
-local Ainv = A:inv()        -- Inverse
+local B    = A + I
+local C    = A:dot(A)    -- matrix multiplication
+print(A:det())            -- determinant
+local Ainv = A:inv()      -- inverse
 ```
 
 ## API Reference
@@ -46,7 +54,7 @@ local Ainv = A:inv()        -- Inverse
 ### Vector Creation
 
 #### vector(array)
-Creates a vector from a 1D array of numbers.
+Creates a column vector from a 1-D array of numbers.
 
 ```lua
 local v = linalg.vector({1, 2, 3, 4, 5})
@@ -55,7 +63,7 @@ print(v:get(1))    -- 1
 ```
 
 #### zeros(n)
-Creates a vector of zeros with n elements.
+Creates a vector of zeros with `n` elements. When called with two arguments, creates a matrix (see Matrix Creation).
 
 ```lua
 local v = linalg.zeros(5)
@@ -63,7 +71,7 @@ print(v:toarray())    -- {0, 0, 0, 0, 0}
 ```
 
 #### ones(n)
-Creates a vector of ones with n elements.
+Creates a vector of ones with `n` elements. When called with two arguments, creates a matrix.
 
 ```lua
 local v = linalg.ones(3)
@@ -71,7 +79,7 @@ print(v:toarray())    -- {1, 1, 1}
 ```
 
 #### range(start, stop, step?)
-Creates a vector with values from start to stop (exclusive) with optional step.
+Creates a vector with values from `start` up to (but not including) `stop`, with optional `step` (default 1).
 
 ```lua
 local v = linalg.range(0, 10, 2)
@@ -82,7 +90,7 @@ print(w:toarray())    -- {5, 4, 3, 2, 1}
 ```
 
 #### linspace(start, stop, n)
-Creates a vector with n evenly spaced values from start to stop (inclusive).
+Creates a vector with `n` evenly spaced values from `start` to `stop` (inclusive). `n` must be at least 2.
 
 ```lua
 local v = linalg.linspace(0, 1, 5)
@@ -92,7 +100,7 @@ print(v:toarray())    -- {0, 0.25, 0.5, 0.75, 1}
 ### Matrix Creation
 
 #### matrix(array)
-Creates a matrix from a 2D array (array of rows).
+Creates a matrix from a 2-D array (array of row arrays). All rows must have the same length.
 
 ```lua
 local A = linalg.matrix({
@@ -104,7 +112,7 @@ print(A:rows(), A:cols())    -- 3  3
 ```
 
 #### zeros(rows, cols)
-Creates a matrix of zeros with specified dimensions.
+Creates a matrix of zeros with the specified dimensions.
 
 ```lua
 local A = linalg.zeros(3, 4)
@@ -112,7 +120,7 @@ print(A:shape())    -- {3, 4}
 ```
 
 #### ones(rows, cols)
-Creates a matrix of ones with specified dimensions.
+Creates a matrix of ones with the specified dimensions.
 
 ```lua
 local A = linalg.ones(2, 3)
@@ -128,14 +136,16 @@ local I = linalg.eye(3)
 --  [0, 0, 1]]
 ```
 
-#### diag(array)
-Creates a diagonal matrix from an array of values.
+#### diagonal(array) / diag(array)
+Creates a diagonal matrix from a 1-D array of values. `diagonal` is the canonical name; `diag` is a legacy alias.
 
 ```lua
-local D = linalg.diag({1, 2, 3})
+local D = linalg.diagonal({1, 2, 3})
 -- [[1, 0, 0],
 --  [0, 2, 0],
 --  [0, 0, 3]]
+
+local D2 = linalg.diag({4, 5})    -- legacy alias, identical behaviour
 ```
 
 ### Properties and Access
@@ -156,12 +166,12 @@ print(A:cols())    -- 2
 ```
 
 #### m:shape()
-Returns the dimensions as an array.
+Returns the dimensions as a Lua array. Vectors return a 1-element array; matrices return a 2-element array.
 
 ```lua
-print(A:shape())       -- {3, 2} for matrix
+print(A:shape())               -- {3, 2}
 local v = linalg.vector({1,2,3})
-print(v:shape())       -- {3} for vector
+print(v:shape())               -- {3}
 ```
 
 #### m:size()
@@ -172,7 +182,7 @@ print(A:size())    -- 6
 ```
 
 #### m:get(i, j) / v:get(i)
-Gets the element at position (i, j) for matrices or position i for vectors. Indices are 1-based.
+Returns the element at row `i`, column `j` for matrices, or element `i` for vectors. Indices are 1-based.
 
 ```lua
 local A = linalg.matrix({{1,2},{3,4}})
@@ -183,7 +193,7 @@ print(v:get(2))       -- 20
 ```
 
 #### m:set(i, j, value) / v:set(i, value)
-Sets the element at the specified position. Returns the modified matrix/vector.
+Sets the element at the specified position and returns the modified object.
 
 ```lua
 local A = linalg.matrix({{1,2},{3,4}})
@@ -192,16 +202,16 @@ print(A:get(1, 2))    -- 99
 ```
 
 #### m:row(i)
-Returns the i-th row as a row vector.
+Returns the `i`-th row as a vector (1-based).
 
 ```lua
 local A = linalg.matrix({{1,2,3},{4,5,6}})
 local r = A:row(1)
-print(r:toarray())    -- {{1, 2, 3}}
+print(r:toarray())    -- {1, 2, 3}
 ```
 
 #### m:col(j)
-Returns the j-th column as a column vector.
+Returns the `j`-th column as a vector (1-based).
 
 ```lua
 local c = A:col(2)
@@ -209,23 +219,21 @@ print(c:toarray())    -- {2, 5}
 ```
 
 #### m:transpose() / m:T()
-Returns the transpose of the matrix.
+Returns the transpose. Both names are equivalent.
 
 ```lua
-local A = linalg.matrix({{1,2},{3,4}})
-local At = A:transpose()
--- or equivalently
-local At = A:T()
+local A  = linalg.matrix({{1,2},{3,4}})
+local At = A:transpose()    -- or A:T()
 ```
 
 #### m:toarray()
-Converts to a Lua array.
+Converts to a plain Lua array. Vectors return a 1-D array; matrices return an array of row arrays.
 
 ```lua
-local A = linalg.matrix({{1,2},{3,4}})
+local A   = linalg.matrix({{1,2},{3,4}})
 local arr = A:toarray()    -- {{1, 2}, {3, 4}}
 
-local v = linalg.vector({1, 2, 3})
+local v    = linalg.vector({1, 2, 3})
 local varr = v:toarray()   -- {1, 2, 3}
 ```
 
@@ -246,17 +254,22 @@ local C = A - B    -- {{-4,-4},{-4,-4}}
 ```
 
 #### Scalar Multiplication (*)
+The `*` operator performs scalar multiplication when one operand is a number, and matrix multiplication when both operands are matrices or vectors.
+
 ```lua
-local C = A * 2    -- {{2,4},{6,8}}
-local D = 3 * A    -- {{3,6},{9,12}}
+local C = A * 2    -- scalar: {{2,4},{6,8}}
+local D = 3 * A    -- scalar: {{3,6},{9,12}}
+local E = A * B    -- matrix multiply (same as A:dot(B))
 ```
 
 #### Scalar Division (/)
+Divides every element by a scalar. The divisor must be a number; division by zero raises an error.
+
 ```lua
 local C = A / 2    -- {{0.5,1},{1.5,2}}
 ```
 
-#### Negation (-)
+#### Negation (unary -)
 ```lua
 local C = -A       -- {{-1,-2},{-3,-4}}
 ```
@@ -272,7 +285,7 @@ local C = A:dot(B)    -- {{19,22},{43,50}}
 
 -- Matrix-vector multiplication
 local v = linalg.vector({1, 2})
-local w = A:dot(v)    -- {5, 11}
+local w = A:dot(v)    -- vector {5, 11}
 
 -- Vector dot product (returns scalar)
 local u = linalg.vector({1, 2, 3})
@@ -281,7 +294,7 @@ local d = u:dot(v)    -- 32
 ```
 
 #### m:hadamard(other)
-Element-wise (Hadamard) product.
+Element-wise (Hadamard) product. Both operands must have identical dimensions.
 
 ```lua
 local A = linalg.matrix({{1,2},{3,4}})
@@ -292,7 +305,7 @@ local C = A:hadamard(B)    -- {{5,12},{21,32}}
 ### Linear Algebra Operations
 
 #### m:det()
-Computes the determinant of a square matrix.
+Determinant of a square matrix.
 
 ```lua
 local A = linalg.matrix({{1,2},{3,4}})
@@ -300,136 +313,309 @@ print(A:det())    -- -2
 ```
 
 #### m:inv()
-Computes the inverse of a square matrix.
+Inverse of a square matrix. Raises an error if the matrix is singular.
 
 ```lua
-local A = linalg.matrix({{1,2},{3,4}})
+local A    = linalg.matrix({{1,2},{3,4}})
 local Ainv = A:inv()
-local I = A:dot(Ainv)    -- Identity matrix (within numerical precision)
+local I    = A:dot(Ainv)    -- identity (within numerical precision)
 ```
 
 #### m:trace()
-Computes the trace (sum of diagonal elements) of a square matrix.
+Sum of diagonal elements of a square matrix.
 
 ```lua
 local A = linalg.matrix({{1,2},{3,4}})
 print(A:trace())    -- 5 (1 + 4)
 ```
 
-#### m:norm(p?)
-Computes the matrix or vector norm.
+#### m:norm(order?)
+Computes the vector or matrix norm.
 
-**For vectors:**
-- `p = 1`: L1 norm (sum of absolute values)
-- `p = 2` (default): L2 norm (Euclidean)
-- `p = math.huge`: Infinity norm (maximum absolute value)
-- Other p: General p-norm
+**Order argument** — pass a number, `"fro"`, or `"inf"`. Passing any other string raises an error. Default is `2`.
 
-**For matrices:**
-- `p = 1`: Column sum norm
-- `p = math.huge`: Row sum norm
-- `"fro"`: Frobenius norm
+| `order` | Vectors | Matrices |
+|---------|---------|----------|
+| number `p` | p-norm: `(Σ|xᵢ|^p)^(1/p)` | depends on implementation |
+| `2` (default) | L2 / Euclidean | — |
+| `1` | L1 (sum of absolute values) | — |
+| `"fro"` or `"frobenius"` | same as L2 for vectors | Frobenius norm `sqrt(Σaᵢⱼ²)` |
+| `"inf"` or `"infinity"` | max absolute value | max absolute row sum |
+| `math.huge` | max absolute value (equivalent to `"inf"`) | — |
 
 ```lua
 local v = linalg.vector({3, 4})
-print(v:norm())       -- 5 (L2 norm)
-print(v:norm(1))      -- 7 (L1 norm)
-print(v:norm(math.huge))  -- 4 (infinity norm)
+print(v:norm())         -- 5.0   (L2, default)
+print(v:norm(1))        -- 7.0   (L1)
+print(v:norm("fro"))    -- 5.0   (Frobenius == L2 for vectors)
+print(v:norm("inf"))    -- 4.0   (infinity norm)
 
 local A = linalg.matrix({{1,2},{3,4}})
-print(A:norm("fro"))  -- Frobenius norm
+print(A:norm("fro"))    -- Frobenius norm ≈ 5.477
+
+-- Unknown string order raises an error
+local ok, err = pcall(function() return v:norm("nuclear") end)
+print(err)    -- linalg.norm: unsupported order 'nuclear'; use a number, 'fro', or 'inf'
 ```
 
 #### m:rank()
-Computes the numerical rank of a matrix.
+Numerical rank of a matrix (computed via SVD with a tolerance threshold).
 
 ```lua
 local A = linalg.matrix({{1,2,3},{4,5,6},{7,8,9}})
 print(A:rank())    -- 2 (rows are linearly dependent)
 ```
 
+#### m:cond()
+Condition number of a matrix (ratio of largest to smallest singular value). A large condition number indicates a near-singular matrix.
+
+```lua
+local A = linalg.matrix({{1,2},{3,4}})
+print(A:cond())    -- condition number
+
+local B = linalg.eye(3)
+print(B:cond())    -- 1.0 (identity is perfectly conditioned)
+```
+
+#### m:pinv(rcond?)
+Moore-Penrose pseudoinverse. `rcond` is the cutoff for small singular values (default `1e-15`).
+
+```lua
+local A    = linalg.matrix({{1,2},{3,4},{5,6}})   -- non-square
+local Ap   = A:pinv()
+-- A:dot(Ap):dot(A) ≈ A  (pseudoinverse property)
+
+-- Custom tolerance
+local Ap2 = A:pinv(1e-10)
+```
+
+Free-function forms also available via the module table:
+
+```lua
+local Ap = linalg.pinv(A)
+local cn = linalg.cond(A)
+```
+
 ### Matrix Decompositions
 
 #### m:lu()
-LU decomposition with partial pivoting. Returns L, U, P matrices such that P·A = L·U.
+LU decomposition with partial pivoting. Returns three matrices L, U, P satisfying P·A = L·U.
 
 ```lua
-local A = linalg.matrix({{2,1},{1,3}})
-local L, U, P = A:lu()
+local A        = linalg.matrix({{2,1},{1,3}})
+local L, U, P  = A:lu()
 
--- L is lower triangular with 1s on diagonal
--- U is upper triangular
--- P is permutation matrix
+-- L: lower triangular with 1s on diagonal
+-- U: upper triangular
+-- P: permutation matrix
 ```
 
 #### m:qr()
-QR decomposition. Returns Q (orthogonal) and R (upper triangular) such that A = Q·R.
+QR decomposition. Returns Q (orthogonal) and R (upper triangular) satisfying A = Q·R.
 
 ```lua
-local A = linalg.matrix({{1,2},{3,4},{5,6}})
+local A    = linalg.matrix({{1,2},{3,4},{5,6}})
 local Q, R = A:qr()
-
--- Q is orthogonal: Q^T · Q = I
--- R is upper triangular
+-- Q:T():dot(Q) ≈ I
 ```
 
-#### m:svd()
-Singular Value Decomposition. Returns U, S, V such that A = U·S·V^T.
+#### m:svd(return1D?)
+Singular Value Decomposition. Returns U, S, V such that A ≈ U·S·V^T.
+
+When `return1D` is `true`, `S` is returned as a vector of singular values. When `false` (default), `S` is a diagonal matrix with the same shape as `A`.
 
 ```lua
-local A = linalg.matrix({{1,2},{3,4},{5,6}})
+local A       = linalg.matrix({{1,2},{3,4},{5,6}})
 local U, S, V = A:svd()
-
 -- U: left singular vectors (orthogonal)
--- S: diagonal matrix of singular values
+-- S: diagonal matrix of singular values (default)
 -- V: right singular vectors (orthogonal)
+
+-- Return singular values as a 1-D vector
+local U2, s, V2 = A:svd(true)
+print(s:toarray())    -- {σ₁, σ₂}
 ```
 
-#### m:eig()
-Eigenvalue decomposition for square matrices. Returns eigenvalues and eigenvectors.
+#### m:eigen() / m:eig()
+Eigenvalue decomposition for square matrices. Returns eigenvalues and eigenvectors. `eigen` is the canonical name; `eig` is a legacy alias.
+
+If the matrix has complex eigenvalues, the eigenvalue result is a complex vector (table with `real` and `imag` arrays); otherwise it is a plain vector.
 
 ```lua
-local A = linalg.matrix({{4,2},{1,3}})
-local vals, vecs = A:eig()
-
--- vals: vector of eigenvalues
+local A         = linalg.matrix({{4,2},{1,3}})
+local vals, vecs = A:eigen()   -- or A:eig()
+-- vals: vector of eigenvalues (may be complex)
 -- vecs: matrix with eigenvectors as columns
 ```
 
+Free-function forms for eigenvalue-only or full decomposition:
+
+```lua
+local vals, vecs = linalg.eig(A)     -- same as A:eigen()
+local vals_only  = linalg.eigvals(A) -- eigenvalues only, no vectors
+```
+
+#### m:eigvals()
+Eigenvalues only, without computing eigenvectors (faster than `eigen` when eigenvectors are not needed).
+
+```lua
+local A    = linalg.matrix({{4,2},{1,3}})
+local vals = A:eigvals()
+print(vals:toarray())    -- {5, 2}
+```
+
 #### m:chol()
-Cholesky decomposition for symmetric positive-definite matrices. Returns L such that A = L·L^T.
+Cholesky decomposition for symmetric positive-definite matrices. Returns the lower triangular factor L such that A = L·L^T. Raises an error if the matrix is not positive definite.
 
 ```lua
 local A = linalg.matrix({{4,2},{2,5}})
 local L = A:chol()
+-- L:dot(L:T()) ≈ A
+```
 
--- L is lower triangular
--- L:dot(L:T()) equals A
+#### m:expm()
+Matrix exponential e^A (computed via eigendecomposition). A must be square.
+
+```lua
+local A  = linalg.matrix({{0,-1},{1,0}})
+local eA = A:expm()
+
+-- Free-function form
+local eA2 = linalg.expm(A)
+```
+
+#### m:logm()
+Matrix logarithm. A must be square with all positive eigenvalues; raises an error otherwise.
+
+```lua
+local A  = linalg.eye(2)
+local lA = A:logm()    -- zero matrix (log of identity)
+
+local lA2 = linalg.logm(A)
+```
+
+#### m:sqrtm()
+Matrix square root. A must be square with all non-negative eigenvalues; raises an error otherwise.
+
+```lua
+local A  = linalg.matrix({{4,0},{0,9}})
+local sA = A:sqrtm()   -- {{2,0},{0,3}}
+
+local sA2 = linalg.sqrtm(A)
+```
+
+#### m:funm(name)
+Apply a named scalar function to a matrix via eigendecomposition. Supported names: `"sin"`, `"cos"`, `"exp"`, `"log"`, `"sqrt"`, `"sinh"`, `"cosh"`, `"tanh"`, `"abs"`. An unsupported name raises an error.
+
+```lua
+local A      = linalg.matrix({{0,-1},{1,0}})
+local sinA   = A:funm("sin")
+local cosA   = A:funm("cos")
+
+-- Free-function form
+local sinA2  = linalg.funm(A, "sin")
+
+-- Error on unknown function
+local ok, e = pcall(function() return A:funm("tan") end)
+print(e)    -- linalg.funm: unsupported function 'tan'. Use: sin, cos, exp, ...
 ```
 
 ### Linear System Solvers
 
 #### linalg.solve(A, b)
-Solves the linear system A·x = b for square matrix A.
+Solves the square linear system A·x = b. Raises an error if A is singular.
 
 ```lua
 local A = linalg.matrix({{3,1},{1,2}})
 local b = linalg.vector({9, 8})
 
 local x = linalg.solve(A, b)
--- x satisfies A:dot(x) ≈ b
+-- A:dot(x) ≈ b
+print(x:toarray())    -- {2, 3}
 ```
 
-#### linalg.lstsq(A, b)
-Least squares solution to A·x = b (for overdetermined or underdetermined systems).
+#### linalg.least_squares(A, b) / linalg.lstsq(A, b)
+Least-squares solution to A·x = b. Works for overdetermined (more rows than columns) and underdetermined systems. `least_squares` is the canonical name; `lstsq` is a legacy alias.
 
 ```lua
 -- Overdetermined system (more equations than unknowns)
 local A = linalg.matrix({{1,1},{1,2},{1,3}})
 local b = linalg.vector({1, 2, 2})
 
-local x = linalg.lstsq(A, b)
--- x minimizes ||A·x - b||
+local x = linalg.least_squares(A, b)    -- or linalg.lstsq(A, b)
+-- x minimises ||A·x - b||
+```
+
+#### linalg.solve_triangular(A, b, opts?)
+Solves a triangular system A·x = b without factorisation. `opts` is an optional table:
+- `lower` (boolean, default `true`) — `true` for lower triangular A, `false` for upper triangular.
+- `trans` (boolean, default `false`) — if `true`, solves A^T·x = b instead.
+
+```lua
+local L = linalg.matrix({{2,0},{1,3}})    -- lower triangular
+local b = linalg.vector({4, 5})
+
+local x = linalg.solve_triangular(L, b)
+-- opts example: upper triangular, no transpose
+local U = linalg.matrix({{2,1},{0,3}})
+local y = linalg.solve_triangular(U, b, {lower = false})
+```
+
+#### linalg.cho_solve(L, b)
+Solves A·x = b given the Cholesky factor L (from `m:chol()`) where A = L·L^T. More efficient than calling `solve` when the factorisation is already available.
+
+```lua
+local A = linalg.matrix({{4,2},{2,5}})
+local L = A:chol()
+
+local b = linalg.vector({1, 2})
+local x = linalg.cho_solve(L, b)
+```
+
+#### linalg.lu_solve(L, U, P, b)
+Solves A·x = b given the LU factors (L, U, P) from `m:lu()`. More efficient than calling `solve` when the factorisation is already available.
+
+```lua
+local A        = linalg.matrix({{2,1},{1,3}})
+local L, U, P  = A:lu()
+
+local b = linalg.vector({5, 10})
+local x = linalg.lu_solve(L, U, P, b)
+```
+
+### Complex Matrix Operations
+
+These free functions operate on **complex matrices** — Lua tables with the structure `{rows=n, cols=m, real={...}, imag={...}}`. They do not use the wrapped matrix objects produced by `linalg.matrix()`.
+
+#### linalg.csolve(A, b)
+Solve the complex linear system A·x = b where A and b are complex matrices.
+
+#### linalg.csvd(A)
+Complex SVD. Returns `U, s, Vt` where `U` and `Vt` are complex matrices and `s` is a real vector of singular values.
+
+#### linalg.ceig(A)
+Eigenvalue decomposition of a complex square matrix. Returns `vals, vecs` both as complex matrices.
+
+#### linalg.ceigvals(A)
+Eigenvalues only for a complex square matrix. Returns a complex vector.
+
+#### linalg.cdet(A)
+Determinant of a complex square matrix. Returns `{re=..., im=...}`.
+
+#### linalg.cinv(A)
+Inverse of a complex square matrix. Returns a complex matrix.
+
+```lua
+-- Complex matrix representation
+local A = {
+    rows = 2, cols = 2,
+    real = {1, 0, 0, 1},
+    imag = {1, 0, 0, -1}   -- A = [[1+i, 0], [0, 1-i]]
+}
+
+local d    = linalg.cdet(A)         -- {re=..., im=...}
+local Ainv = linalg.cinv(A)         -- complex matrix table
+local vals = linalg.ceigvals(A)     -- complex vector table
 ```
 
 ## Common Patterns
@@ -457,9 +643,23 @@ print(check:toarray())    -- {9, 8}
 local A = linalg.matrix({{1, 2, 3}, {4, 5, 6}, {7, 8, 10}})
 
 print("Determinant:", A:det())
-print("Trace:", A:trace())
-print("Rank:", A:rank())
-print("Frobenius norm:", A:norm("fro"))
+print("Trace:",       A:trace())
+print("Rank:",        A:rank())
+print("Condition:",   A:cond())
+print("Frobenius:",   A:norm("fro"))
+```
+
+### Norms
+
+```lua
+local v = linalg.vector({3, 4})
+print(v:norm())         -- 5.0  (L2, default)
+print(v:norm(1))        -- 7.0  (L1)
+print(v:norm("fro"))    -- 5.0  (Frobenius, same as L2 for vectors)
+print(v:norm("inf"))    -- 4.0  (infinity norm)
+
+local A = linalg.matrix({{1,0},{0,2}})
+print(A:norm("fro"))    -- sqrt(5) ≈ 2.236
 ```
 
 ### Linear Regression
@@ -475,9 +675,47 @@ local X = linalg.matrix({
 local y = linalg.vector({2, 3, 5, 4})
 
 -- Least squares fit: y = a + b*x
-local coeffs = linalg.lstsq(X, y)
-local a, b = coeffs:get(1), coeffs:get(2)
+local coeffs = linalg.least_squares(X, y)
+local a, b   = coeffs:get(1), coeffs:get(2)
 print(string.format("y = %.2f + %.2fx", a, b))
+```
+
+### Eigenvalue Analysis
+
+```lua
+local A         = linalg.matrix({{4,2},{1,3}})
+local vals, vecs = A:eigen()
+print(vals:toarray())    -- eigenvalues
+
+-- Values only (cheaper)
+local v2 = A:eigvals()
+print(v2:toarray())
+
+-- Free-function form
+local vals2, vecs2 = linalg.eig(A)
+```
+
+### Matrix Functions
+
+```lua
+local A    = linalg.matrix({{0,-1},{1,0}})
+local eA   = A:expm()          -- matrix exponential
+local sinA = A:funm("sin")     -- matrix sine
+
+-- Matrix square root
+local B  = linalg.matrix({{4,0},{0,9}})
+local sB = B:sqrtm()           -- {{2,0},{0,3}}
+```
+
+### Factorisation Reuse
+
+```lua
+-- Solve multiple right-hand sides efficiently using LU factorisation
+local A       = linalg.matrix({{2,1},{1,3}})
+local L, U, P = A:lu()
+
+local x1 = linalg.lu_solve(L, U, P, linalg.vector({5, 10}))
+local x2 = linalg.lu_solve(L, U, P, linalg.vector({1, 2}))
 ```
 
 ### Principal Component Analysis (PCA)
@@ -485,7 +723,6 @@ print(string.format("y = %.2f + %.2fx", a, b))
 ```lua
 local linalg = require("luaswift.linalg")
 
--- Data matrix (rows are samples, columns are features)
 local data = linalg.matrix({
     {2.5, 2.4},
     {0.5, 0.7},
@@ -494,48 +731,18 @@ local data = linalg.matrix({
     {3.1, 3.0}
 })
 
--- Center the data
-local n = data:rows()
-local mean_x = 0
-local mean_y = 0
-for i = 1, n do
-    mean_x = mean_x + data:get(i, 1)
-    mean_y = mean_y + data:get(i, 2)
-end
-mean_x, mean_y = mean_x / n, mean_y / n
-
--- Compute covariance matrix
--- ... (simplified example)
-
--- Get principal components via SVD
+-- Get principal components via SVD (singular values in descending order)
 local U, S, V = data:svd()
--- V contains principal component directions
-```
-
-### Matrix Inversion Check
-
-```lua
-local A = linalg.matrix({{1, 2}, {3, 4}})
-
--- Check if matrix is invertible
-local det = A:det()
-if math.abs(det) < 1e-10 then
-    print("Matrix is singular!")
-else
-    local Ainv = A:inv()
-
-    -- Verify: A · A^-1 should be identity
-    local I = A:dot(Ainv)
-    print("Product is identity:", I:toarray())
-end
+-- V columns are principal component directions
 ```
 
 ## Performance Notes
 
-- The LinAlg module uses Apple's Accelerate framework for hardware-accelerated computation
-- All operations use double-precision floating-point numbers
-- For best performance, avoid creating many small temporary matrices in tight loops
-- Prefer batch operations over element-by-element access when possible
+- The LinAlg module uses Apple's Accelerate framework for hardware-accelerated computation via NumericSwift.
+- All operations use double-precision (64-bit) floating-point numbers.
+- For best performance, avoid creating many small temporary matrices in tight loops.
+- Prefer batch operations over element-by-element access.
+- When solving the same system for multiple right-hand sides, compute the factorisation once with `m:lu()` or `m:chol()` and reuse it via `lu_solve` / `cho_solve`.
 
 ## See Also
 

@@ -43,7 +43,7 @@ Call `utf8x.import()` to add UTF8X functions to Lua's standard `utf8` table (ava
 utf8x.import()
 
 -- Now use directly on utf8
-print(utf8.width("Hello世界"))      -- 11
+print(utf8.width("Hello世界"))      -- 9
 print(utf8.reverse("Hello"))         -- "olleH"
 print(utf8.upper("café"))            -- "CAFÉ"
 ```
@@ -75,7 +75,7 @@ Calculates the display width of a string, accounting for wide characters. CJK ch
 
 ```lua
 utf8x.width("Hello")           -- 5
-utf8x.width("Hello世界")       -- 11 (5 + 2*3)
+utf8x.width("Hello世界")       -- 9 (5 + 2×2)
 utf8x.width("日本語")           -- 6 (3 characters × 2 width)
 utf8x.width("ＡＢＣ")          -- 6 (full-width letters)
 utf8x.width("😀")              -- 2 (emoji)
@@ -183,6 +183,39 @@ end
 -- 1    a
 -- 2    b
 -- 3    c
+```
+
+### Slice
+
+#### slice(s, start?, stop?, step?)
+Extracts a substring using Python-style start/stop/step semantics. All indices are 1-based (Lua convention); negative indices count from the end. `stop` is inclusive. Operates on Unicode extended grapheme clusters, not bytes. `step` defaults to 1; a negative step reverses the selection direction.
+
+**Parameters:**
+- `s` - Source string
+- `start` - Start index (optional; defaults to 1 for positive step, last char for negative step)
+- `stop` - End index, inclusive (optional; defaults to last char for positive step, first char for negative step)
+- `step` - Step increment (optional, default 1; must not be zero)
+
+```lua
+local s = "Hello世界"
+
+utf8x.slice(s, 1, 5)          -- "Hello"
+utf8x.slice(s, 6, 7)          -- "世界"
+utf8x.slice(s, 6)             -- "世界" (to end)
+
+-- Negative indices (from end)
+utf8x.slice(s, -2)            -- "世界"
+utf8x.slice(s, -5, -3)        -- "llo"
+
+-- Step > 1: every Nth character
+utf8x.slice("abcdef", 1, 6, 2) -- "ace"
+
+-- Negative step: reverse selection
+utf8x.slice("Hello", nil, nil, -1) -- "olleH"
+utf8x.slice(s, 7, 1, -1)          -- "界世olleH"
+
+-- Empty results
+utf8x.slice(s, 10, 20)        -- "" (out of range)
 ```
 
 ## Common Patterns

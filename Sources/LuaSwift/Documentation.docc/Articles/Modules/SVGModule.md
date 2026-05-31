@@ -203,7 +203,7 @@ drawing:text("Centered", 200, 150, {
 ### Grouping
 
 #### group(transform?, style?)
-Creates a group element for organizing shapes and applying transforms. Returns a group object with the same drawing methods.
+Creates a group element for organizing shapes and applying transforms. Returns a group object that supports all drawing methods (`rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `path`, `text`, `group`, `linePlot`, `scatterPlot`, `barChart`) but does **not** expose `render`, `clear`, or `count` — those are only available on the top-level drawing returned by `svg.create`.
 
 ```lua
 -- Basic group with transform
@@ -271,7 +271,7 @@ drawing:scatterPlot(data, 5, {fill = "#e74c3c"})
 ```
 
 #### barChart(data, style?)
-Creates a bar chart. Each data item should have x, height, and optional width.
+Creates a bar chart. Each data item should have `x`, `y` (bar height), and optional `width`.
 
 ```lua
 local data = {
@@ -386,24 +386,21 @@ d:line(15, 280, 15, 20, {stroke = "black"})
 print(d:render())
 ```
 
-### Animated Elements
+### Injecting Raw SVG (Animations and Defs)
+
+The module renders shapes as SVG element strings. For features not covered by the shape API (such as `<animate>`, `<defs>`, `<linearGradient>`, or `<filter>`) you can post-process the output of `render()` by inserting raw XML before the closing `</svg>` tag.
 
 ```lua
+local svg = require("luaswift.svg")
 local d = svg.create(200, 200)
 
--- Circle with animation attributes
-d:circle(100, 100, 20, {
-    fill = "red",
-    id = "animated-circle"
-})
+d:circle(100, 100, 20, {fill = "red", id = "dot"})
 
--- Add animation via path
-d:path("", {
-    -- SVG animations are added as style attributes
-})
-
--- Note: For complex animations, render() output can be
--- post-processed or templates can be used
+-- Render, then splice in a SMIL animation element
+local output = d:render()
+local animation = '<animate xlink:href="#dot" attributeName="r" from="20" to="40" dur="1s" repeatCount="indefinite"/>'
+output = output:gsub("</svg>", animation .. "\n</svg>")
+print(output)
 ```
 
 ### Method Chaining

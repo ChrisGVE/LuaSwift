@@ -2,17 +2,31 @@
 
 Parse and generate TOML configuration files.
 
+> Important: The TOML module is **opt-in and excluded by default**. You must set
+> `LUASWIFT_INCLUDE_TOMLKIT=1` at build time to compile it in. Without that flag
+> the module is absent at runtime and `require("luaswift.toml")` raises an error.
+>
+> ```bash
+> LUASWIFT_INCLUDE_TOMLKIT=1 swift build
+> LUASWIFT_INCLUDE_TOMLKIT=1 swift test
+> ```
+
 ## Overview
 
 The TOML module provides TOML (Tom's Obvious Minimal Language) encoding and decoding. TOML is designed to be a minimal configuration file format that's easy to read and maps unambiguously to a hash table.
 
+The module is backed by [TOMLKit](https://github.com/LebJe/TOMLKit), which is pulled in as an optional dependency only when `LUASWIFT_INCLUDE_TOMLKIT=1` is set.
+
 ## Installation
 
+The Swift-side registration helpers are only compiled when the `LUASWIFT_TOMLKIT` compiler flag is active (set automatically by `Package.swift` when `LUASWIFT_INCLUDE_TOMLKIT=1`).
+
 ```swift
-// Install all modules
+// Install all modules (TOML included only if flag is set)
 ModuleRegistry.installModules(in: engine)
 
 // Or install just the TOML module
+// (only available when LUASWIFT_INCLUDE_TOMLKIT=1)
 ModuleRegistry.installTOMLModule(in: engine)
 ```
 
@@ -48,10 +62,19 @@ local str = toml.encode({
 
 Converts a Lua table to a TOML string.
 
+> Important: `encode` requires a **table** as the root value. Passing a string,
+> number, boolean, array, or `nil` raises an error: `toml.encode requires a table
+> as root value`. This constraint comes from the TOML specification, which requires
+> a document to be a key/value table at the top level.
+
 **Parameters:**
-- `value` - The Lua table to encode
+- `value` — A Lua table (must be the root value; non-table types are rejected)
 
 **Returns:** TOML string
+
+**Throws:** error if `value` is not a table, or if any nested value is `nil`,
+a Lua function, or a complex number (complex values are encoded as a table with
+`__type = "complex"`, `re`, and `im` fields; see Type Mapping).
 
 **Example:**
 
@@ -79,9 +102,12 @@ print(toml.encode(config))
 Parses a TOML string into a Lua table.
 
 **Parameters:**
-- `string` - The TOML string to parse
+- `string` — The TOML string to parse
 
 **Returns:** Lua table
+
+**Throws:** error with line number on invalid TOML syntax
+(`toml.decode parse error at line N: …`)
 
 **Example:**
 
@@ -109,15 +135,35 @@ print(config.servers.alpha.ip)    -- "10.0.0.1"
 
 ## Type Mapping
 
-| TOML Type | Lua Type |
-|-----------|----------|
-| Table | table |
-| Array | array (1-indexed) |
-| String | string |
-| Integer | number |
-| Float | number |
-| Boolean | boolean |
-| Datetime | string (ISO 8601) |
+### Decoding (TOML → Lua)
+
+| TOML Type | Lua Type | Notes |
+|-----------|----------|-------|
+| Table | table | Keys are strings |
+| Array | array (1-indexed) | Homogeneous or mixed |
+| String | string | All string variants |
+| Integer | number | Converted to `Double` |
+| Float | number | `inf`, `-inf`, `nan` preserved |
+| Boolean | boolean | |
+| Offset date-time | string | Passed through as-is from TOMLKit |
+| Local date-time | string | Passed through as-is from TOMLKit |
+| Local date | string | Passed through as-is from TOMLKit |
+| Local time | string | Passed through as-is from TOMLKit |
+
+### Encoding (Lua → TOML)
+
+| Lua Type | TOML Type | Notes |
+|----------|-----------|-------|
+| table (root) | Table | Required at top level |
+| table (nested) | Inline table or section | |
+| array | Array | |
+| string | String | |
+| number (integer) | Integer | When value has no fractional part and fits in `Int64` |
+| number (float) | Float | Otherwise |
+| boolean | Boolean | |
+| complex | Table | `{__type = "complex", re = …, im = …}` |
+| nil | — | **Error**: TOML does not support null |
+| function | — | **Error**: TOML does not support functions |
 
 ## TOML Features
 
@@ -273,7 +319,7 @@ ld1 = 1979-05-27
 lt1 = 07:32:00
 ]])
 
--- Dates are returned as strings
+-- All date/time types are returned as strings
 print(config.odt1)  -- "1979-05-27T07:32:00Z"
 ```
 
@@ -303,7 +349,6 @@ level = "info"
 file = "/var/log/myservice.log"
 ]])
 
--- Use configuration
 local server_port = config.server.port
 local db_url = config.database.url
 ```
@@ -349,7 +394,7 @@ build-backend = "setuptools.build_meta"
 
 ## Error Handling
 
-Invalid TOML throws an error:
+Parse errors include the line number from TOMLKit:
 
 ```lua
 local success, result = pcall(function()
@@ -360,6 +405,19 @@ end)
 
 if not success then
     print("TOML error: " .. result)
+    -- e.g. "toml.decode parse error at line 2: ..."
+end
+```
+
+Encode errors are raised for unsupported root types:
+
+```lua
+local success, result = pcall(function()
+    return toml.encode("not a table")  -- error: requires table at root
+end)
+
+if not success then
+    print("Encode error: " .. result)
 end
 ```
 
@@ -372,6 +430,7 @@ end
 | Date/time types | Native | String | String |
 | Strictness | Strict | Flexible | Strict |
 | Best for | Config files | Data/Docs | APIs |
+| Default in LuaSwift | No (opt-in) | Yes | Yes |
 
 Use TOML for:
 - Application configuration (Cargo.toml, pyproject.toml)

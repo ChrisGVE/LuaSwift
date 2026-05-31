@@ -1,211 +1,277 @@
 # Number Theory Module
 
-Prime numbers, factorization, and number-theoretic functions.
+Prime numbers, factorization, and classical number-theoretic functions.
 
 ## Overview
 
-The Number Theory module provides algorithms for working with integers including primality testing, factorization, and number-theoretic functions. Available under `math.numtheory` after calling `luaswift.extend_stdlib()`.
+> Important: This module requires the **NumericSwift** optional dependency, which is **off by default**. Build with `LUASWIFT_INCLUDE_NUMERICSWIFT=1` to enable it.
+
+The Number Theory module exposes number-theoretic arithmetic functions under the `math.numtheory` namespace (also accessible as `luaswift.numtheory`). Functions cover primality testing, prime generation, factorization, multiplicative arithmetic functions, and analytic number theory tools.
 
 ## Installation
 
 ```swift
-ModuleRegistry.installMathModule(in: engine)
+// Requires LUASWIFT_INCLUDE_NUMERICSWIFT=1 at build time
+ModuleRegistry.installNumberTheoryModule(in: engine)
+
+// Or install all modules (only activates when NumericSwift is present)
+ModuleRegistry.installModules(in: engine)
 ```
 
 ```lua
-luaswift.extend_stdlib()
 local nt = math.numtheory
+-- Also available as: luaswift.numtheory
 ```
 
-## Prime Numbers
+## Primality
 
 ### nt.is_prime(n)
-Test if n is prime.
+
+Returns `true` if `n` is prime, `false` otherwise. Returns `nil` for invalid input.
 
 ```lua
 print(nt.is_prime(17))   -- true
 print(nt.is_prime(18))   -- false
 print(nt.is_prime(97))   -- true
+print(nt.is_prime(1))    -- false
 ```
 
-### nt.primes(n)
-Generate all primes up to n.
+### nt.prime_pi(x)  · alias: nt.pi
+
+Prime counting function π(x): number of primes ≤ x.
 
 ```lua
-local primes = nt.primes(30)
+print(nt.prime_pi(100))   -- 25
+print(nt.prime_pi(1000))  -- 168
+print(nt.pi(100))         -- 25  (alias)
+```
+
+### nt.primes_up_to(n)
+
+Returns a 1-indexed Lua array of all primes up to and including `n`. Returns an empty array when `n < 2`.
+
+```lua
+local p = nt.primes_up_to(30)
 -- {2, 3, 5, 7, 11, 13, 17, 19, 23, 29}
 
-for _, p in ipairs(primes) do
-    print(p)
+for i, prime in ipairs(p) do
+    io.write(prime .. " ")
 end
-```
-
-### nt.nth_prime(n)
-Get the nth prime number.
-
-```lua
-print(nt.nth_prime(1))    -- 2
-print(nt.nth_prime(10))   -- 29
-print(nt.nth_prime(100))  -- 541
-```
-
-### nt.prime_count(n)
-Count primes ≤ n (π(n)).
-
-```lua
-print(nt.prime_count(100))  -- 25
-print(nt.prime_count(1000)) -- 168
 ```
 
 ## Factorization
 
 ### nt.factor(n)
-Prime factorization of n.
+
+Prime factorization of `n`. Returns a **string-keyed table** mapping each prime factor (as a string) to its exponent. Returns `nil` when `n < 1`.
 
 ```lua
-local factors = nt.factor(60)
--- {{2, 2}, {3, 1}, {5, 1}}
+local f = nt.factor(60)
+-- f["2"] == 2, f["3"] == 1, f["5"] == 1
 -- Means: 60 = 2² × 3¹ × 5¹
 
-for _, pair in ipairs(factors) do
-    local prime, exponent = pair[1], pair[2]
-    print(prime .. "^" .. exponent)
+for prime_str, exp in pairs(f) do
+    print(prime_str .. "^" .. exp)
 end
+-- Output (order unspecified):
+-- 2^2
+-- 3^1
+-- 5^1
 ```
 
-### nt.divisors(n)
-All divisors of n.
+> Note: Keys are **strings**, not numbers. Use `tonumber(prime_str)` when numeric ordering matters.
 
 ```lua
-local divs = nt.divisors(12)
--- {1, 2, 3, 4, 6, 12}
-```
+-- Reconstruct the value from its factorization
+local function from_factors(t)
+    local result = 1
+    for p_str, e in pairs(t) do
+        result = result * tonumber(p_str)^e
+    end
+    return result
+end
 
-### nt.num_divisors(n)
-Count of divisors (τ(n)).
-
-```lua
-print(nt.num_divisors(12))  -- 6
-```
-
-### nt.sum_divisors(n)
-Sum of divisors (σ(n)).
-
-```lua
-print(nt.sum_divisors(12))  -- 28 (1+2+3+4+6+12)
+print(from_factors(nt.factor(360)))  -- 360
 ```
 
 ## GCD and LCM
 
 ### nt.gcd(a, b)
-Greatest common divisor.
+
+Greatest common divisor of two integers. Returns `nil` if fewer than two valid integers are supplied.
 
 ```lua
 print(nt.gcd(48, 18))  -- 6
-print(nt.gcd(17, 19))  -- 1 (coprime)
+print(nt.gcd(17, 19))  -- 1  (coprime)
 ```
 
 ### nt.lcm(a, b)
-Least common multiple.
+
+Least common multiple of two integers.
 
 ```lua
 print(nt.lcm(12, 18))  -- 36
+print(nt.lcm(7, 5))    -- 35
 ```
 
-### nt.extended_gcd(a, b)
-Extended Euclidean algorithm: returns gcd, x, y where ax + by = gcd.
+## Multiplicative Functions
+
+### nt.euler_phi(n)  · alias: nt.phi
+
+Euler's totient φ(n): count of integers 1 ≤ k ≤ n that are coprime to n.
 
 ```lua
-local g, x, y = nt.extended_gcd(48, 18)
-print("gcd:", g)        -- 6
-print("48*" .. x .. " + 18*" .. y .. " = " .. g)
+print(nt.euler_phi(9))   -- 6  (1,2,4,5,7,8)
+print(nt.euler_phi(10))  -- 4  (1,3,7,9)
+print(nt.euler_phi(12))  -- 4
+print(nt.phi(12))        -- 4  (alias)
 ```
 
-## Modular Arithmetic
+### nt.divisor_sigma(n, k)  · alias: nt.sigma
 
-### nt.mod_pow(base, exp, mod)
-Modular exponentiation: base^exp mod mod.
+Divisor sigma function σ_k(n): sum of the k-th powers of the divisors of n. When `k` is omitted it defaults to 1.
+
+| k | Meaning |
+|---|---------|
+| 0 | Number of divisors τ(n) |
+| 1 | Sum of divisors σ(n) (default) |
+| 2 | Sum of squares of divisors |
 
 ```lua
-print(nt.mod_pow(2, 10, 1000))  -- 24 (2^10 mod 1000)
-print(nt.mod_pow(3, 100, 7))    -- 4
+print(nt.divisor_sigma(12, 0))  -- 6  (divisors: 1,2,3,4,6,12)
+print(nt.divisor_sigma(12, 1))  -- 28 (1+2+3+4+6+12)
+print(nt.divisor_sigma(12))     -- 28 (k defaults to 1)
+print(nt.sigma(12, 0))          -- 6  (alias)
 ```
 
-### nt.mod_inverse(a, m)
-Modular multiplicative inverse: find x where ax ≡ 1 (mod m).
+### nt.mobius(n)  · alias: nt.mu
 
-```lua
-local inv = nt.mod_inverse(3, 11)
-print(inv)              -- 4 (because 3*4 = 12 ≡ 1 mod 11)
-```
-
-## Totient and Möbius
-
-### nt.euler_phi(n)
-Euler's totient function φ(n): count of numbers ≤ n coprime to n.
-
-```lua
-print(nt.euler_phi(9))   -- 6 (1,2,4,5,7,8 are coprime to 9)
-print(nt.euler_phi(10))  -- 4 (1,3,7,9)
-```
-
-### nt.mobius(n)
 Möbius function μ(n).
 
-```lua
-print(nt.mobius(6))   -- 1  (two distinct prime factors)
-print(nt.mobius(4))   -- 0  (squared prime factor)
-print(nt.mobius(30))  -- -1 (three distinct prime factors)
-```
-
-## Perfect Numbers
-
-### nt.is_perfect(n)
-Check if n equals the sum of its proper divisors.
+- μ(n) = 1 if n = 1 or n is a product of an even number of distinct primes
+- μ(n) = −1 if n is a product of an odd number of distinct primes
+- μ(n) = 0 if n has a squared prime factor
 
 ```lua
-print(nt.is_perfect(6))    -- true (1+2+3 = 6)
-print(nt.is_perfect(28))   -- true (1+2+4+7+14 = 28)
-print(nt.is_perfect(12))   -- false
+print(nt.mobius(1))   -- 1
+print(nt.mobius(6))   -- 1   (2×3, two distinct primes)
+print(nt.mobius(30))  -- -1  (2×3×5, three distinct primes)
+print(nt.mobius(4))   -- 0   (2², squared factor)
+print(nt.mu(30))      -- -1  (alias)
 ```
+
+### nt.liouville(n)
+
+Liouville function λ(n) = (−1)^Ω(n), where Ω(n) is the total number of prime factors counted with multiplicity.
+
+```lua
+print(nt.liouville(1))   -- 1
+print(nt.liouville(4))   -- 1   (4 = 2², Ω=2)
+print(nt.liouville(6))   -- 1   (6 = 2×3, Ω=2)
+print(nt.liouville(12))  -- 1   (12 = 2²×3, Ω=3 → -1)
+```
+
+### nt.carmichael(n)
+
+Carmichael (reduced totient) function λ(n): the smallest positive integer m such that a^m ≡ 1 (mod n) for every a coprime to n.
+
+```lua
+print(nt.carmichael(1))   -- 1
+print(nt.carmichael(8))   -- 2
+print(nt.carmichael(15))  -- 4
+```
+
+## Analytic Number Theory
+
+### nt.chebyshev_theta(x)  · alias: nt.theta
+
+First Chebyshev function θ(x) = Σ log(p) for all primes p ≤ x.
+
+```lua
+print(nt.chebyshev_theta(10))   -- ~7.61 (log2+log3+log5+log7)
+print(nt.theta(100))            -- ~94.0 (alias)
+```
+
+### nt.chebyshev_psi(x)  · alias: nt.psi
+
+Second Chebyshev function ψ(x) = Σ Λ(n) for n ≤ x, where Λ is the von Mangoldt function.
+
+```lua
+print(nt.chebyshev_psi(10))   -- ~10.07
+print(nt.psi(100))            -- ~98.7 (alias)
+```
+
+### nt.mangoldt(n)  · alias: nt.Lambda
+
+Von Mangoldt function Λ(n).
+
+- Λ(n) = log(p) if n = p^k for some prime p and k ≥ 1
+- Λ(n) = 0 otherwise
+
+```lua
+print(nt.mangoldt(1))   -- 0
+print(nt.mangoldt(2))   -- ~0.693 (log 2)
+print(nt.mangoldt(4))   -- ~0.693 (4 = 2², log 2)
+print(nt.mangoldt(6))   -- 0      (not a prime power)
+print(nt.Lambda(7))     -- ~1.946 (log 7, alias)
+```
+
+## Function Aliases
+
+The module exposes shorter aliases for notation familiar from analytic number theory:
+
+| Long form | Alias |
+|-----------|-------|
+| `euler_phi` | `phi` |
+| `divisor_sigma` | `sigma` |
+| `mobius` | `mu` |
+| `mangoldt` | `Lambda` |
+| `prime_pi` | `pi` |
+| `chebyshev_theta` | `theta` |
+| `chebyshev_psi` | `psi` |
 
 ## Applications
 
-### RSA Key Generation
+### Checking Multiplicativity
 
 ```lua
--- Simplified RSA demonstration
-local p = 61  -- Prime 1
-local q = 53  -- Prime 2
-local n = p * q  -- 3233
-
--- Compute φ(n)
-local phi = (p - 1) * (q - 1)  -- 3120
-
--- Choose e coprime to φ(n)
-local e = 17
-assert(nt.gcd(e, phi) == 1, "e must be coprime to φ(n)")
-
--- Compute d (private key)
-local d = nt.mod_inverse(e, phi)
-
-print("Public key: (e=" .. e .. ", n=" .. n .. ")")
-print("Private key: (d=" .. d .. ", n=" .. n .. ")")
-
--- Encrypt message m
-local m = 123
-local c = nt.mod_pow(m, e, n)
-print("Ciphertext:", c)
-
--- Decrypt
-local decrypted = nt.mod_pow(c, d, n)
-print("Decrypted:", decrypted)  -- 123
+-- φ is multiplicative: φ(mn) = φ(m)φ(n) when gcd(m,n)=1
+local m, n = 4, 9
+if nt.gcd(m, n) == 1 then
+    assert(nt.euler_phi(m * n) == nt.euler_phi(m) * nt.euler_phi(n))
+    print("multiplicativity holds for", m, n)
+end
 ```
 
-### Checking Coprimality
+### Factorization Display
 
 ```lua
--- Find numbers coprime to 12 in range [1, 20]
+-- Pretty-print the prime factorization of a number
+local function factorization(n)
+    local parts = {}
+    for p_str, e in pairs(nt.factor(n)) do
+        local p = tonumber(p_str)
+        if e == 1 then
+            table.insert(parts, p_str)
+        else
+            table.insert(parts, p_str .. "^" .. e)
+        end
+    end
+    -- Sort for deterministic output
+    table.sort(parts, function(a, b)
+        return tonumber(a:match("^%d+")) < tonumber(b:match("^%d+"))
+    end)
+    return n .. " = " .. table.concat(parts, " × ")
+end
+
+print(factorization(360))  -- 360 = 2^3 × 3^2 × 5
+print(factorization(2310)) -- 2310 = 2 × 3 × 5 × 7 × 11
+```
+
+### Coprimality with GCD
+
+```lua
+-- Numbers coprime to 12 in [1, 20]  (should be φ(12)=4 per period)
 local coprimes = {}
 for i = 1, 20 do
     if nt.gcd(i, 12) == 1 then
@@ -213,75 +279,44 @@ for i = 1, 20 do
     end
 end
 -- {1, 5, 7, 11, 13, 17, 19}
-```
-
-### Prime Gaps
-
-```lua
--- Find gaps between consecutive primes
-local primes = nt.primes(100)
-for i = 2, #primes do
-    local gap = primes[i] - primes[i-1]
-    print("Gap between " .. primes[i-1] .. " and " .. primes[i] .. ": " .. gap)
-end
+print(#coprimes)  -- 7
 ```
 
 ### Goldbach Conjecture Verification
 
 ```lua
--- Verify: every even number > 2 is sum of two primes
 local function verify_goldbach(n)
     assert(n % 2 == 0 and n > 2, "n must be even and > 2")
-
-    for i = 2, n/2 do
-        if nt.is_prime(i) and nt.is_prime(n - i) then
-            return i, n - i
+    local primes = nt.primes_up_to(n)
+    for _, p in ipairs(primes) do
+        if nt.is_prime(n - p) then
+            return p, n - p
         end
     end
-    return nil
 end
 
 local p1, p2 = verify_goldbach(100)
-print("100 = " .. p1 .. " + " .. p2)  -- 100 = 3 + 97 (or other)
+print("100 = " .. p1 .. " + " .. p2)  -- 100 = 3 + 97
 ```
 
-### Collatz Sequence
+### Chebyshev Prime Number Theorem Approximation
 
 ```lua
--- Generate Collatz sequence
-local function collatz_length(n)
-    local length = 0
-    while n ~= 1 do
-        if n % 2 == 0 then
-            n = n / 2
-        else
-            n = 3 * n + 1
-        end
-        length = length + 1
-    end
-    return length
+-- θ(x) / x → 1 as x → ∞ (Prime Number Theorem)
+for _, x in ipairs({100, 1000, 10000}) do
+    local ratio = nt.chebyshev_theta(x) / x
+    print(string.format("θ(%d)/x = %.4f", x, ratio))
 end
-
--- Find number with longest sequence up to 100
-local max_len, max_n = 0, 0
-for i = 1, 100 do
-    local len = collatz_length(i)
-    if len > max_len then
-        max_len, max_n = len, i
-    end
-end
-print("Longest sequence: " .. max_n .. " (length " .. max_len .. ")")
 ```
 
 ## Performance Notes
 
-- Uses Miller-Rabin primality test for large numbers
-- Sieve of Eratosthenes for generating primes
-- Trial division for small factorizations
-- Pollard's rho for large factorizations
+- `primes_up_to` uses a sieve; `prime_pi` and Chebyshev functions iterate over sieve output.
+- `factor` delegates to NumericSwift's factorization; performance depends on the NumericSwift version linked.
+- All functions that accept integers return `nil` (not an error) for out-of-range or invalid input.
 
 ## See Also
 
 - ``NumberTheoryModule``
 - <doc:MathXModule>
-- <doc:Modules/SpecialModule>
+- <doc:SpecialModule>

@@ -76,11 +76,16 @@ serialize.encode({b = 2, a = 1}, {indent = 2, sort_keys = true})
 Decode a serialized string back to a Lua value.
 
 **Parameters:**
-- `str` - String produced by `serialize.encode()`
+- `str` - A string in the serialized Lua literal format produced by `serialize.encode()`, or any
+  compatible hand-written Lua literal
 
 **Returns:** The deserialized Lua value
 
 **Throws:** Error if string is malformed or contains invalid syntax
+
+> **Note:** The decoder accepts both double-quoted (`"`) and single-quoted (`'`) strings. Single
+> quotes are not produced by `encode`, but are valid input for `decode`. This makes it convenient
+> to write table literals by hand or to round-trip data from sources that use single-quoted strings.
 
 **Examples:**
 
@@ -95,17 +100,25 @@ print(arr[1])  -- 1
 
 -- Mixed keys
 local mixed = serialize.decode('{[1] = "one", key = "value"}')
+
+-- Single-quoted strings are also accepted
+local s = serialize.decode("'hello'")
+print(s)  -- hello
 ```
 
 ### pretty(value, indent?)
 
-Convenience function for pretty-printed serialization with sorted keys.
+Convenience function for pretty-printed serialization.
 
 **Parameters:**
 - `value` - The value to serialize
 - `indent` (optional) - Number of spaces for indentation (default: 2)
 
-**Returns:** Pretty-printed string representation
+**Returns:** Pretty-printed string representation with sorted keys
+
+> **Note:** `pretty` always sorts table keys alphabetically (`sort_keys = true`). This is
+> hardcoded and cannot be overridden through this function. If you need unsorted keys with
+> indentation, use `encode(value, {indent = N})` directly.
 
 **Example:**
 
@@ -136,12 +149,16 @@ Convenience function for compact serialization (no whitespace, unsorted keys).
 
 **Returns:** Compact string representation
 
+> **Note:** Key order in the output is not guaranteed because `sort_keys` is `false`. The exact
+> ordering depends on Lua's internal table iteration order, which can vary between runs and Lua
+> versions.
+
 **Example:**
 
 ```lua
 local data = {a = 1, b = 2, c = {3, 4}}
 print(serialize.compact(data))
--- {a = 1, b = 2, c = {3, 4}}
+-- {a = 1, c = {3, 4}, b = 2}  -- key order is unspecified
 ```
 
 ### safe_decode(str)
@@ -212,6 +229,18 @@ serialize.encode(math.huge)   -- "math.huge"
 serialize.encode(-math.huge)  -- "-math.huge"
 serialize.encode(0/0)         -- "0/0" (NaN)
 ```
+
+### String Encoding and Escaping
+
+`encode` always wraps strings in double quotes. Non-printable bytes and bytes outside the ASCII
+printable range (32–126) are escaped using **decimal escape sequences** (`\ddd`) rather than hex
+escapes (`\xNN`). This is intentional for Lua 5.1 compatibility — Lua 5.1 does not support `\xNN`
+hex escapes, so `\ddd` ensures encoded output can be read on all supported Lua versions (5.1
+through 5.5).
+
+`decode` is more permissive on input: it accepts both `\ddd` decimal escapes and `\xNN` hex
+escapes, as well as single-quoted strings. This allows `decode` to round-trip data produced by
+other serializers that may use hex escapes or single quotes.
 
 ### Unsupported Types
 

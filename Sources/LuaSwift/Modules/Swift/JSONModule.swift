@@ -285,7 +285,10 @@ public struct JSONModule {
             throw JSONError.decodingFailed("Invalid UTF-8 string")
         }
 
-        let jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: [])
+        // `.fragmentsAllowed` lets top-level scalars (null, numbers, strings,
+        // booleans) decode rather than throw, so `decode(encode(x))` round-trips
+        // symmetrically — including the JSON-null sentinel from `json.null`.
+        let jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: [.fragmentsAllowed])
         return convertJSONToLua(jsonObject)
     }
 

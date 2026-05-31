@@ -117,6 +117,39 @@ final class JSONModuleTests: XCTestCase {
         XCTAssertEqual(result.stringValue, "null")
     }
 
+    func testDecodeTopLevelNull() throws {
+        // Bare top-level JSON null must decode to the json.null sentinel, not throw.
+        let result = try engine.evaluate("""
+            return luaswift.json.is_null(luaswift.json.decode("null"))
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testTopLevelNullRoundTrip() throws {
+        // encode(json.null) -> "null" -> decode must reproduce the sentinel.
+        let result = try engine.evaluate("""
+            local s = luaswift.json.encode(luaswift.json.null)
+            return luaswift.json.is_null(luaswift.json.decode(s))
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
+    func testDecodeTopLevelScalars() throws {
+        // Top-level scalars decode rather than throw (.fragmentsAllowed).
+        // Compare numerically so the assertion is independent of how each Lua
+        // version stringifies a float (5.1/5.2 "42" vs 5.3+ "42.0").
+        let result = try engine.evaluate("""
+            local n = luaswift.json.decode("42")
+            local s = luaswift.json.decode('"hello"')
+            local b = luaswift.json.decode("true")
+            return (n == 42 and s == "hello" and b == true)
+            """)
+
+        XCTAssertEqual(result.boolValue, true)
+    }
+
     func testNullRoundTripInArray() throws {
         let result = try engine.evaluate("""
             local tbl = luaswift.json.decode('{"arr":[1,null,3]}')

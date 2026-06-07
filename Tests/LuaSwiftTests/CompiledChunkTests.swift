@@ -147,6 +147,67 @@ final class CompiledChunkTests: XCTestCase {
         }
     }
 
+    /// A chunk whose `bytecode` is plain Lua source text — not a dumped binary
+    /// chunk — must be rejected before the loader sees it, even when the
+    /// provenance metadata is otherwise valid. Without the binary-signature
+    /// gate this executes as source on the Lua 5.1 load path (which uses
+    /// `luaL_loadbuffer`, accepting text), so this is the teeth of the 5.1 fix.
+    func testTextChunkDisguisedAsBytecodeIsRejected() throws {
+        let engine = try LuaEngine()
+        let chunk = try engine.precompile("return 1")
+        // Swap the dumped bytecode for plain Lua source while leaving the
+        // provenance stamp (luaVersion/sizes/endianness) untouched.
+        let source = Data("return os.time()".utf8)
+        let tampered = try reencode(chunk) {
+            $0["bytecode"] = source.base64EncodedString()
+        }
+        XCTAssertThrowsError(try engine.run(tampered)) { error in
+            guard case .syntaxError? = error as? LuaError else {
+                XCTFail("Expected .syntaxError, got \(error)")
+                return
+            }
+        }
+        XCTAssertThrowsError(try engine.evaluate(tampered)) { error in
+            guard case .syntaxError? = error as? LuaError else {
+                XCTFail("Expected .syntaxError, got \(error)")
+                return
+            }
+        }
+    }
+
+    /// A chunk whose `formatVersion` decodes as 0 (a value no real format ever
+    /// used — producible by a truncated or tampered cache) is rejected with a
+    /// runtimeError naming the version, not silently accepted.
+    func testZeroFormatVersionIsRejected() throws {
+        let engine = try LuaEngine()
+        let chunk = try engine.precompile("return 1")
+        let tampered = try reencode(chunk) { $0["formatVersion"] = 0 }
+        XCTAssertThrowsError(try engine.run(tampered)) { error in
+            guard case .runtimeError(let message)? = error as? LuaError else {
+                XCTFail("Expected .runtimeError, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("0"),
+                          "Message should name the version: \(message)")
+        }
+    }
+
+    /// A chunk whose `formatVersion` decodes as a negative number is rejected
+    /// with a runtimeError naming the version.
+    func testNegativeFormatVersionIsRejected() throws {
+        let engine = try LuaEngine()
+        let chunk = try engine.precompile("return 1")
+        let tampered = try reencode(chunk) { $0["formatVersion"] = -1 }
+        XCTAssertThrowsError(try engine.evaluate(tampered)) { error in
+            guard case .runtimeError(let message)? = error as? LuaError else {
+                XCTFail("Expected .runtimeError, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("-1"),
+                          "Message should name the version: \(message)")
+        }
+    }
+
     // MARK: - Tampered bytecode inside a valid envelope
 
     /// Corrupting the bytecode bytes while keeping the metadata valid must

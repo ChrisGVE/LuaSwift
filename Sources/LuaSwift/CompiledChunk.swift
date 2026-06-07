@@ -58,7 +58,10 @@ public struct CompiledChunk: Codable, Equatable, Sendable {
     // MARK: - Current-build provenance
 
     /// The encoded-representation version this build writes and the highest
-    /// it understands.
+    /// it understands. It is also the **minimum** accepted: a decoded
+    /// ``formatVersion`` below this value (`< 1`, i.e. `0` or negative, which a
+    /// tampered or truncated cache can produce) is rejected, since no such
+    /// format ever existed.
     internal static let currentFormatVersion = 1
 
     /// The Lua version embedded in this LuaSwift build, e.g. `"5.4"`.
@@ -107,9 +110,10 @@ public struct CompiledChunk: Codable, Equatable, Sendable {
     /// Byte order of the compiling host, `"little"` or `"big"`.
     public let endianness: String
 
-    /// The raw dumped bytecode. Internal so the bytes can only be executed
-    /// through the engine's provenance-checked entry points.
-    internal let bytecode: Data
+    /// The raw dumped bytecode. Private so the bytes can only be executed
+    /// through ``validatedBytecode()``, which runs both the provenance check
+    /// and the Lua binary-signature check before releasing them to the loader.
+    private let bytecode: Data
 
     /// Explicit keys so the encoded representation is a stable, documented
     /// contract independent of property order or future renames.
@@ -142,6 +146,11 @@ public struct CompiledChunk: Codable, Equatable, Sendable {
     /// provenance matches the running build. Called by the engine before any
     /// bytecode byte reaches the Lua loader.
     internal func validateCompatibleWithCurrentBuild() throws {
+        if formatVersion < 1 {
+            throw LuaError.runtimeError(
+                "CompiledChunk has unrecognized format version \(formatVersion) "
+                + "(minimum 1)")
+        }
         if formatVersion > Self.currentFormatVersion {
             throw LuaError.runtimeError(
                 "CompiledChunk format version \(formatVersion) is newer than "
@@ -172,5 +181,32 @@ public struct CompiledChunk: Codable, Equatable, Sendable {
                 + "but the engine is running on a \(Self.currentEndianness)-endian host; "
                 + "recompile the source with precompile(_:)")
         }
+    }
+
+    /// The first four bytes of every Lua binary chunk — `"\x1bLua"`, the value
+    /// of Lua's `LUA_SIGNATURE` macro. A chunk that does not begin with these
+    /// bytes is Lua *source* text, not dumped bytecode.
+    private static let luaSignature: [UInt8] = [0x1b, 0x4c, 0x75, 0x61]
+
+    /// The single choke point through which bytecode reaches the Lua loader.
+    ///
+    /// Runs **both** ``validateCompatibleWithCurrentBuild()`` (provenance) and
+    /// the Lua binary-signature check before returning the bytes. The signature
+    /// gate closes a hole on the Lua 5.1 load path, where the loader accepts
+    /// text chunks: without it, a chunk decoded from hostile JSON whose
+    /// `bytecode` is plain Lua source — with matching 5.1 provenance — would be
+    /// compiled and executed as source. Requiring the `\x1bLua` header means
+    /// only genuine dumped bytecode is ever loaded, on every Lua version.
+    ///
+    /// - Returns: The validated bytecode, safe to hand to the loader.
+    /// - Throws: `LuaError.runtimeError` if the provenance does not match the
+    ///   running build; `LuaError.syntaxError` if the bytes are not a binary
+    ///   chunk.
+    internal func validatedBytecode() throws -> Data {
+        try validateCompatibleWithCurrentBuild()
+        if !bytecode.starts(with: Self.luaSignature) {
+            throw LuaError.syntaxError("expected binary bytecode chunk")
+        }
+        return bytecode
     }
 }

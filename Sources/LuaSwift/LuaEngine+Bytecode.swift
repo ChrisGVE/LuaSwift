@@ -50,7 +50,9 @@ extension LuaEngine {
     /// The chunk's provenance metadata is validated against the running build
     /// first; a chunk compiled by a different Lua version, word size, or byte
     /// order is rejected with a descriptive ``LuaError/runtimeError(_:)``
-    /// instead of being fed to the Lua loader.
+    /// instead of being fed to the Lua loader. The bytes must also carry Lua's
+    /// binary signature (`\u{1b}Lua`); a chunk whose payload is plain source
+    /// text is rejected with `LuaError.syntaxError` rather than executed.
     ///
     /// The instruction-count limit (set via ``setInstructionLimit(_:)``)
     /// applies on this path exactly as it does for source execution.
@@ -62,8 +64,8 @@ extension LuaEngine {
     ///   `LuaError.syntaxError` if the bytecode fails to load,
     ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
     public func run(_ chunk: CompiledChunk) throws {
-        try chunk.validateCompatibleWithCurrentBuild()
-        _ = try loadAndExecuteBytecode(chunk.bytecode, returningValue: false)
+        let bytecode = try chunk.validatedBytecode()
+        _ = try loadAndExecuteBytecode(bytecode, returningValue: false)
     }
 
     /// Execute a precompiled chunk and return the result.
@@ -71,7 +73,9 @@ extension LuaEngine {
     /// The chunk's provenance metadata is validated against the running build
     /// first; a chunk compiled by a different Lua version, word size, or byte
     /// order is rejected with a descriptive ``LuaError/runtimeError(_:)``
-    /// instead of being fed to the Lua loader.
+    /// instead of being fed to the Lua loader. The bytes must also carry Lua's
+    /// binary signature (`\u{1b}Lua`); a chunk whose payload is plain source
+    /// text is rejected with `LuaError.syntaxError` rather than executed.
     ///
     /// The instruction-count limit (set via ``setInstructionLimit(_:)``)
     /// applies on this path exactly as it does for source evaluation.
@@ -84,8 +88,8 @@ extension LuaEngine {
     ///   `LuaError.syntaxError` if the bytecode fails to load,
     ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
     public func evaluate(_ chunk: CompiledChunk) throws -> LuaValue {
-        try chunk.validateCompatibleWithCurrentBuild()
-        return try loadAndExecuteBytecode(chunk.bytecode, returningValue: true)
+        let bytecode = try chunk.validatedBytecode()
+        return try loadAndExecuteBytecode(bytecode, returningValue: true)
     }
 
     /// Precompile Lua source code to bytecode.

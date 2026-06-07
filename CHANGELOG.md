@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-06-07
+
 ### Added
 - **Provenance-typed bytecode API** - New `CompiledChunk` struct (`Codable`, `Equatable`, `Sendable`) wraps dumped bytecode together with the compiling build's provenance (Lua version, `lua_Integer`/`lua_Number` sizes, endianness, plus a format-version field for safe evolution). `LuaEngine.precompile(_:)` produces chunks; the new `run(_:)`/`evaluate(_:)` overloads validate the chunk's metadata against the running build before any bytes reach the Lua loader, throwing a descriptive `LuaError.runtimeError` on mismatch. This closes the accidental-arbitrary-`Data` misuse of the bytecode path; note there is no cryptographic integrity of persisted caches — a tampered cache file remains the consumer's trust boundary ([#9](https://github.com/ChrisGVE/LuaSwift/issues/9)).
 - **Lua VM memory limit** - New `LuaEngineConfiguration.vmMemoryLimit` (default `0` = disabled) bounds **total Lua VM allocation** via a custom `lua_Alloc` allocator installed with `lua_newstate`. Growth beyond the ceiling is denied, surfacing as `LuaError.memoryError`; shrinks and frees are always allowed. This closes the gap where a single VM instruction calling a C function (e.g. `string.rep('A', 1e9)`) bypassed the instruction-count hook and allocated unbounded memory — the instruction limit is now documented as a CPU-bound control only ([#11](https://github.com/ChrisGVE/LuaSwift/issues/11)).

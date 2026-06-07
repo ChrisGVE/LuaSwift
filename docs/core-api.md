@@ -41,6 +41,32 @@ print(value.numberValue!) // 42.0
 try engine.seed(12345) // Reproducible math.random()
 ```
 
+### Precompiled Chunks
+
+Cache parsed Lua as a `CompiledChunk` to skip re-parsing on repeated execution:
+
+```swift
+// Compile once...
+let chunk = try engine.precompile("return x * 2")
+
+// ...execute many times
+try engine.run(chunk)                      // discard result
+let value = try engine.evaluate(chunk)     // return result
+```
+
+`CompiledChunk` is `Codable`, so it can be persisted (e.g. with `JSONEncoder`)
+and reloaded in a later launch. Each chunk is stamped with the provenance of the
+build that compiled it (Lua version, integer/number sizes, byte order); `run`/
+`evaluate` validate that metadata against the running engine and throw a
+descriptive `LuaError.runtimeError` on mismatch, so a stale cache fails cleanly
+instead of corrupting the VM. There is **no cryptographic integrity** protection
+of persisted caches — store them where untrusted code cannot write.
+
+> The former raw-`Data` API (`compile(_:)`, `runBytecode(_:)`,
+> `evaluateBytecode(_:)`) is deprecated. Migration: recompile sources with
+> `precompile(_:)` and persist the resulting `CompiledChunk` — raw bytecode
+> caches cannot be wrapped, only recompiled.
+
 ### Registering Swift Resources
 
 ```swift

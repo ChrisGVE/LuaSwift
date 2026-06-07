@@ -12,6 +12,13 @@ import XCTest
 @testable import LuaSwift
 
 /// Tests for the bytecode compile/load API: compile(_:), runBytecode(_:), evaluateBytecode(_:).
+///
+/// This API is deprecated in favor of the provenance-typed CompiledChunk path
+/// (see CompiledChunkTests), but its behavior must stay intact until removal.
+/// The class-level `@available(*, deprecated)` matches the tests' deprecation
+/// level to the API under test, silencing the deprecation warnings that
+/// intentional use of deprecated API would otherwise emit.
+@available(*, deprecated)
 final class BytecodeTests: XCTestCase {
 
     // MARK: - Round-trip

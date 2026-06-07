@@ -390,8 +390,9 @@ public final class LuaEngine {
     /// The limit is re-applied before every `pcall`, so it applies equally to
     /// each individual `run` and `evaluate` invocation.
     ///
-    /// The limit is enforced on every execution entry point — `run`, `evaluate`,
-    /// `runBytecode`, `evaluateBytecode`, `callLuaFunction`, and coroutine `resume`.
+    /// The limit is enforced on every execution entry point — `run`, `evaluate`
+    /// (both the source and `CompiledChunk` overloads), the deprecated
+    /// `runBytecode`/`evaluateBytecode`, `callLuaFunction`, and coroutine `resume`.
     ///
     /// - Note: The count is **per call**, not a lifetime budget. For coroutines the
     ///   count is reset to the full limit on every `resume`, so a coroutine that
@@ -725,6 +726,68 @@ public final class LuaEngine {
 
     // MARK: - Bytecode
 
+    /// Precompile Lua source code into a provenance-typed ``CompiledChunk``.
+    ///
+    /// Use this to cache compiled Lua expressions and avoid repeated parsing
+    /// overhead. The resulting chunk is executed with the `CompiledChunk`
+    /// overloads of `run(_:)`/`evaluate(_:)`, which verify
+    /// the chunk's stamped metadata — Lua version, `lua_Integer`/`lua_Number`
+    /// sizes, and byte order — against the running build before any bytes
+    /// reach the Lua loader. `CompiledChunk` is `Codable`, so chunks can be
+    /// persisted across launches; see ``CompiledChunk`` for the trust
+    /// boundary of persisted caches.
+    ///
+    /// - Parameter code: Valid Lua source code to compile
+    /// - Returns: The compiled chunk, stamped with this build's provenance
+    /// - Throws: `LuaError.syntaxError` if the source has syntax errors,
+    ///   `LuaError.runtimeError` if the bytecode dump fails
+    public func precompile(_ code: String) throws -> CompiledChunk {
+        CompiledChunk(bytecode: try compileSource(code))
+    }
+
+    /// Execute a precompiled chunk without returning a result.
+    ///
+    /// The chunk's provenance metadata is validated against the running build
+    /// first; a chunk compiled by a different Lua version, word size, or byte
+    /// order is rejected with a descriptive ``LuaError/runtimeError(_:)``
+    /// instead of being fed to the Lua loader.
+    ///
+    /// The instruction-count limit (set via ``setInstructionLimit(_:)``)
+    /// applies on this path exactly as it does for source execution.
+    ///
+    /// - Parameter chunk: A chunk produced by ``precompile(_:)`` (possibly
+    ///   decoded from a persisted cache)
+    /// - Throws: `LuaError.runtimeError` if the chunk's provenance does not
+    ///   match the running build or on runtime failure,
+    ///   `LuaError.syntaxError` if the bytecode fails to load,
+    ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
+    public func run(_ chunk: CompiledChunk) throws {
+        try chunk.validateCompatibleWithCurrentBuild()
+        _ = try loadAndExecuteBytecode(chunk.bytecode, returningValue: false)
+    }
+
+    /// Execute a precompiled chunk and return the result.
+    ///
+    /// The chunk's provenance metadata is validated against the running build
+    /// first; a chunk compiled by a different Lua version, word size, or byte
+    /// order is rejected with a descriptive ``LuaError/runtimeError(_:)``
+    /// instead of being fed to the Lua loader.
+    ///
+    /// The instruction-count limit (set via ``setInstructionLimit(_:)``)
+    /// applies on this path exactly as it does for source evaluation.
+    ///
+    /// - Parameter chunk: A chunk produced by ``precompile(_:)`` (possibly
+    ///   decoded from a persisted cache)
+    /// - Returns: The result of the execution as a ``LuaValue``
+    /// - Throws: `LuaError.runtimeError` if the chunk's provenance does not
+    ///   match the running build or on runtime failure,
+    ///   `LuaError.syntaxError` if the bytecode fails to load,
+    ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
+    public func evaluate(_ chunk: CompiledChunk) throws -> LuaValue {
+        try chunk.validateCompatibleWithCurrentBuild()
+        return try loadAndExecuteBytecode(chunk.bytecode, returningValue: true)
+    }
+
     /// Precompile Lua source code to bytecode.
     ///
     /// Use this to cache compiled Lua expressions and avoid repeated parsing overhead.
@@ -742,7 +805,20 @@ public final class LuaEngine {
     /// - Returns: Compiled bytecode as `Data`
     /// - Throws: `LuaError.syntaxError` if the source has syntax errors,
     ///   `LuaError.runtimeError` if the bytecode dump fails
+    @available(*, deprecated, message: """
+        Use precompile(_:) instead: it returns a provenance-typed \
+        CompiledChunk that run(_:)/evaluate(_:) validate before loading. \
+        Raw bytecode Data carries no provenance, and Lua's bytecode \
+        verifier is a no-op, so loading mismatched or crafted bytes can \
+        corrupt the VM.
+        """)
     public func compile(_ code: String) throws -> Data {
+        try compileSource(code)
+    }
+
+    /// Compile Lua source and dump it to bytecode. Shared machinery behind
+    /// ``precompile(_:)`` and the deprecated ``compile(_:)``.
+    private func compileSource(_ code: String) throws -> Data {
         lock.lock()
         defer { lock.unlock() }
 
@@ -788,65 +864,49 @@ public final class LuaEngine {
     /// - Throws: `LuaError.syntaxError` if the bytecode is corrupt or invalid,
     ///   `LuaError.runtimeError` on runtime failure,
     ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
+    @available(*, deprecated, message: """
+        Use run(_:) with a CompiledChunk from precompile(_:) instead. \
+        Accepting raw Data bypasses provenance validation, and Lua's \
+        bytecode verifier is a no-op, so crafted or mismatched bytes can \
+        corrupt the VM.
+        """)
     public func runBytecode(_ bytecode: Data) throws {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard let L = L else {
-            throw LuaError.initializationFailed
-        }
-
-        // Clear any previous write error
-        lastWriteError = nil
-
-        // Load bytecode — mode "b" accepts binary only
-        let loadResult = bytecode.withUnsafeBytes { raw -> Int32 in
-            guard let ptr = raw.baseAddress else { return LUA_ERRSYNTAX }
-            // luaL_loadbufferx (with mode) was added in Lua 5.2; 5.1 has only
-            // luaL_loadbuffer, which accepts both text and binary chunks.
-            #if LUA_VERSION_51
-            return luaL_loadbuffer(L, ptr.assumingMemoryBound(to: CChar.self),
-                                   bytecode.count, "=bytecode")
-            #else
-            return luaL_loadbufferx(L, ptr.assumingMemoryBound(to: CChar.self),
-                                    bytecode.count, "=bytecode", "b")
-            #endif
-        }
-        if loadResult != LUA_OK {
-            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(L, 1)
-            throw LuaError.syntaxError(message)
-        }
-
-        // Arm instruction-count hook (or disarm if limit is 0)
-        armInstructionHook(on: L)
-
-        // Execute with nresults=0 (discard any return values)
-        let callResult = lua_pcall(L, 0, 0, 0)
-        if callResult != LUA_OK {
-            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(L, 1)
-
-            if let writeError = lastWriteError {
-                lastWriteError = nil
-                throw writeError
-            }
-
-            throw errorFromCode(callResult, message: message)
-        }
+        _ = try loadAndExecuteBytecode(bytecode, returningValue: false)
     }
 
     /// Execute precompiled Lua bytecode and return the result.
     ///
     /// The instruction-count limit (set via ``setInstructionLimit(_:)``) applies
-    /// on this path exactly as it does for ``evaluate(_:)``.
+    /// on this path exactly as it does for source evaluation.
     ///
     /// - Parameter bytecode: Bytecode previously produced by ``compile(_:)``
     /// - Returns: The result of the execution as a ``LuaValue``
     /// - Throws: `LuaError.syntaxError` if the bytecode is corrupt or invalid,
     ///   `LuaError.runtimeError` on runtime failure,
     ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
+    @available(*, deprecated, message: """
+        Use evaluate(_:) with a CompiledChunk from precompile(_:) instead. \
+        Accepting raw Data bypasses provenance validation, and Lua's \
+        bytecode verifier is a no-op, so crafted or mismatched bytes can \
+        corrupt the VM.
+        """)
     public func evaluateBytecode(_ bytecode: Data) throws -> LuaValue {
+        try loadAndExecuteBytecode(bytecode, returningValue: true)
+    }
+
+    /// Load dumped bytecode and execute it under the instruction hook.
+    ///
+    /// Shared plumbing behind every bytecode execution entry point — the
+    /// `CompiledChunk` overloads of `run(_:)`/`evaluate(_:)` (after their
+    /// provenance check) and the deprecated raw-`Data`
+    /// `runBytecode(_:)`/`evaluateBytecode(_:)`.
+    ///
+    /// - Parameters:
+    ///   - bytecode: Dumped bytecode to load (mode "b") and call
+    ///   - returningValue: When `true`, executes with `nresults = 1` and
+    ///     returns the top-of-stack value; when `false`, discards results
+    ///     and returns `.nil`
+    private func loadAndExecuteBytecode(_ bytecode: Data, returningValue: Bool) throws -> LuaValue {
         lock.lock()
         defer { lock.unlock() }
 
@@ -879,8 +939,8 @@ public final class LuaEngine {
         // Arm instruction-count hook (or disarm if limit is 0)
         armInstructionHook(on: L)
 
-        // Execute with nresults=1 (expect one return value)
-        let callResult = lua_pcall(L, 0, 1, 0)
+        // Execute, keeping one return value only when the caller wants it
+        let callResult = lua_pcall(L, 0, returningValue ? 1 : 0, 0)
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
@@ -892,6 +952,8 @@ public final class LuaEngine {
 
             throw errorFromCode(callResult, message: message)
         }
+
+        guard returningValue else { return .nil }
 
         // Convert result
         let result = valueFromStack(at: -1)

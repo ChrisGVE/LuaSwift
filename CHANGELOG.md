@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Module-doc currency for the JSON-null sentinel** - `docs/modules/json.md` and `docs/modules/http.md` now document that `json.null` is the canonical JSON-null representation (preferring `json.is_null`), that the Swift `JSONNull`/`JSONModule.null` are deprecated for 2.0 removal, and that the HTTP `json` body encodes `json.null` as JSON `null`. These markdown references had lagged the v1.10.0 API change ([#17](https://github.com/ChrisGVE/LuaSwift/issues/17), [#25](https://github.com/ChrisGVE/LuaSwift/issues/25)).
+
 ## [1.10.0] - 2026-06-07
 
 ### Added

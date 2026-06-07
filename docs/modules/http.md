@@ -57,9 +57,18 @@ All HTTP functions accept an optional options table:
 |--------|------|---------|-------------|
 | `headers` | table | {} | Request headers |
 | `body` | string | nil | Raw body content |
-| `json` | table | nil | Table auto-encoded as JSON |
+| `json` | table | nil | Table auto-encoded as JSON (same encoding as `json.encode`) |
 | `timeout` | number | 30 | Timeout in seconds |
 | `follow_redirects` | boolean | true | Follow HTTP redirects |
+
+A `json.null` value inside the `json` body encodes as JSON `null`, matching
+`json.encode` (see [json](json.md#null)):
+
+```lua
+http.post("https://api.example.com/users", {
+    json = {name = "Jane", nickname = json.null}  -- → {"name":"Jane","nickname":null}
+})
+```
 
 ---
 

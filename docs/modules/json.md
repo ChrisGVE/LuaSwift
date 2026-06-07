@@ -85,12 +85,18 @@ local indented = json.encode({a = 1}, {pretty = true, indent = 4})
 
 ## null
 
-Sentinel value representing JSON null.
+Sentinel value representing JSON null. `json.null` is the canonical, internal
+representation of a JSON null on the Lua side: decoding a JSON `null` yields it,
+and encoding it produces a JSON `null`, so null survives a round-trip (a plain
+Lua `nil` could not — it would drop its key from the containing table).
+
+Prefer `json.is_null(v)` over `v == json.null` to test for it; the predicate
+also guards against a user table that happens to carry the internal marker key.
 
 ```lua
 -- Decoding null
 local data = json.decode('{"value": null}')
-if data.value == json.null then
+if json.is_null(data.value) then
     print("Value is null")
 end
 
@@ -98,6 +104,14 @@ end
 local str = json.encode({value = json.null})
 -- '{"value":null}'
 ```
+
+The HTTP module honors the same sentinel: a `json.null` value inside a request's
+`json` body encodes as JSON `null` (see [http](http.md)).
+
+> **Swift note.** The Swift-side `JSONNull` struct and `JSONModule.null` static
+> are **deprecated** (slated for removal in 2.0) — they were never bridged into
+> the Lua conversion paths. `json.null` (tested with `json.is_null`) is the one
+> canonical JSON-null representation.
 
 ---
 

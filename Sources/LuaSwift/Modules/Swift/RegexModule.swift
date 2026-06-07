@@ -40,6 +40,9 @@ import Foundation
 /// local match = regex.match(text, pattern)
 /// ```
 public struct RegexModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "RegexModule"
+
 
     /// Register the Regex module with a LuaEngine.
     ///

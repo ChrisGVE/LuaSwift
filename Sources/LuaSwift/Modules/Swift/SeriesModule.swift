@@ -35,6 +35,9 @@ import NumericSwift
 /// local info = series.partial_sums("1/2^n", {var="n", from=0, max_terms=20})
 /// ```
 public struct SeriesModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "SeriesModule"
+
 
     // MARK: - Constants
 

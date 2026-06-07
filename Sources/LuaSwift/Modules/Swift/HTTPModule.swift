@@ -60,6 +60,9 @@ import Foundation
 /// })
 /// ```
 public struct HTTPModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "HTTPModule"
+
 
     // MARK: - Session Management
 

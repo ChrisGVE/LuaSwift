@@ -69,10 +69,32 @@ public struct ModuleRegistry {
   /// ``ModuleInstallError`` so that one broken module cannot hide the
   /// state of the others.
   ///
+  /// The ordered module set is built from `[any LuaSwiftModule.Type]` under the
+  /// same `#if LUASWIFT_*` gates that select the package's optional
+  /// dependencies, and each module's failure label is derived from its
+  /// ``LuaSwiftModule/moduleName`` rather than a hardcoded string. The install
+  /// order is significant and preserved: `MathSciModule` creates the
+  /// `math.eval` namespace consumed by `MathExprModule`, and `SeriesModule`
+  /// runs after `MathExprModule` because it uses `eval`.
+  ///
+  /// A small prerequisite cascade protects those dependencies: if a documented
+  /// prerequisite failed (or was itself skipped), the dependent module is
+  /// skipped and recorded as a synthetic failure rather than being installed
+  /// against a half-built engine state. Concretely, `MathExprModule` is skipped
+  /// when `MathSciModule` failed, and `SeriesModule` is skipped when
+  /// `MathExprModule` failed or was skipped.
+  ///
+  /// `extend_stdlib` is run last. It is not a module — it wires the top-level
+  /// aliases and the `luaswift.extend_stdlib()` helper after every module is
+  /// installed — so it is collected as a trailing special step.
+  ///
   /// - Parameter engine: The Lua engine to install modules in
   /// - Throws: ``ModuleInstallError`` listing every module whose setup failed
   public static func install(in engine: LuaEngine) throws {
-    var failures: [(module: String, error: Error)] = []
+    var failures: [ModuleInstallError.Failure] = []
+    // Names of modules that either failed or were skipped, so the prerequisite
+    // cascade can short-circuit their dependents.
+    var unavailable: Set<String> = []
 
     /// Run one module installation, recording (not propagating) its failure
     /// so the remaining modules still get installed.
@@ -80,65 +102,86 @@ public struct ModuleRegistry {
       do {
         try installModule()
       } catch {
-        failures.append((module: moduleName, error: error))
+        failures.append(.init(module: moduleName, underlyingError: error))
+        unavailable.insert(moduleName)
       }
     }
 
-    // Core modules (always available)
-    collectFailure("JSONModule") { try JSONModule.install(in: engine) }
+    // Documented prerequisite edges (dependent → prerequisite). A dependent is
+    // skipped when its prerequisite is unavailable.
+    let prerequisites: [String: String] = [
+      "MathExprModule": "MathSciModule",
+      "SeriesModule": "MathExprModule",
+    ]
+
+    // Ordered module set. Gates mirror the optional dependencies declared in
+    // Package.swift; order within the NumericSwift block is load-bearing (see
+    // the doc comment above).
+    var modules: [any LuaSwiftModule.Type] = [JSONModule.self]
     #if LUASWIFT_YAMS
-      collectFailure("YAMLModule") { try YAMLModule.install(in: engine) }
+      modules.append(YAMLModule.self)
     #endif
     #if LUASWIFT_TOMLKIT
-      collectFailure("TOMLModule") { try TOMLModule.install(in: engine) }
+      modules.append(TOMLModule.self)
     #endif
-    collectFailure("RegexModule") { try RegexModule.install(in: engine) }
-    collectFailure("MathXModule") { try MathXModule.install(in: engine) }
-    collectFailure("UTF8XModule") { try UTF8XModule.install(in: engine) }
-    collectFailure("StringXModule") { try StringXModule.install(in: engine) }
-    collectFailure("TableXModule") { try TableXModule.install(in: engine) }
-    collectFailure("TypesModule") { try TypesModule.install(in: engine) }
-    collectFailure("SVGModule") { try SVGModule.install(in: engine) }
-
-    // ArraySwift-dependent module
+    modules.append(contentsOf: [
+      RegexModule.self,
+      MathXModule.self,
+      UTF8XModule.self,
+      StringXModule.self,
+      TableXModule.self,
+      TypesModule.self,
+      SVGModule.self,
+    ])
     #if LUASWIFT_ARRAYSWIFT
-      collectFailure("ArrayModule") { try ArrayModule.install(in: engine) }
+      modules.append(ArrayModule.self)
     #endif
-
-    // PlotSwift-dependent module
     #if LUASWIFT_PLOTSWIFT
-      collectFailure("PlotModule") { try PlotModule.install(in: engine) }
+      modules.append(PlotModule.self)
     #endif
-
-    // NumericSwift-dependent modules
     #if LUASWIFT_NUMERICSWIFT
-      collectFailure("LinAlgModule") { try LinAlgModule.install(in: engine) }
-      collectFailure("GeometryModule") { try GeometryModule.install(in: engine) }
-      collectFailure("ComplexModule") { try ComplexModule.install(in: engine) }
-      // MathSciModule must come before MathExprModule to create the math.eval namespace
-      collectFailure("MathSciModule") { try MathSciModule.install(in: engine) }
-      collectFailure("MathExprModule") { try MathExprModule.install(in: engine) }
-      collectFailure("OptimizeModule") { try OptimizeModule.install(in: engine) }
-      collectFailure("IntegrateModule") { try IntegrateModule.install(in: engine) }
-      collectFailure("DistributionsModule") { try DistributionsModule.install(in: engine) }
-      collectFailure("InterpolateModule") { try InterpolateModule.install(in: engine) }
-      collectFailure("ClusterModule") { try ClusterModule.install(in: engine) }
-      collectFailure("SpatialModule") { try SpatialModule.install(in: engine) }
-      collectFailure("SpecialModule") { try SpecialModule.install(in: engine) }
-      collectFailure("RegressModule") { try RegressModule.install(in: engine) }
-      // SeriesModule must come after MathExprModule (uses eval)
-      collectFailure("SeriesModule") { try SeriesModule.install(in: engine) }
-      collectFailure("NumberTheoryModule") { try NumberTheoryModule.install(in: engine) }
+      modules.append(contentsOf: [
+        LinAlgModule.self,
+        GeometryModule.self,
+        ComplexModule.self,
+        // MathSciModule must come before MathExprModule to create math.eval
+        MathSciModule.self,
+        MathExprModule.self,
+        OptimizeModule.self,
+        IntegrateModule.self,
+        DistributionsModule.self,
+        InterpolateModule.self,
+        ClusterModule.self,
+        SpatialModule.self,
+        SpecialModule.self,
+        RegressModule.self,
+        // SeriesModule must come after MathExprModule (uses eval)
+        SeriesModule.self,
+        NumberTheoryModule.self,
+      ])
     #endif
-
-    // Thales CAS module
     #if LUASWIFT_THALES
-      collectFailure("ThalesModule") { try ThalesModule.install(in: engine) }
+      modules.append(ThalesModule.self)
+    #endif
+    #if DEBUG
+      modules.append(DebugModule.self)
     #endif
 
-    #if DEBUG
-      collectFailure("DebugModule") { try DebugModule.install(in: engine) }
-    #endif
+    for moduleType in modules {
+      let name = moduleType.moduleName
+      if let prerequisite = prerequisites[name], unavailable.contains(prerequisite) {
+        // Prerequisite failed/skipped: record a synthetic skip rather than
+        // installing against a broken engine state.
+        failures.append(.init(
+          module: name,
+          underlyingError: ModulePrerequisiteError(module: name, prerequisite: prerequisite)))
+        unavailable.insert(name)
+        continue
+      }
+      collectFailure(name) { try moduleType.install(in: engine) }
+    }
+
+    // extend_stdlib is a finalization step, not a module.
     collectFailure("extend_stdlib") { try installExtendStdlib(in: engine) }
 
     if !failures.isEmpty {
@@ -620,5 +663,22 @@ public struct ModuleRegistry {
   @available(*, deprecated, message: "Use UIModule.install(in:) which surfaces setup failures.")
   public static func installUIModule(in engine: LuaEngine) {
     installSwallowingFailure("UIModule") { try UIModule.install(in: engine) }
+  }
+}
+
+/// Synthetic error recorded by ``ModuleRegistry/install(in:)`` for a module
+/// that was *skipped* because one of its documented prerequisites failed (or
+/// was itself skipped). The dependent is not installed against a half-built
+/// engine state; instead this stands in for it in the aggregated
+/// ``ModuleInstallError``.
+struct ModulePrerequisiteError: Error, LocalizedError {
+  /// The dependent module that was skipped.
+  let module: String
+
+  /// The prerequisite module whose unavailability caused the skip.
+  let prerequisite: String
+
+  var errorDescription: String? {
+    "skipped: \(prerequisite) prerequisite failed"
   }
 }

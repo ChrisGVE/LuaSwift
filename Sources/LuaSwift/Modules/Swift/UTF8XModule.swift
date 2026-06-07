@@ -44,6 +44,9 @@ import Foundation
 /// end
 /// ```
 public struct UTF8XModule: LuaSwiftModule {
+  /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+  public static let moduleName = "UTF8XModule"
+
 
   /// Register the UTF-8 extension module with a LuaEngine.
   ///

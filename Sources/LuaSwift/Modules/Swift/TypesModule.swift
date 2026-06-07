@@ -24,6 +24,9 @@ import Foundation
 /// print(types.is(c, "complex"))  -- true
 /// ```
 public struct TypesModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "TypesModule"
+
 
     // MARK: - Registration
 

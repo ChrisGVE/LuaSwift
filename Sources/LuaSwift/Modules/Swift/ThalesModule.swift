@@ -28,6 +28,9 @@ import Thales
 /// local sol = cas.solve("2*x + 5 = 13", "x")     -- "x = 4"
 /// ```
 public struct ThalesModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "ThalesModule"
+
 
     // MARK: - Registration
 

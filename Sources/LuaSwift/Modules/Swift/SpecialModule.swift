@@ -47,6 +47,9 @@ import NumericSwift
 /// local y = special.y0(1.0)       -- ~0.0883
 /// ```
 public struct SpecialModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "SpecialModule"
+
 
     /// Register the special functions module with a LuaEngine.
     ///

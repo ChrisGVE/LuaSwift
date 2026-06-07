@@ -55,6 +55,9 @@ import Foundation
 /// local r, theta = mathx.cart_to_polar(3, 4)
 /// ```
 public struct MathXModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "MathXModule"
+
 
     /// Register the math extension module with a LuaEngine.
     ///

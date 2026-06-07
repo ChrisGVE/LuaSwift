@@ -67,6 +67,9 @@ import Foundation
 /// local s = stringx.truncate("long text", 7)      -- "long..."
 /// ```
 public struct StringXModule: LuaSwiftModule {
+  /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+  public static let moduleName = "StringXModule"
+
 
   /// Register the StringX module with a LuaEngine.
   ///

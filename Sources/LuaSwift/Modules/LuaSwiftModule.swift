@@ -19,6 +19,14 @@
 /// which propagates Lua setup failures to the caller. The older
 /// `register(in:)` entry points swallowed those failures and are deprecated.
 public protocol LuaSwiftModule {
+    /// A stable, human-readable identifier for the module.
+    ///
+    /// ``ModuleRegistry`` uses this name to drive installation and to label
+    /// any failure it collects into ``ModuleInstallError``. By convention it
+    /// is the conforming type's own name (for example, `"JSONModule"`), so the
+    /// failure report matches the type a caller would reach for.
+    static var moduleName: String { get }
+
     /// Install the module in the given engine, registering its Swift
     /// callbacks and running its Lua setup code.
     ///

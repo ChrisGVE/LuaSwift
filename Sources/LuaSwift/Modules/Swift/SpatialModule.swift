@@ -46,6 +46,9 @@ import NumericSwift
 /// print(tri.simplices, tri.neighbors)
 /// ```
 public struct SpatialModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "SpatialModule"
+
 
     // MARK: - Registration
 

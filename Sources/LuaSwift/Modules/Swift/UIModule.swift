@@ -53,6 +53,9 @@ import Foundation
 ///
 /// Return value is the 1-indexed position of the button pressed.
 public struct UIModule: LuaSwiftModule {
+  /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+  public static let moduleName = "UIModule"
+
 
   // MARK: - Internal Types
 

@@ -50,6 +50,9 @@
   /// local ctx = fig:get_context()
   /// ```
   public struct PlotModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "PlotModule"
+
 
     // Types (Color, TextStyle, LineStyle, MarkerStyle, DrawingCommand, DrawingContext)
     // are now in the PlotSwift package

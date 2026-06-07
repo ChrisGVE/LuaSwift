@@ -35,6 +35,9 @@ import NumericSwift
 /// print(cs.derivative(1.5))  -- first derivative
 /// ```
 public struct InterpolateModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "InterpolateModule"
+
 
     // MARK: - Helper Functions
 

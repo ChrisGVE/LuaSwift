@@ -56,6 +56,9 @@ import Foundation
 /// these directories will throw an error. Path traversal attacks (using ..)
 /// are detected and blocked.
 public struct IOModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "IOModule"
+
 
     /// Allowed directories for file operations (thread-local per engine)
     private static let allowedDirectoriesKey = "LuaSwift.IOModule.AllowedDirectories"

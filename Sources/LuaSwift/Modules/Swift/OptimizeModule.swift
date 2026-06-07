@@ -39,6 +39,9 @@ import NumericSwift
 /// print(result.x[1], result.x[2], result.fun)
 /// ```
 public struct OptimizeModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "OptimizeModule"
+
 
     // MARK: - Registration
 

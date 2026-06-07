@@ -34,6 +34,9 @@ import NumericSwift
 /// print(f(math.pi))  -- ~0
 /// ```
 public struct MathExprModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "MathExprModule"
+
 
     // MARK: - AST to Lua Conversion
 

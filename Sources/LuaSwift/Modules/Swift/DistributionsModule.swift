@@ -44,6 +44,9 @@ import NumericSwift
 /// local y = math.stats.norm.pdf(5, mu, sigma)
 /// ```
 public struct DistributionsModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "DistributionsModule"
+
 
     // MARK: - Helper Functions
 

@@ -32,6 +32,9 @@ import Foundation
 /// local null = json.null
 /// ```
 public struct JSONModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "JSONModule"
+
     /// Sentinel value for JSON null.
     ///
     /// Vestigial: this value was never bridged into the Lua conversion paths.

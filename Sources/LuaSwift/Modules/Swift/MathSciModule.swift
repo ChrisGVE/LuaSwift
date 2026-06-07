@@ -57,6 +57,9 @@ import Foundation
 /// local c = math.constants.pi      -- 3.14159...
 /// ```
 public struct MathSciModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "MathSciModule"
+
 
     /// Register the unified math/scientific module with a LuaEngine.
     ///

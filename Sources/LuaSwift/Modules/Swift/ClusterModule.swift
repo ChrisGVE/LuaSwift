@@ -40,6 +40,9 @@ import NumericSwift
 /// print(result.core_samples)   -- indices of core samples
 /// ```
 public struct ClusterModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "ClusterModule"
+
 
     // MARK: - Constants
 

@@ -61,6 +61,9 @@ import NumericSwift
 /// local vals, vecs = m:eigen()  -- eig also works
 /// ```
 public struct LinAlgModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "LinAlgModule"
+
 
     /// Register the linear algebra module with a LuaEngine.
     ///

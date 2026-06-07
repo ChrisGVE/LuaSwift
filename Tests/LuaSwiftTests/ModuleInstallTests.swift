@@ -32,13 +32,30 @@ final class ModuleInstallTests: XCTestCase {
         })
         """
 
+    /// Booby-traps both the `json` and `regex` namespace keys so that two
+    /// independent (non-prerequisite) module installs fail in one run.
+    private let jsonAndRegexPoison = """
+        luaswift = setmetatable({}, {
+            __newindex = function(t, k, v)
+                if k == "json" or k == "regex" then
+                    error("poisoned: " .. k .. " namespace")
+                end
+                rawset(t, k, v)
+            end
+        })
+        """
+
     // MARK: - install(in:) surfaces setup failures
 
     func testModuleInstallSurfacesSetupFailure() throws {
         let engine = try LuaEngine()
         try engine.run(jsonPoison)
 
-        XCTAssertThrowsError(try JSONModule.install(in: engine))
+        XCTAssertThrowsError(try JSONModule.install(in: engine)) { error in
+            // The Lua runtime error from the poisoned namespace surfaces as a
+            // LuaError rather than some opaque type.
+            XCTAssertTrue(error is LuaError, "Expected LuaError, got \(type(of: error))")
+        }
     }
 
     func testModuleInstallSucceedsOnFreshEngine() throws {
@@ -112,4 +129,91 @@ final class ModuleInstallTests: XCTestCase {
         let mathx = try engine.evaluate("return type(luaswift.mathx)")
         XCTAssertEqual(mathx.stringValue, "table")
     }
+
+    // MARK: - Multiple independent failures
+
+    func testMultipleModuleFailuresCollected() throws {
+        let engine = try LuaEngine()
+        try engine.run(jsonAndRegexPoison)
+
+        XCTAssertThrowsError(try ModuleRegistry.install(in: engine)) { error in
+            guard let installError = error as? ModuleInstallError else {
+                XCTFail("Expected ModuleInstallError, got \(error)")
+                return
+            }
+            XCTAssertEqual(installError.failures.count, 2)
+            let names = Set(installError.failures.map { $0.module })
+            XCTAssertTrue(names.contains("JSONModule"))
+            XCTAssertTrue(names.contains("RegexModule"))
+            // errorDescription pluralizes when more than one module failed.
+            XCTAssertTrue(
+                installError.errorDescription?.contains("2 modules failed") == true,
+                "Description should pluralize: \(installError.errorDescription ?? "nil")")
+        }
+
+        // A module unrelated to either poisoned namespace still installed.
+        let stringx = try engine.evaluate("return type(luaswift.stringx)")
+        XCTAssertEqual(stringx.stringValue, "table")
+    }
+
+    // MARK: - moduleName drives the registry
+
+    func testModuleNameMatchesTypeName() {
+        XCTAssertEqual(JSONModule.moduleName, "JSONModule")
+        XCTAssertEqual(RegexModule.moduleName, "RegexModule")
+        XCTAssertEqual(StringXModule.moduleName, "StringXModule")
+    }
+
+    // MARK: - Prerequisite cascade
+
+    #if LUASWIFT_NUMERICSWIFT
+        /// Poisons the `mathsci` namespace so MathSciModule fails; its
+        /// dependents (MathExprModule, then SeriesModule) must be skipped with a
+        /// prerequisite reason rather than installed against a broken state.
+        private let mathsciPoison = """
+            luaswift = setmetatable({}, {
+                __newindex = function(t, k, v)
+                    if k == "mathsci" then error("poisoned: mathsci namespace") end
+                    rawset(t, k, v)
+                end
+            })
+            """
+
+        func testPrerequisiteCascadeSkipsDependents() throws {
+            let engine = try LuaEngine()
+            try engine.run(mathsciPoison)
+
+            XCTAssertThrowsError(try ModuleRegistry.install(in: engine)) { error in
+                guard let installError = error as? ModuleInstallError else {
+                    XCTFail("Expected ModuleInstallError, got \(error)")
+                    return
+                }
+                let byName = Dictionary(
+                    installError.failures.map { ($0.module, $0.underlyingError) },
+                    uniquingKeysWith: { first, _ in first })
+
+                // The prerequisite itself failed for the poisoned reason.
+                XCTAssertNotNil(byName["MathSciModule"])
+
+                // Both dependents were skipped, not installed, carrying the
+                // synthetic prerequisite error.
+                for dependent in ["MathExprModule", "SeriesModule"] {
+                    guard let underlying = byName[dependent] else {
+                        XCTFail("\(dependent) should have been skipped")
+                        continue
+                    }
+                    XCTAssertTrue(
+                        underlying is ModulePrerequisiteError,
+                        "\(dependent) should carry ModulePrerequisiteError, got \(type(of: underlying))")
+                    XCTAssertTrue(
+                        underlying.localizedDescription.contains("prerequisite"),
+                        "\(dependent) reason should mention the prerequisite: \(underlying.localizedDescription)")
+                }
+            }
+
+            // An unrelated module (no prerequisite) still installed fine.
+            let mathx = try engine.evaluate("return type(luaswift.mathx)")
+            XCTAssertEqual(mathx.stringValue, "table")
+        }
+    #endif
 }

@@ -45,6 +45,9 @@ import os.log
 /// debug.console.timeEnd("operation")  -- Prints elapsed time
 /// ```
 public struct DebugModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "DebugModule"
+
 
     /// Current minimum log level
     private static var logLevel: LogLevel = .debug

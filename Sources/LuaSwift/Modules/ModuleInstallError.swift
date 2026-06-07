@@ -21,20 +21,56 @@ import Foundation
 /// The registry installs every module in its set even when some fail, then
 /// throws this error listing each failed module together with the underlying
 /// error. Modules not listed in ``failures`` were installed successfully.
-public struct ModuleInstallError: Error, LocalizedError {
-    /// The modules that failed to install, in installation order, each
-    /// paired with the error its setup raised.
-    public let failures: [(module: String, error: Error)]
+///
+/// A non-empty ``failures`` list is an invariant: the public initializer
+/// rejects an empty array (see ``init(failures:)``), so a `ModuleInstallError`
+/// that names zero failures is unrepresentable.
+public struct ModuleInstallError: Error, LocalizedError, Sendable, Equatable {
+    /// One module's installation failure: the failed module's name paired
+    /// with the error its setup raised.
+    public struct Failure: Sendable {
+        /// The name of the module that failed to install — its
+        /// ``LuaSwiftModule/moduleName``.
+        public let module: String
 
-    public init(failures: [(module: String, error: Error)]) {
+        /// The error raised by the module's `install(in:)` setup.
+        public let underlyingError: Error
+
+        public init(module: String, underlyingError: Error) {
+            self.module = module
+            self.underlyingError = underlyingError
+        }
+    }
+
+    /// The modules that failed to install, in installation order. Guaranteed
+    /// non-empty (enforced by ``init(failures:)``).
+    public let failures: [Failure]
+
+    /// Create an aggregate failure.
+    ///
+    /// - Parameter failures: The per-module failures, in installation order.
+    /// - Precondition: `failures` must not be empty — an error that names no
+    ///   failed module is meaningless, so the empty state is rejected here
+    ///   rather than being silently representable.
+    public init(failures: [Failure]) {
+        precondition(!failures.isEmpty, "ModuleInstallError requires at least one failure")
         self.failures = failures
     }
 
     public var errorDescription: String? {
         let details = failures
-            .map { "\($0.module): \($0.error.localizedDescription)" }
+            .map { "\($0.module): \($0.underlyingError.localizedDescription)" }
             .joined(separator: "; ")
         let plural = failures.count == 1 ? "module" : "modules"
         return "\(failures.count) \(plural) failed to install — \(details)"
+    }
+
+    /// Two errors are equal when they name the same failed modules in the same
+    /// order.
+    ///
+    /// - Note: Comparison is on ``Failure/module`` names only. The underlying
+    ///   `any Error` values are excluded because `Error` is not `Equatable`.
+    public static func == (lhs: ModuleInstallError, rhs: ModuleInstallError) -> Bool {
+        lhs.failures.map(\.module) == rhs.failures.map(\.module)
     }
 }

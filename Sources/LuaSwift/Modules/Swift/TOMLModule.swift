@@ -39,6 +39,9 @@ import TOMLKit
 /// })
 /// ```
 public struct TOMLModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "TOMLModule"
+
     /// Register the TOML module with a LuaEngine.
     ///
     /// This creates a global table `luaswift` with a nested `toml` table containing:

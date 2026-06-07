@@ -31,6 +31,9 @@
   /// print(np.sum(c))  -- 21
   /// ```
   public struct ArrayModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "ArrayModule"
+
     /// Register the array module in the given engine.
     /// - Throws: An error if the module's Lua setup code fails to run.
     public static func install(in engine: LuaEngine) throws {

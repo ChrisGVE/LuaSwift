@@ -41,6 +41,9 @@ import NumericSwift
 /// )
 /// ```
 public struct IntegrateModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "IntegrateModule"
+
 
     // MARK: - Helper: Convert String to ODEMethod
 

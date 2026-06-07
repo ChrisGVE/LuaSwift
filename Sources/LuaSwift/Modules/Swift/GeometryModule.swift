@@ -30,6 +30,9 @@ import NumericSwift
 /// local rotated = q:rotate(geo.vec3(1, 0, 0))
 /// ```
 public struct GeometryModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "GeometryModule"
+
 
     // MARK: - Registration
 

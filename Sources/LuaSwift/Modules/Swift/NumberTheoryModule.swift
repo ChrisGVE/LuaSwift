@@ -47,6 +47,9 @@ import NumericSwift
 /// local pi = nt.prime_pi(100)  -- 25
 /// ```
 public struct NumberTheoryModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "NumberTheoryModule"
+
 
     /// Register the number theory module with a LuaEngine.
     ///

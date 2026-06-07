@@ -34,6 +34,9 @@ import Yams
 /// local str = yaml.encode_all({{foo=1}, {bar=2}})
 /// ```
 public struct YAMLModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "YAMLModule"
+
     /// Register the YAML module with a LuaEngine.
     ///
     /// This creates a global table `luaswift` with a nested `yaml` table containing:

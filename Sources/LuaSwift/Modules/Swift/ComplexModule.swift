@@ -28,6 +28,9 @@ import NumericSwift
 /// print(z1:exp())
 /// ```
 public struct ComplexModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "ComplexModule"
+
 
     // MARK: - Registration
 

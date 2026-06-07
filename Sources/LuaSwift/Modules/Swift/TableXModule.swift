@@ -61,6 +61,9 @@ import Foundation
 /// local deq = tablex.deepequals(t1, t2)              -- Deep equality
 /// ```
 public struct TableXModule: LuaSwiftModule {
+  /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+  public static let moduleName = "TableXModule"
+
 
   /// Register the table utilities module with a LuaEngine.
   ///

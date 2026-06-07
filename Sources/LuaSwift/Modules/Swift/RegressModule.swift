@@ -46,6 +46,9 @@ import NumericSwift
 /// local ci = results:conf_int(0.05)
 /// ```
 public struct RegressModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "RegressModule"
+
 
     // MARK: - Registration
 

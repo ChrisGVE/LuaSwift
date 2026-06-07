@@ -33,6 +33,9 @@ import Foundation
 /// local output = drawing:render()
 /// ```
 public struct SVGModule: LuaSwiftModule {
+    /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
+    public static let moduleName = "SVGModule"
+
 
     // MARK: - Registration
 

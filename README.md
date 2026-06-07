@@ -353,7 +353,8 @@ let engine = try LuaEngine()
 let config = LuaEngineConfiguration(
     sandboxed: true,              // Remove dangerous functions
     packagePath: "/path/to/lua",  // Custom require() path
-    memoryLimit: 50_000_000       // 50 MB limit for Swift modules (array, linalg, etc.)
+    memoryLimit: 50_000_000,      // 50 MB limit for Swift modules (array, linalg, etc.)
+    vmMemoryLimit: 64_000_000     // 64 MB ceiling on total Lua VM allocation
 )
 let engine = try LuaEngine(configuration: config)
 
@@ -362,6 +363,8 @@ let engine = try LuaEngine(configuration: .unrestricted)
 ```
 
 **Sandboxing removes:** `os.execute`, `os.exit`, `io.*`, `debug.*`, `loadfile`, `dofile`, `load`
+
+**Resource limits:** `memoryLimit` bounds buffers allocated by Swift-backed modules, while `vmMemoryLimit` bounds total Lua VM allocation (strings, tables, etc.) via a custom allocator — a breach surfaces as `LuaError.memoryError`. The instruction limit (`setInstructionLimit`) is a CPU-bound control only: a single VM instruction calling a C function (such as `string.rep('A', 1e9)`) is not interrupted by it, so pair it with `vmMemoryLimit` when running untrusted code.
 
 ## App Store Compliance
 

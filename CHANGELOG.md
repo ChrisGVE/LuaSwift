@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Lua VM memory limit** - New `LuaEngineConfiguration.vmMemoryLimit` (default `0` = disabled) bounds **total Lua VM allocation** via a custom `lua_Alloc` allocator installed with `lua_newstate`. Growth beyond the ceiling is denied, surfacing as `LuaError.memoryError`; shrinks and frees are always allowed. This closes the gap where a single VM instruction calling a C function (e.g. `string.rep('A', 1e9)`) bypassed the instruction-count hook and allocated unbounded memory — the instruction limit is now documented as a CPU-bound control only ([#11](https://github.com/ChrisGVE/LuaSwift/issues/11)).
 - **Throwing module-install API** - Every Swift-backed module now exposes `install(in:)` (via the new `LuaSwiftModule` protocol), which propagates Lua setup failures instead of swallowing them. `ModuleRegistry.install(in:)` installs the full module set, continuing past individual failures and throwing a single `ModuleInstallError` that lists every module whose setup failed ([#12](https://github.com/ChrisGVE/LuaSwift/issues/12)).
 
 ### Deprecated

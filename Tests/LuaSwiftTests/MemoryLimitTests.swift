@@ -18,9 +18,11 @@ final class MemoryLimitTests: XCTestCase {
 
     /// Documents that memoryLimit only applies to Swift module allocations, NOT Lua VM.
     ///
-    /// This is an important limitation: Lua strings, tables, and other Lua-native
-    /// objects can grow without bound even with memoryLimit set. Only Swift-backed
-    /// modules (array, linalg, etc.) respect this limit via trackAllocation().
+    /// Lua strings, tables, and other Lua-native objects can grow without bound
+    /// even with memoryLimit set. Only Swift-backed modules (array, linalg, etc.)
+    /// respect this limit via trackAllocation(). To bound Lua VM memory, set
+    /// `vmMemoryLimit`, which installs a custom allocator — see
+    /// VMMemoryLimitTests.swift for that side of the picture.
     func testMemoryLimitAppliesToSwiftModulesOnly() throws {
         // Set a very low memory limit (1KB)
         let engine = try LuaEngine(configuration: .init(

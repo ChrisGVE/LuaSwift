@@ -77,8 +77,8 @@ public struct LuaEngineConfiguration {
     /// - Important: This limit applies **only** to Swift module allocations
     ///   (tracked via ``LuaEngine/trackAllocation(bytes:)``), **not** to Lua VM
     ///   allocations. Lua strings, tables, and other Lua-native objects are not
-    ///   tracked by this limit. To limit total Lua VM memory, a custom allocator
-    ///   via `lua_setallocf` would be required (not currently implemented).
+    ///   tracked by this limit. To bound total Lua VM memory, set
+    ///   ``vmMemoryLimit``, which installs a custom allocator.
     ///
     /// - Note: Each `Double` in array modules consumes 8 bytes. A 1000-element
     ///   array requires approximately 8KB of tracked memory.
@@ -86,18 +86,52 @@ public struct LuaEngineConfiguration {
     /// Default: `0` (unlimited)
     public var memoryLimit: Int
 
+    /// Ceiling in bytes on **total Lua VM allocation** (0 = disabled).
+    ///
+    /// When set to a positive value, the engine creates its Lua state with a
+    /// custom `lua_Alloc` allocator that accounts every byte the VM allocates
+    /// (strings, tables, closures, userdata, internal structures). Any
+    /// allocation growth that would push the total beyond this ceiling is
+    /// denied; Lua sees an allocation failure and the running script fails
+    /// with ``LuaError/memoryError(_:)``. Shrinks and frees are always allowed,
+    /// per the Lua allocator contract.
+    ///
+    /// This **complements** (does not replace) ``memoryLimit``: `memoryLimit`
+    /// bounds buffers allocated by Swift-backed modules, while `vmMemoryLimit`
+    /// bounds the Lua VM itself. It also complements
+    /// ``LuaEngine/setInstructionLimit(_:)``, which is a CPU-bound control
+    /// only: a single VM instruction calling a C function — for example
+    /// `string.rep('A', 1e9)` — is never interrupted by the instruction hook,
+    /// but its ~1 GB allocation is denied by this limit (issue #11).
+    ///
+    /// - Important: Choose a limit with enough headroom for the standard
+    ///   libraries and your scripts' working set. Engine initialization itself
+    ///   needs a few hundred kilobytes; a limit below that makes
+    ///   ``LuaEngine/init(configuration:)`` throw cleanly
+    ///   (``LuaError/initializationFailed`` or ``LuaError/memoryError(_:)``).
+    ///   As a rule of thumb, use at least 1 MB.
+    ///
+    /// Default: `0` (disabled — the state is created with `luaL_newstate`,
+    /// exactly as before this option existed)
+    public var vmMemoryLimit: Int
+
     /// Default configuration with sandboxing enabled.
     ///
     /// This is the recommended configuration for most use cases.
     /// Dangerous functions are disabled but all safe standard libraries
-    /// are available.
+    /// are available. Neither memory limit is set (`memoryLimit` and
+    /// ``vmMemoryLimit`` are both `0`).
     public static let `default` = LuaEngineConfiguration(
         sandboxed: true,
         packagePath: nil,
-        memoryLimit: 0
+        memoryLimit: 0,
+        vmMemoryLimit: 0
     )
 
     /// Configuration with no restrictions (use with caution).
+    ///
+    /// No sandbox and no memory limits (`memoryLimit` and ``vmMemoryLimit``
+    /// are both `0`).
     ///
     /// - Warning: Only use this configuration with trusted Lua code.
     ///   Unrestricted access allows file operations, system commands,
@@ -105,7 +139,8 @@ public struct LuaEngineConfiguration {
     public static let unrestricted = LuaEngineConfiguration(
         sandboxed: false,
         packagePath: nil,
-        memoryLimit: 0
+        memoryLimit: 0,
+        vmMemoryLimit: 0
     )
 
     /// Creates a new engine configuration.
@@ -115,10 +150,14 @@ public struct LuaEngineConfiguration {
     ///   - packagePath: Custom path for Lua module loading. Default `nil`.
     ///   - memoryLimit: Maximum memory in bytes for Swift module allocations
     ///     (0 = unlimited). Does not limit Lua VM allocations. Default `0`.
-    public init(sandboxed: Bool, packagePath: String?, memoryLimit: Int) {
+    ///   - vmMemoryLimit: Ceiling in bytes on total Lua VM allocation,
+    ///     enforced by a custom allocator (0 = disabled). See
+    ///     ``vmMemoryLimit``. Default `0`.
+    public init(sandboxed: Bool, packagePath: String?, memoryLimit: Int, vmMemoryLimit: Int = 0) {
         self.sandboxed = sandboxed
         self.packagePath = packagePath
         self.memoryLimit = memoryLimit
+        self.vmMemoryLimit = vmMemoryLimit
     }
 }
 
@@ -256,6 +295,13 @@ public final class LuaEngine {
     /// Last write error (used to communicate errors from __newindex callback)
     fileprivate var lastWriteError: LuaError?
 
+    /// Allocation-accounting box passed as `ud` to the custom `lua_Alloc`
+    /// function when ``LuaEngineConfiguration/vmMemoryLimit`` is set.
+    /// `nil` when the limit is disabled (state created via `luaL_newstate`).
+    /// Freed in `deinit`, strictly **after** `lua_close` — the allocator
+    /// dereferences it for every free performed during close.
+    private var vmAccounting: UnsafeMutablePointer<VMAllocationAccounting>?
+
     /// Current allocated bytes tracked by Swift modules
     private var _allocatedBytes: Int = 0
 
@@ -354,6 +400,14 @@ public final class LuaEngine {
     ///   call `coroutine.yield()`; if you need a hard sandbox, also restrict or remove
     ///   the `coroutine` library.
     ///
+    /// - Important: The instruction limit is a **CPU-bound control only**. The
+    ///   count hook fires between VM instructions, so a *single* instruction
+    ///   that calls a C function — `string.rep('A', 1e9)`, pathological
+    ///   `string.find`/`string.gsub` patterns, long-running Swift callbacks —
+    ///   runs to completion uninterrupted and is free to allocate unbounded
+    ///   memory. Pair the instruction limit with
+    ///   ``LuaEngineConfiguration/vmMemoryLimit`` to also bound Lua VM memory.
+    ///
     /// - Parameter count: Maximum instruction count per call. Pass `0` to disable
     ///   the hook entirely (the default). Negative values are treated as `0`.
     ///   Values above `Int32.max` are clamped to `Int32.max` (the hook count is a
@@ -385,14 +439,36 @@ public final class LuaEngine {
     public init(configuration: LuaEngineConfiguration = .default) throws {
         self.configuration = configuration
 
-        // Create Lua state
-        guard let state = luaL_newstate() else {
-            throw LuaError.initializationFailed
+        // Create Lua state — with a custom accounting allocator when a VM
+        // memory limit is configured, otherwise via luaL_newstate exactly as
+        // before (zero behavior change for existing users).
+        let state: OpaquePointer
+        if configuration.vmMemoryLimit > 0 {
+            state = try Self.makeLimitedState(limit: configuration.vmMemoryLimit,
+                                              accounting: &vmAccounting)
+        } else {
+            guard let unlimited = luaL_newstate() else {
+                throw LuaError.initializationFailed
+            }
+            state = unlimited
         }
         self.L = state
 
-        // Open standard libraries
-        luaL_openlibs(state)
+        // Open standard libraries. With a VM limit active, run them inside a
+        // protected call so an allocation denial during library setup throws
+        // cleanly instead of aborting via the panic handler.
+        if configuration.vmMemoryLimit > 0 {
+            do {
+                try Self.openLibrariesProtected(on: state)
+            } catch {
+                lua_close(state)
+                self.L = nil
+                freeVMAccounting()
+                throw error
+            }
+        } else {
+            luaL_openlibs(state)
+        }
 
         // Apply sandboxing if enabled
         if configuration.sandboxed {
@@ -405,10 +481,89 @@ public final class LuaEngine {
         }
     }
 
+    /// Create a Lua state whose every allocation is accounted against `limit`.
+    ///
+    /// Replicates the post-creation setup that the bundled `luaL_newstate`
+    /// performs (panic handler; warning system on Lua 5.4+), since
+    /// `lua_newstate` alone installs neither.
+    ///
+    /// On success the heap-allocated accounting box is handed to the caller
+    /// via `accounting` (ownership transfers; free it after `lua_close`).
+    private static func makeLimitedState(
+        limit: Int,
+        accounting: inout UnsafeMutablePointer<VMAllocationAccounting>?
+    ) throws -> OpaquePointer {
+        let box = UnsafeMutablePointer<VMAllocationAccounting>.allocate(capacity: 1)
+        box.initialize(to: VMAllocationAccounting(totalBytes: 0, limit: limit))
+
+        // Lua 5.5's lua_newstate takes a third random-seed parameter;
+        // mirror the bundled luaL_newstate, which seeds via luaL_makeseed.
+        #if LUA_VERSION_55
+        let state = lua_newstate(vmLimitedAlloc, box, luaL_makeseed(nil))
+        #else
+        let state = lua_newstate(vmLimitedAlloc, box)
+        #endif
+        guard let state = state else {
+            // Initial state allocation denied or failed — same error the
+            // luaL_newstate path throws.
+            box.deinitialize(count: 1)
+            box.deallocate()
+            throw LuaError.initializationFailed
+        }
+        accounting = box
+
+        _ = lua_atpanic(state, vmPanic)
+        #if LUA_VERSION_54 || LUA_VERSION_55
+        // Default is warnings off, switchable with warn("@on") — exactly
+        // like the bundled luaL_newstate.
+        lua_setwarnf(state, vmWarnOff, UnsafeMutableRawPointer(state))
+        #endif
+        return state
+    }
+
+    /// Run `luaL_openlibs` inside a protected call so that an allocation
+    /// denial (VM limit too small for the standard libraries) surfaces as a
+    /// thrown ``LuaError`` instead of an unprotected abort.
+    private static func openLibrariesProtected(on state: OpaquePointer) throws {
+        // Lua 5.1 cannot push the trampoline without allocating a closure
+        // (itself a potential unprotected failure); lua_cpcall avoids that.
+        // On 5.2+ a zero-upvalue C function is a light value — no allocation.
+        #if LUA_VERSION_51
+        let result = lua_cpcall(state, vmOpenLibs, nil)
+        #else
+        lua_pushcfunction(state, vmOpenLibs)
+        let result = lua_pcall(state, 0, 0, 0)
+        #endif
+        if result != LUA_OK {
+            let message = lua_tostring(state, -1).map { String(cString: $0) }
+                ?? "not enough memory"
+            lua_pop(state, 1)
+            switch result {
+            case LUA_ERRMEM:
+                throw LuaError.memoryError(message)
+            default:
+                throw LuaError.runtimeError(message)
+            }
+        }
+    }
+
+    /// Free the allocation-accounting box. Only call after `lua_close` (or
+    /// when no state was created) — see ``vmAccounting``.
+    private func freeVMAccounting() {
+        if let box = vmAccounting {
+            box.deinitialize(count: 1)
+            box.deallocate()
+            vmAccounting = nil
+        }
+    }
+
     deinit {
         if let L = L {
             lua_close(L)
         }
+        // The allocator is invoked for every free during lua_close above, so
+        // the accounting box must outlive the close call.
+        freeVMAccounting()
     }
 
     // MARK: - Value Servers
@@ -1534,6 +1689,13 @@ public final class LuaEngine {
         if code == LUA_ERRRUN && message.contains(instructionLimitSentinel) {
             return .instructionLimitExceeded
         }
+        // Lua 5.3's luaL_Buffer reports an allocation failure (e.g. a denial
+        // by the vmMemoryLimit allocator during string.rep) as a *runtime*
+        // error with this exact lauxlib.c message instead of LUA_ERRMEM.
+        // Normalize it so memory exhaustion is .memoryError on every version.
+        if code == LUA_ERRRUN && message.contains("not enough memory for buffer allocation") {
+            return .memoryError(message)
+        }
         switch code {
         case LUA_ERRSYNTAX:
             return .syntaxError(message)
@@ -1631,6 +1793,132 @@ private func instructionHook(_ L: OpaquePointer?, _ ar: UnsafeMutablePointer<lua
 /// Internal marker raised by ``instructionHook`` and matched in ``errorFromCode``.
 /// Deliberately unlikely to be produced by user Lua code.
 private let instructionLimitSentinel = "__luaswift_instruction_limit_exceeded__"
+
+// MARK: - VM Memory Limit (custom lua_Alloc)
+
+/// Mutable accounting state shared between ``LuaEngine`` and ``vmLimitedAlloc``.
+///
+/// Heap-allocated by the engine and passed to `lua_newstate` as the
+/// allocator's `ud` pointer, so the capture-less C allocator needs no
+/// global state. The Lua state serializes its own allocations, so no
+/// additional locking is needed.
+struct VMAllocationAccounting {
+    /// Total bytes currently allocated by the Lua VM.
+    var totalBytes: Int
+    /// Ceiling in bytes; growth beyond this is denied.
+    var limit: Int
+}
+
+/// Custom `lua_Alloc` function enforcing ``LuaEngineConfiguration/vmMemoryLimit``.
+///
+/// Implements Lua's allocator contract (`(ud, ptr, osize, nsize)`):
+/// - `nsize == 0` frees `ptr` (which may be NULL) and returns NULL.
+/// - Otherwise the block is (re)allocated to `nsize` bytes.
+/// - When `ptr` is NULL, `osize` encodes the **type** of object being created
+///   (Lua 5.2+), not a size — the old size is therefore 0.
+/// - Shrinks (`nsize <= osize`) must never fail; only **growth** that would
+///   exceed the configured limit is denied by returning NULL, which Lua
+///   surfaces as `LUA_ERRMEM`.
+private func vmLimitedAlloc(
+    _ ud: UnsafeMutableRawPointer?,
+    _ ptr: UnsafeMutableRawPointer?,
+    _ osize: Int,
+    _ nsize: Int
+) -> UnsafeMutableRawPointer? {
+    guard let ud = ud else { return nil }
+    let accounting = ud.assumingMemoryBound(to: VMAllocationAccounting.self)
+
+    // For fresh allocations (ptr == NULL) osize is a type tag, not a size.
+    let oldSize = (ptr != nil) ? osize : 0
+
+    if nsize == 0 {
+        free(ptr)
+        accounting.pointee.totalBytes -= oldSize
+        return nil
+    }
+
+    let delta = nsize - oldSize
+    if delta > 0 && accounting.pointee.totalBytes + delta > accounting.pointee.limit {
+        return nil  // deny growth beyond the ceiling; Lua raises LUA_ERRMEM
+    }
+
+    guard let newPtr = realloc(ptr, nsize) else {
+        return nil  // genuine out-of-memory; counter unchanged
+    }
+    accounting.pointee.totalBytes += delta
+    return newPtr
+}
+
+/// Panic handler matching the bundled `luaL_newstate` behavior: print the
+/// error to stderr and return to Lua, which then aborts. The `lua_type` check
+/// avoids memory errors inside `lua_tostring` (mirrors lauxlib.c `panic`).
+private func vmPanic(_ L: OpaquePointer?) -> Int32 {
+    var message = "error object is not a string"
+    if let L = L, lua_type(L, -1) == LUA_TSTRING, let msg = lua_getstring(L, -1) {
+        message = msg
+    }
+    fputs("PANIC: unprotected error in call to Lua API (\(message))\n", stderr)
+    return 0  // return to Lua to abort
+}
+
+/// Protected trampoline opening the standard libraries; called via
+/// `lua_pcall`/`lua_cpcall` so allocation failures unwind instead of aborting.
+private func vmOpenLibs(_ L: OpaquePointer?) -> Int32 {
+    luaL_openlibs(L)
+    return 0
+}
+
+#if LUA_VERSION_54 || LUA_VERSION_55
+// Warning system replicating the bundled luaL_newstate state machine
+// (lauxlib.c warnfoff/warnfon/warnfcont): warnings start off, the control
+// messages "@on"/"@off" toggle them, multi-part warnings are concatenated
+// and finished with a newline on stderr. `ud` is the main lua_State.
+
+/// Handle a control message ("@on"/"@off"; unknown "@..." ignored).
+/// Returns `true` when the message was a control message (consumed).
+private func vmWarnControl(_ L: OpaquePointer, _ message: String, _ tocont: Int32) -> Bool {
+    guard tocont == 0, message.hasPrefix("@") else { return false }
+    if message == "@off" {
+        lua_setwarnf(L, vmWarnOff, UnsafeMutableRawPointer(L))
+    } else if message == "@on" {
+        lua_setwarnf(L, vmWarnOn, UnsafeMutableRawPointer(L))
+    }
+    return true
+}
+
+/// Warning system is off: only watch for control messages.
+private func vmWarnOff(_ ud: UnsafeMutableRawPointer?, _ msg: UnsafePointer<CChar>?, _ tocont: Int32) {
+    guard let ud = ud, let msg = msg else { return }
+    _ = vmWarnControl(OpaquePointer(ud), String(cString: msg), tocont)
+}
+
+/// Ready to start a new warning message.
+private func vmWarnOn(_ ud: UnsafeMutableRawPointer?, _ msg: UnsafePointer<CChar>?, _ tocont: Int32) {
+    guard let ud = ud, let msg = msg else { return }
+    let L = OpaquePointer(ud)
+    let message = String(cString: msg)
+    if vmWarnControl(L, message, tocont) { return }
+    fputs("Lua warning: ", stderr)
+    vmWarnWrite(L, message, tocont)
+}
+
+/// A previous message part is to be continued.
+private func vmWarnCont(_ ud: UnsafeMutableRawPointer?, _ msg: UnsafePointer<CChar>?, _ tocont: Int32) {
+    guard let ud = ud, let msg = msg else { return }
+    vmWarnWrite(OpaquePointer(ud), String(cString: msg), tocont)
+}
+
+/// Write one message part and arm the next warn function accordingly.
+private func vmWarnWrite(_ L: OpaquePointer, _ message: String, _ tocont: Int32) {
+    fputs(message, stderr)
+    if tocont != 0 {
+        lua_setwarnf(L, vmWarnCont, UnsafeMutableRawPointer(L))
+    } else {
+        fputs("\n", stderr)
+        lua_setwarnf(L, vmWarnOn, UnsafeMutableRawPointer(L))
+    }
+}
+#endif  // LUA_VERSION_54 || LUA_VERSION_55
 
 // MARK: - Lua C Callbacks
 

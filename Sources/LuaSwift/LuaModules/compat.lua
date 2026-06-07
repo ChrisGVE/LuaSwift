@@ -393,7 +393,13 @@ elseif table.unpack then
 end
 
 -- loadstring was removed in 5.2+ (use load instead)
-compat.loadstring = rawget(_G, "loadstring") or load
+-- Invariant: compat must load after applySandbox; under the sandbox `load`
+-- is nil and compat.loadstring stays nil — this guard makes the invariant
+-- explicit rather than ordering-dependent (defense in depth, refs #15).
+local loadstring_impl = rawget(_G, "loadstring") or load
+if type(loadstring_impl) == "function" then
+	compat.loadstring = loadstring_impl
+end
 
 -- setfenv/getfenv were removed in 5.2+
 if rawget(_G, "setfenv") then
@@ -426,7 +432,10 @@ function compat.install()
 	end
 
 	-- Install loadstring if not present
-	if not rawget(_G, "loadstring") then
+	-- Invariant: compat must load after applySandbox; under the sandbox
+	-- `load` is nil and the global loadstring stays nil — this guard makes
+	-- the invariant explicit rather than ordering-dependent (refs #15).
+	if not rawget(_G, "loadstring") and type(load) == "function" then
 		rawset(_G, "loadstring", load)
 	end
 

@@ -893,6 +893,64 @@ final class LuaModuleTests: XCTestCase {
         XCTAssertEqual(result.tableValue?["xor_self"]?.numberValue, 0)
     }
 
+    func testCompatLoadstringNilInSandbox() throws {
+        // Refs #15: under the sandbox `load` is nil when compat loads, so
+        // compat.loadstring must stay nil and compat.install() must not
+        // create a global loadstring — no sandbox escape.
+        let engine = try createEngineWithLuaModules()
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            local compatLoadstringNil = compat.loadstring == nil
+            compat.install()
+            local globalLoadstringNil = rawget(_G, 'loadstring') == nil
+            return {
+                compat_loadstring_nil = compatLoadstringNil,
+                global_loadstring_nil = globalLoadstringNil
+            }
+        """)
+
+        XCTAssertEqual(
+            result.tableValue?["compat_loadstring_nil"]?.boolValue, true,
+            "compat.loadstring must be nil in a sandboxed engine")
+        XCTAssertEqual(
+            result.tableValue?["global_loadstring_nil"]?.boolValue, true,
+            "compat.install() must not create a global loadstring in a sandboxed engine")
+    }
+
+    func testCompatLoadstringWorksUnsandboxed() throws {
+        // Refs #15: without the sandbox, compat.loadstring captures a live
+        // load/loadstring and must compile and run a chunk.
+        guard let modulesPath = getLuaModulesPath() else {
+            throw LuaError.runtimeError("Could not find LuaModules directory")
+        }
+        let config = LuaEngineConfiguration(
+            sandboxed: false,
+            packagePath: modulesPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            if type(compat.loadstring) ~= 'function' then
+                return { is_function = false }
+            end
+            local chunk = compat.loadstring('return 1 + 1')
+            return {
+                is_function = true,
+                chunk_result = chunk()
+            }
+        """)
+
+        XCTAssertEqual(
+            result.tableValue?["is_function"]?.boolValue, true,
+            "compat.loadstring must be a function in an unsandboxed engine")
+        XCTAssertEqual(
+            result.tableValue?["chunk_result"]?.numberValue, 2,
+            "compat.loadstring chunk should compile and run")
+    }
+
     // MARK: - Stdlib Extension Tests
 
     func testExtendStdlibExists() throws {

@@ -32,7 +32,12 @@ import Foundation
 /// local null = json.null
 /// ```
 public struct JSONModule: LuaSwiftModule {
-    /// Sentinel value for JSON null
+    /// Sentinel value for JSON null.
+    ///
+    /// Vestigial: this value was never bridged into the Lua conversion paths.
+    /// The working null sentinel is the Lua-side `json.null` (a marker table,
+    /// see ``jsonNullMarker``).
+    @available(*, deprecated, message: "Never bridged into Lua conversion; use the Lua-side json.null sentinel. Slated for removal in 2.0.")
     public static let null = JSONNull()
 
     /// Marker field used to represent a JSON null on the Lua side. The
@@ -651,7 +656,11 @@ public struct JSONModule: LuaSwiftModule {
 
 /// Sentinel type for JSON null values.
 ///
-/// This allows Lua code to distinguish between absent values and explicit nulls.
+/// Vestigial: instances of this type were never bridged into the Lua
+/// conversion paths. The canonical internal representation of JSON null is
+/// the marker table carrying ``JSONModule/jsonNullMarker`` (surfaced to Lua
+/// as the `json.null` sentinel and recognised by `json.is_null`).
+@available(*, deprecated, message: "Never bridged into Lua conversion; use the Lua-side json.null sentinel. Slated for removal in 2.0.")
 public struct JSONNull: Equatable, Sendable {
     public init() {}
 }

@@ -164,6 +164,8 @@ A sentinel table representing JSON null. Assigning `json.null` to a field and en
 
 Because the sentinel and each decoded null are distinct table instances, do not test with `== json.null`. Use `json.is_null(v)` instead.
 
+The marker table is the canonical internal representation of JSON null throughout LuaSwift. The Swift-side `JSONNull` type (and `JSONModule.null`) was never bridged into the Lua conversion paths and is deprecated, slated for removal in 2.0. The HTTP module honors the same sentinel: a `json.null` value in a request's `json` body encodes as JSON `null`, and response bodies decoded with `json.decode` yield the sentinel for `null` fields.
+
 ### is_null(v)
 
 Returns `true` if `v` is the `json.null` sentinel or any value produced by decoding a JSON `null`. Returns `false` for every other value, including plain Lua `nil` and ordinary tables.

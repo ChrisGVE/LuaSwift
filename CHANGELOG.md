@@ -12,9 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 - **Swallowing module registration** - `ModuleRegistry.installModules(in:)`, the per-module `ModuleRegistry.installXModule(in:)` helpers, and each module's `register(in:)` are deprecated in favor of the throwing `install(in:)` equivalents. They behave exactly as before (failures are swallowed, DEBUG builds print them) and will be removed in the next major release ([#12](https://github.com/ChrisGVE/LuaSwift/issues/12)).
+- **Vestigial Swift `JSONNull`** - The Swift-side `JSONNull` struct and `JSONModule.null` static are deprecated: they were never bridged into the Lua conversion paths. The Lua-side `json.null` sentinel (tested with `json.is_null`) is the canonical JSON-null representation. Both will be removed in 2.0 ([#17](https://github.com/ChrisGVE/LuaSwift/issues/17)).
 
 ### Fixed
 - **`packagePath` set via C API** - `LuaEngineConfiguration.packagePath` is now applied through `lua_getglobal`/`lua_setfield` instead of generated Lua source, so paths containing quotes or other Lua-meaningful characters are set verbatim and can no longer break (or inject into) the assignment ([#16](https://github.com/ChrisGVE/LuaSwift/issues/16)).
+- **HTTP `json.null` request bodies** - A `json.null` value inside an HTTP request's `json` body now encodes as JSON `null` instead of leaking the internal marker object, matching `json.encode` ([#17](https://github.com/ChrisGVE/LuaSwift/issues/17)).
 
 ## [1.9.1] - 2026-05-31
 

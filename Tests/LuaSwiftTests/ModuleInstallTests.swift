@@ -98,6 +98,9 @@ final class ModuleInstallTests: XCTestCase {
 
     // MARK: - Deprecated shims preserve swallowing behavior
 
+    /// The annotation silences deprecation diagnostics for the one test that
+    /// deliberately exercises the deprecated swallowing entry point.
+    @available(*, deprecated, message: "Deliberately exercises the deprecated installModules(in:) shim")
     func testDeprecatedInstallModulesSwallowsFailures() throws {
         let engine = try LuaEngine()
         try engine.run(jsonPoison)

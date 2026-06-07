@@ -149,6 +149,7 @@ public struct ModuleRegistry {
   /// Deprecated alias for ``install(in:)`` that swallows setup failures.
   ///
   /// - Parameter engine: The Lua engine to install modules in
+  @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; installModules(in:) swallows them.")
   public static func installModules(in engine: LuaEngine) {
     installSwallowingFailure("ModuleRegistry.install") { try install(in: engine) }
   }
@@ -239,6 +240,7 @@ public struct ModuleRegistry {
   /// Install only the JSON module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use JSONModule.install(in:) which surfaces setup failures.")
   public static func installJSONModule(in engine: LuaEngine) {
     installSwallowingFailure("JSONModule") { try JSONModule.install(in: engine) }
   }
@@ -247,6 +249,7 @@ public struct ModuleRegistry {
     /// Install only the YAML module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use YAMLModule.install(in:) which surfaces setup failures.")
     public static func installYAMLModule(in engine: LuaEngine) {
       installSwallowingFailure("YAMLModule") { try YAMLModule.install(in: engine) }
     }
@@ -256,6 +259,7 @@ public struct ModuleRegistry {
     /// Install only the TOML module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use TOMLModule.install(in:) which surfaces setup failures.")
     public static func installTOMLModule(in engine: LuaEngine) {
       installSwallowingFailure("TOMLModule") { try TOMLModule.install(in: engine) }
     }
@@ -264,6 +268,7 @@ public struct ModuleRegistry {
   /// Install only the Regex module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use RegexModule.install(in:) which surfaces setup failures.")
   public static func installRegexModule(in engine: LuaEngine) {
     installSwallowingFailure("RegexModule") { try RegexModule.install(in: engine) }
   }
@@ -272,6 +277,7 @@ public struct ModuleRegistry {
     /// Install only the Linear Algebra module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use LinAlgModule.install(in:) which surfaces setup failures.")
     public static func installLinAlgModule(in engine: LuaEngine) {
       installSwallowingFailure("LinAlgModule") { try LinAlgModule.install(in: engine) }
     }
@@ -280,6 +286,7 @@ public struct ModuleRegistry {
   /// Install only the Math extension module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use MathXModule.install(in:) which surfaces setup failures.")
   public static func installMathModule(in engine: LuaEngine) {
     installSwallowingFailure("MathXModule") { try MathXModule.install(in: engine) }
   }
@@ -288,6 +295,7 @@ public struct ModuleRegistry {
     /// Install only the Array module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use ArrayModule.install(in:) which surfaces setup failures.")
     public static func installArrayModule(in engine: LuaEngine) {
       installSwallowingFailure("ArrayModule") { try ArrayModule.install(in: engine) }
     }
@@ -297,6 +305,7 @@ public struct ModuleRegistry {
     /// Install only the Geometry module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use GeometryModule.install(in:) which surfaces setup failures.")
     public static func installGeometryModule(in engine: LuaEngine) {
       installSwallowingFailure("GeometryModule") { try GeometryModule.install(in: engine) }
     }
@@ -305,6 +314,7 @@ public struct ModuleRegistry {
   /// Install only the UTF8X module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use UTF8XModule.install(in:) which surfaces setup failures.")
   public static func installUTF8XModule(in engine: LuaEngine) {
     installSwallowingFailure("UTF8XModule") { try UTF8XModule.install(in: engine) }
   }
@@ -312,6 +322,7 @@ public struct ModuleRegistry {
   /// Install only the StringX module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use StringXModule.install(in:) which surfaces setup failures.")
   public static func installStringXModule(in engine: LuaEngine) {
     installSwallowingFailure("StringXModule") { try StringXModule.install(in: engine) }
   }
@@ -319,6 +330,7 @@ public struct ModuleRegistry {
   /// Install only the TableX module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use TableXModule.install(in:) which surfaces setup failures.")
   public static func installTableXModule(in engine: LuaEngine) {
     installSwallowingFailure("TableXModule") { try TableXModule.install(in: engine) }
   }
@@ -327,6 +339,7 @@ public struct ModuleRegistry {
     /// Install only the Complex module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use ComplexModule.install(in:) which surfaces setup failures.")
     public static func installComplexModule(in engine: LuaEngine) {
       installSwallowingFailure("ComplexModule") { try ComplexModule.install(in: engine) }
     }
@@ -335,6 +348,7 @@ public struct ModuleRegistry {
   /// Install only the Types module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use TypesModule.install(in:) which surfaces setup failures.")
   public static func installTypesModule(in engine: LuaEngine) {
     installSwallowingFailure("TypesModule") { try TypesModule.install(in: engine) }
   }
@@ -342,6 +356,7 @@ public struct ModuleRegistry {
   /// Install only the SVG module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use SVGModule.install(in:) which surfaces setup failures.")
   public static func installSVGModule(in engine: LuaEngine) {
     installSwallowingFailure("SVGModule") { try SVGModule.install(in: engine) }
   }
@@ -350,6 +365,7 @@ public struct ModuleRegistry {
     /// Install only the MathExpr module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use MathExprModule.install(in:) which surfaces setup failures.")
     public static func installMathExprModule(in engine: LuaEngine) {
       installSwallowingFailure("MathExprModule") { try MathExprModule.install(in: engine) }
     }
@@ -361,6 +377,7 @@ public struct ModuleRegistry {
     /// This module is only available in DEBUG builds.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use DebugModule.install(in:) which surfaces setup failures.")
     public static func installDebugModule(in engine: LuaEngine) {
       installSwallowingFailure("DebugModule") { try DebugModule.install(in: engine) }
     }
@@ -370,6 +387,7 @@ public struct ModuleRegistry {
     /// Install only the Plot module.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use PlotModule.install(in:) which surfaces setup failures.")
     public static func installPlotModule(in engine: LuaEngine) {
       installSwallowingFailure("PlotModule") { try PlotModule.install(in: engine) }
     }
@@ -383,6 +401,7 @@ public struct ModuleRegistry {
     /// are already registered.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use MathSciModule.install(in:) which surfaces setup failures.")
     public static func installMathSciModule(in engine: LuaEngine) {
       installSwallowingFailure("MathSciModule") { try MathSciModule.install(in: engine) }
     }
@@ -393,6 +412,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.optimize namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use OptimizeModule.install(in:) which surfaces setup failures.")
     public static func installOptimizeModule(in engine: LuaEngine) {
       installSwallowingFailure("OptimizeModule") { try OptimizeModule.install(in: engine) }
     }
@@ -403,6 +423,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.integrate namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use IntegrateModule.install(in:) which surfaces setup failures.")
     public static func installIntegrateModule(in engine: LuaEngine) {
       installSwallowingFailure("IntegrateModule") { try IntegrateModule.install(in: engine) }
     }
@@ -413,6 +434,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.stats namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use DistributionsModule.install(in:) which surfaces setup failures.")
     public static func installDistributionsModule(in engine: LuaEngine) {
       installSwallowingFailure("DistributionsModule") { try DistributionsModule.install(in: engine) }
     }
@@ -423,6 +445,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.interpolate namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use InterpolateModule.install(in:) which surfaces setup failures.")
     public static func installInterpolateModule(in engine: LuaEngine) {
       installSwallowingFailure("InterpolateModule") { try InterpolateModule.install(in: engine) }
     }
@@ -433,6 +456,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.cluster namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use ClusterModule.install(in:) which surfaces setup failures.")
     public static func installClusterModule(in engine: LuaEngine) {
       installSwallowingFailure("ClusterModule") { try ClusterModule.install(in: engine) }
     }
@@ -443,6 +467,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.spatial namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use SpatialModule.install(in:) which surfaces setup failures.")
     public static func installSpatialModule(in engine: LuaEngine) {
       installSwallowingFailure("SpatialModule") { try SpatialModule.install(in: engine) }
     }
@@ -453,6 +478,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.special namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use SpecialModule.install(in:) which surfaces setup failures.")
     public static func installSpecialModule(in engine: LuaEngine) {
       installSwallowingFailure("SpecialModule") { try SpecialModule.install(in: engine) }
     }
@@ -463,6 +489,7 @@ public struct ModuleRegistry {
     /// Should be called after MathSciModule to add to math.regress namespace.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use RegressModule.install(in:) which surfaces setup failures.")
     public static func installRegressModule(in engine: LuaEngine) {
       installSwallowingFailure("RegressModule") { try RegressModule.install(in: engine) }
     }
@@ -473,6 +500,7 @@ public struct ModuleRegistry {
     /// Should be called after MathExprModule to use eval for expression evaluation.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use SeriesModule.install(in:) which surfaces setup failures.")
     public static func installSeriesModule(in engine: LuaEngine) {
       installSwallowingFailure("SeriesModule") { try SeriesModule.install(in: engine) }
     }
@@ -491,6 +519,7 @@ public struct ModuleRegistry {
     /// - Primality testing and factorization (is_prime, factor, primes_up_to)
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use NumberTheoryModule.install(in:) which surfaces setup failures.")
     public static func installNumberTheoryModule(in engine: LuaEngine) {
       installSwallowingFailure("NumberTheoryModule") { try NumberTheoryModule.install(in: engine) }
     }
@@ -503,6 +532,7 @@ public struct ModuleRegistry {
     /// simplification, equation solving, calculus, series, ODEs, and LaTeX formatting.
     ///
     /// - Parameter engine: The Lua engine to install the module in
+    @available(*, deprecated, message: "Use ThalesModule.install(in:) which surfaces setup failures.")
     public static func installThalesModule(in engine: LuaEngine) {
       installSwallowingFailure("ThalesModule") { try ThalesModule.install(in: engine) }
     }
@@ -528,6 +558,7 @@ public struct ModuleRegistry {
   /// ```
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use HTTPModule.install(in:) which surfaces setup failures.")
   public static func installHTTPModule(in engine: LuaEngine) {
     installSwallowingFailure("HTTPModule") { try HTTPModule.install(in: engine) }
   }
@@ -557,6 +588,7 @@ public struct ModuleRegistry {
   /// ```
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use IOModule.install(in:) which surfaces setup failures.")
   public static func installIOModule(in engine: LuaEngine) {
     installSwallowingFailure("IOModule") { try IOModule.install(in: engine) }
   }
@@ -585,6 +617,7 @@ public struct ModuleRegistry {
   /// ```
   ///
   /// - Parameter engine: The Lua engine to install the module in
+  @available(*, deprecated, message: "Use UIModule.install(in:) which surfaces setup failures.")
   public static func installUIModule(in engine: LuaEngine) {
     installSwallowingFailure("UIModule") { try UIModule.install(in: engine) }
   }

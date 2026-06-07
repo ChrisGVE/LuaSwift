@@ -173,6 +173,7 @@ public struct IntegrateModule: LuaSwiftModule {
     /// Deprecated alias for ``install(in:)`` that swallows setup failures.
     ///
     /// - Parameter engine: The Lua engine to register with
+    @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; register(in:) swallows them.")
     public static func register(in engine: LuaEngine) {
         do { try install(in: engine) } catch {
             #if DEBUG

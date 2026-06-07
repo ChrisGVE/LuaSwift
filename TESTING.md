@@ -88,14 +88,14 @@ Use `#if LUASWIFT_*` guards for tests that require optional dependencies:
 #if LUASWIFT_ARRAYSWIFT
 func testArrayModuleAvailable() throws {
     let engine = try LuaEngine()
-    ModuleRegistry.installModules(in: engine)
+    try ModuleRegistry.install(in: engine)
     let result = try engine.evaluate("return luaswift.array ~= nil")
     XCTAssertTrue(result.boolValue ?? false)
 }
 #else
 func testArrayModuleNotAvailable() throws {
     let engine = try LuaEngine()
-    ModuleRegistry.installModules(in: engine)
+    try ModuleRegistry.install(in: engine)
     let result = try engine.evaluate("return luaswift.array == nil")
     XCTAssertTrue(result.boolValue ?? false)
 }

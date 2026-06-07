@@ -130,12 +130,13 @@ Most modules are independent, but some have dependencies:
 LuaEngineConfiguration(
     sandboxed: Bool = true,        // Remove dangerous functions
     packagePath: String? = nil,    // Custom require() path
-    memoryLimit: Int = 0           // Bytes, 0 = unlimited
+    memoryLimit: Int = 0,          // Bytes for Swift modules, 0 = unlimited
+    vmMemoryLimit: Int = 0         // Bytes for total Lua VM allocation, 0 = disabled
 )
 ```
 
 **Preset configurations:**
-- `.default` - sandboxed, no memory limit
+- `.default` - sandboxed, no memory limits (neither Swift-module nor VM)
 - `.unrestricted` - full Lua access (use with caution)
 
 ## Lua Version Support

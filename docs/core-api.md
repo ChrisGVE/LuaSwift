@@ -98,6 +98,9 @@ engine.destroy(handle)
 | `sandboxed` | `Bool` | `true` | Remove dangerous functions for security |
 | `packagePath` | `String?` | `nil` | Custom path for `require()` to find Lua modules |
 | `memoryLimit` | `Int` | `0` | Memory limit in bytes (`0` = unlimited) |
+| `vmMemoryLimit` | `Int` | `0` | Ceiling in bytes on total Lua VM allocation enforced by a custom allocator; `0` = disabled. Complements `memoryLimit`, which bounds only Swift-backed module buffers. |
+
+> **Note:** `setInstructionLimit` is a CPU-bound control only. It does **not** interrupt a single VM instruction that calls a C function (e.g. `string.rep('A', 1e9)`), which can allocate unbounded memory before returning. Pair it with `vmMemoryLimit` to also bound Lua VM memory. See the [Resource limits](../README.md#configuration) summary in the README.
 
 ### Sandboxing
 

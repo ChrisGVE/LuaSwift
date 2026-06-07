@@ -7,6 +7,21 @@
 //
 //  SPDX-License-Identifier: Apache-2.0
 //
+//  Location: Sources/LuaSwift/LuaEngine.swift
+//
+//  Context: Core of the LuaEngine class — stored state (Lua state
+//  pointer, server/callback/coroutine registries, locks), Swift-module
+//  memory tracking, thread-local current-engine access, and the
+//  init/deinit lifecycle. Each functional concern lives in a sibling
+//  extension file: LuaEngine+Execution.swift (run/evaluate, instruction
+//  limit), LuaEngine+Bytecode.swift (precompile/CompiledChunk),
+//  LuaEngine+FunctionCalls.swift (Swift calls Lua),
+//  LuaEngine+Callbacks.swift (Lua calls Swift),
+//  LuaEngine+Coroutines.swift, LuaEngine+ValueServer.swift,
+//  LuaEngine+Bridging.swift (LuaValue <-> stack conversion),
+//  LuaEngine+Sandbox.swift, and LuaEngine+VMAllocator.swift (vm memory
+//  limit). Configuration is LuaEngineConfiguration.swift.
+//
 
 import Foundation
 import CLua
@@ -125,7 +140,8 @@ public final class LuaEngine {
     internal var servers: [String: LuaValueServer] = [:]
 
     /// Registered callbacks
-    private var callbacks: [String: ([LuaValue]) throws -> LuaValue] = [:]
+    /// internal: managed by LuaEngine+Callbacks.swift
+    internal var callbacks: [String: ([LuaValue]) throws -> LuaValue] = [:]
 
     /// Active coroutines (UUID -> registry reference for GC protection)
     /// internal: managed by LuaEngine+Coroutines.swift
@@ -226,12 +242,14 @@ public final class LuaEngine {
     }
 
     /// Set the current engine in thread-local storage.
-    private func setAsCurrentEngine() {
+    /// internal: used by callback invocation in LuaEngine+Callbacks.swift
+    internal func setAsCurrentEngine() {
         Thread.current.threadDictionary[Self.currentEngineKey] = self
     }
 
     /// Clear the current engine from thread-local storage.
-    private func clearCurrentEngine() {
+    /// internal: used by callback invocation in LuaEngine+Callbacks.swift
+    internal func clearCurrentEngine() {
         Thread.current.threadDictionary.removeObject(forKey: Self.currentEngineKey)
     }
 
@@ -293,131 +311,5 @@ public final class LuaEngine {
         // The allocator is invoked for every free during lua_close above, so
         // the accounting box must outlive the close call.
         freeVMAccounting()
-    }
-
-    // MARK: - Callbacks
-
-    /// Register a Swift function that can be called from Lua.
-    ///
-    /// Once registered, Lua code can call the function using its name.
-    ///
-    /// - Parameters:
-    ///   - name: The global name for the function
-    ///   - callback: The Swift closure to execute. Takes an array of LuaValue arguments
-    ///               and returns a LuaValue result. Can throw errors.
-    public func registerFunction(
-        name: String,
-        callback: @escaping ([LuaValue]) throws -> LuaValue
-    ) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        callbacks[name] = callback
-        registerCallbackGlobal(name)
-    }
-
-    /// Unregister a previously registered function.
-    ///
-    /// - Parameter name: The name of the function to unregister
-    public func unregisterFunction(name: String) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        callbacks.removeValue(forKey: name)
-        unregisterCallbackGlobal(name)
-    }
-
-    // MARK: - Private Methods
-
-    private func registerCallbackGlobal(_ name: String) {
-        guard let L = L else { return }
-
-        // Store engine pointer as upvalue for the closure
-        let enginePtr = Unmanaged.passUnretained(self).toOpaque()
-        lua_pushlightuserdata(L, enginePtr)
-
-        // Store function name as upvalue
-        lua_pushstring(L, name)
-
-        // Create closure with 2 upvalues (engine ptr, function name)
-        lua_pushcclosure(L, callbackTrampoline, 2)
-
-        // Set as global
-        lua_setglobal(L, name)
-    }
-
-    private func unregisterCallbackGlobal(_ name: String) {
-        guard let L = L else { return }
-        lua_pushnil(L)
-        lua_setglobal(L, name)
-    }
-
-    fileprivate func invokeCallback(name: String, arguments: [LuaValue]) throws -> LuaValue {
-        guard let callback = callbacks[name] else {
-            throw LuaError.callbackError("Callback '\(name)' not found")
-        }
-
-        // Set this engine as current for the duration of the callback
-        // This allows modules to access the engine for memory tracking
-        setAsCurrentEngine()
-        defer { clearCurrentEngine() }
-
-        return try callback(arguments)
-    }
-
-}
-
-// MARK: - Lua C Callbacks
-
-/// Callback trampoline for Swift function calls from Lua
-private func callbackTrampoline(_ L: OpaquePointer?) -> Int32 {
-    guard let L = L else { return 0 }
-
-    // Get engine pointer from upvalue 1
-    guard lua_islightuserdata(L, lua_upvalueindex(1)) != 0 else {
-        lua_pushstring(L, "Invalid engine pointer in callback")
-        _ = lua_error(L)
-        return 0
-    }
-    let enginePtr = lua_touserdata(L, lua_upvalueindex(1))
-
-    // Get function name from upvalue 2
-    guard lua_isstring(L, lua_upvalueindex(2)) != 0,
-          let nameStr = lua_tostring(L, lua_upvalueindex(2)) else {
-        lua_pushstring(L, "Invalid function name in callback")
-        _ = lua_error(L)
-        return 0
-    }
-    let name = String(cString: nameStr)
-
-    // Get engine
-    guard let engine = Unmanaged<LuaEngine>.fromOpaque(enginePtr!).takeUnretainedValue() as LuaEngine? else {
-        lua_pushstring(L, "Failed to get engine in callback")
-        _ = lua_error(L)
-        return 0
-    }
-
-    // Collect arguments from stack
-    let nargs = lua_gettop(L)
-    var arguments: [LuaValue] = []
-    if nargs > 0 {
-        for i in 1...nargs {
-            arguments.append(valueFromLuaStack(L, at: i))
-        }
-    }
-
-    // Invoke the Swift callback
-    do {
-        let result = try engine.invokeCallback(name: name, arguments: arguments)
-        pushSimpleValue(L, result)
-        return 1
-    } catch let error as LuaError {
-        lua_pushstring(L, error.localizedDescription)
-        _ = lua_error(L)
-        return 0
-    } catch {
-        lua_pushstring(L, "Swift callback error: \(error.localizedDescription)")
-        _ = lua_error(L)
-        return 0
     }
 }

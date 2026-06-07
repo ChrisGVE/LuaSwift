@@ -229,14 +229,17 @@ public struct ModuleRegistry {
         if luaswift.yaml then yaml = luaswift.yaml end
         if luaswift.toml then toml = luaswift.toml end
         regex = luaswift.regex
-        linalg = luaswift.linalg
-        array = luaswift.array
-        geo = luaswift.geometry
-        complex = luaswift.complex
         types = luaswift.types
 
+        -- Optional (NumericSwift/ArraySwift) modules may be absent; guard each
+        -- alias so it does not create an explicit nil global when missing.
+        if luaswift.linalg then linalg = luaswift.linalg end
+        if luaswift.array then array = luaswift.array end
+        if luaswift.geometry then geo = luaswift.geometry end
+        if luaswift.complex then complex = luaswift.complex end
+
         -- Also create luaswift.geo as alias
-        luaswift.geo = luaswift.geometry
+        if luaswift.geometry then luaswift.geo = luaswift.geometry end
 
         -- extend_stdlib() imports all extensions into the standard library
         function luaswift.extend_stdlib()

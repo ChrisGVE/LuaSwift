@@ -279,6 +279,55 @@ final class SandboxTests: XCTestCase {
                        "packagePath must be treated as data, never as Lua code")
     }
 
+    // MARK: - warn Removal Tests (CR-015)
+
+    func testSandboxedEngineHasNoWarn() throws {
+        // The `warn` global (Lua 5.4+) must be removed under the sandbox so a
+        // script cannot enable warnings and flood stderr. On 5.1-5.3 `warn`
+        // never existed, so `warn == nil` holds on every version.
+        let engine = try LuaEngine()  // sandboxed by default
+
+        let result = try engine.evaluate("return warn == nil")
+        XCTAssertEqual(result.boolValue, true,
+                       "warn should be nil in sandboxed mode on all Lua versions")
+    }
+
+    func testNonSandboxedHasWarnOn54Plus() throws {
+        // Sanity check that the removal is meaningful: on the versions that ship
+        // `warn` (5.4+), an unsandboxed engine still exposes it. Versions without
+        // `warn` have nothing to assert, so the check is gated.
+        #if LUA_VERSION_54 || LUA_VERSION_55
+        let engine = try LuaEngine(configuration: .unrestricted)
+        let result = try engine.evaluate("return type(warn) == 'function'")
+        XCTAssertEqual(result.boolValue, true,
+                       "warn should exist in non-sandboxed Lua 5.4/5.5")
+        #else
+        // Lua 5.1-5.3 have no warn; nothing to verify.
+        throw XCTSkip("warn is only present in Lua 5.4+")
+        #endif
+    }
+
+    // MARK: - Sandbox Install Failure Surfaces (CR-003)
+
+    func testSandboxInstallSucceedsOnHealthyEngine() throws {
+        // Happy-path coverage of the now-throwing applySandbox: a healthy state
+        // installs the sandbox without throwing, and dangerous globals are gone.
+        // A deterministic install *failure* cannot be triggered without injecting
+        // a failing snippet into production code; the tiny-vmMemoryLimit path in
+        // VMMemoryLimitTests.testTinyLimitInitThrowsCleanlyOrSucceeds exercises
+        // the throw-on-failure branch opportunistically (init throws a LuaError
+        // rather than crashing when the sandbox Lua cannot allocate).
+        let engine = try LuaEngine()  // sandboxed init ran applySandbox successfully
+
+        // Re-running the sandbox on the healthy state must not throw.
+        XCTAssertNoThrow(try engine.applySandbox(hasPackagePath: false))
+
+        // And the guarantees still hold afterwards.
+        let removed = try engine.evaluate("return os.execute == nil and load == nil")
+        XCTAssertEqual(removed.boolValue, true,
+                       "dangerous globals remain removed after sandbox install")
+    }
+
     // MARK: - Preload Searcher Still Works
 
     func testPreloadSearcherWorks() throws {

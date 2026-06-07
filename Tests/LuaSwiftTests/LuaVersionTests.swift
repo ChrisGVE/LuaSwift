@@ -311,7 +311,11 @@ final class LuaVersionTests: XCTestCase {
     // MARK: - warn Function (5.4+)
 
     func testWarnFunction() throws {
-        let engine = try LuaEngine()
+        // Probe the language feature, not the sandbox: the default sandbox now
+        // strips `warn` (CR-015), so use an unrestricted engine to verify the
+        // function ships with the Lua version. Sandbox removal is covered by
+        // SandboxTests.testSandboxedEngineHasNoWarn.
+        let engine = try LuaEngine(configuration: .unrestricted)
         let result = try engine.evaluate("return warn ~= nil")
 
         #if LUA_VERSION_51 || LUA_VERSION_52 || LUA_VERSION_53

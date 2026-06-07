@@ -298,9 +298,19 @@ public final class LuaEngine {
             luaL_openlibs(state)
         }
 
-        // Apply sandboxing if enabled
+        // Apply sandboxing if enabled. A failure here must surface (the engine
+        // would otherwise report itself sandboxed with dangerous globals still
+        // live), tearing down the state and accounting box on the way out —
+        // same ordering as deinit and the openLibraries throw path above.
         if configuration.sandboxed {
-            applySandbox(hasPackagePath: configuration.packagePath != nil)
+            do {
+                try applySandbox(hasPackagePath: configuration.packagePath != nil)
+            } catch {
+                lua_close(state)
+                self.L = nil
+                freeVMAccounting()
+                throw error
+            }
         }
 
         // Set package path if provided

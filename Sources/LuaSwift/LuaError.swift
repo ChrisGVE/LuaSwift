@@ -48,6 +48,9 @@ public enum LuaError: Error, LocalizedError {
     /// Instruction count limit exceeded — possible infinite loop
     case instructionLimitExceeded
 
+    /// Sandbox installation failed — a dangerous global may still be live
+    case sandboxInstallationFailed(String)
+
     /// Unknown error
     case unknown(code: Int, message: String?)
 
@@ -77,6 +80,8 @@ public enum LuaError: Error, LocalizedError {
             return "Lua coroutine error: \(message)"
         case .instructionLimitExceeded:
             return "Instruction limit exceeded (possible infinite loop)"
+        case .sandboxInstallationFailed(let message):
+            return "Sandbox installation failed: \(message)"
         case .unknown(let code, let message):
             if let message = message {
                 return "Lua error (code \(code)): \(message)"

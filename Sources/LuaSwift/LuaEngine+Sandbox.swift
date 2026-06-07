@@ -27,7 +27,14 @@ extension LuaEngine {
     ///
     /// Applied during initialization when
     /// ``LuaEngineConfiguration/sandboxed`` is `true`.
-    internal func applySandbox(hasPackagePath: Bool) {
+    ///
+    /// - Throws: ``LuaError/sandboxInstallationFailed(_:)`` if either hardening
+    ///   snippet fails to run. Surfacing the failure is a security requirement:
+    ///   a silent failure would leave dangerous globals live while the engine
+    ///   still reports itself as sandboxed. This became reachable once a tight
+    ///   ``LuaEngineConfiguration/vmMemoryLimit`` could make the sandbox Lua
+    ///   fail to allocate.
+    internal func applySandbox(hasPackagePath: Bool) throws {
         guard let L = L else { return }
 
         // Remove dangerous functions and harden package system
@@ -53,6 +60,11 @@ extension LuaEngine {
             load = nil
             loadstring = nil
 
+            -- Remove warn (Lua 5.4+): combined with the wired warning handlers a
+            -- sandboxed script could enable warnings then flood stderr. The
+            -- guard makes this a no-op on 5.1-5.3 where warn does not exist.
+            if warn ~= nil then warn = nil end
+
             -- Clear package.loaded for restricted libraries to prevent require() bypass
             package.loaded.io = nil
             package.loaded.debug = nil
@@ -66,7 +78,9 @@ extension LuaEngine {
             package.path = ''
         """
 
-        luaL_dostring(L, dangerous)
+        if luaL_dostring(L, dangerous) != LUA_OK {
+            throw LuaError.sandboxInstallationFailed(Self.takeError(L))
+        }
 
         // If no packagePath is configured, also remove file-based searchers
         // This prevents any file loading via require()
@@ -84,8 +98,25 @@ extension LuaEngine {
                     end
                 end
             """
-            luaL_dostring(L, removeSearchers)
+            if luaL_dostring(L, removeSearchers) != LUA_OK {
+                throw LuaError.sandboxInstallationFailed(Self.takeError(L))
+            }
         }
+    }
+
+    /// Pop and return the error object left on the stack by a failed
+    /// `luaL_dostring`. The value type is guarded before conversion (a failed
+    /// chunk may leave a non-string error object) and exactly one slot is
+    /// always popped so the stack is left balanced.
+    private static func takeError(_ L: OpaquePointer) -> String {
+        let message: String
+        if lua_type(L, -1) == LUA_TSTRING, let cstr = lua_tostring(L, -1) {
+            message = String(cString: cstr)
+        } else {
+            message = "Unknown error"
+        }
+        lua_pop(L, 1)
+        return message
     }
 
     /// Confine `require()` to the configured package directory.

@@ -126,12 +126,17 @@ Most modules are independent, but some have dependencies:
 
 ## Configuration Reference
 
+The fields and their meanings (the values below are each field's default in
+`.default`, not the initializer signature — only `vmMemoryLimit` carries a
+default in the initializer, so reach for a preset like `.default` for the
+common cases):
+
 ```swift
 LuaEngineConfiguration(
-    sandboxed: Bool = true,        // Remove dangerous functions
-    packagePath: String? = nil,    // Custom require() path
-    memoryLimit: Int = 0,          // Bytes for Swift modules, 0 = unlimited
-    vmMemoryLimit: Int = 0         // Bytes for total Lua VM allocation, 0 = disabled
+    sandboxed: Bool,        // .default: true — removes dangerous functions
+    packagePath: String?,   // .default: nil — custom require() path
+    memoryLimit: Int,       // .default: 0 — bytes for Swift modules, 0 = unlimited
+    vmMemoryLimit: Int = 0  // bytes for total Lua VM allocation, 0 = disabled
 )
 ```
 

@@ -674,6 +674,11 @@ public struct ModuleRegistry {
 /// was itself skipped). The dependent is not installed against a half-built
 /// engine state; instead this stands in for it in the aggregated
 /// ``ModuleInstallError``.
+///
+/// This type is module-internal, so a consumer inspecting
+/// ``ModuleInstallError/Failure/underlyingError`` cannot pattern-match it;
+/// a skip is identified by its ``errorDescription`` ("skipped: …
+/// prerequisite failed").
 struct ModulePrerequisiteError: Error, LocalizedError {
   /// The dependent module that was skipped.
   let module: String

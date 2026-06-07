@@ -174,8 +174,9 @@ private let vmLimitedAlloc: VMAllocFunction = { ud, ptr, osize, nsize in
         free(ptr)
         if let ud = ud {
             let accounting = ud.assumingMemoryBound(to: VMAllocationAccounting.self)
-            // For fresh allocations ptr is NULL and osize is a type tag; but a
-            // free always has ptr != NULL, so osize is the real old size here.
+            // A free with a non-NULL ptr carries the real old size in osize.
+            // Lua may also pass ptr == NULL here (a no-op free); the guard
+            // then subtracts 0 rather than misreading a type tag as a size.
             let oldSize = (ptr != nil) ? osize : 0
             accounting.pointee.totalBytes = max(0, accounting.pointee.totalBytes - oldSize)
             assert(accounting.pointee.totalBytes >= 0)
@@ -206,8 +207,9 @@ private let vmLimitedAlloc: VMAllocFunction = { ud, ptr, osize, nsize in
         guard let newPtr = realloc(ptr, nsize) else {
             return nil  // genuine out-of-memory on growth; counter unchanged
         }
-        accounting.pointee.totalBytes = max(0, total + delta)
-        assert(accounting.pointee.totalBytes >= 0)
+        // total >= 0 and delta > 0 here, so the sum is always positive — no
+        // clamp needed (unlike the free/shrink paths where delta can be < 0).
+        accounting.pointee.totalBytes = total + delta
         return newPtr
     } else {
         // (4) Shrink or same size (delta <= 0): the contract forbids failure.

@@ -309,14 +309,15 @@ final class SandboxTests: XCTestCase {
 
     // MARK: - Sandbox Install Failure Surfaces (CR-003)
 
-    func testSandboxInstallSucceedsOnHealthyEngine() throws {
+    func testApplySandboxOnHealthyEngineDoesNotThrow() throws {
         // Happy-path coverage of the now-throwing applySandbox: a healthy state
         // installs the sandbox without throwing, and dangerous globals are gone.
-        // A deterministic install *failure* cannot be triggered without injecting
-        // a failing snippet into production code; the tiny-vmMemoryLimit path in
+        // This does NOT exercise the throw-on-failure branch — a deterministic
+        // install failure cannot be triggered without injecting a failing
+        // snippet into production code. The tiny-vmMemoryLimit path in
         // VMMemoryLimitTests.testTinyLimitInitThrowsCleanlyOrSucceeds exercises
-        // the throw-on-failure branch opportunistically (init throws a LuaError
-        // rather than crashing when the sandbox Lua cannot allocate).
+        // that branch opportunistically (init throws a LuaError rather than
+        // crashing when the sandbox Lua cannot allocate).
         let engine = try LuaEngine()  // sandboxed init ran applySandbox successfully
 
         // Re-running the sandbox on the healthy state must not throw.

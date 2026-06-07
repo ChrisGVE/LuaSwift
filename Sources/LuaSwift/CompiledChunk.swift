@@ -10,9 +10,9 @@
 //  Location: Sources/LuaSwift/CompiledChunk.swift
 //
 //  Context: Provenance-typed container for Lua bytecode. Only
-//  LuaEngine.precompile(_:) (LuaEngine.swift) creates instances; the
-//  CompiledChunk overloads of LuaEngine.run(_:)/evaluate(_:) consume them
-//  after checking the stamped metadata against the running build.
+//  LuaEngine.precompile(_:) (LuaEngine+Bytecode.swift) creates instances;
+//  the CompiledChunk overloads of LuaEngine.run(_:)/evaluate(_:) consume
+//  them after checking the stamped metadata against the running build.
 //  Compatibility mismatches surface as LuaError.runtimeError
 //  (LuaError.swift). This type supersedes the deprecated raw-Data bytecode
 //  API (compile/runBytecode/evaluateBytecode) so arbitrary bytes can no

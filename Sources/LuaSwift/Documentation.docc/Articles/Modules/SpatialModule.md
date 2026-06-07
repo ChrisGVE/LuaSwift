@@ -18,10 +18,10 @@ call `luaswift.extend_stdlib()`.
 
 ```swift
 // Install all modules (NumericSwift must be present)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Spatial module
-ModuleRegistry.installSpatialModule(in: engine)
+try SpatialModule.install(in: engine)
 ```
 
 ```lua

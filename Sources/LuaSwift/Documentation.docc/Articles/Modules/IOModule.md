@@ -6,7 +6,7 @@ Sandboxed file I/O with path utilities, restricted to explicitly allowed directo
 
 The IO module (`luaswift.iox`) provides file system access within explicitly configured directories. It replaces Lua's standard `io` library with a secure, sandboxed alternative.
 
-> Important: This module is **opt-in** and is not included in the default ``ModuleRegistry/installModules(in:)`` call. You must configure allowed directories and install the module explicitly before Lua scripts can use it.
+> Important: This module is **opt-in** and is not included in the default ``ModuleRegistry/install(in:)`` call. You must configure allowed directories and install the module explicitly before Lua scripts can use it.
 
 ## Installation
 
@@ -20,7 +20,7 @@ let documentsPath = FileManager.default.urls(
 IOModule.setAllowedDirectories([documentsPath], for: engine)
 
 // Then install the module
-ModuleRegistry.installIOModule(in: engine)
+try IOModule.install(in: engine)
 ```
 
 ```lua
@@ -321,7 +321,7 @@ end
 - All paths are validated against allowed directories before any operation.
 - Allowed directories are set per-engine by the host Swift application; Lua scripts cannot change them.
 - Use `pcall()` to catch and handle access-denied errors gracefully.
-- This module is not installed by `installModules()` to prevent accidental file-system exposure. Install it explicitly only in engines that require file access.
+- This module is not installed by `ModuleRegistry.install(in:)` to prevent accidental file-system exposure. Install it explicitly only in engines that require file access.
 
 ## See Also
 

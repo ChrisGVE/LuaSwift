@@ -55,7 +55,7 @@ import Foundation
 /// `IOModule.setAllowedDirectories()`. Attempts to access paths outside
 /// these directories will throw an error. Path traversal attacks (using ..)
 /// are detected and blocked.
-public struct IOModule {
+public struct IOModule: LuaSwiftModule {
 
     /// Allowed directories for file operations (thread-local per engine)
     private static let allowedDirectoriesKey = "LuaSwift.IOModule.AllowedDirectories"
@@ -90,7 +90,8 @@ public struct IOModule {
     /// Register the IO module with a LuaEngine.
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register file operation callbacks
         engine.registerFunction(name: "_luaswift_iox_read_file", callback: readFileCallback)
         engine.registerFunction(name: "_luaswift_iox_write_file", callback: writeFileCallback)
@@ -113,59 +114,64 @@ public struct IOModule {
         engine.registerFunction(name: "_luaswift_iox_path_normalize", callback: pathNormalizeCallback)
 
         // Set up the luaswift.iox namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                luaswift.iox = {
-                    -- File operations
-                    read_file = _luaswift_iox_read_file,
-                    write_file = _luaswift_iox_write_file,
-                    append_file = _luaswift_iox_append_file,
-                    exists = _luaswift_iox_exists,
-                    is_file = _luaswift_iox_is_file,
-                    is_dir = _luaswift_iox_is_dir,
-                    list_dir = _luaswift_iox_list_dir,
-                    mkdir = _luaswift_iox_mkdir,
-                    remove = _luaswift_iox_remove,
-                    rename = _luaswift_iox_rename,
-                    stat = _luaswift_iox_stat,
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            luaswift.iox = {
+                -- File operations
+                read_file = _luaswift_iox_read_file,
+                write_file = _luaswift_iox_write_file,
+                append_file = _luaswift_iox_append_file,
+                exists = _luaswift_iox_exists,
+                is_file = _luaswift_iox_is_file,
+                is_dir = _luaswift_iox_is_dir,
+                list_dir = _luaswift_iox_list_dir,
+                mkdir = _luaswift_iox_mkdir,
+                remove = _luaswift_iox_remove,
+                rename = _luaswift_iox_rename,
+                stat = _luaswift_iox_stat,
 
-                    -- Path utilities namespace
-                    path = {
-                        join = _luaswift_iox_path_join,
-                        basename = _luaswift_iox_path_basename,
-                        dirname = _luaswift_iox_path_dirname,
-                        extension = _luaswift_iox_path_extension,
-                        absolute = _luaswift_iox_path_absolute,
-                        normalize = _luaswift_iox_path_normalize
-                    }
+                -- Path utilities namespace
+                path = {
+                    join = _luaswift_iox_path_join,
+                    basename = _luaswift_iox_path_basename,
+                    dirname = _luaswift_iox_path_dirname,
+                    extension = _luaswift_iox_path_extension,
+                    absolute = _luaswift_iox_path_absolute,
+                    normalize = _luaswift_iox_path_normalize
                 }
+            }
 
-                -- Clean up temporary globals
-                _luaswift_iox_read_file = nil
-                _luaswift_iox_write_file = nil
-                _luaswift_iox_append_file = nil
-                _luaswift_iox_exists = nil
-                _luaswift_iox_is_file = nil
-                _luaswift_iox_is_dir = nil
-                _luaswift_iox_list_dir = nil
-                _luaswift_iox_mkdir = nil
-                _luaswift_iox_remove = nil
-                _luaswift_iox_rename = nil
-                _luaswift_iox_stat = nil
-                _luaswift_iox_path_join = nil
-                _luaswift_iox_path_basename = nil
-                _luaswift_iox_path_dirname = nil
-                _luaswift_iox_path_extension = nil
-                _luaswift_iox_path_absolute = nil
-                _luaswift_iox_path_normalize = nil
+            -- Clean up temporary globals
+            _luaswift_iox_read_file = nil
+            _luaswift_iox_write_file = nil
+            _luaswift_iox_append_file = nil
+            _luaswift_iox_exists = nil
+            _luaswift_iox_is_file = nil
+            _luaswift_iox_is_dir = nil
+            _luaswift_iox_list_dir = nil
+            _luaswift_iox_mkdir = nil
+            _luaswift_iox_remove = nil
+            _luaswift_iox_rename = nil
+            _luaswift_iox_stat = nil
+            _luaswift_iox_path_join = nil
+            _luaswift_iox_path_basename = nil
+            _luaswift_iox_path_dirname = nil
+            _luaswift_iox_path_extension = nil
+            _luaswift_iox_path_absolute = nil
+            _luaswift_iox_path_normalize = nil
 
-                -- Register for require()
-                package.loaded["luaswift.iox"] = luaswift.iox
-                """)
-        } catch {
+            -- Register for require()
+            package.loaded["luaswift.iox"] = luaswift.iox
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] IOModule setup failed: \(error)")
+                print("[LuaSwift] IOModule setup failed: \(error)")
             #endif
         }
     }

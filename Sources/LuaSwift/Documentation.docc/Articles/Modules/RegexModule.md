@@ -10,10 +10,10 @@ The Regex module provides full regular expression support including matching, re
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Regex module
-ModuleRegistry.installRegexModule(in: engine)
+try RegexModule.install(in: engine)
 ```
 
 ## Basic Usage

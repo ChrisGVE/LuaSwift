@@ -38,7 +38,7 @@ import TOMLKit
 ///     }
 /// })
 /// ```
-public struct TOMLModule {
+public struct TOMLModule: LuaSwiftModule {
     /// Register the TOML module with a LuaEngine.
     ///
     /// This creates a global table `luaswift` with a nested `toml` table containing:
@@ -46,7 +46,8 @@ public struct TOMLModule {
     /// - `decode(string)`: Decode TOML string to Lua value
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register encode function
         engine.registerFunction(name: "_luaswift_toml_encode", callback: encodeCallback)
 
@@ -54,20 +55,25 @@ public struct TOMLModule {
         engine.registerFunction(name: "_luaswift_toml_decode", callback: decodeCallback)
 
         // Set up the luaswift.toml namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                luaswift.toml = {
-                    encode = _luaswift_toml_encode,
-                    decode = _luaswift_toml_decode
-                }
-                _luaswift_toml_encode = nil
-                _luaswift_toml_decode = nil
-                package.loaded["luaswift.toml"] = luaswift.toml
-                """)
-        } catch {
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            luaswift.toml = {
+                encode = _luaswift_toml_encode,
+                decode = _luaswift_toml_decode
+            }
+            _luaswift_toml_encode = nil
+            _luaswift_toml_decode = nil
+            package.loaded["luaswift.toml"] = luaswift.toml
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] TOMLModule setup failed: \(error)")
+                print("[LuaSwift] TOMLModule setup failed: \(error)")
             #endif
         }
     }

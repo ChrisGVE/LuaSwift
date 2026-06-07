@@ -10,10 +10,10 @@ The Types module provides utilities for detecting and working with LuaSwift type
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Types module
-ModuleRegistry.installTypesModule(in: engine)
+try TypesModule.install(in: engine)
 ```
 
 ## Basic Usage

@@ -150,12 +150,19 @@ LuaSwift includes many Swift-backed modules:
 
 ```swift
 // Install all modules at once
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install specific modules
-ModuleRegistry.installJSONModule(in: engine)
-ModuleRegistry.installGeometryModule(in: engine)
+try JSONModule.install(in: engine)
+try GeometryModule.install(in: engine)
 ```
+
+> Note: Migrating from 1.x code that used `ModuleRegistry.installModules(in:)`
+> or a module's `register(in:)`? Those entry points still work but are
+> deprecated because they silently swallow setup failures. Replace them with
+> `try ModuleRegistry.install(in:)` and `try SomeModule.install(in:)`; the
+> registry variant installs every module it can and then throws a single
+> ``ModuleInstallError`` listing any that failed.
 
 ### JSON Example
 

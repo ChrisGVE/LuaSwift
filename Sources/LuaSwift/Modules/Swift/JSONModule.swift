@@ -31,7 +31,7 @@ import Foundation
 /// -- Null sentinel value
 /// local null = json.null
 /// ```
-public struct JSONModule {
+public struct JSONModule: LuaSwiftModule {
     /// Sentinel value for JSON null
     public static let null = JSONNull()
 
@@ -52,7 +52,8 @@ public struct JSONModule {
     /// - `null`: Sentinel value for JSON null
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register encode function
         engine.registerFunction(name: "_luaswift_json_encode", callback: encodeCallback)
 
@@ -66,45 +67,50 @@ public struct JSONModule {
         engine.registerFunction(name: "_luaswift_json_decode_json5", callback: decodeJSON5Callback)
 
         // Set up the luaswift.json namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                luaswift.json = {
-                    encode = _luaswift_json_encode,
-                    decode = _luaswift_json_decode,
-                    decode_jsonc = _luaswift_json_decode_jsonc,
-                    decode_json5 = _luaswift_json_decode_json5,
-                    -- The __luaswift_json_null marker makes this sentinel encode
-                    -- back to JSON null and lets json.is_null recognise it.
-                    -- Decoding a JSON null yields a table carrying the same
-                    -- marker, so JSON null round-trips symmetrically.
-                    null = setmetatable({__luaswift_json_null = true}, {
-                        __tostring = function() return "null" end,
-                        __type = "json.null"
-                    })
-                }
-                -- True for the json.null sentinel and for any value produced by
-                -- decoding a JSON null. Use this rather than `== json.null`,
-                -- since decoded nulls are distinct table instances. Requires the
-                -- marker to be the table's only field, so an ordinary object
-                -- that merely contains the marker key is not treated as null
-                -- (mirrors the encoder's single-key check).
-                function luaswift.json.is_null(v)
-                    if type(v) ~= "table" or v.__luaswift_json_null ~= true then
-                        return false
-                    end
-                    local k = next(v)
-                    return next(v, k) == nil
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            luaswift.json = {
+                encode = _luaswift_json_encode,
+                decode = _luaswift_json_decode,
+                decode_jsonc = _luaswift_json_decode_jsonc,
+                decode_json5 = _luaswift_json_decode_json5,
+                -- The __luaswift_json_null marker makes this sentinel encode
+                -- back to JSON null and lets json.is_null recognise it.
+                -- Decoding a JSON null yields a table carrying the same
+                -- marker, so JSON null round-trips symmetrically.
+                null = setmetatable({__luaswift_json_null = true}, {
+                    __tostring = function() return "null" end,
+                    __type = "json.null"
+                })
+            }
+            -- True for the json.null sentinel and for any value produced by
+            -- decoding a JSON null. Use this rather than `== json.null`,
+            -- since decoded nulls are distinct table instances. Requires the
+            -- marker to be the table's only field, so an ordinary object
+            -- that merely contains the marker key is not treated as null
+            -- (mirrors the encoder's single-key check).
+            function luaswift.json.is_null(v)
+                if type(v) ~= "table" or v.__luaswift_json_null ~= true then
+                    return false
                 end
-                _luaswift_json_encode = nil
-                _luaswift_json_decode = nil
-                _luaswift_json_decode_jsonc = nil
-                _luaswift_json_decode_json5 = nil
-                package.loaded["luaswift.json"] = luaswift.json
-                """)
-        } catch {
+                local k = next(v)
+                return next(v, k) == nil
+            end
+            _luaswift_json_encode = nil
+            _luaswift_json_decode = nil
+            _luaswift_json_decode_jsonc = nil
+            _luaswift_json_decode_json5 = nil
+            package.loaded["luaswift.json"] = luaswift.json
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] JSONModule setup failed: \(error)")
+                print("[LuaSwift] JSONModule setup failed: \(error)")
             #endif
         }
     }

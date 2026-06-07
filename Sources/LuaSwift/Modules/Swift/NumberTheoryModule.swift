@@ -46,12 +46,13 @@ import NumericSwift
 /// -- Prime counting
 /// local pi = nt.prime_pi(100)  -- 25
 /// ```
-public struct NumberTheoryModule {
+public struct NumberTheoryModule: LuaSwiftModule {
 
     /// Register the number theory module with a LuaEngine.
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register Swift callbacks
         engine.registerFunction(name: "_luaswift_numtheory_euler_phi", callback: eulerPhiCallback)
         engine.registerFunction(name: "_luaswift_numtheory_divisor_sigma", callback: divisorSigmaCallback)
@@ -69,10 +70,17 @@ public struct NumberTheoryModule {
         engine.registerFunction(name: "_luaswift_numtheory_lcm", callback: lcmCallback)
 
         // Create Lua wrapper
-        do {
-            try engine.run(numberTheoryLuaWrapper)
-        } catch {
-            // Silently ignore registration errors
+        try engine.run(numberTheoryLuaWrapper)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
+            #if DEBUG
+                print("[LuaSwift] NumberTheoryModule setup failed: \(error)")
+            #endif
         }
     }
 

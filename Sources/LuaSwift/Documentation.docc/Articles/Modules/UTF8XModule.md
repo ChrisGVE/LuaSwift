@@ -10,10 +10,10 @@ The UTF8X module provides Unicode-aware string operations using Swift's native S
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the UTF8X module
-ModuleRegistry.installUTF8XModule(in: engine)
+try UTF8XModule.install(in: engine)
 ```
 
 ## Basic Usage

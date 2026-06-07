@@ -34,7 +34,7 @@ import NumericSwift
 /// -- Partial sums with convergence info
 /// local info = series.partial_sums("1/2^n", {var="n", from=0, max_terms=20})
 /// ```
-public struct SeriesModule {
+public struct SeriesModule: LuaSwiftModule {
 
     // MARK: - Constants
 
@@ -62,7 +62,8 @@ public struct SeriesModule {
     // MARK: - Public API
 
     /// Register the Series module with a LuaEngine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register Swift callbacks
         engine.registerFunction(name: "_luaswift_series_sum", callback: seriesSumCallback)
         engine.registerFunction(name: "_luaswift_series_product", callback: seriesProductCallback)
@@ -75,12 +76,19 @@ public struct SeriesModule {
         SeriesModulePower.registerCallbacks(in: engine)
 
         // Set up the Lua namespace
-        do {
-            try engine.run(seriesLuaWrapper)
-            // Power series Lua extensions and symbolic dispatchers
-            try engine.run(SeriesModulePower.luaExtensions)
-        } catch {
-            // Module setup failed - callbacks still registered
+        try engine.run(seriesLuaWrapper)
+        // Power series Lua extensions and symbolic dispatchers
+        try engine.run(SeriesModulePower.luaExtensions)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
+            #if DEBUG
+                print("[LuaSwift] SeriesModule setup failed: \(error)")
+            #endif
         }
     }
 

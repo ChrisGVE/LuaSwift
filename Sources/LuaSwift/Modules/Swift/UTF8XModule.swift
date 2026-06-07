@@ -43,7 +43,7 @@ import Foundation
 ///     print(char)
 /// end
 /// ```
-public struct UTF8XModule {
+public struct UTF8XModule: LuaSwiftModule {
 
   /// Register the UTF-8 extension module with a LuaEngine.
   ///
@@ -51,7 +51,8 @@ public struct UTF8XModule {
   /// Unicode-aware string manipulation functions.
   ///
   /// - Parameter engine: The Lua engine to register with
-  public static func register(in engine: LuaEngine) {
+  /// - Throws: An error if the module's Lua setup code fails to run.
+  public static func install(in engine: LuaEngine) throws {
     // Register all functions
     engine.registerFunction(name: "_luaswift_utf8x_width", callback: widthCallback)
     engine.registerFunction(name: "_luaswift_utf8x_sub", callback: subCallback)
@@ -63,63 +64,68 @@ public struct UTF8XModule {
     engine.registerFunction(name: "_luaswift_utf8x_slice", callback: sliceCallback)
 
     // Set up the luaswift.utf8x namespace
-    do {
-      try engine.run(
-        """
-        if not luaswift then luaswift = {} end
+    try engine.run(
+      """
+      if not luaswift then luaswift = {} end
 
-        -- Store references before cleanup
-        local width_fn = _luaswift_utf8x_width
-        local sub_fn = _luaswift_utf8x_sub
-        local reverse_fn = _luaswift_utf8x_reverse
-        local upper_fn = _luaswift_utf8x_upper
-        local lower_fn = _luaswift_utf8x_lower
-        local len_fn = _luaswift_utf8x_len
-        local chars_fn = _luaswift_utf8x_chars
-        local slice_fn = _luaswift_utf8x_slice
+      -- Store references before cleanup
+      local width_fn = _luaswift_utf8x_width
+      local sub_fn = _luaswift_utf8x_sub
+      local reverse_fn = _luaswift_utf8x_reverse
+      local upper_fn = _luaswift_utf8x_upper
+      local lower_fn = _luaswift_utf8x_lower
+      local len_fn = _luaswift_utf8x_len
+      local chars_fn = _luaswift_utf8x_chars
+      local slice_fn = _luaswift_utf8x_slice
 
-        luaswift.utf8x = {
-            width = width_fn,
-            sub = sub_fn,
-            reverse = reverse_fn,
-            upper = upper_fn,
-            lower = lower_fn,
-            len = len_fn,
-            chars = chars_fn,
-            slice = slice_fn,
+      luaswift.utf8x = {
+          width = width_fn,
+          sub = sub_fn,
+          reverse = reverse_fn,
+          upper = upper_fn,
+          lower = lower_fn,
+          len = len_fn,
+          chars = chars_fn,
+          slice = slice_fn,
 
-            -- import() extends the utf8 library (if it exists)
-            -- Note: utf8 library was added in Lua 5.3, doesn't exist in 5.1/5.2
-            import = function()
-                if utf8 then
-                    utf8.width = width_fn
-                    utf8.sub = sub_fn
-                    utf8.reverse = reverse_fn
-                    utf8.upper = upper_fn
-                    utf8.lower = lower_fn
-                    -- Note: utf8.len already exists in Lua, our version is compatible
-                    -- utf8.len = len_fn
-                    utf8.chars = chars_fn
-                    utf8.slice = slice_fn
-                end
-            end
-        }
+          -- import() extends the utf8 library (if it exists)
+          -- Note: utf8 library was added in Lua 5.3, doesn't exist in 5.1/5.2
+          import = function()
+              if utf8 then
+                  utf8.width = width_fn
+                  utf8.sub = sub_fn
+                  utf8.reverse = reverse_fn
+                  utf8.upper = upper_fn
+                  utf8.lower = lower_fn
+                  -- Note: utf8.len already exists in Lua, our version is compatible
+                  -- utf8.len = len_fn
+                  utf8.chars = chars_fn
+                  utf8.slice = slice_fn
+              end
+          end
+      }
 
-        -- Create top-level global alias
-        utf8x = luaswift.utf8x
+      -- Create top-level global alias
+      utf8x = luaswift.utf8x
 
-        -- Clean up temporary globals
-        _luaswift_utf8x_width = nil
-        _luaswift_utf8x_sub = nil
-        _luaswift_utf8x_reverse = nil
-        _luaswift_utf8x_upper = nil
-        _luaswift_utf8x_lower = nil
-        _luaswift_utf8x_len = nil
-        _luaswift_utf8x_chars = nil
-        _luaswift_utf8x_slice = nil
-        package.loaded["luaswift.utf8x"] = luaswift.utf8x
-        """)
-    } catch {
+      -- Clean up temporary globals
+      _luaswift_utf8x_width = nil
+      _luaswift_utf8x_sub = nil
+      _luaswift_utf8x_reverse = nil
+      _luaswift_utf8x_upper = nil
+      _luaswift_utf8x_lower = nil
+      _luaswift_utf8x_len = nil
+      _luaswift_utf8x_chars = nil
+      _luaswift_utf8x_slice = nil
+      package.loaded["luaswift.utf8x"] = luaswift.utf8x
+      """)
+  }
+
+  /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+  ///
+  /// - Parameter engine: The Lua engine to register with
+  public static func register(in engine: LuaEngine) {
+    do { try install(in: engine) } catch {
       #if DEBUG
         print("[LuaSwift] UTF8XModule setup failed: \(error)")
       #endif

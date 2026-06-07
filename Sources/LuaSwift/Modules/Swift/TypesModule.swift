@@ -23,18 +23,26 @@ import Foundation
 /// print(types.typeof(c))  -- "complex"
 /// print(types.is(c, "complex"))  -- true
 /// ```
-public struct TypesModule {
+public struct TypesModule: LuaSwiftModule {
 
     // MARK: - Registration
 
     /// Register the types module in the specified engine.
     ///
     /// - Parameter engine: The Lua engine to register the module in
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
+        try engine.run(typesLuaCode)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
     public static func register(in engine: LuaEngine) {
-        do {
-            try engine.run(typesLuaCode)
-        } catch {
-            // Module setup failed - log error if needed
+        do { try install(in: engine) } catch {
+            #if DEBUG
+                print("[LuaSwift] TypesModule setup failed: \(error)")
+            #endif
         }
     }
 

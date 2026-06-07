@@ -26,10 +26,10 @@ The `eval` table is callable as a function: `eval(expr, vars)` is equivalent to 
 
 ```swift
 // Install all modules (MathSciModule must run before MathExprModule)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install MathExpr alone
-ModuleRegistry.installMathExprModule(in: engine)
+try MathExprModule.install(in: engine)
 ```
 
 ## Basic Usage

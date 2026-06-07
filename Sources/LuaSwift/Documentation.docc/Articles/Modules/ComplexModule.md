@@ -21,11 +21,11 @@ Then install the module from Swift:
 
 ```swift
 // Install all modules (Complex included when LUASWIFT_NUMERICSWIFT is set)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Complex module
 // Available only when compiled with LUASWIFT_NUMERICSWIFT
-ModuleRegistry.installComplexModule(in: engine)
+try ComplexModule.install(in: engine)
 ```
 
 ## Basic Usage

@@ -67,7 +67,7 @@ let version = try engine.evaluate("return App.version")
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Extend standard library with LuaSwift enhancements
 try engine.run("luaswift.extend_stdlib()")
@@ -228,10 +228,10 @@ These modules require explicit installation and configuration.
 ```swift
 // File I/O: Configure which directories Lua can access
 IOModule.setAllowedDirectories([documentsPath, cachePath], for: engine)
-ModuleRegistry.installIOModule(in: engine)
+try IOModule.install(in: engine)
 
 // HTTP: Enable network requests
-ModuleRegistry.installHTTPModule(in: engine)
+try HTTPModule.install(in: engine)
 ```
 
 The `iox` module restricts file operations to explicitly allowed directories—Lua scripts cannot access files outside these paths. This replaces Lua's standard `io` library (which is removed in sandboxed mode) with a secure alternative.
@@ -335,12 +335,12 @@ At runtime, install only the modules you need:
 let engine = try LuaEngine()
 
 // Install specific modules
-ModuleRegistry.installJSONModule(in: engine)
-ModuleRegistry.installStringXModule(in: engine)
-ModuleRegistry.installMathModule(in: engine)
+try JSONModule.install(in: engine)
+try StringXModule.install(in: engine)
+try MathXModule.install(in: engine)
 
 // Or install all compiled modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 ```
 
 ## Configuration

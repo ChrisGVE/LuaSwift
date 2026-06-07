@@ -18,14 +18,15 @@ import Foundation
 ///
 /// ```swift
 /// let engine = try LuaEngine()
-/// ModuleRegistry.installModules(in: engine)
+/// try ModuleRegistry.install(in: engine)
 ///
 /// // Now Lua code can use:
 /// // local json = require("luaswift.json")
 /// // local value = json.decode('{"key":"value"}')
 /// ```
 public struct ModuleRegistry {
-  /// Install all built-in modules in the specified engine.
+  /// Install all built-in modules in the specified engine, collecting
+  /// per-module failures.
   ///
   /// This registers all available Swift-backed modules. Currently includes:
   /// - `luaswift.json`: JSON encoding/decoding
@@ -63,62 +64,107 @@ public struct ModuleRegistry {
   /// After calling extend_stdlib(), math subnamespaces are available:
   /// `math.linalg`, `math.stats`, `math.special`, `math.regress`, `math.constants`, etc.
   ///
+  /// Even when a module fails, installation of the remaining modules
+  /// continues; every failure is then reported through a single
+  /// ``ModuleInstallError`` so that one broken module cannot hide the
+  /// state of the others.
+  ///
   /// - Parameter engine: The Lua engine to install modules in
-  public static func installModules(in engine: LuaEngine) {
+  /// - Throws: ``ModuleInstallError`` listing every module whose setup failed
+  public static func install(in engine: LuaEngine) throws {
+    var failures: [(module: String, error: Error)] = []
+
+    /// Run one module installation, recording (not propagating) its failure
+    /// so the remaining modules still get installed.
+    func collectFailure(_ moduleName: String, _ installModule: () throws -> Void) {
+      do {
+        try installModule()
+      } catch {
+        failures.append((module: moduleName, error: error))
+      }
+    }
+
     // Core modules (always available)
-    installJSONModule(in: engine)
+    collectFailure("JSONModule") { try JSONModule.install(in: engine) }
     #if LUASWIFT_YAMS
-      installYAMLModule(in: engine)
+      collectFailure("YAMLModule") { try YAMLModule.install(in: engine) }
     #endif
     #if LUASWIFT_TOMLKIT
-      installTOMLModule(in: engine)
+      collectFailure("TOMLModule") { try TOMLModule.install(in: engine) }
     #endif
-    installRegexModule(in: engine)
-    installMathModule(in: engine)
-    installUTF8XModule(in: engine)
-    installStringXModule(in: engine)
-    installTableXModule(in: engine)
-    installTypesModule(in: engine)
-    installSVGModule(in: engine)
+    collectFailure("RegexModule") { try RegexModule.install(in: engine) }
+    collectFailure("MathXModule") { try MathXModule.install(in: engine) }
+    collectFailure("UTF8XModule") { try UTF8XModule.install(in: engine) }
+    collectFailure("StringXModule") { try StringXModule.install(in: engine) }
+    collectFailure("TableXModule") { try TableXModule.install(in: engine) }
+    collectFailure("TypesModule") { try TypesModule.install(in: engine) }
+    collectFailure("SVGModule") { try SVGModule.install(in: engine) }
 
     // ArraySwift-dependent module
     #if LUASWIFT_ARRAYSWIFT
-      installArrayModule(in: engine)
+      collectFailure("ArrayModule") { try ArrayModule.install(in: engine) }
     #endif
 
     // PlotSwift-dependent module
     #if LUASWIFT_PLOTSWIFT
-      installPlotModule(in: engine)
+      collectFailure("PlotModule") { try PlotModule.install(in: engine) }
     #endif
 
     // NumericSwift-dependent modules
     #if LUASWIFT_NUMERICSWIFT
-      installLinAlgModule(in: engine)
-      installGeometryModule(in: engine)
-      installComplexModule(in: engine)
-      installMathSciModule(in: engine)  // Must be before MathExprModule to create math.eval namespace
-      installMathExprModule(in: engine)
-      installOptimizeModule(in: engine)
-      installIntegrateModule(in: engine)
-      installDistributionsModule(in: engine)
-      installInterpolateModule(in: engine)
-      installClusterModule(in: engine)
-      installSpatialModule(in: engine)
-      installSpecialModule(in: engine)
-      installRegressModule(in: engine)
-      installSeriesModule(in: engine)  // Must be after MathExprModule (uses eval)
-      installNumberTheoryModule(in: engine)
+      collectFailure("LinAlgModule") { try LinAlgModule.install(in: engine) }
+      collectFailure("GeometryModule") { try GeometryModule.install(in: engine) }
+      collectFailure("ComplexModule") { try ComplexModule.install(in: engine) }
+      // MathSciModule must come before MathExprModule to create the math.eval namespace
+      collectFailure("MathSciModule") { try MathSciModule.install(in: engine) }
+      collectFailure("MathExprModule") { try MathExprModule.install(in: engine) }
+      collectFailure("OptimizeModule") { try OptimizeModule.install(in: engine) }
+      collectFailure("IntegrateModule") { try IntegrateModule.install(in: engine) }
+      collectFailure("DistributionsModule") { try DistributionsModule.install(in: engine) }
+      collectFailure("InterpolateModule") { try InterpolateModule.install(in: engine) }
+      collectFailure("ClusterModule") { try ClusterModule.install(in: engine) }
+      collectFailure("SpatialModule") { try SpatialModule.install(in: engine) }
+      collectFailure("SpecialModule") { try SpecialModule.install(in: engine) }
+      collectFailure("RegressModule") { try RegressModule.install(in: engine) }
+      // SeriesModule must come after MathExprModule (uses eval)
+      collectFailure("SeriesModule") { try SeriesModule.install(in: engine) }
+      collectFailure("NumberTheoryModule") { try NumberTheoryModule.install(in: engine) }
     #endif
 
     // Thales CAS module
     #if LUASWIFT_THALES
-      installThalesModule(in: engine)
+      collectFailure("ThalesModule") { try ThalesModule.install(in: engine) }
     #endif
 
     #if DEBUG
-      installDebugModule(in: engine)
+      collectFailure("DebugModule") { try DebugModule.install(in: engine) }
     #endif
-    installExtendStdlib(in: engine)
+    collectFailure("extend_stdlib") { try installExtendStdlib(in: engine) }
+
+    if !failures.isEmpty {
+      throw ModuleInstallError(failures: failures)
+    }
+  }
+
+  /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+  ///
+  /// - Parameter engine: The Lua engine to install modules in
+  public static func installModules(in engine: LuaEngine) {
+    installSwallowingFailure("ModuleRegistry.install") { try install(in: engine) }
+  }
+
+  /// Run one module installation for a deprecated non-throwing entry point,
+  /// swallowing any failure (DEBUG builds print it).
+  private static func installSwallowingFailure(
+    _ moduleName: String, _ installModule: () throws -> Void
+  ) {
+    do {
+      try installModule()
+    } catch {
+      #if DEBUG
+        print("[LuaSwift] \(moduleName) setup failed: \(error)")
+      #endif
+    }
   }
 
   /// Install the extend_stdlib() helper function and top-level aliases.
@@ -128,10 +174,10 @@ public struct ModuleRegistry {
   /// - `luaswift.extend_stdlib()` which imports all extensions into standard library
   ///
   /// - Parameter engine: The Lua engine to install in
-  private static func installExtendStdlib(in engine: LuaEngine) {
-    do {
-      try engine.run(
-        """
+  /// - Throws: An error if the Lua setup code fails to run
+  private static func installExtendStdlib(in engine: LuaEngine) throws {
+    try engine.run(
+      """
         if not luaswift then luaswift = {} end
 
         -- Create top-level global aliases for all modules
@@ -188,18 +234,13 @@ public struct ModuleRegistry {
             end
         end
         """)
-    } catch {
-      #if DEBUG
-        print("[LuaSwift] Warning: extend_stdlib setup failed: \(error)")
-      #endif
-    }
   }
 
   /// Install only the JSON module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installJSONModule(in engine: LuaEngine) {
-    JSONModule.register(in: engine)
+    installSwallowingFailure("JSONModule") { try JSONModule.install(in: engine) }
   }
 
   #if LUASWIFT_YAMS
@@ -207,7 +248,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installYAMLModule(in engine: LuaEngine) {
-      YAMLModule.register(in: engine)
+      installSwallowingFailure("YAMLModule") { try YAMLModule.install(in: engine) }
     }
   #endif
 
@@ -216,7 +257,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installTOMLModule(in engine: LuaEngine) {
-      TOMLModule.register(in: engine)
+      installSwallowingFailure("TOMLModule") { try TOMLModule.install(in: engine) }
     }
   #endif
 
@@ -224,7 +265,7 @@ public struct ModuleRegistry {
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installRegexModule(in engine: LuaEngine) {
-    RegexModule.register(in: engine)
+    installSwallowingFailure("RegexModule") { try RegexModule.install(in: engine) }
   }
 
   #if LUASWIFT_NUMERICSWIFT
@@ -232,7 +273,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installLinAlgModule(in engine: LuaEngine) {
-      LinAlgModule.register(in: engine)
+      installSwallowingFailure("LinAlgModule") { try LinAlgModule.install(in: engine) }
     }
   #endif
 
@@ -240,7 +281,7 @@ public struct ModuleRegistry {
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installMathModule(in engine: LuaEngine) {
-    MathXModule.register(in: engine)
+    installSwallowingFailure("MathXModule") { try MathXModule.install(in: engine) }
   }
 
   #if LUASWIFT_ARRAYSWIFT
@@ -248,7 +289,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installArrayModule(in engine: LuaEngine) {
-      ArrayModule.register(in: engine)
+      installSwallowingFailure("ArrayModule") { try ArrayModule.install(in: engine) }
     }
   #endif
 
@@ -257,7 +298,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installGeometryModule(in engine: LuaEngine) {
-      GeometryModule.register(in: engine)
+      installSwallowingFailure("GeometryModule") { try GeometryModule.install(in: engine) }
     }
   #endif
 
@@ -265,21 +306,21 @@ public struct ModuleRegistry {
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installUTF8XModule(in engine: LuaEngine) {
-    UTF8XModule.register(in: engine)
+    installSwallowingFailure("UTF8XModule") { try UTF8XModule.install(in: engine) }
   }
 
   /// Install only the StringX module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installStringXModule(in engine: LuaEngine) {
-    StringXModule.register(in: engine)
+    installSwallowingFailure("StringXModule") { try StringXModule.install(in: engine) }
   }
 
   /// Install only the TableX module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installTableXModule(in engine: LuaEngine) {
-    TableXModule.register(in: engine)
+    installSwallowingFailure("TableXModule") { try TableXModule.install(in: engine) }
   }
 
   #if LUASWIFT_NUMERICSWIFT
@@ -287,7 +328,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installComplexModule(in engine: LuaEngine) {
-      ComplexModule.register(in: engine)
+      installSwallowingFailure("ComplexModule") { try ComplexModule.install(in: engine) }
     }
   #endif
 
@@ -295,14 +336,14 @@ public struct ModuleRegistry {
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installTypesModule(in engine: LuaEngine) {
-    TypesModule.register(in: engine)
+    installSwallowingFailure("TypesModule") { try TypesModule.install(in: engine) }
   }
 
   /// Install only the SVG module.
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installSVGModule(in engine: LuaEngine) {
-    SVGModule.register(in: engine)
+    installSwallowingFailure("SVGModule") { try SVGModule.install(in: engine) }
   }
 
   #if LUASWIFT_NUMERICSWIFT
@@ -310,7 +351,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installMathExprModule(in engine: LuaEngine) {
-      MathExprModule.register(in: engine)
+      installSwallowingFailure("MathExprModule") { try MathExprModule.install(in: engine) }
     }
   #endif
 
@@ -321,7 +362,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installDebugModule(in engine: LuaEngine) {
-      DebugModule.register(in: engine)
+      installSwallowingFailure("DebugModule") { try DebugModule.install(in: engine) }
     }
   #endif
 
@@ -330,7 +371,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installPlotModule(in engine: LuaEngine) {
-      PlotModule.register(in: engine)
+      installSwallowingFailure("PlotModule") { try PlotModule.install(in: engine) }
     }
   #endif
 
@@ -343,7 +384,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installMathSciModule(in engine: LuaEngine) {
-      MathSciModule.register(in: engine)
+      installSwallowingFailure("MathSciModule") { try MathSciModule.install(in: engine) }
     }
 
     /// Install only the Optimize module.
@@ -353,7 +394,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installOptimizeModule(in engine: LuaEngine) {
-      OptimizeModule.register(in: engine)
+      installSwallowingFailure("OptimizeModule") { try OptimizeModule.install(in: engine) }
     }
 
     /// Install only the Integrate module.
@@ -363,7 +404,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installIntegrateModule(in engine: LuaEngine) {
-      IntegrateModule.register(in: engine)
+      installSwallowingFailure("IntegrateModule") { try IntegrateModule.install(in: engine) }
     }
 
     /// Install only the Distributions module.
@@ -373,7 +414,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installDistributionsModule(in engine: LuaEngine) {
-      DistributionsModule.register(in: engine)
+      installSwallowingFailure("DistributionsModule") { try DistributionsModule.install(in: engine) }
     }
 
     /// Install only the Interpolate module.
@@ -383,7 +424,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installInterpolateModule(in engine: LuaEngine) {
-      InterpolateModule.register(in: engine)
+      installSwallowingFailure("InterpolateModule") { try InterpolateModule.install(in: engine) }
     }
 
     /// Install only the Cluster module.
@@ -393,7 +434,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installClusterModule(in engine: LuaEngine) {
-      ClusterModule.register(in: engine)
+      installSwallowingFailure("ClusterModule") { try ClusterModule.install(in: engine) }
     }
 
     /// Install only the Spatial module.
@@ -403,7 +444,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installSpatialModule(in engine: LuaEngine) {
-      SpatialModule.register(in: engine)
+      installSwallowingFailure("SpatialModule") { try SpatialModule.install(in: engine) }
     }
 
     /// Install only the Special functions module.
@@ -413,7 +454,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installSpecialModule(in engine: LuaEngine) {
-      SpecialModule.register(in: engine)
+      installSwallowingFailure("SpecialModule") { try SpecialModule.install(in: engine) }
     }
 
     /// Install only the Regress module.
@@ -423,7 +464,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installRegressModule(in engine: LuaEngine) {
-      RegressModule.register(in: engine)
+      installSwallowingFailure("RegressModule") { try RegressModule.install(in: engine) }
     }
 
     /// Install only the Series module.
@@ -433,7 +474,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installSeriesModule(in engine: LuaEngine) {
-      SeriesModule.register(in: engine)
+      installSwallowingFailure("SeriesModule") { try SeriesModule.install(in: engine) }
     }
 
     /// Install only the Number Theory module.
@@ -451,7 +492,7 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installNumberTheoryModule(in engine: LuaEngine) {
-      NumberTheoryModule.register(in: engine)
+      installSwallowingFailure("NumberTheoryModule") { try NumberTheoryModule.install(in: engine) }
     }
   #endif
 
@@ -463,21 +504,21 @@ public struct ModuleRegistry {
     ///
     /// - Parameter engine: The Lua engine to install the module in
     public static func installThalesModule(in engine: LuaEngine) {
-      ThalesModule.register(in: engine)
+      installSwallowingFailure("ThalesModule") { try ThalesModule.install(in: engine) }
     }
   #endif
 
   /// Install only the HTTP module.
   ///
   /// This module provides HTTP client functionality using URLSession.
-  /// Unlike other modules, HTTPModule is NOT included in `installModules()`
+  /// Unlike other modules, HTTPModule is NOT included in `ModuleRegistry.install(in:)`
   /// because network access may not be desired in all environments.
   ///
   /// ## Usage
   ///
   /// ```swift
   /// let engine = try LuaEngine()
-  /// ModuleRegistry.installHTTPModule(in: engine)
+  /// try HTTPModule.install(in: engine)
   ///
   /// let result = try engine.evaluate("""
   ///     local http = require("luaswift.http")
@@ -488,13 +529,13 @@ public struct ModuleRegistry {
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installHTTPModule(in engine: LuaEngine) {
-    HTTPModule.register(in: engine)
+    installSwallowingFailure("HTTPModule") { try HTTPModule.install(in: engine) }
   }
 
   /// Install only the IO module.
   ///
   /// This module provides sandboxed file system operations. Unlike other modules,
-  /// IOModule is NOT included in `installModules()` because it requires explicit
+  /// IOModule is NOT included in `ModuleRegistry.install(in:)` because it requires explicit
   /// configuration of allowed directories before use.
   ///
   /// ## Usage
@@ -506,7 +547,7 @@ public struct ModuleRegistry {
   /// IOModule.setAllowedDirectories(["/path/to/allowed/dir"], for: engine)
   ///
   /// // Then install the module
-  /// ModuleRegistry.installIOModule(in: engine)
+  /// try IOModule.install(in: engine)
   ///
   /// // Now Lua can use sandboxed file operations
   /// try engine.run("""
@@ -517,14 +558,14 @@ public struct ModuleRegistry {
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installIOModule(in engine: LuaEngine) {
-    IOModule.register(in: engine)
+    installSwallowingFailure("IOModule") { try IOModule.install(in: engine) }
   }
 
   /// Install only the UI module.
   ///
   /// This module provides alert and confirmation dialog support using native platform
   /// APIs (NSAlert on macOS, UIAlertController on iOS). Unlike other modules,
-  /// UIModule is NOT included in `installModules()` because it requires a running
+  /// UIModule is NOT included in `ModuleRegistry.install(in:)` because it requires a running
   /// main run loop and UI framework access.
   ///
   /// Lua calls to `ui.alert()` and `ui.confirm()` block until the user dismisses
@@ -534,7 +575,7 @@ public struct ModuleRegistry {
   ///
   /// ```swift
   /// let engine = try LuaEngine()
-  /// ModuleRegistry.installUIModule(in: engine)
+  /// try UIModule.install(in: engine)
   ///
   /// let result = try engine.evaluate("""
   ///     local ui = require("luaswift.ui")
@@ -545,6 +586,6 @@ public struct ModuleRegistry {
   ///
   /// - Parameter engine: The Lua engine to install the module in
   public static func installUIModule(in engine: LuaEngine) {
-    UIModule.register(in: engine)
+    installSwallowingFailure("UIModule") { try UIModule.install(in: engine) }
   }
 }

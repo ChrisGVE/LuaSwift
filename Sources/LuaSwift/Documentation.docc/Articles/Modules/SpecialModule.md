@@ -27,10 +27,10 @@ Function groups:
 
 ```swift
 // Install all modules (includes SpecialModule when LUASWIFT_NUMERICSWIFT is set)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Special Functions module
-ModuleRegistry.installSpecialModule(in: engine)
+try SpecialModule.install(in: engine)
 ```
 
 ```lua

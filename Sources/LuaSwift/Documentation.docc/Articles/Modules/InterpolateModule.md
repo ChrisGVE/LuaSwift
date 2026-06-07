@@ -19,10 +19,10 @@ Functions are available under `math.interpolate` (and also `luaswift.interpolate
 
 ```swift
 // Install all modules (includes interpolate when NumericSwift is present)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install the math module group explicitly
-ModuleRegistry.installMathModule(in: engine)
+try MathXModule.install(in: engine)
 ```
 
 ```lua

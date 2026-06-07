@@ -12,10 +12,10 @@ The LinAlg module provides comprehensive linear algebra functionality using Appl
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the LinAlg module
-ModuleRegistry.installLinAlgModule(in: engine)
+try LinAlgModule.install(in: engine)
 ```
 
 Build with NumericSwift enabled:

@@ -464,7 +464,7 @@ LuaSwift's built-in modules (JSON, Regex, Math, etc.) are designed to be safe:
 
 ```swift
 // Install all modules safely
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 ```
 
 ```lua

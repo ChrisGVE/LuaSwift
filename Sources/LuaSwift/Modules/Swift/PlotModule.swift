@@ -49,7 +49,7 @@
   /// -- Or get DrawingContext for host app rendering
   /// local ctx = fig:get_context()
   /// ```
-  public struct PlotModule {
+  public struct PlotModule: LuaSwiftModule {
 
     // Types (Color, TextStyle, LineStyle, MarkerStyle, DrawingCommand, DrawingContext)
     // are now in the PlotSwift package
@@ -88,7 +88,8 @@
     // MARK: - Registration
 
     /// Register the plot module with a LuaEngine
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
       // Context creation
       engine.registerFunction(
         name: "_luaswift_plot_create_context", callback: createContextCallback)
@@ -131,10 +132,17 @@
       engine.registerFunction(name: "_luaswift_plot_savefig", callback: saveFigCallback)
 
       // Set up Lua wrapper
-      do {
-        try engine.run(plotLuaWrapper)
-      } catch {
-        // Module setup failed silently
+      try engine.run(plotLuaWrapper)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+      do { try install(in: engine) } catch {
+        #if DEBUG
+          print("[LuaSwift] PlotModule setup failed: \(error)")
+        #endif
       }
     }
 

@@ -22,9 +22,9 @@ import Foundation
 /// (NSAlert on macOS, UIAlertController on iOS). Dialogs block the Lua call
 /// until the user responds.
 ///
-/// This module is NOT included in `installModules()` because it requires
+/// This module is NOT included in `ModuleRegistry.install(in:)` because it requires
 /// UI framework access and a running main run loop. Register it explicitly
-/// with ``ModuleRegistry/installUIModule(in:)``.
+/// with ``UIModule/install(in:)``.
 ///
 /// ## Lua API
 ///
@@ -52,7 +52,7 @@ import Foundation
 /// - `"cancel"` — keyboard cancel action (Escape key on macOS)
 ///
 /// Return value is the 1-indexed position of the button pressed.
-public struct UIModule {
+public struct UIModule: LuaSwiftModule {
 
   // MARK: - Internal Types
 
@@ -73,23 +73,29 @@ public struct UIModule {
   /// Register the UI module with a LuaEngine.
   ///
   /// - Parameter engine: The Lua engine to register with
-  public static func register(in engine: LuaEngine) {
+  /// - Throws: An error if the module's Lua setup code fails to run.
+  public static func install(in engine: LuaEngine) throws {
     engine.registerFunction(name: "_luaswift_ui_alert", callback: alertCallback)
     engine.registerFunction(name: "_luaswift_ui_confirm", callback: confirmCallback)
 
-    do {
-      try engine.run(
-        """
-        if not luaswift then luaswift = {} end
-        luaswift.ui = {
-            alert = _luaswift_ui_alert,
-            confirm = _luaswift_ui_confirm
-        }
-        _luaswift_ui_alert = nil
-        _luaswift_ui_confirm = nil
-        package.loaded["luaswift.ui"] = luaswift.ui
-        """)
-    } catch {
+    try engine.run(
+      """
+      if not luaswift then luaswift = {} end
+      luaswift.ui = {
+          alert = _luaswift_ui_alert,
+          confirm = _luaswift_ui_confirm
+      }
+      _luaswift_ui_alert = nil
+      _luaswift_ui_confirm = nil
+      package.loaded["luaswift.ui"] = luaswift.ui
+      """)
+  }
+
+  /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+  ///
+  /// - Parameter engine: The Lua engine to register with
+  public static func register(in engine: LuaEngine) {
+    do { try install(in: engine) } catch {
       #if DEBUG
         print("[LuaSwift] UIModule setup failed: \(error)")
       #endif

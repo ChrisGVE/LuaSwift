@@ -20,10 +20,12 @@
 
   extension ArrayModule {
 
-    /// Register all Phase-2 bindings into `engine`.
+    /// Install all Phase-2 bindings into `engine`.
     ///
-    /// Call from ``ArrayModule/register(in:)`` after the core registrations.
-    internal static func registerPhase2(in engine: LuaEngine) {
+    /// Call from ``ArrayModule/install(in:)`` after the core registrations.
+    ///
+    /// - Throws: An error if the Phase-2 Lua wiring fails to run.
+    internal static func installPhase2(in engine: LuaEngine) throws {
       // Phase-2 creation with dtype (separate registrations so the main wrapper's cleanup doesn't affect us)
       engine.registerFunction(name: "_luaswift_array_p2_zeros", callback: p2ZerosCallback)
       engine.registerFunction(name: "_luaswift_array_p2_ones", callback: p2OnesCallback)
@@ -64,17 +66,11 @@
       engine.registerFunction(name: "_luaswift_array_maskset", callback: masksetCallback)
 
       // Lua-side wiring: wire new functions into luaswift.array namespace
-      do {
-        try engine.run(luaPhase2Wrapper)
-      } catch {
-        #if DEBUG
-        print("[LuaSwift] ArrayModule Phase-2 setup failed: \(error)")
-        #endif
-      }
+      try engine.run(luaPhase2Wrapper)
 
       // Complex trig dispatch (requires NumericSwift)
       #if LUASWIFT_NUMERICSWIFT
-      registerComplexTrig(in: engine)
+      try installComplexTrig(in: engine)
       #endif
     }
 
@@ -683,21 +679,17 @@
 
   extension ArrayModule {
 
-    /// Register complex trig overrides. Call from ``ArrayModule/registerPhase2(in:)``
+    /// Install complex trig overrides. Call from ``ArrayModule/installPhase2(in:)``
     /// only when NumericSwift is also available.
-    internal static func registerComplexTrig(in engine: LuaEngine) {
+    ///
+    /// - Throws: An error if the complex-trig Lua wiring fails to run.
+    internal static func installComplexTrig(in engine: LuaEngine) throws {
       engine.registerFunction(name: "_luaswift_array_cx_tan",  callback: cxTanCallback)
       engine.registerFunction(name: "_luaswift_array_cx_sinh", callback: cxSinhCallback)
       engine.registerFunction(name: "_luaswift_array_cx_cosh", callback: cxCoshCallback)
       engine.registerFunction(name: "_luaswift_array_cx_tanh", callback: cxTanhCallback)
 
-      do {
-        try engine.run(complexTrigWrapper)
-      } catch {
-        #if DEBUG
-        print("[LuaSwift] ArrayModule complex-trig setup failed: \(error)")
-        #endif
-      }
+      try engine.run(complexTrigWrapper)
     }
 
     // MARK: - Complex trig callbacks

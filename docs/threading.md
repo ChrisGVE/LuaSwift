@@ -205,7 +205,7 @@ actor FixedEnginePool {
     init(size: Int) throws {
         available = try (0..<size).map { _ in try LuaEngine() }
         for engine in available {
-            ModuleRegistry.installModules(in: engine)
+            try ModuleRegistry.install(in: engine)
         }
     }
 
@@ -248,7 +248,7 @@ class ThreadLocalEngineProvider {
         }
 
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
         Thread.current.threadDictionary[key] = engine
         return engine
     }

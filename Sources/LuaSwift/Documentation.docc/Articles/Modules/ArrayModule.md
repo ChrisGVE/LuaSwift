@@ -12,10 +12,10 @@ The Array module provides NumPy-style N-dimensional array operations with effici
 
 ```swift
 // Install all modules (Array module is skipped unless LUASWIFT_ARRAYSWIFT is set)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or register the Array module explicitly
-ArrayModule.register(in: engine)
+try ArrayModule.install(in: engine)
 ```
 
 ## Basic Usage

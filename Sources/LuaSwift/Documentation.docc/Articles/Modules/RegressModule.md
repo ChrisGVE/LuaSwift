@@ -17,7 +17,7 @@ Models are available under `math.regress` after calling `luaswift.extend_stdlib(
 // LUASWIFT_INCLUDE_NUMERICSWIFT=1 swift build
 
 // Register all modules (includes regress when NumericSwift is present)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 ```
 
 ```lua

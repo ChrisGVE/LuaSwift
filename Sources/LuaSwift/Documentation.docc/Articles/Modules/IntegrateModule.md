@@ -12,7 +12,7 @@ The Integrate module provides adaptive quadrature, multi-dimensional integration
 
 ```swift
 // Requires LUASWIFT_INCLUDE_NUMERICSWIFT=1 at build time
-ModuleRegistry.installMathModule(in: engine)
+try MathXModule.install(in: engine)
 ```
 
 ```lua

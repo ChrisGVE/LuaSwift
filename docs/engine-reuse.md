@@ -149,7 +149,7 @@ class ScriptService {
         self.engine = try LuaEngine()
 
         // One-time setup
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
         try engine.run("""
             -- Initialize shared state
             cache = {}
@@ -255,15 +255,15 @@ class UserScriptRunner {
 ```swift
 // Different module sets for different use cases
 let mathEngine = try LuaEngine()
-ModuleRegistry.installMathModule(in: mathEngine)
-ModuleRegistry.installLinAlgModule(in: mathEngine)
+try MathXModule.install(in: mathEngine)
+try LinAlgModule.install(in: mathEngine)
 
 let dataEngine = try LuaEngine()
-ModuleRegistry.installJSONModule(in: dataEngine)
-ModuleRegistry.installYAMLModule(in: dataEngine)
+try JSONModule.install(in: dataEngine)
+try YAMLModule.install(in: dataEngine)
 
 let fullEngine = try LuaEngine()
-ModuleRegistry.installModules(in: fullEngine)  // All modules
+try ModuleRegistry.install(in: fullEngine)  // All modules
 ```
 
 ### Parallel Script Execution
@@ -274,7 +274,7 @@ func processScriptsInParallel(_ scripts: [String]) async throws -> [LuaValue] {
         for (index, script) in scripts.enumerated() {
             group.addTask {
                 let engine = try LuaEngine()  // Each task gets its own engine
-                ModuleRegistry.installModules(in: engine)
+                try ModuleRegistry.install(in: engine)
                 let result = try engine.evaluate(script)
                 return (index, result)
             }

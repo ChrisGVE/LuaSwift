@@ -39,7 +39,7 @@ import NumericSwift
 /// print(result.labels)         -- cluster labels (-1 for noise)
 /// print(result.core_samples)   -- indices of core samples
 /// ```
-public struct ClusterModule {
+public struct ClusterModule: LuaSwiftModule {
 
     // MARK: - Constants
 
@@ -50,7 +50,8 @@ public struct ClusterModule {
     // MARK: - Registration
 
     /// Register the cluster module with a LuaEngine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register Swift callbacks
         engine.registerFunction(name: "_luaswift_cluster_kmeans", callback: kmeansCallback)
         engine.registerFunction(name: "_luaswift_cluster_hierarchical", callback: hierarchicalCallback)
@@ -58,59 +59,64 @@ public struct ClusterModule {
         engine.registerFunction(name: "_luaswift_cluster_silhouette_score", callback: silhouetteScoreCallback)
         engine.registerFunction(name: "_luaswift_cluster_elbow_method", callback: elbowMethodCallback)
 
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                if not luaswift.cluster then luaswift.cluster = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            if not luaswift.cluster then luaswift.cluster = {} end
 
-                local cluster = {}
+            local cluster = {}
 
-                ----------------------------------------------------------------
-                -- kmeans: K-means clustering (Swift-backed)
-                ----------------------------------------------------------------
-                function cluster.kmeans(data, k, options)
-                    return _luaswift_cluster_kmeans(data, k, options or {})
-                end
+            ----------------------------------------------------------------
+            -- kmeans: K-means clustering (Swift-backed)
+            ----------------------------------------------------------------
+            function cluster.kmeans(data, k, options)
+                return _luaswift_cluster_kmeans(data, k, options or {})
+            end
 
-                ----------------------------------------------------------------
-                -- hierarchical: Hierarchical/agglomerative clustering (Swift-backed)
-                ----------------------------------------------------------------
-                function cluster.hierarchical(data, options)
-                    return _luaswift_cluster_hierarchical(data, options or {})
-                end
+            ----------------------------------------------------------------
+            -- hierarchical: Hierarchical/agglomerative clustering (Swift-backed)
+            ----------------------------------------------------------------
+            function cluster.hierarchical(data, options)
+                return _luaswift_cluster_hierarchical(data, options or {})
+            end
 
-                ----------------------------------------------------------------
-                -- dbscan: DBSCAN clustering (Swift-backed)
-                ----------------------------------------------------------------
-                function cluster.dbscan(data, options)
-                    return _luaswift_cluster_dbscan(data, options or {})
-                end
+            ----------------------------------------------------------------
+            -- dbscan: DBSCAN clustering (Swift-backed)
+            ----------------------------------------------------------------
+            function cluster.dbscan(data, options)
+                return _luaswift_cluster_dbscan(data, options or {})
+            end
 
-                ----------------------------------------------------------------
-                -- silhouette_score: Compute silhouette coefficient (Swift-backed)
-                ----------------------------------------------------------------
-                function cluster.silhouette_score(data, labels)
-                    return _luaswift_cluster_silhouette_score(data, labels)
-                end
+            ----------------------------------------------------------------
+            -- silhouette_score: Compute silhouette coefficient (Swift-backed)
+            ----------------------------------------------------------------
+            function cluster.silhouette_score(data, labels)
+                return _luaswift_cluster_silhouette_score(data, labels)
+            end
 
-                ----------------------------------------------------------------
-                -- elbow_method: Find optimal k using elbow method (Swift-backed)
-                ----------------------------------------------------------------
-                function cluster.elbow_method(data, max_k)
-                    return _luaswift_cluster_elbow_method(data, max_k or 10)
-                end
+            ----------------------------------------------------------------
+            -- elbow_method: Find optimal k using elbow method (Swift-backed)
+            ----------------------------------------------------------------
+            function cluster.elbow_method(data, max_k)
+                return _luaswift_cluster_elbow_method(data, max_k or 10)
+            end
 
-                -- Store the module
-                luaswift.cluster = cluster
+            -- Store the module
+            luaswift.cluster = cluster
 
-                -- Also update math.cluster if math table exists
-                if math then
-                    math.cluster = cluster
-                end
-                """)
-        } catch {
+            -- Also update math.cluster if math table exists
+            if math then
+                math.cluster = cluster
+            end
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] ClusterModule setup failed: \(error)")
+                print("[LuaSwift] ClusterModule setup failed: \(error)")
             #endif
         }
     }

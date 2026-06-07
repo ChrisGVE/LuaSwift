@@ -27,12 +27,13 @@ import NumericSwift
 /// print(z1:abs())  -- 5
 /// print(z1:exp())
 /// ```
-public struct ComplexModule {
+public struct ComplexModule: LuaSwiftModule {
 
     // MARK: - Registration
 
     /// Register the complex module in the given engine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Basic operations
         engine.registerFunction(name: "_luaswift_complex_create", callback: createCallback)
         engine.registerFunction(name: "_luaswift_complex_from_polar", callback: fromPolarCallback)
@@ -72,10 +73,17 @@ public struct ComplexModule {
         engine.registerFunction(name: "_luaswift_complex_tanh", callback: tanhCallback)
 
         // Set up the luaswift.complex namespace
-        do {
-            try engine.run(complexLuaWrapper)
-        } catch {
-            // Module setup failed - functions still available as globals
+        try engine.run(complexLuaWrapper)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
+            #if DEBUG
+                print("[LuaSwift] ComplexModule setup failed: \(error)")
+            #endif
         }
     }
 

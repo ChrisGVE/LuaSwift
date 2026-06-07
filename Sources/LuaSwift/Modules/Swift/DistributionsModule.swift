@@ -43,7 +43,7 @@ import NumericSwift
 /// local mu, sigma = 5, 2
 /// local y = math.stats.norm.pdf(5, mu, sigma)
 /// ```
-public struct DistributionsModule {
+public struct DistributionsModule: LuaSwiftModule {
 
     // MARK: - Helper Functions
 
@@ -68,32 +68,38 @@ public struct DistributionsModule {
     // MARK: - Registration
 
     /// Register the distributions module with a LuaEngine.
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            if not luaswift.distributions then luaswift.distributions = {} end
+
+            -- Ensure math.stats exists
+            if not math.stats then math.stats = {} end
+            """)
+
+        // Register all distribution callbacks
+        registerNorm(in: engine)
+        registerUniform(in: engine)
+        registerExpon(in: engine)
+        registerT(in: engine)
+        registerChi2(in: engine)
+        registerF(in: engine)
+        registerGammaDist(in: engine)
+        registerBetaDist(in: engine)
+
+        // Register statistical tests
+        registerStatisticalTests(in: engine)
+
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
     public static func register(in engine: LuaEngine) {
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                if not luaswift.distributions then luaswift.distributions = {} end
-
-                -- Ensure math.stats exists
-                if not math.stats then math.stats = {} end
-                """)
-
-            // Register all distribution callbacks
-            registerNorm(in: engine)
-            registerUniform(in: engine)
-            registerExpon(in: engine)
-            registerT(in: engine)
-            registerChi2(in: engine)
-            registerF(in: engine)
-            registerGammaDist(in: engine)
-            registerBetaDist(in: engine)
-
-            // Register statistical tests
-            registerStatisticalTests(in: engine)
-
-        } catch {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] DistributionsModule setup failed: \(error)")
+                print("[LuaSwift] DistributionsModule setup failed: \(error)")
             #endif
         }
     }

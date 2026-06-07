@@ -60,12 +60,13 @@ import NumericSwift
 /// local Q, R = m:qr()
 /// local vals, vecs = m:eigen()  -- eig also works
 /// ```
-public struct LinAlgModule {
+public struct LinAlgModule: LuaSwiftModule {
 
     /// Register the linear algebra module with a LuaEngine.
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register creation functions
         engine.registerFunction(name: "_luaswift_linalg_vector", callback: vectorCallback)
         engine.registerFunction(name: "_luaswift_linalg_matrix", callback: matrixCallback)
@@ -137,362 +138,367 @@ public struct LinAlgModule {
         engine.registerFunction(name: "_luaswift_linalg_funm", callback: funmCallback)
 
         // Set up the luaswift.linalg namespace with Lua wrapper code
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
 
-                -- Capture function references as locals before nilling globals
-                local _vector = _luaswift_linalg_vector
-                local _matrix = _luaswift_linalg_matrix
-                local _zeros = _luaswift_linalg_zeros
-                local _ones = _luaswift_linalg_ones
-                local _eye = _luaswift_linalg_eye
-                local _diag = _luaswift_linalg_diag
-                local _range = _luaswift_linalg_range
-                local _linspace = _luaswift_linalg_linspace
-                local _rows = _luaswift_linalg_rows
-                local _cols = _luaswift_linalg_cols
-                local _shape = _luaswift_linalg_shape
-                local _size = _luaswift_linalg_size
-                local _get = _luaswift_linalg_get
-                local _set = _luaswift_linalg_set
-                local _row = _luaswift_linalg_row
-                local _col = _luaswift_linalg_col
-                local _transpose = _luaswift_linalg_transpose
-                local _toarray = _luaswift_linalg_toarray
-                local _add = _luaswift_linalg_add
-                local _sub = _luaswift_linalg_sub
-                local _mul = _luaswift_linalg_mul
-                local _div = _luaswift_linalg_div
-                local _dot = _luaswift_linalg_dot
-                local _hadamard = _luaswift_linalg_hadamard
-                local _det = _luaswift_linalg_det
-                local _inv = _luaswift_linalg_inv
-                local _trace = _luaswift_linalg_trace
-                local _norm = _luaswift_linalg_norm
-                local _rank = _luaswift_linalg_rank
-                local _lu = _luaswift_linalg_lu
-                local _qr = _luaswift_linalg_qr
-                local _svd = _luaswift_linalg_svd
-                local _eig = _luaswift_linalg_eig
-                local _eigvals = _luaswift_linalg_eigvals
-                local _chol = _luaswift_linalg_chol
-                local _solve = _luaswift_linalg_solve
-                local _lstsq = _luaswift_linalg_lstsq
-                local _csolve = _luaswift_linalg_csolve
-                local _csvd = _luaswift_linalg_csvd
-                local _ceig = _luaswift_linalg_ceig
-                local _ceigvals = _luaswift_linalg_ceigvals
-                local _cdet = _luaswift_linalg_cdet
-                local _cinv = _luaswift_linalg_cinv
-                local _solve_triangular = _luaswift_linalg_solve_triangular
-                local _cho_solve = _luaswift_linalg_cho_solve
-                local _lu_solve = _luaswift_linalg_lu_solve
-                local _expm = _luaswift_linalg_expm
-                local _logm = _luaswift_linalg_logm
-                local _sqrtm = _luaswift_linalg_sqrtm
-                local _funm = _luaswift_linalg_funm
-                local _cond = _luaswift_linalg_cond
-                local _pinv = _luaswift_linalg_pinv
+            -- Capture function references as locals before nilling globals
+            local _vector = _luaswift_linalg_vector
+            local _matrix = _luaswift_linalg_matrix
+            local _zeros = _luaswift_linalg_zeros
+            local _ones = _luaswift_linalg_ones
+            local _eye = _luaswift_linalg_eye
+            local _diag = _luaswift_linalg_diag
+            local _range = _luaswift_linalg_range
+            local _linspace = _luaswift_linalg_linspace
+            local _rows = _luaswift_linalg_rows
+            local _cols = _luaswift_linalg_cols
+            local _shape = _luaswift_linalg_shape
+            local _size = _luaswift_linalg_size
+            local _get = _luaswift_linalg_get
+            local _set = _luaswift_linalg_set
+            local _row = _luaswift_linalg_row
+            local _col = _luaswift_linalg_col
+            local _transpose = _luaswift_linalg_transpose
+            local _toarray = _luaswift_linalg_toarray
+            local _add = _luaswift_linalg_add
+            local _sub = _luaswift_linalg_sub
+            local _mul = _luaswift_linalg_mul
+            local _div = _luaswift_linalg_div
+            local _dot = _luaswift_linalg_dot
+            local _hadamard = _luaswift_linalg_hadamard
+            local _det = _luaswift_linalg_det
+            local _inv = _luaswift_linalg_inv
+            local _trace = _luaswift_linalg_trace
+            local _norm = _luaswift_linalg_norm
+            local _rank = _luaswift_linalg_rank
+            local _lu = _luaswift_linalg_lu
+            local _qr = _luaswift_linalg_qr
+            local _svd = _luaswift_linalg_svd
+            local _eig = _luaswift_linalg_eig
+            local _eigvals = _luaswift_linalg_eigvals
+            local _chol = _luaswift_linalg_chol
+            local _solve = _luaswift_linalg_solve
+            local _lstsq = _luaswift_linalg_lstsq
+            local _csolve = _luaswift_linalg_csolve
+            local _csvd = _luaswift_linalg_csvd
+            local _ceig = _luaswift_linalg_ceig
+            local _ceigvals = _luaswift_linalg_ceigvals
+            local _cdet = _luaswift_linalg_cdet
+            local _cinv = _luaswift_linalg_cinv
+            local _solve_triangular = _luaswift_linalg_solve_triangular
+            local _cho_solve = _luaswift_linalg_cho_solve
+            local _lu_solve = _luaswift_linalg_lu_solve
+            local _expm = _luaswift_linalg_expm
+            local _logm = _luaswift_linalg_logm
+            local _sqrtm = _luaswift_linalg_sqrtm
+            local _funm = _luaswift_linalg_funm
+            local _cond = _luaswift_linalg_cond
+            local _pinv = _luaswift_linalg_pinv
 
-                -- Matrix/Vector metatable
-                local linalg_mt = {
-                    __index = function(self, key)
-                        local methods = {
-                            rows = function(_) return _rows(self._data) end,
-                            cols = function(_) return _cols(self._data) end,
-                            shape = function(_) return _shape(self._data) end,
-                            size = function(_) return _size(self._data) end,
-                            get = function(_, i, j) return _get(self._data, i, j) end,
-                            set = function(_, i, j, v) self._data = _set(self._data, i, j, v) return self end,
-                            row = function(_, i) return luaswift.linalg._wrap(_row(self._data, i)) end,
-                            col = function(_, j) return luaswift.linalg._wrap(_col(self._data, j)) end,
-                            transpose = function(_) return luaswift.linalg._wrap(_transpose(self._data)) end,
-                            T = function(_) return luaswift.linalg._wrap(_transpose(self._data)) end,
-                            toarray = function(_) return _toarray(self._data) end,
-                            dot = function(_, other)
-                                local other_data = type(other) == "table" and other._data or other
-                                local result = _dot(self._data, other_data)
-                                -- Scalar result (vector dot product) returns number directly
-                                if type(result) == "number" then return result end
-                                return luaswift.linalg._wrap(result)
-                            end,
-                            hadamard = function(_, other)
-                                local other_data = type(other) == "table" and other._data or other
-                                return luaswift.linalg._wrap(_hadamard(self._data, other_data))
-                            end,
-                            det = function(_) return _det(self._data) end,
-                            inv = function(_) return luaswift.linalg._wrap(_inv(self._data)) end,
-                            trace = function(_) return _trace(self._data) end,
-                            norm = function(_, p) return _norm(self._data, p or 2) end,
-                            rank = function(_) return _rank(self._data) end,
-                            lu = function(_)
-                                local result = _lu(self._data)
-                                return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2]), luaswift.linalg._wrap(result[3])
-                            end,
-                            qr = function(_)
-                                local result = _qr(self._data)
-                                return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
-                            end,
-                            svd = function(_, return1D)
-                                local result = _svd(self._data, return1D)
-                                return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2]), luaswift.linalg._wrap(result[3])
-                            end,
-                            eigen = function(_)
-                                local result = _eig(self._data)
-                                return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
-                            end,
-                            eig = function(_)  -- Legacy alias
-                                local result = _eig(self._data)
-                                return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
-                            end,
-                            eigvals = function(_)
-                                return luaswift.linalg._wrap(_eigvals(self._data))
-                            end,
-                            chol = function(_) return luaswift.linalg._wrap(_chol(self._data)) end,
-                            expm = function(_) return luaswift.linalg._wrap(_expm(self._data)) end,
-                            logm = function(_) return luaswift.linalg._wrap(_logm(self._data)) end,
-                            sqrtm = function(_) return luaswift.linalg._wrap(_sqrtm(self._data)) end,
-                            funm = function(_, f) return luaswift.linalg._wrap(_funm(self._data, f)) end,
-                            cond = function(_, p) return _cond(self._data, p) end,
-                            pinv = function(_, rcond) return luaswift.linalg._wrap(_pinv(self._data, rcond)) end,
-                        }
-                        return methods[key]
-                    end,
-                    __add = function(a, b)
-                        local a_data = type(a) == "table" and a._data or a
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_add(a_data, b_data))
-                    end,
-                    __sub = function(a, b)
-                        local a_data = type(a) == "table" and a._data or a
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_sub(a_data, b_data))
-                    end,
-                    __mul = function(a, b)
-                        local a_data = type(a) == "table" and a._data or a
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_mul(a_data, b_data))
-                    end,
-                    __div = function(a, b)
-                        local a_data = type(a) == "table" and a._data or a
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_div(a_data, b_data))
-                    end,
-                    __unm = function(a)
-                        return luaswift.linalg._wrap(_mul(a._data, -1))
-                    end,
-                    __tostring = function(self)
-                        local shape = _shape(self._data)
-                        if #shape == 1 then
-                            return string.format("vector(%d)", shape[1])
-                        else
-                            return string.format("matrix(%dx%d)", shape[1], shape[2])
-                        end
-                    end,
-                    __eq = function(a, b)
-                        if type(a) ~= "table" or type(b) ~= "table" then return false end
-                        if not a._data or not b._data then return false end
-                        local ashape = _shape(a._data)
-                        local bshape = _shape(b._data)
-                        if #ashape ~= #bshape then return false end
-                        for i, v in ipairs(ashape) do
-                            if v ~= bshape[i] then return false end
-                        end
-                        local adata = _toarray(a._data)
-                        local bdata = _toarray(b._data)
-                        for i, v in ipairs(adata) do
-                            if type(v) == "table" then
-                                for j, w in ipairs(v) do
-                                    if math.abs(w - bdata[i][j]) > 1e-10 then return false end
-                                end
-                            else
-                                if math.abs(v - bdata[i]) > 1e-10 then return false end
+            -- Matrix/Vector metatable
+            local linalg_mt = {
+                __index = function(self, key)
+                    local methods = {
+                        rows = function(_) return _rows(self._data) end,
+                        cols = function(_) return _cols(self._data) end,
+                        shape = function(_) return _shape(self._data) end,
+                        size = function(_) return _size(self._data) end,
+                        get = function(_, i, j) return _get(self._data, i, j) end,
+                        set = function(_, i, j, v) self._data = _set(self._data, i, j, v) return self end,
+                        row = function(_, i) return luaswift.linalg._wrap(_row(self._data, i)) end,
+                        col = function(_, j) return luaswift.linalg._wrap(_col(self._data, j)) end,
+                        transpose = function(_) return luaswift.linalg._wrap(_transpose(self._data)) end,
+                        T = function(_) return luaswift.linalg._wrap(_transpose(self._data)) end,
+                        toarray = function(_) return _toarray(self._data) end,
+                        dot = function(_, other)
+                            local other_data = type(other) == "table" and other._data or other
+                            local result = _dot(self._data, other_data)
+                            -- Scalar result (vector dot product) returns number directly
+                            if type(result) == "number" then return result end
+                            return luaswift.linalg._wrap(result)
+                        end,
+                        hadamard = function(_, other)
+                            local other_data = type(other) == "table" and other._data or other
+                            return luaswift.linalg._wrap(_hadamard(self._data, other_data))
+                        end,
+                        det = function(_) return _det(self._data) end,
+                        inv = function(_) return luaswift.linalg._wrap(_inv(self._data)) end,
+                        trace = function(_) return _trace(self._data) end,
+                        norm = function(_, p) return _norm(self._data, p or 2) end,
+                        rank = function(_) return _rank(self._data) end,
+                        lu = function(_)
+                            local result = _lu(self._data)
+                            return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2]), luaswift.linalg._wrap(result[3])
+                        end,
+                        qr = function(_)
+                            local result = _qr(self._data)
+                            return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
+                        end,
+                        svd = function(_, return1D)
+                            local result = _svd(self._data, return1D)
+                            return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2]), luaswift.linalg._wrap(result[3])
+                        end,
+                        eigen = function(_)
+                            local result = _eig(self._data)
+                            return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
+                        end,
+                        eig = function(_)  -- Legacy alias
+                            local result = _eig(self._data)
+                            return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
+                        end,
+                        eigvals = function(_)
+                            return luaswift.linalg._wrap(_eigvals(self._data))
+                        end,
+                        chol = function(_) return luaswift.linalg._wrap(_chol(self._data)) end,
+                        expm = function(_) return luaswift.linalg._wrap(_expm(self._data)) end,
+                        logm = function(_) return luaswift.linalg._wrap(_logm(self._data)) end,
+                        sqrtm = function(_) return luaswift.linalg._wrap(_sqrtm(self._data)) end,
+                        funm = function(_, f) return luaswift.linalg._wrap(_funm(self._data, f)) end,
+                        cond = function(_, p) return _cond(self._data, p) end,
+                        pinv = function(_, rcond) return luaswift.linalg._wrap(_pinv(self._data, rcond)) end,
+                    }
+                    return methods[key]
+                end,
+                __add = function(a, b)
+                    local a_data = type(a) == "table" and a._data or a
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_add(a_data, b_data))
+                end,
+                __sub = function(a, b)
+                    local a_data = type(a) == "table" and a._data or a
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_sub(a_data, b_data))
+                end,
+                __mul = function(a, b)
+                    local a_data = type(a) == "table" and a._data or a
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_mul(a_data, b_data))
+                end,
+                __div = function(a, b)
+                    local a_data = type(a) == "table" and a._data or a
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_div(a_data, b_data))
+                end,
+                __unm = function(a)
+                    return luaswift.linalg._wrap(_mul(a._data, -1))
+                end,
+                __tostring = function(self)
+                    local shape = _shape(self._data)
+                    if #shape == 1 then
+                        return string.format("vector(%d)", shape[1])
+                    else
+                        return string.format("matrix(%dx%d)", shape[1], shape[2])
+                    end
+                end,
+                __eq = function(a, b)
+                    if type(a) ~= "table" or type(b) ~= "table" then return false end
+                    if not a._data or not b._data then return false end
+                    local ashape = _shape(a._data)
+                    local bshape = _shape(b._data)
+                    if #ashape ~= #bshape then return false end
+                    for i, v in ipairs(ashape) do
+                        if v ~= bshape[i] then return false end
+                    end
+                    local adata = _toarray(a._data)
+                    local bdata = _toarray(b._data)
+                    for i, v in ipairs(adata) do
+                        if type(v) == "table" then
+                            for j, w in ipairs(v) do
+                                if math.abs(w - bdata[i][j]) > 1e-10 then return false end
                             end
+                        else
+                            if math.abs(v - bdata[i]) > 1e-10 then return false end
                         end
-                        return true
-                    end,
-                }
+                    end
+                    return true
+                end,
+            }
 
-                luaswift.linalg = {
-                    _wrap = function(data)
-                        local wrapped = setmetatable({_data = data}, linalg_mt)
-                        wrapped.__luaswift_type = data.type == "vector" and "linalg.vector" or "linalg.matrix"
-                        return wrapped
-                    end,
-                    vector = function(arr)
-                        return luaswift.linalg._wrap(_vector(arr))
-                    end,
-                    matrix = function(arr)
-                        return luaswift.linalg._wrap(_matrix(arr))
-                    end,
-                    zeros = function(rows, cols)
-                        return luaswift.linalg._wrap(_zeros(rows, cols))
-                    end,
-                    ones = function(rows, cols)
-                        return luaswift.linalg._wrap(_ones(rows, cols))
-                    end,
-                    eye = function(n)
-                        return luaswift.linalg._wrap(_eye(n))
-                    end,
-                    diagonal = function(arr)
-                        return luaswift.linalg._wrap(_diag(arr))
-                    end,
-                    diag = function(arr)  -- Legacy alias
-                        return luaswift.linalg._wrap(_diag(arr))
-                    end,
-                    range = function(start, stop, step)
-                        return luaswift.linalg._wrap(_range(start, stop, step or 1))
-                    end,
-                    linspace = function(start, stop, n)
-                        return luaswift.linalg._wrap(_linspace(start, stop, n))
-                    end,
-                    solve = function(A, b)
-                        local A_data = type(A) == "table" and A._data or A
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_solve(A_data, b_data))
-                    end,
-                    least_squares = function(A, b)
-                        local A_data = type(A) == "table" and A._data or A
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_lstsq(A_data, b_data))
-                    end,
-                    lstsq = function(A, b)  -- Legacy alias
-                        local A_data = type(A) == "table" and A._data or A
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_lstsq(A_data, b_data))
-                    end,
-                    solve_triangular = function(A, b, opts)
-                        local A_data = type(A) == "table" and A._data or A
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_solve_triangular(A_data, b_data, opts))
-                    end,
-                    cho_solve = function(L, b)
-                        local L_data = type(L) == "table" and L._data or L
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_cho_solve(L_data, b_data))
-                    end,
-                    lu_solve = function(L, U, P, b)
-                        local L_data = type(L) == "table" and L._data or L
-                        local U_data = type(U) == "table" and U._data or U
-                        local P_data = type(P) == "table" and P._data or P
-                        local b_data = type(b) == "table" and b._data or b
-                        return luaswift.linalg._wrap(_lu_solve(L_data, U_data, P_data, b_data))
-                    end,
-                    expm = function(A)
-                        local A_data = type(A) == "table" and A._data or A
-                        return luaswift.linalg._wrap(_expm(A_data))
-                    end,
-                    logm = function(A)
-                        local A_data = type(A) == "table" and A._data or A
-                        return luaswift.linalg._wrap(_logm(A_data))
-                    end,
-                    sqrtm = function(A)
-                        local A_data = type(A) == "table" and A._data or A
-                        return luaswift.linalg._wrap(_sqrtm(A_data))
-                    end,
-                    funm = function(A, f)
-                        local A_data = type(A) == "table" and A._data or A
-                        return luaswift.linalg._wrap(_funm(A_data, f))
-                    end,
-                    cond = function(A, p)
-                        local A_data = type(A) == "table" and A._data or A
-                        return _cond(A_data, p)
-                    end,
-                    pinv = function(A, rcond)
-                        local A_data = type(A) == "table" and A._data or A
-                        return luaswift.linalg._wrap(_pinv(A_data, rcond))
-                    end,
-                    -- Complex matrix operations
-                    csolve = function(A, b)
-                        return _csolve(A, b)
-                    end,
-                    csvd = function(A)
-                        local result = _csvd(A)
-                        return result[1], result[2], result[3]
-                    end,
-                    ceig = function(A)
-                        local result = _ceig(A)
-                        return result[1], result[2]
-                    end,
-                    ceigvals = function(A)
-                        return _ceigvals(A)
-                    end,
-                    cdet = function(A)
-                        return _cdet(A)
-                    end,
-                    cinv = function(A)
-                        return _cinv(A)
-                    end,
-                    eig = function(A)
-                        local A_data = type(A) == "table" and A._data or A
-                        local result = _eig(A_data)
-                        return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
-                    end,
-                    eigvals = function(A)
-                        local A_data = type(A) == "table" and A._data or A
-                        return luaswift.linalg._wrap(_eigvals(A_data))
-                    end,
-                }
+            luaswift.linalg = {
+                _wrap = function(data)
+                    local wrapped = setmetatable({_data = data}, linalg_mt)
+                    wrapped.__luaswift_type = data.type == "vector" and "linalg.vector" or "linalg.matrix"
+                    return wrapped
+                end,
+                vector = function(arr)
+                    return luaswift.linalg._wrap(_vector(arr))
+                end,
+                matrix = function(arr)
+                    return luaswift.linalg._wrap(_matrix(arr))
+                end,
+                zeros = function(rows, cols)
+                    return luaswift.linalg._wrap(_zeros(rows, cols))
+                end,
+                ones = function(rows, cols)
+                    return luaswift.linalg._wrap(_ones(rows, cols))
+                end,
+                eye = function(n)
+                    return luaswift.linalg._wrap(_eye(n))
+                end,
+                diagonal = function(arr)
+                    return luaswift.linalg._wrap(_diag(arr))
+                end,
+                diag = function(arr)  -- Legacy alias
+                    return luaswift.linalg._wrap(_diag(arr))
+                end,
+                range = function(start, stop, step)
+                    return luaswift.linalg._wrap(_range(start, stop, step or 1))
+                end,
+                linspace = function(start, stop, n)
+                    return luaswift.linalg._wrap(_linspace(start, stop, n))
+                end,
+                solve = function(A, b)
+                    local A_data = type(A) == "table" and A._data or A
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_solve(A_data, b_data))
+                end,
+                least_squares = function(A, b)
+                    local A_data = type(A) == "table" and A._data or A
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_lstsq(A_data, b_data))
+                end,
+                lstsq = function(A, b)  -- Legacy alias
+                    local A_data = type(A) == "table" and A._data or A
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_lstsq(A_data, b_data))
+                end,
+                solve_triangular = function(A, b, opts)
+                    local A_data = type(A) == "table" and A._data or A
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_solve_triangular(A_data, b_data, opts))
+                end,
+                cho_solve = function(L, b)
+                    local L_data = type(L) == "table" and L._data or L
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_cho_solve(L_data, b_data))
+                end,
+                lu_solve = function(L, U, P, b)
+                    local L_data = type(L) == "table" and L._data or L
+                    local U_data = type(U) == "table" and U._data or U
+                    local P_data = type(P) == "table" and P._data or P
+                    local b_data = type(b) == "table" and b._data or b
+                    return luaswift.linalg._wrap(_lu_solve(L_data, U_data, P_data, b_data))
+                end,
+                expm = function(A)
+                    local A_data = type(A) == "table" and A._data or A
+                    return luaswift.linalg._wrap(_expm(A_data))
+                end,
+                logm = function(A)
+                    local A_data = type(A) == "table" and A._data or A
+                    return luaswift.linalg._wrap(_logm(A_data))
+                end,
+                sqrtm = function(A)
+                    local A_data = type(A) == "table" and A._data or A
+                    return luaswift.linalg._wrap(_sqrtm(A_data))
+                end,
+                funm = function(A, f)
+                    local A_data = type(A) == "table" and A._data or A
+                    return luaswift.linalg._wrap(_funm(A_data, f))
+                end,
+                cond = function(A, p)
+                    local A_data = type(A) == "table" and A._data or A
+                    return _cond(A_data, p)
+                end,
+                pinv = function(A, rcond)
+                    local A_data = type(A) == "table" and A._data or A
+                    return luaswift.linalg._wrap(_pinv(A_data, rcond))
+                end,
+                -- Complex matrix operations
+                csolve = function(A, b)
+                    return _csolve(A, b)
+                end,
+                csvd = function(A)
+                    local result = _csvd(A)
+                    return result[1], result[2], result[3]
+                end,
+                ceig = function(A)
+                    local result = _ceig(A)
+                    return result[1], result[2]
+                end,
+                ceigvals = function(A)
+                    return _ceigvals(A)
+                end,
+                cdet = function(A)
+                    return _cdet(A)
+                end,
+                cinv = function(A)
+                    return _cinv(A)
+                end,
+                eig = function(A)
+                    local A_data = type(A) == "table" and A._data or A
+                    local result = _eig(A_data)
+                    return luaswift.linalg._wrap(result[1]), luaswift.linalg._wrap(result[2])
+                end,
+                eigvals = function(A)
+                    local A_data = type(A) == "table" and A._data or A
+                    return luaswift.linalg._wrap(_eigvals(A_data))
+                end,
+            }
 
-                -- Clean up temporary globals
-                _luaswift_linalg_vector = nil
-                _luaswift_linalg_matrix = nil
-                _luaswift_linalg_zeros = nil
-                _luaswift_linalg_ones = nil
-                _luaswift_linalg_eye = nil
-                _luaswift_linalg_diag = nil
-                _luaswift_linalg_range = nil
-                _luaswift_linalg_linspace = nil
-                _luaswift_linalg_rows = nil
-                _luaswift_linalg_cols = nil
-                _luaswift_linalg_shape = nil
-                _luaswift_linalg_size = nil
-                _luaswift_linalg_get = nil
-                _luaswift_linalg_set = nil
-                _luaswift_linalg_row = nil
-                _luaswift_linalg_col = nil
-                _luaswift_linalg_transpose = nil
-                _luaswift_linalg_toarray = nil
-                _luaswift_linalg_add = nil
-                _luaswift_linalg_sub = nil
-                _luaswift_linalg_mul = nil
-                _luaswift_linalg_div = nil
-                _luaswift_linalg_dot = nil
-                _luaswift_linalg_hadamard = nil
-                _luaswift_linalg_det = nil
-                _luaswift_linalg_inv = nil
-                _luaswift_linalg_trace = nil
-                _luaswift_linalg_norm = nil
-                _luaswift_linalg_rank = nil
-                _luaswift_linalg_lu = nil
-                _luaswift_linalg_qr = nil
-                _luaswift_linalg_svd = nil
-                _luaswift_linalg_eig = nil
-                _luaswift_linalg_eigvals = nil
-                _luaswift_linalg_chol = nil
-                _luaswift_linalg_solve = nil
-                _luaswift_linalg_lstsq = nil
-                _luaswift_linalg_csolve = nil
-                _luaswift_linalg_csvd = nil
-                _luaswift_linalg_ceig = nil
-                _luaswift_linalg_ceigvals = nil
-                _luaswift_linalg_cdet = nil
-                _luaswift_linalg_cinv = nil
-                _luaswift_linalg_solve_triangular = nil
-                _luaswift_linalg_cho_solve = nil
-                _luaswift_linalg_lu_solve = nil
-                _luaswift_linalg_expm = nil
-                _luaswift_linalg_logm = nil
-                _luaswift_linalg_sqrtm = nil
-                _luaswift_linalg_funm = nil
-                _luaswift_linalg_cond = nil
-                _luaswift_linalg_pinv = nil
-                package.loaded["luaswift.linalg"] = luaswift.linalg
-                """)
-        } catch {
+            -- Clean up temporary globals
+            _luaswift_linalg_vector = nil
+            _luaswift_linalg_matrix = nil
+            _luaswift_linalg_zeros = nil
+            _luaswift_linalg_ones = nil
+            _luaswift_linalg_eye = nil
+            _luaswift_linalg_diag = nil
+            _luaswift_linalg_range = nil
+            _luaswift_linalg_linspace = nil
+            _luaswift_linalg_rows = nil
+            _luaswift_linalg_cols = nil
+            _luaswift_linalg_shape = nil
+            _luaswift_linalg_size = nil
+            _luaswift_linalg_get = nil
+            _luaswift_linalg_set = nil
+            _luaswift_linalg_row = nil
+            _luaswift_linalg_col = nil
+            _luaswift_linalg_transpose = nil
+            _luaswift_linalg_toarray = nil
+            _luaswift_linalg_add = nil
+            _luaswift_linalg_sub = nil
+            _luaswift_linalg_mul = nil
+            _luaswift_linalg_div = nil
+            _luaswift_linalg_dot = nil
+            _luaswift_linalg_hadamard = nil
+            _luaswift_linalg_det = nil
+            _luaswift_linalg_inv = nil
+            _luaswift_linalg_trace = nil
+            _luaswift_linalg_norm = nil
+            _luaswift_linalg_rank = nil
+            _luaswift_linalg_lu = nil
+            _luaswift_linalg_qr = nil
+            _luaswift_linalg_svd = nil
+            _luaswift_linalg_eig = nil
+            _luaswift_linalg_eigvals = nil
+            _luaswift_linalg_chol = nil
+            _luaswift_linalg_solve = nil
+            _luaswift_linalg_lstsq = nil
+            _luaswift_linalg_csolve = nil
+            _luaswift_linalg_csvd = nil
+            _luaswift_linalg_ceig = nil
+            _luaswift_linalg_ceigvals = nil
+            _luaswift_linalg_cdet = nil
+            _luaswift_linalg_cinv = nil
+            _luaswift_linalg_solve_triangular = nil
+            _luaswift_linalg_cho_solve = nil
+            _luaswift_linalg_lu_solve = nil
+            _luaswift_linalg_expm = nil
+            _luaswift_linalg_logm = nil
+            _luaswift_linalg_sqrtm = nil
+            _luaswift_linalg_funm = nil
+            _luaswift_linalg_cond = nil
+            _luaswift_linalg_pinv = nil
+            package.loaded["luaswift.linalg"] = luaswift.linalg
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] LinAlgModule setup failed: \(error)")
+                print("[LuaSwift] LinAlgModule setup failed: \(error)")
             #endif
         }
     }

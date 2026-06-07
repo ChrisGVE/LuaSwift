@@ -60,7 +60,7 @@ import Foundation
 /// local eq = tablex.equals(t1, t2)                   -- Shallow equality
 /// local deq = tablex.deepequals(t1, t2)              -- Deep equality
 /// ```
-public struct TableXModule {
+public struct TableXModule: LuaSwiftModule {
 
   /// Register the table utilities module with a LuaEngine.
   ///
@@ -68,7 +68,8 @@ public struct TableXModule {
   /// optimized table manipulation functions.
   ///
   /// - Parameter engine: The Lua engine to register with
-  public static func register(in engine: LuaEngine) {
+  /// - Throws: An error if the module's Lua setup code fails to run.
+  public static func install(in engine: LuaEngine) throws {
     // Register all functions
     engine.registerFunction(name: "_luaswift_tablex_deepcopy", callback: deepcopyCallback)
     engine.registerFunction(name: "_luaswift_tablex_deepmerge", callback: deepmergeCallback)
@@ -78,522 +79,527 @@ public struct TableXModule {
     engine.registerFunction(name: "_luaswift_tablex_invert", callback: invertCallback)
 
     // Set up the luaswift.tablex namespace with type-aware wrappers
-    do {
-      try engine.run(
-        """
-        if not luaswift then luaswift = {} end
+    try engine.run(
+      """
+      if not luaswift then luaswift = {} end
 
-        -- Store Swift-backed functions locally
-        local _swift_deepcopy = _luaswift_tablex_deepcopy
-        local _swift_deepmerge = _luaswift_tablex_deepmerge
-        local _swift_flatten = _luaswift_tablex_flatten
-        local _swift_keys = _luaswift_tablex_keys
-        local _swift_values = _luaswift_tablex_values
-        local _swift_invert = _luaswift_tablex_invert
+      -- Store Swift-backed functions locally
+      local _swift_deepcopy = _luaswift_tablex_deepcopy
+      local _swift_deepmerge = _luaswift_tablex_deepmerge
+      local _swift_flatten = _luaswift_tablex_flatten
+      local _swift_keys = _luaswift_tablex_keys
+      local _swift_values = _luaswift_tablex_values
+      local _swift_invert = _luaswift_tablex_invert
 
-        luaswift.tablex = {}
+      luaswift.tablex = {}
 
-        -- Type-aware deepcopy that preserves LuaSwift typed objects
-        function luaswift.tablex.deepcopy(t, seen)
-            if type(t) ~= "table" then return t end
+      -- Type-aware deepcopy that preserves LuaSwift typed objects
+      function luaswift.tablex.deepcopy(t, seen)
+          if type(t) ~= "table" then return t end
 
-            -- Handle LuaSwift typed objects - use types.clone if available
-            local luaswift_type = rawget(t, "__luaswift_type")
-            if luaswift_type then
-                if luaswift and luaswift.types and luaswift.types.clone then
-                    return luaswift.types.clone(t)
-                end
-                -- Fallback: return reference for typed objects if types module not loaded
-                return t
-            end
+          -- Handle LuaSwift typed objects - use types.clone if available
+          local luaswift_type = rawget(t, "__luaswift_type")
+          if luaswift_type then
+              if luaswift and luaswift.types and luaswift.types.clone then
+                  return luaswift.types.clone(t)
+              end
+              -- Fallback: return reference for typed objects if types module not loaded
+              return t
+          end
 
-            seen = seen or {}
-            if seen[t] then return seen[t] end
+          seen = seen or {}
+          if seen[t] then return seen[t] end
 
-            local copy = {}
-            seen[t] = copy
-            for k, v in pairs(t) do
-                copy[luaswift.tablex.deepcopy(k, seen)] = luaswift.tablex.deepcopy(v, seen)
-            end
-            return setmetatable(copy, getmetatable(t))
-        end
+          local copy = {}
+          seen[t] = copy
+          for k, v in pairs(t) do
+              copy[luaswift.tablex.deepcopy(k, seen)] = luaswift.tablex.deepcopy(v, seen)
+          end
+          return setmetatable(copy, getmetatable(t))
+      end
 
-        -- Type-aware deepmerge that doesn't merge into typed objects
-        function luaswift.tablex.deepmerge(t1, t2)
-            if type(t1) ~= "table" or type(t2) ~= "table" then
-                return t2
-            end
+      -- Type-aware deepmerge that doesn't merge into typed objects
+      function luaswift.tablex.deepmerge(t1, t2)
+          if type(t1) ~= "table" or type(t2) ~= "table" then
+              return t2
+          end
 
-            -- If t2 is a typed object, replace rather than merge
-            local t2_type = rawget(t2, "__luaswift_type")
-            if t2_type then
-                if luaswift and luaswift.types and luaswift.types.clone then
-                    return luaswift.types.clone(t2)
-                end
-                return t2
-            end
+          -- If t2 is a typed object, replace rather than merge
+          local t2_type = rawget(t2, "__luaswift_type")
+          if t2_type then
+              if luaswift and luaswift.types and luaswift.types.clone then
+                  return luaswift.types.clone(t2)
+              end
+              return t2
+          end
 
-            -- If t1 is a typed object, it gets replaced by t2
-            local t1_type = rawget(t1, "__luaswift_type")
-            if t1_type then
-                return luaswift.tablex.deepcopy(t2)
-            end
+          -- If t1 is a typed object, it gets replaced by t2
+          local t1_type = rawget(t1, "__luaswift_type")
+          if t1_type then
+              return luaswift.tablex.deepcopy(t2)
+          end
 
-            -- Regular table merge
-            local result = {}
-            for k, v in pairs(t1) do
-                result[k] = v
-            end
-            for k, v2 in pairs(t2) do
-                local v1 = result[k]
-                if type(v1) == "table" and type(v2) == "table" then
-                    -- Check if either is a typed object
-                    local v1_type = rawget(v1, "__luaswift_type")
-                    local v2_type = rawget(v2, "__luaswift_type")
-                    if v2_type then
-                        -- v2 is typed - replace
-                        if luaswift and luaswift.types and luaswift.types.clone then
-                            result[k] = luaswift.types.clone(v2)
-                        else
-                            result[k] = v2
-                        end
-                    elseif v1_type then
-                        -- v1 is typed but v2 is not - replace with copy of v2
-                        result[k] = luaswift.tablex.deepcopy(v2)
-                    else
-                        -- Both are regular tables - merge recursively
-                        result[k] = luaswift.tablex.deepmerge(v1, v2)
-                    end
-                else
-                    result[k] = v2
-                end
-            end
-            return result
-        end
+          -- Regular table merge
+          local result = {}
+          for k, v in pairs(t1) do
+              result[k] = v
+          end
+          for k, v2 in pairs(t2) do
+              local v1 = result[k]
+              if type(v1) == "table" and type(v2) == "table" then
+                  -- Check if either is a typed object
+                  local v1_type = rawget(v1, "__luaswift_type")
+                  local v2_type = rawget(v2, "__luaswift_type")
+                  if v2_type then
+                      -- v2 is typed - replace
+                      if luaswift and luaswift.types and luaswift.types.clone then
+                          result[k] = luaswift.types.clone(v2)
+                      else
+                          result[k] = v2
+                      end
+                  elseif v1_type then
+                      -- v1 is typed but v2 is not - replace with copy of v2
+                      result[k] = luaswift.tablex.deepcopy(v2)
+                  else
+                      -- Both are regular tables - merge recursively
+                      result[k] = luaswift.tablex.deepmerge(v1, v2)
+                  end
+              else
+                  result[k] = v2
+              end
+          end
+          return result
+      end
 
-        -- Simple wrappers for Swift-backed functions
-        luaswift.tablex.flatten = _swift_flatten
-        luaswift.tablex.keys = _swift_keys
-        luaswift.tablex.values = _swift_values
-        luaswift.tablex.invert = _swift_invert
+      -- Simple wrappers for Swift-backed functions
+      luaswift.tablex.flatten = _swift_flatten
+      luaswift.tablex.keys = _swift_keys
+      luaswift.tablex.values = _swift_values
+      luaswift.tablex.invert = _swift_invert
 
-        -- Clean up temporary globals
-        _luaswift_tablex_deepcopy = nil
-        _luaswift_tablex_deepmerge = nil
-        _luaswift_tablex_flatten = nil
-        _luaswift_tablex_keys = nil
-        _luaswift_tablex_values = nil
-        _luaswift_tablex_invert = nil
+      -- Clean up temporary globals
+      _luaswift_tablex_deepcopy = nil
+      _luaswift_tablex_deepmerge = nil
+      _luaswift_tablex_flatten = nil
+      _luaswift_tablex_keys = nil
+      _luaswift_tablex_values = nil
+      _luaswift_tablex_invert = nil
 
-        -- Shallow copy (one level only)
-        function luaswift.tablex.copy(t)
-            local result = {}
-            for k, v in pairs(t) do
-                result[k] = v
-            end
-            return result
-        end
+      -- Shallow copy (one level only)
+      function luaswift.tablex.copy(t)
+          local result = {}
+          for k, v in pairs(t) do
+              result[k] = v
+          end
+          return result
+      end
 
-        -- Map function over values, return new table
-        function luaswift.tablex.map(t, f)
-            local result = {}
-            for k, v in pairs(t) do
-                result[k] = f(v, k)
-            end
-            return result
-        end
+      -- Map function over values, return new table
+      function luaswift.tablex.map(t, f)
+          local result = {}
+          for k, v in pairs(t) do
+              result[k] = f(v, k)
+          end
+          return result
+      end
 
-        -- Filter by predicate, return new table
-        function luaswift.tablex.filter(t, f)
-            local result = {}
-            local i = 1
-            for k, v in pairs(t) do
-                if f(v, k) then
-                    if type(k) == "number" then
-                        result[i] = v
-                        i = i + 1
-                    else
-                        result[k] = v
-                    end
-                end
-            end
-            return result
-        end
+      -- Filter by predicate, return new table
+      function luaswift.tablex.filter(t, f)
+          local result = {}
+          local i = 1
+          for k, v in pairs(t) do
+              if f(v, k) then
+                  if type(k) == "number" then
+                      result[i] = v
+                      i = i + 1
+                  else
+                      result[k] = v
+                  end
+              end
+          end
+          return result
+      end
 
-        -- Reduce/fold left
-        function luaswift.tablex.reduce(t, f, init)
-            local acc = init
-            for k, v in pairs(t) do
-                acc = f(acc, v, k)
-            end
-            return acc
-        end
+      -- Reduce/fold left
+      function luaswift.tablex.reduce(t, f, init)
+          local acc = init
+          for k, v in pairs(t) do
+              acc = f(acc, v, k)
+          end
+          return acc
+      end
 
-        -- Iterate with side effects, return nil
-        function luaswift.tablex.foreach(t, f)
-            for k, v in pairs(t) do
-                f(v, k)
-            end
-            return nil
-        end
+      -- Iterate with side effects, return nil
+      function luaswift.tablex.foreach(t, f)
+          for k, v in pairs(t) do
+              f(v, k)
+          end
+          return nil
+      end
 
-        -- Find key for value, return key or nil
-        function luaswift.tablex.find(t, value)
-            for k, v in pairs(t) do
-                if v == value then
-                    return k
-                end
-            end
-            return nil
-        end
+      -- Find key for value, return key or nil
+      function luaswift.tablex.find(t, value)
+          for k, v in pairs(t) do
+              if v == value then
+                  return k
+              end
+          end
+          return nil
+      end
 
-        -- Check if table contains value
-        function luaswift.tablex.contains(t, value)
-            for _, v in pairs(t) do
-                if v == value then
-                    return true
-                end
-            end
-            return false
-        end
+      -- Check if table contains value
+      function luaswift.tablex.contains(t, value)
+          for _, v in pairs(t) do
+              if v == value then
+                  return true
+              end
+          end
+          return false
+      end
 
-        -- Count all elements (not just array part)
-        function luaswift.tablex.size(t)
-            local count = 0
-            for _ in pairs(t) do
-                count = count + 1
-            end
-            return count
-        end
+      -- Count all elements (not just array part)
+      function luaswift.tablex.size(t)
+          local count = 0
+          for _ in pairs(t) do
+              count = count + 1
+          end
+          return count
+      end
 
-        -- Check if table has no elements
-        function luaswift.tablex.isempty(t)
-            return next(t) == nil
-        end
+      -- Check if table has no elements
+      function luaswift.tablex.isempty(t)
+          return next(t) == nil
+      end
 
-        -- Check if table is array-like (sequential integer keys from 1)
-        function luaswift.tablex.isarray(t)
-            local count = 0
-            for _ in pairs(t) do
-                count = count + 1
-            end
-            -- Check if all keys are sequential integers from 1 to count
-            for i = 1, count do
-                if t[i] == nil then
-                    return false
-                end
-            end
-            return true
-        end
+      -- Check if table is array-like (sequential integer keys from 1)
+      function luaswift.tablex.isarray(t)
+          local count = 0
+          for _ in pairs(t) do
+              count = count + 1
+          end
+          -- Check if all keys are sequential integers from 1 to count
+          for i = 1, count do
+              if t[i] == nil then
+                  return false
+              end
+          end
+          return true
+      end
 
-        -- Array slice with Python-style start/stop/step semantics.
-        -- Indices are 1-based; negative indices count from end.
-        -- stop is inclusive (default: end); step defaults to 1.
-        function luaswift.tablex.slice(t, i, j, step)
-            local len = #t
-            step = step or 1
-            if step == 0 then error("tablex.slice: step cannot be zero") end
-            -- Default start/stop based on step direction
-            if i == nil then i = step > 0 and 1 or len end
-            if j == nil then j = step > 0 and len or 1 end
-            -- Handle negative indices
-            if i < 0 then i = len + i + 1 end
-            if j < 0 then j = len + j + 1 end
-            -- Clamp to valid range
-            if i < 1 then i = 1 end
-            if j < 1 then j = 1 end
-            if j > len then j = len end
-            local result = {}
-            for idx = i, j, step do
-                if idx >= 1 and idx <= len then
-                    result[#result + 1] = t[idx]
-                end
-            end
-            return result
-        end
+      -- Array slice with Python-style start/stop/step semantics.
+      -- Indices are 1-based; negative indices count from end.
+      -- stop is inclusive (default: end); step defaults to 1.
+      function luaswift.tablex.slice(t, i, j, step)
+          local len = #t
+          step = step or 1
+          if step == 0 then error("tablex.slice: step cannot be zero") end
+          -- Default start/stop based on step direction
+          if i == nil then i = step > 0 and 1 or len end
+          if j == nil then j = step > 0 and len or 1 end
+          -- Handle negative indices
+          if i < 0 then i = len + i + 1 end
+          if j < 0 then j = len + j + 1 end
+          -- Clamp to valid range
+          if i < 1 then i = 1 end
+          if j < 1 then j = 1 end
+          if j > len then j = len end
+          local result = {}
+          for idx = i, j, step do
+              if idx >= 1 and idx <= len then
+                  result[#result + 1] = t[idx]
+              end
+          end
+          return result
+      end
 
-        -- Reverse array, return new table
-        function luaswift.tablex.reverse(t)
-            local result = {}
-            local len = #t
-            for i = len, 1, -1 do
-                result[#result + 1] = t[i]
-            end
-            return result
-        end
+      -- Reverse array, return new table
+      function luaswift.tablex.reverse(t)
+          local result = {}
+          local len = #t
+          for i = len, 1, -1 do
+              result[#result + 1] = t[i]
+          end
+          return result
+      end
 
-        -- Remove duplicates, return new array
-        function luaswift.tablex.unique(t)
-            local seen = {}
-            local result = {}
-            for _, v in ipairs(t) do
-                -- Convert to string for table key lookup
-                local key = tostring(v)
-                if type(v) == "table" then
-                    -- For tables, use a reference-based approach
-                    key = v
-                end
-                if not seen[key] then
-                    seen[key] = true
-                    result[#result + 1] = v
-                end
-            end
-            return result
-        end
+      -- Remove duplicates, return new array
+      function luaswift.tablex.unique(t)
+          local seen = {}
+          local result = {}
+          for _, v in ipairs(t) do
+              -- Convert to string for table key lookup
+              local key = tostring(v)
+              if type(v) == "table" then
+                  -- For tables, use a reference-based approach
+                  key = v
+              end
+              if not seen[key] then
+                  seen[key] = true
+                  result[#result + 1] = v
+              end
+          end
+          return result
+      end
 
-        -- Sort array, return new sorted table (optional comparator)
-        function luaswift.tablex.sort(t, comp)
-            local result = {}
-            for i, v in ipairs(t) do
-                result[i] = v
-            end
-            table.sort(result, comp)
-            return result
-        end
+      -- Sort array, return new sorted table (optional comparator)
+      function luaswift.tablex.sort(t, comp)
+          local result = {}
+          for i, v in ipairs(t) do
+              result[i] = v
+          end
+          table.sort(result, comp)
+          return result
+      end
 
-        -- Set union (values as keys)
-        function luaswift.tablex.union(t1, t2)
-            local result = {}
-            local idx = 1
-            local seen = {}
-            for _, v in ipairs(t1) do
-                local key = tostring(v)
-                if not seen[key] then
-                    seen[key] = true
-                    result[idx] = v
-                    idx = idx + 1
-                end
-            end
-            for _, v in ipairs(t2) do
-                local key = tostring(v)
-                if not seen[key] then
-                    seen[key] = true
-                    result[idx] = v
-                    idx = idx + 1
-                end
-            end
-            return result
-        end
+      -- Set union (values as keys)
+      function luaswift.tablex.union(t1, t2)
+          local result = {}
+          local idx = 1
+          local seen = {}
+          for _, v in ipairs(t1) do
+              local key = tostring(v)
+              if not seen[key] then
+                  seen[key] = true
+                  result[idx] = v
+                  idx = idx + 1
+              end
+          end
+          for _, v in ipairs(t2) do
+              local key = tostring(v)
+              if not seen[key] then
+                  seen[key] = true
+                  result[idx] = v
+                  idx = idx + 1
+              end
+          end
+          return result
+      end
 
-        -- Set intersection
-        function luaswift.tablex.intersection(t1, t2)
-            local set2 = {}
-            for _, v in ipairs(t2) do
-                set2[tostring(v)] = true
-            end
-            local result = {}
-            local seen = {}
-            for _, v in ipairs(t1) do
-                local key = tostring(v)
-                if set2[key] and not seen[key] then
-                    seen[key] = true
-                    result[#result + 1] = v
-                end
-            end
-            return result
-        end
+      -- Set intersection
+      function luaswift.tablex.intersection(t1, t2)
+          local set2 = {}
+          for _, v in ipairs(t2) do
+              set2[tostring(v)] = true
+          end
+          local result = {}
+          local seen = {}
+          for _, v in ipairs(t1) do
+              local key = tostring(v)
+              if set2[key] and not seen[key] then
+                  seen[key] = true
+                  result[#result + 1] = v
+              end
+          end
+          return result
+      end
 
-        -- Set difference (t1 - t2)
-        function luaswift.tablex.difference(t1, t2)
-            local set2 = {}
-            for _, v in ipairs(t2) do
-                set2[tostring(v)] = true
-            end
-            local result = {}
-            local seen = {}
-            for _, v in ipairs(t1) do
-                local key = tostring(v)
-                if not set2[key] and not seen[key] then
-                    seen[key] = true
-                    result[#result + 1] = v
-                end
-            end
-            return result
-        end
+      -- Set difference (t1 - t2)
+      function luaswift.tablex.difference(t1, t2)
+          local set2 = {}
+          for _, v in ipairs(t2) do
+              set2[tostring(v)] = true
+          end
+          local result = {}
+          local seen = {}
+          for _, v in ipairs(t1) do
+              local key = tostring(v)
+              if not set2[key] and not seen[key] then
+                  seen[key] = true
+                  result[#result + 1] = v
+              end
+          end
+          return result
+      end
 
-        -- Shallow equality check
-        function luaswift.tablex.equals(t1, t2)
-            -- Check all keys in t1 exist in t2 with same values
-            for k, v in pairs(t1) do
-                if t2[k] ~= v then
-                    return false
-                end
-            end
-            -- Check all keys in t2 exist in t1
-            for k, _ in pairs(t2) do
-                if t1[k] == nil then
-                    return false
-                end
-            end
-            return true
-        end
+      -- Shallow equality check
+      function luaswift.tablex.equals(t1, t2)
+          -- Check all keys in t1 exist in t2 with same values
+          for k, v in pairs(t1) do
+              if t2[k] ~= v then
+                  return false
+              end
+          end
+          -- Check all keys in t2 exist in t1
+          for k, _ in pairs(t2) do
+              if t1[k] == nil then
+                  return false
+              end
+          end
+          return true
+      end
 
-        -- Deep equality check
-        function luaswift.tablex.deepequals(t1, t2)
-            if type(t1) ~= type(t2) then
-                return false
-            end
-            if type(t1) ~= "table" then
-                return t1 == t2
-            end
-            -- Check all keys in t1 exist in t2 with same values
-            for k, v in pairs(t1) do
-                if not luaswift.tablex.deepequals(v, t2[k]) then
-                    return false
-                end
-            end
-            -- Check all keys in t2 exist in t1
-            for k, _ in pairs(t2) do
-                if t1[k] == nil then
-                    return false
-                end
-            end
-            return true
-        end
+      -- Deep equality check
+      function luaswift.tablex.deepequals(t1, t2)
+          if type(t1) ~= type(t2) then
+              return false
+          end
+          if type(t1) ~= "table" then
+              return t1 == t2
+          end
+          -- Check all keys in t1 exist in t2 with same values
+          for k, v in pairs(t1) do
+              if not luaswift.tablex.deepequals(v, t2[k]) then
+                  return false
+              end
+          end
+          -- Check all keys in t2 exist in t1
+          for k, _ in pairs(t2) do
+              if t1[k] == nil then
+                  return false
+              end
+          end
+          return true
+      end
 
-        -- Comprehension: collect(t, transform_fn, filter_fn)
-        -- Iterates ipairs of t, optionally filters by filter_fn(v, k),
-        -- then transforms each passing element with transform_fn(v, k).
-        -- Returns a new array. filter_fn is applied BEFORE transform_fn
-        -- so the predicate sees original values.
-        function luaswift.tablex.collect(t, transform, filter)
-            local result = {}
-            for k, v in ipairs(t) do
-                if filter == nil or filter(v, k) then
-                    result[#result + 1] = transform(v, k)
-                end
-            end
-            return result
-        end
+      -- Comprehension: collect(t, transform_fn, filter_fn)
+      -- Iterates ipairs of t, optionally filters by filter_fn(v, k),
+      -- then transforms each passing element with transform_fn(v, k).
+      -- Returns a new array. filter_fn is applied BEFORE transform_fn
+      -- so the predicate sees original values.
+      function luaswift.tablex.collect(t, transform, filter)
+          local result = {}
+          for k, v in ipairs(t) do
+              if filter == nil or filter(v, k) then
+                  result[#result + 1] = transform(v, k)
+              end
+          end
+          return result
+      end
 
-        -- Dict comprehension: dict_from(t, key_fn, value_fn, filter_fn)
-        -- Builds a {key=value} table from iterable t.
-        -- filter_fn(v, k) is evaluated on original items before key/value fns.
-        function luaswift.tablex.dict_from(t, key_fn, value_fn, filter)
-            local result = {}
-            for k, v in ipairs(t) do
-                if filter == nil or filter(v, k) then
-                    result[key_fn(v, k)] = value_fn(v, k)
-                end
-            end
-            return result
-        end
+      -- Dict comprehension: dict_from(t, key_fn, value_fn, filter_fn)
+      -- Builds a {key=value} table from iterable t.
+      -- filter_fn(v, k) is evaluated on original items before key/value fns.
+      function luaswift.tablex.dict_from(t, key_fn, value_fn, filter)
+          local result = {}
+          for k, v in ipairs(t) do
+              if filter == nil or filter(v, k) then
+                  result[key_fn(v, k)] = value_fn(v, k)
+              end
+          end
+          return result
+      end
 
-        -- Set comprehension: set_from(t, transform_fn, filter_fn)
-        -- Returns {value=true} table of unique transformed values.
-        -- filter_fn is applied BEFORE transform_fn.
-        function luaswift.tablex.set_from(t, transform, filter)
-            local result = {}
-            for k, v in ipairs(t) do
-                if filter == nil or filter(v, k) then
-                    result[transform(v, k)] = true
-                end
-            end
-            return result
-        end
+      -- Set comprehension: set_from(t, transform_fn, filter_fn)
+      -- Returns {value=true} table of unique transformed values.
+      -- filter_fn is applied BEFORE transform_fn.
+      function luaswift.tablex.set_from(t, transform, filter)
+          local result = {}
+          for k, v in ipairs(t) do
+              if filter == nil or filter(v, k) then
+                  result[transform(v, k)] = true
+              end
+          end
+          return result
+      end
 
-        -- Chain wrapper: tablex.chain(t) returns a chainable object.
-        -- Methods: :map(fn), :filter(fn), :collect(), :dict(key_fn, val_fn), :set()
-        -- :map and :filter return the chain for further chaining.
-        -- :collect, :dict, :set terminate the chain and return a table.
-        function luaswift.tablex.chain(t)
-            -- Internal state: list of pending operations and the source array.
-            -- We eagerly apply operations to keep the implementation simple and
-            -- avoid capturing closures that reference a mutable items list.
-            local self = {}
-            local items = {}
-            -- Copy ipairs portion of t into items
-            for _, v in ipairs(t) do
-                items[#items + 1] = v
-            end
+      -- Chain wrapper: tablex.chain(t) returns a chainable object.
+      -- Methods: :map(fn), :filter(fn), :collect(), :dict(key_fn, val_fn), :set()
+      -- :map and :filter return the chain for further chaining.
+      -- :collect, :dict, :set terminate the chain and return a table.
+      function luaswift.tablex.chain(t)
+          -- Internal state: list of pending operations and the source array.
+          -- We eagerly apply operations to keep the implementation simple and
+          -- avoid capturing closures that reference a mutable items list.
+          local self = {}
+          local items = {}
+          -- Copy ipairs portion of t into items
+          for _, v in ipairs(t) do
+              items[#items + 1] = v
+          end
 
-            function self:map(fn)
-                local next_items = {}
-                for i, v in ipairs(items) do
-                    next_items[#next_items + 1] = fn(v, i)
-                end
-                items = next_items
-                return self
-            end
+          function self:map(fn)
+              local next_items = {}
+              for i, v in ipairs(items) do
+                  next_items[#next_items + 1] = fn(v, i)
+              end
+              items = next_items
+              return self
+          end
 
-            function self:filter(fn)
-                local next_items = {}
-                local idx = 1
-                for i, v in ipairs(items) do
-                    if fn(v, i) then
-                        next_items[idx] = v
-                        idx = idx + 1
-                    end
-                end
-                items = next_items
-                return self
-            end
+          function self:filter(fn)
+              local next_items = {}
+              local idx = 1
+              for i, v in ipairs(items) do
+                  if fn(v, i) then
+                      next_items[idx] = v
+                      idx = idx + 1
+                  end
+              end
+              items = next_items
+              return self
+          end
 
-            function self:collect()
-                local result = {}
-                for i, v in ipairs(items) do
-                    result[i] = v
-                end
-                return result
-            end
+          function self:collect()
+              local result = {}
+              for i, v in ipairs(items) do
+                  result[i] = v
+              end
+              return result
+          end
 
-            function self:dict(key_fn, val_fn)
-                local result = {}
-                for i, v in ipairs(items) do
-                    result[key_fn(v, i)] = val_fn(v, i)
-                end
-                return result
-            end
+          function self:dict(key_fn, val_fn)
+              local result = {}
+              for i, v in ipairs(items) do
+                  result[key_fn(v, i)] = val_fn(v, i)
+              end
+              return result
+          end
 
-            function self:set()
-                local result = {}
-                for _, v in ipairs(items) do
-                    result[v] = true
-                end
-                return result
-            end
+          function self:set()
+              local result = {}
+              for _, v in ipairs(items) do
+                  result[v] = true
+              end
+              return result
+          end
 
-            return self
-        end
+          return self
+      end
 
-        -- import() extends the table library
-        function luaswift.tablex.import()
-            table.deepcopy = luaswift.tablex.deepcopy
-            table.deepmerge = luaswift.tablex.deepmerge
-            table.flatten = luaswift.tablex.flatten
-            table.keys = luaswift.tablex.keys
-            table.values = luaswift.tablex.values
-            table.invert = luaswift.tablex.invert
-            table.copy = luaswift.tablex.copy
-            table.map = luaswift.tablex.map
-            table.filter = luaswift.tablex.filter
-            table.reduce = luaswift.tablex.reduce
-            table.foreach = luaswift.tablex.foreach
-            table.find = luaswift.tablex.find
-            table.contains = luaswift.tablex.contains
-            table.size = luaswift.tablex.size
-            table.isempty = luaswift.tablex.isempty
-            table.isarray = luaswift.tablex.isarray
-            table.slice = luaswift.tablex.slice
-            table.reverse = luaswift.tablex.reverse
-            table.unique = luaswift.tablex.unique
-            table.union = luaswift.tablex.union
-            table.intersection = luaswift.tablex.intersection
-            table.difference = luaswift.tablex.difference
-            table.equals = luaswift.tablex.equals
-            table.deepequals = luaswift.tablex.deepequals
-            table.collect = luaswift.tablex.collect
-            table.dict_from = luaswift.tablex.dict_from
-            table.set_from = luaswift.tablex.set_from
-            table.chain = luaswift.tablex.chain
-            -- Note: we don't override table.sort as it exists in Lua stdlib
-        end
+      -- import() extends the table library
+      function luaswift.tablex.import()
+          table.deepcopy = luaswift.tablex.deepcopy
+          table.deepmerge = luaswift.tablex.deepmerge
+          table.flatten = luaswift.tablex.flatten
+          table.keys = luaswift.tablex.keys
+          table.values = luaswift.tablex.values
+          table.invert = luaswift.tablex.invert
+          table.copy = luaswift.tablex.copy
+          table.map = luaswift.tablex.map
+          table.filter = luaswift.tablex.filter
+          table.reduce = luaswift.tablex.reduce
+          table.foreach = luaswift.tablex.foreach
+          table.find = luaswift.tablex.find
+          table.contains = luaswift.tablex.contains
+          table.size = luaswift.tablex.size
+          table.isempty = luaswift.tablex.isempty
+          table.isarray = luaswift.tablex.isarray
+          table.slice = luaswift.tablex.slice
+          table.reverse = luaswift.tablex.reverse
+          table.unique = luaswift.tablex.unique
+          table.union = luaswift.tablex.union
+          table.intersection = luaswift.tablex.intersection
+          table.difference = luaswift.tablex.difference
+          table.equals = luaswift.tablex.equals
+          table.deepequals = luaswift.tablex.deepequals
+          table.collect = luaswift.tablex.collect
+          table.dict_from = luaswift.tablex.dict_from
+          table.set_from = luaswift.tablex.set_from
+          table.chain = luaswift.tablex.chain
+          -- Note: we don't override table.sort as it exists in Lua stdlib
+      end
 
-        -- Create top-level global alias
-        tablex = luaswift.tablex
-        package.loaded["luaswift.tablex"] = luaswift.tablex
-        """)
-    } catch {
+      -- Create top-level global alias
+      tablex = luaswift.tablex
+      package.loaded["luaswift.tablex"] = luaswift.tablex
+      """)
+  }
+
+  /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+  ///
+  /// - Parameter engine: The Lua engine to register with
+  public static func register(in engine: LuaEngine) {
+    do { try install(in: engine) } catch {
       #if DEBUG
         print("[LuaSwift] TableXModule setup failed: \(error)")
       #endif

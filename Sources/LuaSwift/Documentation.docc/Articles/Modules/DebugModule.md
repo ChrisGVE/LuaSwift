@@ -12,10 +12,10 @@ The Debug module provides structured logging and console debugging tools for Lua
 
 ```swift
 // Install all modules (includes DebugModule in DEBUG builds)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Debug module
-ModuleRegistry.installDebugModule(in: engine)
+try DebugModule.install(in: engine)
 ```
 
 ## Accessing the Module
@@ -233,7 +233,7 @@ The same line is forwarded to the system log (`os_log`) with the matching `OSLog
 
 ## Release Build Behaviour
 
-In release builds (`#if DEBUG` is false) the `DebugModule` type does not exist. `ModuleRegistry.installModules` skips registration. Any Lua code that calls `require("luaswift.debug")` will receive an error. Guard usage accordingly:
+In release builds (`#if DEBUG` is false) the `DebugModule` type does not exist. `ModuleRegistry.install(in:)` skips registration. Any Lua code that calls `require("luaswift.debug")` will receive an error. Guard usage accordingly:
 
 ```lua
 local ok, dbg = pcall(require, "luaswift.debug")

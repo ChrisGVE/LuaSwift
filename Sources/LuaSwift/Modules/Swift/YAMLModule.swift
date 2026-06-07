@@ -33,7 +33,7 @@ import Yams
 /// -- Encode multiple documents
 /// local str = yaml.encode_all({{foo=1}, {bar=2}})
 /// ```
-public struct YAMLModule {
+public struct YAMLModule: LuaSwiftModule {
     /// Register the YAML module with a LuaEngine.
     ///
     /// This creates a global table `luaswift` with a nested `yaml` table containing:
@@ -43,7 +43,8 @@ public struct YAMLModule {
     /// - `decode_all(string)`: Decode multi-document YAML to array of values
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register encode function
         engine.registerFunction(name: "_luaswift_yaml_encode", callback: encodeCallback)
 
@@ -57,24 +58,29 @@ public struct YAMLModule {
         engine.registerFunction(name: "_luaswift_yaml_decode_all", callback: decodeAllCallback)
 
         // Set up the luaswift.yaml namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                luaswift.yaml = {
-                    encode = _luaswift_yaml_encode,
-                    decode = _luaswift_yaml_decode,
-                    encode_all = _luaswift_yaml_encode_all,
-                    decode_all = _luaswift_yaml_decode_all
-                }
-                _luaswift_yaml_encode = nil
-                _luaswift_yaml_decode = nil
-                _luaswift_yaml_encode_all = nil
-                _luaswift_yaml_decode_all = nil
-                package.loaded["luaswift.yaml"] = luaswift.yaml
-                """)
-        } catch {
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            luaswift.yaml = {
+                encode = _luaswift_yaml_encode,
+                decode = _luaswift_yaml_decode,
+                encode_all = _luaswift_yaml_encode_all,
+                decode_all = _luaswift_yaml_decode_all
+            }
+            _luaswift_yaml_encode = nil
+            _luaswift_yaml_decode = nil
+            _luaswift_yaml_encode_all = nil
+            _luaswift_yaml_decode_all = nil
+            package.loaded["luaswift.yaml"] = luaswift.yaml
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] YAMLModule setup failed: \(error)")
+                print("[LuaSwift] YAMLModule setup failed: \(error)")
             #endif
         }
     }

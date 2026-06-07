@@ -30,9 +30,10 @@
   /// print(c:shape())  -- {2, 3}
   /// print(np.sum(c))  -- 21
   /// ```
-  public struct ArrayModule {
+  public struct ArrayModule: LuaSwiftModule {
     /// Register the array module in the given engine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
       // Register creation functions
       engine.registerFunction(name: "_luaswift_array_create", callback: createCallback)
       engine.registerFunction(name: "_luaswift_array_zeros", callback: zerosCallback)
@@ -204,1051 +205,1058 @@
       engine.registerFunction(name: "_luaswift_array_interp", callback: interpCallback)
 
       // Set up the luaswift.array namespace with Lua wrapper code
-      do {
-        try engine.run(
-          """
-          if not luaswift then luaswift = {} end
+      try engine.run(
+        """
+        if not luaswift then luaswift = {} end
 
-          -- Lua 5.1 compatibility: unpack is global in 5.1, table.unpack in 5.2+
-          local _unpack = table.unpack or unpack
+        -- Lua 5.1 compatibility: unpack is global in 5.1, table.unpack in 5.2+
+        local _unpack = table.unpack or unpack
 
-          -- Capture function references before they're cleaned up
-          local _create = _luaswift_array_create
-          local _zeros = _luaswift_array_zeros
-          local _ones = _luaswift_array_ones
-          local _arange = _luaswift_array_arange
-          local _linspace = _luaswift_array_linspace
-          local _rand = _luaswift_array_rand
-          local _randn = _luaswift_array_randn
-          local _full = _luaswift_array_full
-          local _shape = _luaswift_array_shape
-          local _ndim = _luaswift_array_ndim
-          local _size = _luaswift_array_size
-          local _get = _luaswift_array_get
-          local _set = _luaswift_array_set
-          local _reshape = _luaswift_array_reshape
-          local _flatten = _luaswift_array_flatten
-          local _squeeze = _luaswift_array_squeeze
-          local _expand_dims = _luaswift_array_expand_dims
-          local _transpose = _luaswift_array_transpose
-          local _add = _luaswift_array_add
-          local _sub = _luaswift_array_sub
-          local _mul = _luaswift_array_mul
-          local _div = _luaswift_array_div
-          local _pow = _luaswift_array_pow
-          local _neg = _luaswift_array_neg
-          local _abs = _luaswift_array_abs
-          local _sqrt = _luaswift_array_sqrt
-          local _csqrt = _luaswift_array_csqrt
-          local _clog = _luaswift_array_clog
-          local _exp = _luaswift_array_exp
-          local _log = _luaswift_array_log
-          local _log2 = _luaswift_array_log2
-          local _log10 = _luaswift_array_log10
-          local _log1p = _luaswift_array_log1p
-          local _expm1 = _luaswift_array_expm1
-          local _power = _luaswift_array_power
-          local _sin = _luaswift_array_sin
-          local _cos = _luaswift_array_cos
-          local _tan = _luaswift_array_tan
-          local _sinh = _luaswift_array_sinh
-          local _cosh = _luaswift_array_cosh
-          local _tanh = _luaswift_array_tanh
-          local _asinh = _luaswift_array_asinh
-          local _acosh = _luaswift_array_acosh
-          local _atanh = _luaswift_array_atanh
-          local _arcsin = _luaswift_array_arcsin
-          local _arccos = _luaswift_array_arccos
-          local _arctan = _luaswift_array_arctan
-          local _arctan2 = _luaswift_array_arctan2
-          local _floor = _luaswift_array_floor
-          local _ceil = _luaswift_array_ceil
-          local _round = _luaswift_array_round
-          local _clip = _luaswift_array_clip
-          local _sign = _luaswift_array_sign
-          local _mod = _luaswift_array_mod
-          local _fmod = _luaswift_array_fmod
-          local _sum = _luaswift_array_sum
-          local _mean = _luaswift_array_mean
-          local _std = _luaswift_array_std
-          local _var = _luaswift_array_var
-          local _min = _luaswift_array_min
-          local _max = _luaswift_array_max
-          local _argmin = _luaswift_array_argmin
-          local _argmax = _luaswift_array_argmax
-          local _prod = _luaswift_array_prod
-          local _equal = _luaswift_array_equal
-          local _greater = _luaswift_array_greater
-          local _less = _luaswift_array_less
-          local _greater_equal = _luaswift_array_greater_equal
-          local _less_equal = _luaswift_array_less_equal
-          local _not_equal = _luaswift_array_not_equal
-          local _isnan = _luaswift_array_isnan
-          local _isinf = _luaswift_array_isinf
-          local _isfinite = _luaswift_array_isfinite
-          local _where = _luaswift_array_where
-          local _all = _luaswift_array_all
-          local _any = _luaswift_array_any
-          local _cumsum = _luaswift_array_cumsum
-          local _cumprod = _luaswift_array_cumprod
-          local _sort = _luaswift_array_sort
-          local _argsort = _luaswift_array_argsort
-          local _searchsorted = _luaswift_array_searchsorted
-          local _argwhere = _luaswift_array_argwhere
-          local _nonzero = _luaswift_array_nonzero
-          local _unique = _luaswift_array_unique
-          local _median = _luaswift_array_median
-          local _percentile = _luaswift_array_percentile
-          local _quantile = _luaswift_array_quantile
-          local _histogram = _luaswift_array_histogram
-          local _bincount = _luaswift_array_bincount
-          local _ptp = _luaswift_array_ptp
-          local _trace = _luaswift_array_trace
-          local _diagonal = _luaswift_array_diagonal
-          local _diag = _luaswift_array_diag
-          local _outer = _luaswift_array_outer
-          local _eye = _luaswift_array_eye
-          local _identity = _luaswift_array_identity
-          local _empty = _luaswift_array_empty
-          local _zeros_like = _luaswift_array_zeros_like
-          local _ones_like = _luaswift_array_ones_like
-          local _full_like = _luaswift_array_full_like
-          local _tolist = _luaswift_array_tolist
-          local _copy = _luaswift_array_copy
-          local _dot = _luaswift_array_dot
-          local _concatenate = _luaswift_array_concatenate
-          local _stack = _luaswift_array_stack
-          local _split = _luaswift_array_split
-          local _tile = _luaswift_array_tile
-          local _repeat = _luaswift_array_repeat
-          local _flip = _luaswift_array_flip
-          local _roll = _luaswift_array_roll
-          local _pad = _luaswift_array_pad
-          local _insert = _luaswift_array_insert
-          local _delete = _luaswift_array_delete
-          local _diff = _luaswift_array_diff
-          local _correlate = _luaswift_array_correlate
-          local _convolve = _luaswift_array_convolve
-          local _gradient = _luaswift_array_gradient
-          local _interp = _luaswift_array_interp
-          local _complex_array = _luaswift_array_complex_array
-          local _from_polar = _luaswift_array_from_polar
-          local _dtype = _luaswift_array_dtype
-          local _iscomplex = _luaswift_array_iscomplex
-          local _real = _luaswift_array_real
-          local _imag = _luaswift_array_imag
-          local _conj = _luaswift_array_conj
-          local _arg = _luaswift_array_arg
+        -- Capture function references before they're cleaned up
+        local _create = _luaswift_array_create
+        local _zeros = _luaswift_array_zeros
+        local _ones = _luaswift_array_ones
+        local _arange = _luaswift_array_arange
+        local _linspace = _luaswift_array_linspace
+        local _rand = _luaswift_array_rand
+        local _randn = _luaswift_array_randn
+        local _full = _luaswift_array_full
+        local _shape = _luaswift_array_shape
+        local _ndim = _luaswift_array_ndim
+        local _size = _luaswift_array_size
+        local _get = _luaswift_array_get
+        local _set = _luaswift_array_set
+        local _reshape = _luaswift_array_reshape
+        local _flatten = _luaswift_array_flatten
+        local _squeeze = _luaswift_array_squeeze
+        local _expand_dims = _luaswift_array_expand_dims
+        local _transpose = _luaswift_array_transpose
+        local _add = _luaswift_array_add
+        local _sub = _luaswift_array_sub
+        local _mul = _luaswift_array_mul
+        local _div = _luaswift_array_div
+        local _pow = _luaswift_array_pow
+        local _neg = _luaswift_array_neg
+        local _abs = _luaswift_array_abs
+        local _sqrt = _luaswift_array_sqrt
+        local _csqrt = _luaswift_array_csqrt
+        local _clog = _luaswift_array_clog
+        local _exp = _luaswift_array_exp
+        local _log = _luaswift_array_log
+        local _log2 = _luaswift_array_log2
+        local _log10 = _luaswift_array_log10
+        local _log1p = _luaswift_array_log1p
+        local _expm1 = _luaswift_array_expm1
+        local _power = _luaswift_array_power
+        local _sin = _luaswift_array_sin
+        local _cos = _luaswift_array_cos
+        local _tan = _luaswift_array_tan
+        local _sinh = _luaswift_array_sinh
+        local _cosh = _luaswift_array_cosh
+        local _tanh = _luaswift_array_tanh
+        local _asinh = _luaswift_array_asinh
+        local _acosh = _luaswift_array_acosh
+        local _atanh = _luaswift_array_atanh
+        local _arcsin = _luaswift_array_arcsin
+        local _arccos = _luaswift_array_arccos
+        local _arctan = _luaswift_array_arctan
+        local _arctan2 = _luaswift_array_arctan2
+        local _floor = _luaswift_array_floor
+        local _ceil = _luaswift_array_ceil
+        local _round = _luaswift_array_round
+        local _clip = _luaswift_array_clip
+        local _sign = _luaswift_array_sign
+        local _mod = _luaswift_array_mod
+        local _fmod = _luaswift_array_fmod
+        local _sum = _luaswift_array_sum
+        local _mean = _luaswift_array_mean
+        local _std = _luaswift_array_std
+        local _var = _luaswift_array_var
+        local _min = _luaswift_array_min
+        local _max = _luaswift_array_max
+        local _argmin = _luaswift_array_argmin
+        local _argmax = _luaswift_array_argmax
+        local _prod = _luaswift_array_prod
+        local _equal = _luaswift_array_equal
+        local _greater = _luaswift_array_greater
+        local _less = _luaswift_array_less
+        local _greater_equal = _luaswift_array_greater_equal
+        local _less_equal = _luaswift_array_less_equal
+        local _not_equal = _luaswift_array_not_equal
+        local _isnan = _luaswift_array_isnan
+        local _isinf = _luaswift_array_isinf
+        local _isfinite = _luaswift_array_isfinite
+        local _where = _luaswift_array_where
+        local _all = _luaswift_array_all
+        local _any = _luaswift_array_any
+        local _cumsum = _luaswift_array_cumsum
+        local _cumprod = _luaswift_array_cumprod
+        local _sort = _luaswift_array_sort
+        local _argsort = _luaswift_array_argsort
+        local _searchsorted = _luaswift_array_searchsorted
+        local _argwhere = _luaswift_array_argwhere
+        local _nonzero = _luaswift_array_nonzero
+        local _unique = _luaswift_array_unique
+        local _median = _luaswift_array_median
+        local _percentile = _luaswift_array_percentile
+        local _quantile = _luaswift_array_quantile
+        local _histogram = _luaswift_array_histogram
+        local _bincount = _luaswift_array_bincount
+        local _ptp = _luaswift_array_ptp
+        local _trace = _luaswift_array_trace
+        local _diagonal = _luaswift_array_diagonal
+        local _diag = _luaswift_array_diag
+        local _outer = _luaswift_array_outer
+        local _eye = _luaswift_array_eye
+        local _identity = _luaswift_array_identity
+        local _empty = _luaswift_array_empty
+        local _zeros_like = _luaswift_array_zeros_like
+        local _ones_like = _luaswift_array_ones_like
+        local _full_like = _luaswift_array_full_like
+        local _tolist = _luaswift_array_tolist
+        local _copy = _luaswift_array_copy
+        local _dot = _luaswift_array_dot
+        local _concatenate = _luaswift_array_concatenate
+        local _stack = _luaswift_array_stack
+        local _split = _luaswift_array_split
+        local _tile = _luaswift_array_tile
+        local _repeat = _luaswift_array_repeat
+        local _flip = _luaswift_array_flip
+        local _roll = _luaswift_array_roll
+        local _pad = _luaswift_array_pad
+        local _insert = _luaswift_array_insert
+        local _delete = _luaswift_array_delete
+        local _diff = _luaswift_array_diff
+        local _correlate = _luaswift_array_correlate
+        local _convolve = _luaswift_array_convolve
+        local _gradient = _luaswift_array_gradient
+        local _interp = _luaswift_array_interp
+        local _complex_array = _luaswift_array_complex_array
+        local _from_polar = _luaswift_array_from_polar
+        local _dtype = _luaswift_array_dtype
+        local _iscomplex = _luaswift_array_iscomplex
+        local _real = _luaswift_array_real
+        local _imag = _luaswift_array_imag
+        local _conj = _luaswift_array_conj
+        local _arg = _luaswift_array_arg
 
-          -- Define array metatable
-          local array_mt = {
-              __index = function(self, key)
-                  local methods = {
-                      shape = function(_) return _shape(self._data) end,
-                      ndim = function(_) return _ndim(self._data) end,
-                      size = function(_) return _size(self._data) end,
-                      get = function(_, ...) return _get(self._data, ...) end,
-                      set = function(_, ...)
-                          self._data = _set(self._data, ...)
-                          return self
-                      end,
-                      reshape = function(_, new_shape)
-                          return luaswift.array._wrap(_reshape(self._data, new_shape))
-                      end,
-                      flatten = function(_)
-                          return luaswift.array._wrap(_flatten(self._data))
-                      end,
-                      squeeze = function(_)
-                          return luaswift.array._wrap(_squeeze(self._data))
-                      end,
-                      expand_dims = function(_, axis)
-                          return luaswift.array._wrap(_expand_dims(self._data, axis))
-                      end,
-                      T = function(_)
-                          return luaswift.array._wrap(_transpose(self._data))
-                      end,
-                      transpose = function(_, axes)
-                          return luaswift.array._wrap(_transpose(self._data, axes))
-                      end,
-                      tolist = function(_) return _tolist(self._data) end,
-                      copy = function(_)
-                          return luaswift.array._wrap(_copy(self._data))
-                      end,
-                      dtype = function(_) return _dtype(self._data) end,
-                      iscomplex = function(_) return _iscomplex(self._data) end,
-                      real = function(_)
-                          return luaswift.array._wrap(_real(self._data))
-                      end,
-                      imag = function(_)
-                          return luaswift.array._wrap(_imag(self._data))
-                      end,
-                      conj = function(_)
-                          return luaswift.array._wrap(_conj(self._data))
-                      end,
-                      arg = function(_)
-                          return luaswift.array._wrap(_arg(self._data))
-                      end,
-                      sum = function(_, axis)
-                          local result = _sum(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      mean = function(_, axis)
-                          local result = _mean(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      std = function(_, axis)
-                          local result = _std(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      var = function(_, axis)
-                          local result = _var(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      min = function(_, axis)
-                          local result = _min(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      max = function(_, axis)
-                          local result = _max(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      argmin = function(_, axis)
-                          local result = _argmin(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      argmax = function(_, axis)
-                          local result = _argmax(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      prod = function(_, axis)
-                          local result = _prod(self._data, axis)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      dot = function(_, other)
-                          local other_data = type(other) == "table" and other._data or other
-                          local result = _dot(self._data, other_data)
-                          if type(result) == "number" then return result end
-                          return luaswift.array._wrap(result)
-                      end,
-                      slice = function(_, start, stop, step)
-                          local shape = _shape(self._data)
-                          if #shape ~= 1 then
-                              error("array:slice is only supported for 1-D arrays")
-                          end
-                          local len = shape[1]
-                          step = step or 1
-                          if step == 0 then error("array:slice: step cannot be zero") end
-                          if start == nil then start = step > 0 and 1 or len end
-                          if stop == nil then stop = step > 0 and len or 1 end
-                          if start < 0 then start = len + start + 1 end
-                          if stop < 0 then stop = len + stop + 1 end
-                          if start < 1 then start = 1 end
-                          if stop < 1 then stop = 1 end
-                          if stop > len then stop = len end
-                          local items = {}
-                          for idx = start, stop, step do
-                              if idx >= 1 and idx <= len then
-                                  items[#items + 1] = self:get(idx)
-                              end
-                          end
-                          return luaswift.array.array(items)
-                      end,
-                  }
-                  return methods[key]
-              end,
-              __add = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_add(a_data, b_data))
-              end,
-              __sub = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_sub(a_data, b_data))
-              end,
-              __mul = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_mul(a_data, b_data))
-              end,
-              __div = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_div(a_data, b_data))
-              end,
-              __pow = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_pow(a_data, b_data))
-              end,
-              __unm = function(a)
-                  return luaswift.array._wrap(_neg(a._data))
-              end,
-              __tostring = function(self)
-                  local shape = _shape(self._data)
-                  local parts = {}
-                  for i, v in ipairs(shape) do
-                      parts[i] = string.format("%d", v)
-                  end
-                  local shapeStr = "(" .. table.concat(parts, ", ") .. ")"
-                  return "array" .. shapeStr
-              end,
-              __eq = function(a, b)
-                  if type(a) ~= "table" or type(b) ~= "table" then return false end
-                  if not a._data or not b._data then return false end
-                  local shape_a = _shape(a._data)
-                  local shape_b = _shape(b._data)
-                  if #shape_a ~= #shape_b then return false end
-                  for i, v in ipairs(shape_a) do
-                      if v ~= shape_b[i] then return false end
-                  end
-                  -- Compare data
-                  local list_a = _tolist(a._data)
-                  local list_b = _tolist(b._data)
-                  local function deepCompare(t1, t2)
-                      if type(t1) ~= type(t2) then return false end
-                      if type(t1) ~= "table" then
-                          return math.abs(t1 - t2) < 1e-10
-                      end
-                      for k, v in pairs(t1) do
-                          if not deepCompare(v, t2[k]) then return false end
-                      end
-                      return true
-                  end
-                  return deepCompare(list_a, list_b)
-              end,
-          }
+        -- Define array metatable
+        local array_mt = {
+            __index = function(self, key)
+                local methods = {
+                    shape = function(_) return _shape(self._data) end,
+                    ndim = function(_) return _ndim(self._data) end,
+                    size = function(_) return _size(self._data) end,
+                    get = function(_, ...) return _get(self._data, ...) end,
+                    set = function(_, ...)
+                        self._data = _set(self._data, ...)
+                        return self
+                    end,
+                    reshape = function(_, new_shape)
+                        return luaswift.array._wrap(_reshape(self._data, new_shape))
+                    end,
+                    flatten = function(_)
+                        return luaswift.array._wrap(_flatten(self._data))
+                    end,
+                    squeeze = function(_)
+                        return luaswift.array._wrap(_squeeze(self._data))
+                    end,
+                    expand_dims = function(_, axis)
+                        return luaswift.array._wrap(_expand_dims(self._data, axis))
+                    end,
+                    T = function(_)
+                        return luaswift.array._wrap(_transpose(self._data))
+                    end,
+                    transpose = function(_, axes)
+                        return luaswift.array._wrap(_transpose(self._data, axes))
+                    end,
+                    tolist = function(_) return _tolist(self._data) end,
+                    copy = function(_)
+                        return luaswift.array._wrap(_copy(self._data))
+                    end,
+                    dtype = function(_) return _dtype(self._data) end,
+                    iscomplex = function(_) return _iscomplex(self._data) end,
+                    real = function(_)
+                        return luaswift.array._wrap(_real(self._data))
+                    end,
+                    imag = function(_)
+                        return luaswift.array._wrap(_imag(self._data))
+                    end,
+                    conj = function(_)
+                        return luaswift.array._wrap(_conj(self._data))
+                    end,
+                    arg = function(_)
+                        return luaswift.array._wrap(_arg(self._data))
+                    end,
+                    sum = function(_, axis)
+                        local result = _sum(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    mean = function(_, axis)
+                        local result = _mean(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    std = function(_, axis)
+                        local result = _std(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    var = function(_, axis)
+                        local result = _var(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    min = function(_, axis)
+                        local result = _min(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    max = function(_, axis)
+                        local result = _max(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    argmin = function(_, axis)
+                        local result = _argmin(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    argmax = function(_, axis)
+                        local result = _argmax(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    prod = function(_, axis)
+                        local result = _prod(self._data, axis)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    dot = function(_, other)
+                        local other_data = type(other) == "table" and other._data or other
+                        local result = _dot(self._data, other_data)
+                        if type(result) == "number" then return result end
+                        return luaswift.array._wrap(result)
+                    end,
+                    slice = function(_, start, stop, step)
+                        local shape = _shape(self._data)
+                        if #shape ~= 1 then
+                            error("array:slice is only supported for 1-D arrays")
+                        end
+                        local len = shape[1]
+                        step = step or 1
+                        if step == 0 then error("array:slice: step cannot be zero") end
+                        if start == nil then start = step > 0 and 1 or len end
+                        if stop == nil then stop = step > 0 and len or 1 end
+                        if start < 0 then start = len + start + 1 end
+                        if stop < 0 then stop = len + stop + 1 end
+                        if start < 1 then start = 1 end
+                        if stop < 1 then stop = 1 end
+                        if stop > len then stop = len end
+                        local items = {}
+                        for idx = start, stop, step do
+                            if idx >= 1 and idx <= len then
+                                items[#items + 1] = self:get(idx)
+                            end
+                        end
+                        return luaswift.array.array(items)
+                    end,
+                }
+                return methods[key]
+            end,
+            __add = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_add(a_data, b_data))
+            end,
+            __sub = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_sub(a_data, b_data))
+            end,
+            __mul = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_mul(a_data, b_data))
+            end,
+            __div = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_div(a_data, b_data))
+            end,
+            __pow = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_pow(a_data, b_data))
+            end,
+            __unm = function(a)
+                return luaswift.array._wrap(_neg(a._data))
+            end,
+            __tostring = function(self)
+                local shape = _shape(self._data)
+                local parts = {}
+                for i, v in ipairs(shape) do
+                    parts[i] = string.format("%d", v)
+                end
+                local shapeStr = "(" .. table.concat(parts, ", ") .. ")"
+                return "array" .. shapeStr
+            end,
+            __eq = function(a, b)
+                if type(a) ~= "table" or type(b) ~= "table" then return false end
+                if not a._data or not b._data then return false end
+                local shape_a = _shape(a._data)
+                local shape_b = _shape(b._data)
+                if #shape_a ~= #shape_b then return false end
+                for i, v in ipairs(shape_a) do
+                    if v ~= shape_b[i] then return false end
+                end
+                -- Compare data
+                local list_a = _tolist(a._data)
+                local list_b = _tolist(b._data)
+                local function deepCompare(t1, t2)
+                    if type(t1) ~= type(t2) then return false end
+                    if type(t1) ~= "table" then
+                        return math.abs(t1 - t2) < 1e-10
+                    end
+                    for k, v in pairs(t1) do
+                        if not deepCompare(v, t2[k]) then return false end
+                    end
+                    return true
+                end
+                return deepCompare(list_a, list_b)
+            end,
+        }
 
-          -- Random namespace
-          local random_ns = {
-              rand = function(shape)
-                  return luaswift.array._wrap(_rand(shape))
-              end,
-              randn = function(shape)
-                  return luaswift.array._wrap(_randn(shape))
-              end,
-          }
+        -- Random namespace
+        local random_ns = {
+            rand = function(shape)
+                return luaswift.array._wrap(_rand(shape))
+            end,
+            randn = function(shape)
+                return luaswift.array._wrap(_randn(shape))
+            end,
+        }
 
-          luaswift.array = {
-              _wrap = function(data)
-                  local wrapped = setmetatable({_data = data}, array_mt)
-                  wrapped.__luaswift_type = "array"
-                  return wrapped
-              end,
-              array = function(data)
-                  return luaswift.array._wrap(_create(data))
-              end,
-              zeros = function(shape)
-                  return luaswift.array._wrap(_zeros(shape))
-              end,
-              ones = function(shape)
-                  return luaswift.array._wrap(_ones(shape))
-              end,
-              full = function(shape, value)
-                  return luaswift.array._wrap(_full(shape, value))
-              end,
-              arange = function(start, stop, step)
-                  return luaswift.array._wrap(_arange(start, stop, step or 1))
-              end,
-              linspace = function(start, stop, num)
-                  return luaswift.array._wrap(_linspace(start, stop, num or 50))
-              end,
-              random = random_ns,
+        luaswift.array = {
+            _wrap = function(data)
+                local wrapped = setmetatable({_data = data}, array_mt)
+                wrapped.__luaswift_type = "array"
+                return wrapped
+            end,
+            array = function(data)
+                return luaswift.array._wrap(_create(data))
+            end,
+            zeros = function(shape)
+                return luaswift.array._wrap(_zeros(shape))
+            end,
+            ones = function(shape)
+                return luaswift.array._wrap(_ones(shape))
+            end,
+            full = function(shape, value)
+                return luaswift.array._wrap(_full(shape, value))
+            end,
+            arange = function(start, stop, step)
+                return luaswift.array._wrap(_arange(start, stop, step or 1))
+            end,
+            linspace = function(start, stop, num)
+                return luaswift.array._wrap(_linspace(start, stop, num or 50))
+            end,
+            random = random_ns,
 
-              -- Complex array creation
-              complex_array = function(real, imag)
-                  local real_data = type(real) == "table" and real._data or real
-                  local imag_data = type(imag) == "table" and imag._data or imag
-                  return luaswift.array._wrap(_complex_array(real_data, imag_data))
-              end,
-              from_polar = function(magnitude, angle)
-                  local mag_data = type(magnitude) == "table" and magnitude._data or magnitude
-                  local ang_data = type(angle) == "table" and angle._data or angle
-                  return luaswift.array._wrap(_from_polar(mag_data, ang_data))
-              end,
+            -- Complex array creation
+            complex_array = function(real, imag)
+                local real_data = type(real) == "table" and real._data or real
+                local imag_data = type(imag) == "table" and imag._data or imag
+                return luaswift.array._wrap(_complex_array(real_data, imag_data))
+            end,
+            from_polar = function(magnitude, angle)
+                local mag_data = type(magnitude) == "table" and magnitude._data or magnitude
+                local ang_data = type(angle) == "table" and angle._data or angle
+                return luaswift.array._wrap(_from_polar(mag_data, ang_data))
+            end,
 
-              -- Complex property functions
-              real = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_real(data))
-              end,
-              imag = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_imag(data))
-              end,
-              conj = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_conj(data))
-              end,
-              arg = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_arg(data))
-              end,
+            -- Complex property functions
+            real = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_real(data))
+            end,
+            imag = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_imag(data))
+            end,
+            conj = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_conj(data))
+            end,
+            arg = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_arg(data))
+            end,
 
-              -- Element-wise functions
-              abs = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_abs(data))
-              end,
-              sqrt = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_sqrt(data))
-              end,
-              csqrt = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_csqrt(data))
-              end,
-              clog = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_clog(data))
-              end,
-              exp = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_exp(data))
-              end,
-              log = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_log(data))
-              end,
-              log2 = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_log2(data))
-              end,
-              log10 = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_log10(data))
-              end,
-              log1p = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_log1p(data))
-              end,
-              expm1 = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_expm1(data))
-              end,
-              power = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_power(a_data, b_data))
-              end,
-              sin = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_sin(data))
-              end,
-              cos = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_cos(data))
-              end,
-              tan = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_tan(data))
-              end,
+            -- Element-wise functions
+            abs = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_abs(data))
+            end,
+            sqrt = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_sqrt(data))
+            end,
+            csqrt = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_csqrt(data))
+            end,
+            clog = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_clog(data))
+            end,
+            exp = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_exp(data))
+            end,
+            log = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_log(data))
+            end,
+            log2 = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_log2(data))
+            end,
+            log10 = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_log10(data))
+            end,
+            log1p = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_log1p(data))
+            end,
+            expm1 = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_expm1(data))
+            end,
+            power = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_power(a_data, b_data))
+            end,
+            sin = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_sin(data))
+            end,
+            cos = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_cos(data))
+            end,
+            tan = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_tan(data))
+            end,
 
-              -- Hyperbolic functions
-              sinh = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_sinh(data))
-              end,
-              cosh = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_cosh(data))
-              end,
-              tanh = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_tanh(data))
-              end,
-              asinh = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_asinh(data))
-              end,
-              acosh = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_acosh(data))
-              end,
-              atanh = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_atanh(data))
-              end,
+            -- Hyperbolic functions
+            sinh = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_sinh(data))
+            end,
+            cosh = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_cosh(data))
+            end,
+            tanh = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_tanh(data))
+            end,
+            asinh = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_asinh(data))
+            end,
+            acosh = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_acosh(data))
+            end,
+            atanh = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_atanh(data))
+            end,
 
-              -- Inverse trigonometric functions
-              arcsin = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_arcsin(data))
-              end,
-              arccos = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_arccos(data))
-              end,
-              arctan = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_arctan(data))
-              end,
-              arctan2 = function(y, x)
-                  local y_data = type(y) == "table" and y._data or y
-                  local x_data = type(x) == "table" and x._data or x
-                  return luaswift.array._wrap(_arctan2(y_data, x_data))
-              end,
-              -- Aliases for convenience
-              asin = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_arcsin(data))
-              end,
-              acos = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_arccos(data))
-              end,
-              atan = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_arctan(data))
-              end,
-              atan2 = function(y, x)
-                  local y_data = type(y) == "table" and y._data or y
-                  local x_data = type(x) == "table" and x._data or x
-                  return luaswift.array._wrap(_arctan2(y_data, x_data))
-              end,
+            -- Inverse trigonometric functions
+            arcsin = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_arcsin(data))
+            end,
+            arccos = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_arccos(data))
+            end,
+            arctan = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_arctan(data))
+            end,
+            arctan2 = function(y, x)
+                local y_data = type(y) == "table" and y._data or y
+                local x_data = type(x) == "table" and x._data or x
+                return luaswift.array._wrap(_arctan2(y_data, x_data))
+            end,
+            -- Aliases for convenience
+            asin = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_arcsin(data))
+            end,
+            acos = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_arccos(data))
+            end,
+            atan = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_arctan(data))
+            end,
+            atan2 = function(y, x)
+                local y_data = type(y) == "table" and y._data or y
+                local x_data = type(x) == "table" and x._data or x
+                return luaswift.array._wrap(_arctan2(y_data, x_data))
+            end,
 
-              -- Element-wise operations
-              floor = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_floor(data))
-              end,
-              ceil = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_ceil(data))
-              end,
-              round = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_round(data))
-              end,
-              clip = function(a, min_val, max_val)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_clip(data, min_val, max_val))
-              end,
-              sign = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_sign(data))
-              end,
-              mod = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_mod(a_data, b_data))
-              end,
-              fmod = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_fmod(a_data, b_data))
-              end,
+            -- Element-wise operations
+            floor = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_floor(data))
+            end,
+            ceil = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_ceil(data))
+            end,
+            round = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_round(data))
+            end,
+            clip = function(a, min_val, max_val)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_clip(data, min_val, max_val))
+            end,
+            sign = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_sign(data))
+            end,
+            mod = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_mod(a_data, b_data))
+            end,
+            fmod = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_fmod(a_data, b_data))
+            end,
 
-              -- Reductions
-              sum = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _sum(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              mean = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _mean(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              std = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _std(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              var = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _var(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              min = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _min(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              max = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _max(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              argmin = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _argmin(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              argmax = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _argmax(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              prod = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _prod(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
+            -- Reductions
+            sum = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _sum(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            mean = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _mean(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            std = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _std(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            var = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _var(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            min = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _min(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            max = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _max(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            argmin = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _argmin(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            argmax = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _argmax(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            prod = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _prod(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
 
-              -- Comparison
-              equal = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_equal(a_data, b_data))
-              end,
-              greater = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_greater(a_data, b_data))
-              end,
-              less = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_less(a_data, b_data))
-              end,
-              greater_equal = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_greater_equal(a_data, b_data))
-              end,
-              less_equal = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_less_equal(a_data, b_data))
-              end,
-              not_equal = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_not_equal(a_data, b_data))
-              end,
-              isnan = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_isnan(data))
-              end,
-              isinf = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_isinf(data))
-              end,
-              isfinite = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_isfinite(data))
-              end,
-              where = function(cond, x, y)
-                  local cond_data = type(cond) == "table" and cond._data or cond
-                  local x_data = type(x) == "table" and x._data or x
-                  local y_data = type(y) == "table" and y._data or y
-                  return luaswift.array._wrap(_where(cond_data, x_data, y_data))
-              end,
+            -- Comparison
+            equal = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_equal(a_data, b_data))
+            end,
+            greater = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_greater(a_data, b_data))
+            end,
+            less = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_less(a_data, b_data))
+            end,
+            greater_equal = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_greater_equal(a_data, b_data))
+            end,
+            less_equal = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_less_equal(a_data, b_data))
+            end,
+            not_equal = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_not_equal(a_data, b_data))
+            end,
+            isnan = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_isnan(data))
+            end,
+            isinf = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_isinf(data))
+            end,
+            isfinite = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_isfinite(data))
+            end,
+            where = function(cond, x, y)
+                local cond_data = type(cond) == "table" and cond._data or cond
+                local x_data = type(x) == "table" and x._data or x
+                local y_data = type(y) == "table" and y._data or y
+                return luaswift.array._wrap(_where(cond_data, x_data, y_data))
+            end,
 
-              -- Boolean reductions
-              all = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _all(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              any = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _any(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              cumsum = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_cumsum(data, axis))
-              end,
-              cumprod = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_cumprod(data, axis))
-              end,
+            -- Boolean reductions
+            all = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _all(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            any = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _any(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            cumsum = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_cumsum(data, axis))
+            end,
+            cumprod = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_cumprod(data, axis))
+            end,
 
-              -- Sorting and searching
-              sort = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_sort(data, axis))
-              end,
-              argsort = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_argsort(data, axis))
-              end,
-              searchsorted = function(a, v, side)
-                  local a_data = type(a) == "table" and a._data or a
-                  local v_data = type(v) == "table" and v._data or v
-                  local result = _searchsorted(a_data, v_data, side)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              argwhere = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_argwhere(data))
-              end,
-              nonzero = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  local results = _nonzero(data)
-                  local wrapped = {}
-                  for i, r in ipairs(results) do
-                      wrapped[i] = luaswift.array._wrap(r)
-                  end
-                  return wrapped
-              end,
-              unique = function(a, return_index, return_inverse, return_counts)
-                  local data = type(a) == "table" and a._data or a
-                  local results = _unique(data, return_index, return_inverse, return_counts)
-                  if type(results) == "table" and results[1] then
-                      local wrapped = {}
-                      for i, r in ipairs(results) do
-                          wrapped[i] = luaswift.array._wrap(r)
-                      end
-                      return _unpack(wrapped)
-                  end
-                  return luaswift.array._wrap(results)
-              end,
+            -- Sorting and searching
+            sort = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_sort(data, axis))
+            end,
+            argsort = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_argsort(data, axis))
+            end,
+            searchsorted = function(a, v, side)
+                local a_data = type(a) == "table" and a._data or a
+                local v_data = type(v) == "table" and v._data or v
+                local result = _searchsorted(a_data, v_data, side)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            argwhere = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_argwhere(data))
+            end,
+            nonzero = function(a)
+                local data = type(a) == "table" and a._data or a
+                local results = _nonzero(data)
+                local wrapped = {}
+                for i, r in ipairs(results) do
+                    wrapped[i] = luaswift.array._wrap(r)
+                end
+                return wrapped
+            end,
+            unique = function(a, return_index, return_inverse, return_counts)
+                local data = type(a) == "table" and a._data or a
+                local results = _unique(data, return_index, return_inverse, return_counts)
+                if type(results) == "table" and results[1] then
+                    local wrapped = {}
+                    for i, r in ipairs(results) do
+                        wrapped[i] = luaswift.array._wrap(r)
+                    end
+                    return _unpack(wrapped)
+                end
+                return luaswift.array._wrap(results)
+            end,
 
-              -- Statistics
-              median = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _median(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              percentile = function(a, q, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _percentile(data, q, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              quantile = function(a, q, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _quantile(data, q, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              histogram = function(a, bins, range)
-                  local data = type(a) == "table" and a._data or a
-                  local results = _histogram(data, bins, range)
-                  -- Results is a table with [1]=counts, [2]=edges
-                  if type(results) == "table" and results[1] then
-                      return luaswift.array._wrap(results[1]), luaswift.array._wrap(results[2])
-                  end
-                  return results
-              end,
-              bincount = function(a, weights, minlength)
-                  local data = type(a) == "table" and a._data or a
-                  local weights_data = weights and (type(weights) == "table" and weights._data or weights) or nil
-                  return luaswift.array._wrap(_bincount(data, weights_data, minlength))
-              end,
-              ptp = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _ptp(data, axis)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-              trace = function(a, offset)
-                  local data = type(a) == "table" and a._data or a
-                  return _trace(data, offset)
-              end,
-              diagonal = function(a, offset)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_diagonal(data, offset))
-              end,
-              diag = function(a, k)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_diag(data, k))
-              end,
-              outer = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  return luaswift.array._wrap(_outer(a_data, b_data))
-              end,
-              matmul = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  local result = _dot(a_data, b_data)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
+            -- Statistics
+            median = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _median(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            percentile = function(a, q, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _percentile(data, q, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            quantile = function(a, q, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _quantile(data, q, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            histogram = function(a, bins, range)
+                local data = type(a) == "table" and a._data or a
+                local results = _histogram(data, bins, range)
+                -- Results is a table with [1]=counts, [2]=edges
+                if type(results) == "table" and results[1] then
+                    return luaswift.array._wrap(results[1]), luaswift.array._wrap(results[2])
+                end
+                return results
+            end,
+            bincount = function(a, weights, minlength)
+                local data = type(a) == "table" and a._data or a
+                local weights_data = weights and (type(weights) == "table" and weights._data or weights) or nil
+                return luaswift.array._wrap(_bincount(data, weights_data, minlength))
+            end,
+            ptp = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _ptp(data, axis)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+            trace = function(a, offset)
+                local data = type(a) == "table" and a._data or a
+                return _trace(data, offset)
+            end,
+            diagonal = function(a, offset)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_diagonal(data, offset))
+            end,
+            diag = function(a, k)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_diag(data, k))
+            end,
+            outer = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                return luaswift.array._wrap(_outer(a_data, b_data))
+            end,
+            matmul = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                local result = _dot(a_data, b_data)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
 
-              -- Creation functions (Phase 3.1)
-              eye = function(n, m, k)
-                  return luaswift.array._wrap(_eye(n, m, k))
-              end,
-              identity = function(n)
-                  return luaswift.array._wrap(_identity(n))
-              end,
-              empty = function(shape)
-                  return luaswift.array._wrap(_empty(shape))
-              end,
-              zeros_like = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_zeros_like(data))
-              end,
-              ones_like = function(a)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_ones_like(data))
-              end,
-              full_like = function(a, fill_value)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_full_like(data, fill_value))
-              end,
+            -- Creation functions (Phase 3.1)
+            eye = function(n, m, k)
+                return luaswift.array._wrap(_eye(n, m, k))
+            end,
+            identity = function(n)
+                return luaswift.array._wrap(_identity(n))
+            end,
+            empty = function(shape)
+                return luaswift.array._wrap(_empty(shape))
+            end,
+            zeros_like = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_zeros_like(data))
+            end,
+            ones_like = function(a)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_ones_like(data))
+            end,
+            full_like = function(a, fill_value)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_full_like(data, fill_value))
+            end,
 
-              -- Linear algebra
-              dot = function(a, b)
-                  local a_data = type(a) == "table" and a._data or a
-                  local b_data = type(b) == "table" and b._data or b
-                  local result = _dot(a_data, b_data)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
+            -- Linear algebra
+            dot = function(a, b)
+                local a_data = type(a) == "table" and a._data or a
+                local b_data = type(b) == "table" and b._data or b
+                local result = _dot(a_data, b_data)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
 
-              -- Reshaping
-              reshape = function(a, new_shape)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_reshape(data, new_shape))
-              end,
+            -- Reshaping
+            reshape = function(a, new_shape)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_reshape(data, new_shape))
+            end,
 
-              -- Array manipulation
-              concatenate = function(arrays, axis)
-                  local arr_data = {}
-                  for i, a in ipairs(arrays) do
-                      arr_data[i] = type(a) == "table" and a._data or a
-                  end
-                  return luaswift.array._wrap(_concatenate(arr_data, axis))
-              end,
-              stack = function(arrays, axis)
-                  local arr_data = {}
-                  for i, a in ipairs(arrays) do
-                      arr_data[i] = type(a) == "table" and a._data or a
-                  end
-                  return luaswift.array._wrap(_stack(arr_data, axis))
-              end,
-              vstack = function(arrays)
-                  local arr_data = {}
-                  for i, a in ipairs(arrays) do
-                      arr_data[i] = type(a) == "table" and a._data or a
-                  end
-                  return luaswift.array._wrap(_concatenate(arr_data, 1))
-              end,
-              hstack = function(arrays)
-                  local arr_data = {}
-                  for i, a in ipairs(arrays) do
-                      -- For 1D arrays, concatenate along axis 1 (the only axis)
-                      local data = type(a) == "table" and a._data or a
-                      arr_data[i] = data
-                  end
-                  return luaswift.array._wrap(_concatenate(arr_data, 2))
-              end,
-              split = function(a, indices_or_sections, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local results = _split(data, indices_or_sections, axis)
-                  local wrapped = {}
-                  for i, r in ipairs(results) do
-                      wrapped[i] = luaswift.array._wrap(r)
-                  end
-                  return wrapped
-              end,
-              vsplit = function(a, indices_or_sections)
-                  local data = type(a) == "table" and a._data or a
-                  local results = _split(data, indices_or_sections, 1)
-                  local wrapped = {}
-                  for i, r in ipairs(results) do
-                      wrapped[i] = luaswift.array._wrap(r)
-                  end
-                  return wrapped
-              end,
-              hsplit = function(a, indices_or_sections)
-                  local data = type(a) == "table" and a._data or a
-                  local results = _split(data, indices_or_sections, 2)
-                  local wrapped = {}
-                  for i, r in ipairs(results) do
-                      wrapped[i] = luaswift.array._wrap(r)
-                  end
-                  return wrapped
-              end,
+            -- Array manipulation
+            concatenate = function(arrays, axis)
+                local arr_data = {}
+                for i, a in ipairs(arrays) do
+                    arr_data[i] = type(a) == "table" and a._data or a
+                end
+                return luaswift.array._wrap(_concatenate(arr_data, axis))
+            end,
+            stack = function(arrays, axis)
+                local arr_data = {}
+                for i, a in ipairs(arrays) do
+                    arr_data[i] = type(a) == "table" and a._data or a
+                end
+                return luaswift.array._wrap(_stack(arr_data, axis))
+            end,
+            vstack = function(arrays)
+                local arr_data = {}
+                for i, a in ipairs(arrays) do
+                    arr_data[i] = type(a) == "table" and a._data or a
+                end
+                return luaswift.array._wrap(_concatenate(arr_data, 1))
+            end,
+            hstack = function(arrays)
+                local arr_data = {}
+                for i, a in ipairs(arrays) do
+                    -- For 1D arrays, concatenate along axis 1 (the only axis)
+                    local data = type(a) == "table" and a._data or a
+                    arr_data[i] = data
+                end
+                return luaswift.array._wrap(_concatenate(arr_data, 2))
+            end,
+            split = function(a, indices_or_sections, axis)
+                local data = type(a) == "table" and a._data or a
+                local results = _split(data, indices_or_sections, axis)
+                local wrapped = {}
+                for i, r in ipairs(results) do
+                    wrapped[i] = luaswift.array._wrap(r)
+                end
+                return wrapped
+            end,
+            vsplit = function(a, indices_or_sections)
+                local data = type(a) == "table" and a._data or a
+                local results = _split(data, indices_or_sections, 1)
+                local wrapped = {}
+                for i, r in ipairs(results) do
+                    wrapped[i] = luaswift.array._wrap(r)
+                end
+                return wrapped
+            end,
+            hsplit = function(a, indices_or_sections)
+                local data = type(a) == "table" and a._data or a
+                local results = _split(data, indices_or_sections, 2)
+                local wrapped = {}
+                for i, r in ipairs(results) do
+                    wrapped[i] = luaswift.array._wrap(r)
+                end
+                return wrapped
+            end,
 
-              -- Array manipulation (Phase 3.2)
-              tile = function(a, reps)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_tile(data, reps))
-              end,
-              -- Note: 'repeat' is a Lua keyword, so we use 'rep' as alias
-              rep = function(a, repeats, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_repeat(data, repeats, axis))
-              end,
-              flip = function(a, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_flip(data, axis))
-              end,
-              roll = function(a, shift, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_roll(data, shift, axis))
-              end,
-              pad = function(a, pad_width, mode, constant_value)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_pad(data, pad_width, mode, constant_value))
-              end,
-              insert = function(a, indices, values, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local vals = type(values) == "table" and values._data or values
-                  return luaswift.array._wrap(_insert(data, indices, vals, axis))
-              end,
-              delete = function(a, indices, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_delete(data, indices, axis))
-              end,
-              diff = function(a, n, axis)
-                  local data = type(a) == "table" and a._data or a
-                  return luaswift.array._wrap(_diff(data, n, axis))
-              end,
+            -- Array manipulation (Phase 3.2)
+            tile = function(a, reps)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_tile(data, reps))
+            end,
+            -- Note: 'repeat' is a Lua keyword, so we use 'rep' as alias
+            rep = function(a, repeats, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_repeat(data, repeats, axis))
+            end,
+            flip = function(a, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_flip(data, axis))
+            end,
+            roll = function(a, shift, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_roll(data, shift, axis))
+            end,
+            pad = function(a, pad_width, mode, constant_value)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_pad(data, pad_width, mode, constant_value))
+            end,
+            insert = function(a, indices, values, axis)
+                local data = type(a) == "table" and a._data or a
+                local vals = type(values) == "table" and values._data or values
+                return luaswift.array._wrap(_insert(data, indices, vals, axis))
+            end,
+            delete = function(a, indices, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_delete(data, indices, axis))
+            end,
+            diff = function(a, n, axis)
+                local data = type(a) == "table" and a._data or a
+                return luaswift.array._wrap(_diff(data, n, axis))
+            end,
 
-              -- Signal processing (Phase 3.3)
-              correlate = function(a, v, mode)
-                  local a_data = type(a) == "table" and a._data or a
-                  local v_data = type(v) == "table" and v._data or v
-                  return luaswift.array._wrap(_correlate(a_data, v_data, mode))
-              end,
-              convolve = function(a, v, mode)
-                  local a_data = type(a) == "table" and a._data or a
-                  local v_data = type(v) == "table" and v._data or v
-                  return luaswift.array._wrap(_convolve(a_data, v_data, mode))
-              end,
-              gradient = function(a, spacing, axis)
-                  local data = type(a) == "table" and a._data or a
-                  local result = _gradient(data, spacing, axis)
-                  -- Check for multi-axis result (table with string keys from Swift)
-                  if type(result) == "table" and result["1"] then
-                      local wrapped = {}
-                      local i = 1
-                      while result[tostring(i)] do
-                          wrapped[i] = luaswift.array._wrap(result[tostring(i)])
-                          i = i + 1
-                      end
-                      return _unpack(wrapped)
-                  end
-                  return luaswift.array._wrap(result)
-              end,
-              interp = function(x, xp, fp, left, right)
-                  local x_data = type(x) == "table" and x._data or x
-                  local xp_data = type(xp) == "table" and xp._data or xp
-                  local fp_data = type(fp) == "table" and fp._data or fp
-                  local result = _interp(x_data, xp_data, fp_data, left, right)
-                  if type(result) == "number" then return result end
-                  return luaswift.array._wrap(result)
-              end,
-          }
+            -- Signal processing (Phase 3.3)
+            correlate = function(a, v, mode)
+                local a_data = type(a) == "table" and a._data or a
+                local v_data = type(v) == "table" and v._data or v
+                return luaswift.array._wrap(_correlate(a_data, v_data, mode))
+            end,
+            convolve = function(a, v, mode)
+                local a_data = type(a) == "table" and a._data or a
+                local v_data = type(v) == "table" and v._data or v
+                return luaswift.array._wrap(_convolve(a_data, v_data, mode))
+            end,
+            gradient = function(a, spacing, axis)
+                local data = type(a) == "table" and a._data or a
+                local result = _gradient(data, spacing, axis)
+                -- Check for multi-axis result (table with string keys from Swift)
+                if type(result) == "table" and result["1"] then
+                    local wrapped = {}
+                    local i = 1
+                    while result[tostring(i)] do
+                        wrapped[i] = luaswift.array._wrap(result[tostring(i)])
+                        i = i + 1
+                    end
+                    return _unpack(wrapped)
+                end
+                return luaswift.array._wrap(result)
+            end,
+            interp = function(x, xp, fp, left, right)
+                local x_data = type(x) == "table" and x._data or x
+                local xp_data = type(xp) == "table" and xp._data or xp
+                local fp_data = type(fp) == "table" and fp._data or fp
+                local result = _interp(x_data, xp_data, fp_data, left, right)
+                if type(result) == "number" then return result end
+                return luaswift.array._wrap(result)
+            end,
+        }
 
-          -- Clean up temporary globals
-          _luaswift_array_create = nil
-          _luaswift_array_zeros = nil
-          _luaswift_array_ones = nil
-          _luaswift_array_arange = nil
-          _luaswift_array_linspace = nil
-          _luaswift_array_rand = nil
-          _luaswift_array_randn = nil
-          _luaswift_array_full = nil
-          _luaswift_array_shape = nil
-          _luaswift_array_ndim = nil
-          _luaswift_array_size = nil
-          _luaswift_array_get = nil
-          _luaswift_array_set = nil
-          _luaswift_array_reshape = nil
-          _luaswift_array_flatten = nil
-          _luaswift_array_squeeze = nil
-          _luaswift_array_expand_dims = nil
-          _luaswift_array_transpose = nil
-          _luaswift_array_add = nil
-          _luaswift_array_sub = nil
-          _luaswift_array_mul = nil
-          _luaswift_array_div = nil
-          _luaswift_array_pow = nil
-          _luaswift_array_neg = nil
-          _luaswift_array_abs = nil
-          _luaswift_array_sqrt = nil
-          _luaswift_array_csqrt = nil
-          _luaswift_array_clog = nil
-          _luaswift_array_exp = nil
-          _luaswift_array_log = nil
-          _luaswift_array_sin = nil
-          _luaswift_array_cos = nil
-          _luaswift_array_tan = nil
-          _luaswift_array_sinh = nil
-          _luaswift_array_cosh = nil
-          _luaswift_array_tanh = nil
-          _luaswift_array_asinh = nil
-          _luaswift_array_acosh = nil
-          _luaswift_array_atanh = nil
-          _luaswift_array_arcsin = nil
-          _luaswift_array_arccos = nil
-          _luaswift_array_arctan = nil
-          _luaswift_array_arctan2 = nil
-          _luaswift_array_floor = nil
-          _luaswift_array_ceil = nil
-          _luaswift_array_round = nil
-          _luaswift_array_clip = nil
-          _luaswift_array_sign = nil
-          _luaswift_array_mod = nil
-          _luaswift_array_fmod = nil
-          _luaswift_array_sum = nil
-          _luaswift_array_mean = nil
-          _luaswift_array_std = nil
-          _luaswift_array_var = nil
-          _luaswift_array_min = nil
-          _luaswift_array_max = nil
-          _luaswift_array_argmin = nil
-          _luaswift_array_argmax = nil
-          _luaswift_array_prod = nil
-          _luaswift_array_equal = nil
-          _luaswift_array_greater = nil
-          _luaswift_array_less = nil
-          _luaswift_array_where = nil
-          _luaswift_array_tolist = nil
-          _luaswift_array_copy = nil
-          _luaswift_array_dot = nil
-          _luaswift_array_concatenate = nil
-          _luaswift_array_stack = nil
-          _luaswift_array_split = nil
-          _luaswift_array_tile = nil
-          _luaswift_array_repeat = nil
-          _luaswift_array_flip = nil
-          _luaswift_array_roll = nil
-          _luaswift_array_pad = nil
-          _luaswift_array_insert = nil
-          _luaswift_array_delete = nil
-          _luaswift_array_diff = nil
-          _luaswift_array_correlate = nil
-          _luaswift_array_convolve = nil
-          _luaswift_array_gradient = nil
-          _luaswift_array_interp = nil
-          _luaswift_array_complex_array = nil
-          _luaswift_array_from_polar = nil
-          _luaswift_array_dtype = nil
-          _luaswift_array_iscomplex = nil
-          _luaswift_array_real = nil
-          _luaswift_array_imag = nil
-          _luaswift_array_conj = nil
-          _luaswift_array_arg = nil
-          package.loaded["luaswift.array"] = luaswift.array
-          """)
-      } catch {
-        print("ArrayModule: Failed to initialize Lua wrapper: \(error)")
+        -- Clean up temporary globals
+        _luaswift_array_create = nil
+        _luaswift_array_zeros = nil
+        _luaswift_array_ones = nil
+        _luaswift_array_arange = nil
+        _luaswift_array_linspace = nil
+        _luaswift_array_rand = nil
+        _luaswift_array_randn = nil
+        _luaswift_array_full = nil
+        _luaswift_array_shape = nil
+        _luaswift_array_ndim = nil
+        _luaswift_array_size = nil
+        _luaswift_array_get = nil
+        _luaswift_array_set = nil
+        _luaswift_array_reshape = nil
+        _luaswift_array_flatten = nil
+        _luaswift_array_squeeze = nil
+        _luaswift_array_expand_dims = nil
+        _luaswift_array_transpose = nil
+        _luaswift_array_add = nil
+        _luaswift_array_sub = nil
+        _luaswift_array_mul = nil
+        _luaswift_array_div = nil
+        _luaswift_array_pow = nil
+        _luaswift_array_neg = nil
+        _luaswift_array_abs = nil
+        _luaswift_array_sqrt = nil
+        _luaswift_array_csqrt = nil
+        _luaswift_array_clog = nil
+        _luaswift_array_exp = nil
+        _luaswift_array_log = nil
+        _luaswift_array_sin = nil
+        _luaswift_array_cos = nil
+        _luaswift_array_tan = nil
+        _luaswift_array_sinh = nil
+        _luaswift_array_cosh = nil
+        _luaswift_array_tanh = nil
+        _luaswift_array_asinh = nil
+        _luaswift_array_acosh = nil
+        _luaswift_array_atanh = nil
+        _luaswift_array_arcsin = nil
+        _luaswift_array_arccos = nil
+        _luaswift_array_arctan = nil
+        _luaswift_array_arctan2 = nil
+        _luaswift_array_floor = nil
+        _luaswift_array_ceil = nil
+        _luaswift_array_round = nil
+        _luaswift_array_clip = nil
+        _luaswift_array_sign = nil
+        _luaswift_array_mod = nil
+        _luaswift_array_fmod = nil
+        _luaswift_array_sum = nil
+        _luaswift_array_mean = nil
+        _luaswift_array_std = nil
+        _luaswift_array_var = nil
+        _luaswift_array_min = nil
+        _luaswift_array_max = nil
+        _luaswift_array_argmin = nil
+        _luaswift_array_argmax = nil
+        _luaswift_array_prod = nil
+        _luaswift_array_equal = nil
+        _luaswift_array_greater = nil
+        _luaswift_array_less = nil
+        _luaswift_array_where = nil
+        _luaswift_array_tolist = nil
+        _luaswift_array_copy = nil
+        _luaswift_array_dot = nil
+        _luaswift_array_concatenate = nil
+        _luaswift_array_stack = nil
+        _luaswift_array_split = nil
+        _luaswift_array_tile = nil
+        _luaswift_array_repeat = nil
+        _luaswift_array_flip = nil
+        _luaswift_array_roll = nil
+        _luaswift_array_pad = nil
+        _luaswift_array_insert = nil
+        _luaswift_array_delete = nil
+        _luaswift_array_diff = nil
+        _luaswift_array_correlate = nil
+        _luaswift_array_convolve = nil
+        _luaswift_array_gradient = nil
+        _luaswift_array_interp = nil
+        _luaswift_array_complex_array = nil
+        _luaswift_array_from_polar = nil
+        _luaswift_array_dtype = nil
+        _luaswift_array_iscomplex = nil
+        _luaswift_array_real = nil
+        _luaswift_array_imag = nil
+        _luaswift_array_conj = nil
+        _luaswift_array_arg = nil
+        package.loaded["luaswift.array"] = luaswift.array
+        """)
+
+      // Install Phase-2 bindings (dtype, bool ops, FFT, set ops, indexing)
+      try installPhase2(in: engine)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+      do { try install(in: engine) } catch {
+        #if DEBUG
+          print("[LuaSwift] ArrayModule setup failed: \(error)")
+        #endif
       }
-
-      // Register Phase-2 bindings (dtype, bool ops, FFT, set ops, indexing)
-      registerPhase2(in: engine)
     }
 
     // MARK: - Memory Tracking

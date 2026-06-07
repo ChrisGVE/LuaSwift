@@ -29,12 +29,13 @@ import NumericSwift
 /// local q = geo.quaternion.from_euler(0, math.pi/2, 0)
 /// local rotated = q:rotate(geo.vec3(1, 0, 0))
 /// ```
-public struct GeometryModule {
+public struct GeometryModule: LuaSwiftModule {
 
     // MARK: - Registration
 
     /// Register the geometry module in the given engine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Vec2 operations
         engine.registerFunction(name: "_luaswift_geo_vec2_create", callback: vec2CreateCallback)
         engine.registerFunction(name: "_luaswift_geo_vec2_length", callback: vec2LengthCallback)
@@ -136,10 +137,17 @@ public struct GeometryModule {
         engine.registerFunction(name: "_luaswift_geo_bspline_fit", callback: bsplineFitCallback)
 
         // Set up the luaswift.geometry namespace
-        do {
-            try engine.run(geometryLuaWrapper)
-        } catch {
-            // Module setup failed - functions still available as globals
+        try engine.run(geometryLuaWrapper)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
+            #if DEBUG
+                print("[LuaSwift] GeometryModule setup failed: \(error)")
+            #endif
         }
     }
 

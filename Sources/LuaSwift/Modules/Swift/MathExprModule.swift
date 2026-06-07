@@ -33,7 +33,7 @@ import NumericSwift
 /// print(f(0))        -- 0
 /// print(f(math.pi))  -- ~0
 /// ```
-public struct MathExprModule {
+public struct MathExprModule: LuaSwiftModule {
 
     // MARK: - AST to Lua Conversion
 
@@ -238,7 +238,8 @@ public struct MathExprModule {
     // MARK: - Registration
 
     /// Register the math expression module with a LuaEngine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Core callbacks using NumericSwift's MathExpr
         engine.registerFunction(name: "_luaswift_mathexpr_tokenize", callback: tokenizeCallback)
         // parse_string: takes a string, returns AST table (primary API in 0.2.1)
@@ -251,10 +252,17 @@ public struct MathExprModule {
         engine.registerFunction(name: "_luaswift_mathexpr_find_variables", callback: findVariablesCallback)
 
         // Set up the luaswift.mathexpr namespace
-        do {
-            try engine.run(mathExprLuaWrapper)
-        } catch {
-            // Module setup failed
+        try engine.run(mathExprLuaWrapper)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
+            #if DEBUG
+                print("[LuaSwift] MathExprModule setup failed: \(error)")
+            #endif
         }
     }
 

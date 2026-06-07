@@ -10,15 +10,15 @@ the calling Lua code until the user dismisses it, returning the 1-indexed positi
 that was pressed.
 
 > Important:
-> This module is **not** included in ``ModuleRegistry/installModules(in:)``. It requires UI
+> This module is **not** included in ``ModuleRegistry/install(in:)``. It requires UI
 > framework access and a running main run loop, so it must be registered explicitly with
-> ``ModuleRegistry/installUIModule(in:)``. It is unavailable on platforms without AppKit or UIKit.
+> ``UIModule/install(in:)``. It is unavailable on platforms without AppKit or UIKit.
 
 ## Installation
 
 ```swift
-// The UI module is opt-in — it is NOT part of installModules(in:).
-ModuleRegistry.installUIModule(in: engine)
+// The UI module is opt-in — it is NOT part of ModuleRegistry.install(in:).
+try UIModule.install(in: engine)
 ```
 
 ## Basic Usage

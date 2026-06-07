@@ -10,10 +10,10 @@ The MathX module provides comprehensive mathematical functions including hyperbo
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the MathX module
-ModuleRegistry.installMathModule(in: engine)
+try MathXModule.install(in: engine)
 ```
 
 The MathX module is included in the default build and requires no opt-in flags.

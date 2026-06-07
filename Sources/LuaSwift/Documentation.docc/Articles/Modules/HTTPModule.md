@@ -6,13 +6,13 @@ Opt-in HTTP client for making network requests from Lua.
 
 The HTTP module provides a synchronous HTTP client backed by `URLSession`. It supports all common HTTP methods, custom headers, raw string bodies, automatic JSON encoding, redirect control, and a per-engine session cache.
 
-**This module is opt-in.** It is not included in `ModuleRegistry.installModules()` because network access may not be appropriate in every environment. Install it explicitly before use.
+**This module is opt-in.** It is not included in `ModuleRegistry.install(in:)` because network access may not be appropriate in every environment. Install it explicitly before use.
 
 ## Installation
 
 ```swift
 let engine = try LuaEngine()
-ModuleRegistry.installHTTPModule(in: engine)
+try HTTPModule.install(in: engine)
 ```
 
 ```lua

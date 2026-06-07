@@ -59,7 +59,7 @@ import Foundation
 ///     follow_redirects = false  -- Returns 3xx response instead of following
 /// })
 /// ```
-public struct HTTPModule {
+public struct HTTPModule: LuaSwiftModule {
 
     // MARK: - Session Management
 
@@ -190,47 +190,53 @@ public struct HTTPModule {
     /// Register the HTTP module with a LuaEngine.
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register HTTP method callbacks with engine reference for session management
         engine.registerFunction(name: "_luaswift_http_request") { args in
             try requestCallback(args, engine: engine)
         }
 
         // Set up the luaswift.http namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
 
-                -- Capture the Swift callback before cleaning up global
-                local http_request = _luaswift_http_request
+            -- Capture the Swift callback before cleaning up global
+            local http_request = _luaswift_http_request
 
-                local function make_request(method, url, options)
-                    return http_request(method, url, options or {})
-                end
+            local function make_request(method, url, options)
+                return http_request(method, url, options or {})
+            end
 
-                luaswift.http = {
-                    -- HTTP methods
-                    get = function(url, options) return make_request("GET", url, options) end,
-                    post = function(url, options) return make_request("POST", url, options) end,
-                    put = function(url, options) return make_request("PUT", url, options) end,
-                    patch = function(url, options) return make_request("PATCH", url, options) end,
-                    delete = function(url, options) return make_request("DELETE", url, options) end,
-                    head = function(url, options) return make_request("HEAD", url, options) end,
-                    options = function(url, options) return make_request("OPTIONS", url, options) end,
+            luaswift.http = {
+                -- HTTP methods
+                get = function(url, options) return make_request("GET", url, options) end,
+                post = function(url, options) return make_request("POST", url, options) end,
+                put = function(url, options) return make_request("PUT", url, options) end,
+                patch = function(url, options) return make_request("PATCH", url, options) end,
+                delete = function(url, options) return make_request("DELETE", url, options) end,
+                head = function(url, options) return make_request("HEAD", url, options) end,
+                options = function(url, options) return make_request("OPTIONS", url, options) end,
 
-                    -- Generic request function
-                    request = make_request
-                }
+                -- Generic request function
+                request = make_request
+            }
 
-                -- Clean up temporary global
-                _luaswift_http_request = nil
+            -- Clean up temporary global
+            _luaswift_http_request = nil
 
-                -- Register for require()
-                package.loaded["luaswift.http"] = luaswift.http
-                """)
-        } catch {
+            -- Register for require()
+            package.loaded["luaswift.http"] = luaswift.http
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] HTTPModule setup failed: \(error)")
+                print("[LuaSwift] HTTPModule setup failed: \(error)")
             #endif
         }
     }

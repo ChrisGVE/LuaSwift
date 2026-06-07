@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Throwing module-install API** - Every Swift-backed module now exposes `install(in:)` (via the new `LuaSwiftModule` protocol), which propagates Lua setup failures instead of swallowing them. `ModuleRegistry.install(in:)` installs the full module set, continuing past individual failures and throwing a single `ModuleInstallError` that lists every module whose setup failed ([#12](https://github.com/ChrisGVE/LuaSwift/issues/12)).
+
 ### Fixed
 - **`packagePath` set via C API** - `LuaEngineConfiguration.packagePath` is now applied through `lua_getglobal`/`lua_setfield` instead of generated Lua source, so paths containing quotes or other Lua-meaningful characters are set verbatim and can no longer break (or inject into) the assignment ([#16](https://github.com/ChrisGVE/LuaSwift/issues/16)).
 

@@ -10,10 +10,10 @@ The StringX module provides comprehensive string manipulation functions using Sw
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the StringX module
-ModuleRegistry.installStringXModule(in: engine)
+try StringXModule.install(in: engine)
 ```
 
 ## Basic Usage

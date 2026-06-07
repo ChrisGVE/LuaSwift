@@ -54,7 +54,7 @@ import Foundation
 /// local x, y = mathx.polar_to_cart(5, math.pi/4)
 /// local r, theta = mathx.cart_to_polar(3, 4)
 /// ```
-public struct MathXModule {
+public struct MathXModule: LuaSwiftModule {
 
     /// Register the math extension module with a LuaEngine.
     ///
@@ -62,7 +62,8 @@ public struct MathXModule {
     /// extended math functions and constants.
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register all functions
         engine.registerFunction(name: "_luaswift_math_sinh", callback: sinhCallback)
         engine.registerFunction(name: "_luaswift_math_cosh", callback: coshCallback)
@@ -114,203 +115,208 @@ public struct MathXModule {
         engine.registerFunction(name: "_luaswift_math_sqrt", callback: sqrtCallback)
 
         // Set up the luaswift.mathx namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
 
-                -- Store references before cleanup
-                local sinh_fn = _luaswift_math_sinh
-                local cosh_fn = _luaswift_math_cosh
-                local tanh_fn = _luaswift_math_tanh
-                local asinh_fn = _luaswift_math_asinh
-                local acosh_fn = _luaswift_math_acosh
-                local atanh_fn = _luaswift_math_atanh
-                local round_fn = _luaswift_math_round
-                local trunc_fn = _luaswift_math_trunc
-                local sign_fn = _luaswift_math_sign
-                local log10_fn = _luaswift_math_log10
-                local log2_fn = _luaswift_math_log2
-                local sum_fn = _luaswift_math_sum
-                local mean_fn = _luaswift_math_mean
-                local median_fn = _luaswift_math_median
-                local variance_fn = _luaswift_math_variance
-                local stddev_fn = _luaswift_math_stddev
-                local percentile_fn = _luaswift_math_percentile
-                local gmean_fn = _luaswift_math_gmean
-                local hmean_fn = _luaswift_math_hmean
-                local mode_fn = _luaswift_math_mode
-                local factorial_fn = _luaswift_math_factorial
-                local gamma_fn = _luaswift_math_gamma
-                local lgamma_fn = _luaswift_math_lgamma
-                local polar_to_cart_fn = _luaswift_math_polar_to_cart
-                local cart_to_polar_fn = _luaswift_math_cart_to_polar
-                local spherical_to_cart_fn = _luaswift_math_spherical_to_cart
-                local cart_to_spherical_fn = _luaswift_math_cart_to_spherical
-                local perm_fn = _luaswift_math_perm
-                local comb_fn = _luaswift_math_comb
-                local binomial_fn = _luaswift_math_binomial
-                local csqrt_fn = _luaswift_math_csqrt
-                local clog_fn = _luaswift_math_clog
-                local sin_fn  = _luaswift_math_sin
-                local cos_fn  = _luaswift_math_cos
-                local tan_fn  = _luaswift_math_tan
-                local exp_fn  = _luaswift_math_exp
-                local log_fn  = _luaswift_math_log
-                local sqrt_fn = _luaswift_math_sqrt
+            -- Store references before cleanup
+            local sinh_fn = _luaswift_math_sinh
+            local cosh_fn = _luaswift_math_cosh
+            local tanh_fn = _luaswift_math_tanh
+            local asinh_fn = _luaswift_math_asinh
+            local acosh_fn = _luaswift_math_acosh
+            local atanh_fn = _luaswift_math_atanh
+            local round_fn = _luaswift_math_round
+            local trunc_fn = _luaswift_math_trunc
+            local sign_fn = _luaswift_math_sign
+            local log10_fn = _luaswift_math_log10
+            local log2_fn = _luaswift_math_log2
+            local sum_fn = _luaswift_math_sum
+            local mean_fn = _luaswift_math_mean
+            local median_fn = _luaswift_math_median
+            local variance_fn = _luaswift_math_variance
+            local stddev_fn = _luaswift_math_stddev
+            local percentile_fn = _luaswift_math_percentile
+            local gmean_fn = _luaswift_math_gmean
+            local hmean_fn = _luaswift_math_hmean
+            local mode_fn = _luaswift_math_mode
+            local factorial_fn = _luaswift_math_factorial
+            local gamma_fn = _luaswift_math_gamma
+            local lgamma_fn = _luaswift_math_lgamma
+            local polar_to_cart_fn = _luaswift_math_polar_to_cart
+            local cart_to_polar_fn = _luaswift_math_cart_to_polar
+            local spherical_to_cart_fn = _luaswift_math_spherical_to_cart
+            local cart_to_spherical_fn = _luaswift_math_cart_to_spherical
+            local perm_fn = _luaswift_math_perm
+            local comb_fn = _luaswift_math_comb
+            local binomial_fn = _luaswift_math_binomial
+            local csqrt_fn = _luaswift_math_csqrt
+            local clog_fn = _luaswift_math_clog
+            local sin_fn  = _luaswift_math_sin
+            local cos_fn  = _luaswift_math_cos
+            local tan_fn  = _luaswift_math_tan
+            local exp_fn  = _luaswift_math_exp
+            local log_fn  = _luaswift_math_log
+            local sqrt_fn = _luaswift_math_sqrt
 
-                luaswift.mathx = {
-                    -- Trig with complex dispatch
-                    sin  = sin_fn,
-                    cos  = cos_fn,
-                    tan  = tan_fn,
+            luaswift.mathx = {
+                -- Trig with complex dispatch
+                sin  = sin_fn,
+                cos  = cos_fn,
+                tan  = tan_fn,
 
-                    -- Exponential/log/sqrt with complex dispatch
-                    exp  = exp_fn,
-                    log  = log_fn,
-                    sqrt = sqrt_fn,
+                -- Exponential/log/sqrt with complex dispatch
+                exp  = exp_fn,
+                log  = log_fn,
+                sqrt = sqrt_fn,
 
-                    -- Hyperbolic functions
-                    sinh = sinh_fn,
-                    cosh = cosh_fn,
-                    tanh = tanh_fn,
-                    asinh = asinh_fn,
-                    acosh = acosh_fn,
-                    atanh = atanh_fn,
+                -- Hyperbolic functions
+                sinh = sinh_fn,
+                cosh = cosh_fn,
+                tanh = tanh_fn,
+                asinh = asinh_fn,
+                acosh = acosh_fn,
+                atanh = atanh_fn,
 
-                    -- Rounding
-                    round = round_fn,
-                    trunc = trunc_fn,
-                    sign = sign_fn,
+                -- Rounding
+                round = round_fn,
+                trunc = trunc_fn,
+                sign = sign_fn,
 
-                    -- Logarithms
-                    log10 = log10_fn,
-                    log2 = log2_fn,
+                -- Logarithms
+                log10 = log10_fn,
+                log2 = log2_fn,
 
-                    -- Statistics
-                    sum = sum_fn,
-                    mean = mean_fn,
-                    median = median_fn,
-                    variance = variance_fn,
-                    stddev = stddev_fn,
-                    percentile = percentile_fn,
-                    gmean = gmean_fn,
-                    hmean = hmean_fn,
-                    mode = mode_fn,
+                -- Statistics
+                sum = sum_fn,
+                mean = mean_fn,
+                median = median_fn,
+                variance = variance_fn,
+                stddev = stddev_fn,
+                percentile = percentile_fn,
+                gmean = gmean_fn,
+                hmean = hmean_fn,
+                mode = mode_fn,
 
-                    -- Special functions
-                    factorial = factorial_fn,
-                    gamma = gamma_fn,
-                    lgamma = lgamma_fn,
+                -- Special functions
+                factorial = factorial_fn,
+                gamma = gamma_fn,
+                lgamma = lgamma_fn,
 
-                    -- Combinatorics
-                    perm = perm_fn,
-                    comb = comb_fn,
-                    binomial = binomial_fn,
+                -- Combinatorics
+                perm = perm_fn,
+                comb = comb_fn,
+                binomial = binomial_fn,
 
-                    -- Constants
-                    phi = 1.618033988749895,
-                    inf = math.huge,
-                    nan = 0/0,
+                -- Constants
+                phi = 1.618033988749895,
+                inf = math.huge,
+                nan = 0/0,
 
-                    -- Coordinate conversions
-                    polar_to_cart = polar_to_cart_fn,
-                    cart_to_polar = cart_to_polar_fn,
-                    spherical_to_cart = spherical_to_cart_fn,
-                    cart_to_spherical = cart_to_spherical_fn,
+                -- Coordinate conversions
+                polar_to_cart = polar_to_cart_fn,
+                cart_to_polar = cart_to_polar_fn,
+                spherical_to_cart = spherical_to_cart_fn,
+                cart_to_spherical = cart_to_spherical_fn,
 
-                    -- Complex-only functions
-                    csqrt = csqrt_fn,
-                    clog = clog_fn,
+                -- Complex-only functions
+                csqrt = csqrt_fn,
+                clog = clog_fn,
 
-                    -- import() extends the math table
-                    import = function()
-                        math.sinh = sinh_fn
-                        math.cosh = cosh_fn
-                        math.tanh = tanh_fn
-                        math.asinh = asinh_fn
-                        math.acosh = acosh_fn
-                        math.atanh = atanh_fn
-                        math.round = round_fn
-                        math.trunc = trunc_fn
-                        math.sign = sign_fn
-                        math.log10 = log10_fn
-                        math.log2 = log2_fn
-                        math.sum = sum_fn
-                        math.mean = mean_fn
-                        math.median = median_fn
-                        math.variance = variance_fn
-                        math.stddev = stddev_fn
-                        math.percentile = percentile_fn
-                        math.gmean = gmean_fn
-                        math.hmean = hmean_fn
-                        math.mode = mode_fn
-                        math.factorial = factorial_fn
-                        math.gamma = gamma_fn
-                        math.lgamma = lgamma_fn
-                        math.perm = perm_fn
-                        math.comb = comb_fn
-                        math.binomial = binomial_fn
-                        math.phi = 1.618033988749895
-                        math.polar_to_cart = polar_to_cart_fn
-                        math.cart_to_polar = cart_to_polar_fn
-                        math.spherical_to_cart = spherical_to_cart_fn
-                        math.cart_to_spherical = cart_to_spherical_fn
-                        math.csqrt = csqrt_fn
-                        math.clog = clog_fn
-                    end
-                }
+                -- import() extends the math table
+                import = function()
+                    math.sinh = sinh_fn
+                    math.cosh = cosh_fn
+                    math.tanh = tanh_fn
+                    math.asinh = asinh_fn
+                    math.acosh = acosh_fn
+                    math.atanh = atanh_fn
+                    math.round = round_fn
+                    math.trunc = trunc_fn
+                    math.sign = sign_fn
+                    math.log10 = log10_fn
+                    math.log2 = log2_fn
+                    math.sum = sum_fn
+                    math.mean = mean_fn
+                    math.median = median_fn
+                    math.variance = variance_fn
+                    math.stddev = stddev_fn
+                    math.percentile = percentile_fn
+                    math.gmean = gmean_fn
+                    math.hmean = hmean_fn
+                    math.mode = mode_fn
+                    math.factorial = factorial_fn
+                    math.gamma = gamma_fn
+                    math.lgamma = lgamma_fn
+                    math.perm = perm_fn
+                    math.comb = comb_fn
+                    math.binomial = binomial_fn
+                    math.phi = 1.618033988749895
+                    math.polar_to_cart = polar_to_cart_fn
+                    math.cart_to_polar = cart_to_polar_fn
+                    math.spherical_to_cart = spherical_to_cart_fn
+                    math.cart_to_spherical = cart_to_spherical_fn
+                    math.csqrt = csqrt_fn
+                    math.clog = clog_fn
+                end
+            }
 
-                -- Create top-level global alias
-                mathx = luaswift.mathx
+            -- Create top-level global alias
+            mathx = luaswift.mathx
 
-                -- Also keep luaswift.math as alias for backward compatibility
-                luaswift.math = luaswift.mathx
+            -- Also keep luaswift.math as alias for backward compatibility
+            luaswift.math = luaswift.mathx
 
-                -- Clean up temporary globals
-                _luaswift_math_sinh = nil
-                _luaswift_math_cosh = nil
-                _luaswift_math_tanh = nil
-                _luaswift_math_asinh = nil
-                _luaswift_math_acosh = nil
-                _luaswift_math_atanh = nil
-                _luaswift_math_round = nil
-                _luaswift_math_trunc = nil
-                _luaswift_math_sign = nil
-                _luaswift_math_log10 = nil
-                _luaswift_math_log2 = nil
-                _luaswift_math_sum = nil
-                _luaswift_math_mean = nil
-                _luaswift_math_median = nil
-                _luaswift_math_variance = nil
-                _luaswift_math_stddev = nil
-                _luaswift_math_percentile = nil
-                _luaswift_math_gmean = nil
-                _luaswift_math_hmean = nil
-                _luaswift_math_mode = nil
-                _luaswift_math_factorial = nil
-                _luaswift_math_gamma = nil
-                _luaswift_math_lgamma = nil
-                _luaswift_math_polar_to_cart = nil
-                _luaswift_math_cart_to_polar = nil
-                _luaswift_math_spherical_to_cart = nil
-                _luaswift_math_cart_to_spherical = nil
-                _luaswift_math_perm = nil
-                _luaswift_math_comb = nil
-                _luaswift_math_binomial = nil
-                _luaswift_math_csqrt = nil
-                _luaswift_math_clog = nil
-                _luaswift_math_sin  = nil
-                _luaswift_math_cos  = nil
-                _luaswift_math_tan  = nil
-                _luaswift_math_exp  = nil
-                _luaswift_math_log  = nil
-                _luaswift_math_sqrt = nil
-                package.loaded["luaswift.mathx"] = luaswift.mathx
-                package.loaded["luaswift.math"] = luaswift.mathx
-                """)
-        } catch {
+            -- Clean up temporary globals
+            _luaswift_math_sinh = nil
+            _luaswift_math_cosh = nil
+            _luaswift_math_tanh = nil
+            _luaswift_math_asinh = nil
+            _luaswift_math_acosh = nil
+            _luaswift_math_atanh = nil
+            _luaswift_math_round = nil
+            _luaswift_math_trunc = nil
+            _luaswift_math_sign = nil
+            _luaswift_math_log10 = nil
+            _luaswift_math_log2 = nil
+            _luaswift_math_sum = nil
+            _luaswift_math_mean = nil
+            _luaswift_math_median = nil
+            _luaswift_math_variance = nil
+            _luaswift_math_stddev = nil
+            _luaswift_math_percentile = nil
+            _luaswift_math_gmean = nil
+            _luaswift_math_hmean = nil
+            _luaswift_math_mode = nil
+            _luaswift_math_factorial = nil
+            _luaswift_math_gamma = nil
+            _luaswift_math_lgamma = nil
+            _luaswift_math_polar_to_cart = nil
+            _luaswift_math_cart_to_polar = nil
+            _luaswift_math_spherical_to_cart = nil
+            _luaswift_math_cart_to_spherical = nil
+            _luaswift_math_perm = nil
+            _luaswift_math_comb = nil
+            _luaswift_math_binomial = nil
+            _luaswift_math_csqrt = nil
+            _luaswift_math_clog = nil
+            _luaswift_math_sin  = nil
+            _luaswift_math_cos  = nil
+            _luaswift_math_tan  = nil
+            _luaswift_math_exp  = nil
+            _luaswift_math_log  = nil
+            _luaswift_math_sqrt = nil
+            package.loaded["luaswift.mathx"] = luaswift.mathx
+            package.loaded["luaswift.math"] = luaswift.mathx
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] MathXModule setup failed: \(error)")
+                print("[LuaSwift] MathXModule setup failed: \(error)")
             #endif
         }
     }

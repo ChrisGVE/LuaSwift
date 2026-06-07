@@ -14,10 +14,10 @@ The architecture is retained-mode: drawing commands are stored as scale-free vec
 
 ```swift
 // Install all modules (PlotModule included when built with LUASWIFT_INCLUDE_PLOTSWIFT=1)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Plot module
-ModuleRegistry.installPlotModule(in: engine)
+try PlotModule.install(in: engine)
 ```
 
 Build flag:

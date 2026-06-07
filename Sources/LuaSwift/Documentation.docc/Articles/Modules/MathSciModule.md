@@ -26,13 +26,13 @@ sub-namespaces under Lua's built-in `math` table. It runs at module-registration
 
 ```swift
 // Install all modules (NumericSwift sub-namespaces only when LUASWIFT_NUMERICSWIFT is set)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install MathSci explicitly (after individual modules are registered)
-ModuleRegistry.installMathSciModule(in: engine)
+try MathSciModule.install(in: engine)
 ```
 
-The sub-namespaces are ready immediately after `installModules(in:)` returns.
+The sub-namespaces are ready immediately after `ModuleRegistry.install(in:)` returns.
 Calling `luaswift.extend_stdlib()` is **not** required to access them; however,
 `extend_stdlib()` also sets `math.complex`, `math.linalg`, `math.geo`, and
 `math.regress` as convenient aliases and imports MathX functions directly onto the
@@ -41,7 +41,7 @@ Calling `luaswift.extend_stdlib()` is **not** required to access them; however,
 ## Namespace Overview
 
 With `LUASWIFT_NUMERICSWIFT` active, the following sub-namespaces are available on the
-global `math` table after `installModules(in:)`:
+global `math` table after `ModuleRegistry.install(in:)`:
 
 | Namespace | Source | Populated by |
 |---|---|---|
@@ -189,7 +189,7 @@ like `math.sinh(x)` instead of `luaswift.mathx.sinh(x)`.
 ## Basic Usage
 
 ```lua
--- Sub-namespaces are available after installModules(in:) with LUASWIFT_NUMERICSWIFT
+-- Sub-namespaces are available after ModuleRegistry.install(in:) with LUASWIFT_NUMERICSWIFT
 -- No extend_stdlib() call is required
 
 -- Linear algebra
@@ -236,19 +236,19 @@ end
 
 ## Module Registration Order
 
-When installing modules individually (not via `installModules(in:)`), MathSciModule
+When installing modules individually (not via `ModuleRegistry.install(in:)`), MathSciModule
 must be registered **after** the modules it re-exports
 (`MathXModule`, `LinAlgModule`, `ComplexModule`, `GeometryModule`) and **before**
 `MathExprModule` (which relies on the `math.eval` namespace that MathSciModule creates).
 
 ```swift
 // Correct order for manual installation
-ModuleRegistry.installMathModule(in: engine)        // MathXModule
-ModuleRegistry.installLinAlgModule(in: engine)      // LinAlgModule
-ModuleRegistry.installComplexModule(in: engine)     // ComplexModule
-ModuleRegistry.installGeometryModule(in: engine)    // GeometryModule
-ModuleRegistry.installMathSciModule(in: engine)     // Creates namespaces + re-exports
-ModuleRegistry.installMathExprModule(in: engine)    // Populates math.eval
+try MathXModule.install(in: engine)        // MathXModule
+try LinAlgModule.install(in: engine)      // LinAlgModule
+try ComplexModule.install(in: engine)     // ComplexModule
+try GeometryModule.install(in: engine)    // GeometryModule
+try MathSciModule.install(in: engine)     // Creates namespaces + re-exports
+try MathExprModule.install(in: engine)    // Populates math.eval
 ```
 
 ## See Also

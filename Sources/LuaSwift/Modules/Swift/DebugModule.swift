@@ -44,7 +44,7 @@ import os.log
 /// -- ... some code ...
 /// debug.console.timeEnd("operation")  -- Prints elapsed time
 /// ```
-public struct DebugModule {
+public struct DebugModule: LuaSwiftModule {
 
     /// Current minimum log level
     private static var logLevel: LogLevel = .debug
@@ -94,7 +94,8 @@ public struct DebugModule {
     /// logging and console debugging functions.
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register log callbacks
         engine.registerFunction(name: "_luaswift_debug_log_debug", callback: logDebugCallback)
         engine.registerFunction(name: "_luaswift_debug_log_info", callback: logInfoCallback)
@@ -111,61 +112,66 @@ public struct DebugModule {
         engine.registerFunction(name: "_luaswift_debug_console_assert", callback: consoleAssertCallback)
 
         // Set up the luaswift.debug namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
 
-                -- Store references to C functions before clearing globals
-                local log_debug_fn = _luaswift_debug_log_debug
-                local log_info_fn = _luaswift_debug_log_info
-                local log_warn_fn = _luaswift_debug_log_warn
-                local log_error_fn = _luaswift_debug_log_error
-                local log_setLevel_fn = _luaswift_debug_log_setLevel
-                local console_print_fn = _luaswift_debug_console_print
-                local console_inspect_fn = _luaswift_debug_console_inspect
-                local console_trace_fn = _luaswift_debug_console_trace
-                local console_time_fn = _luaswift_debug_console_time
-                local console_timeEnd_fn = _luaswift_debug_console_timeEnd
-                local console_assert_fn = _luaswift_debug_console_assert
+            -- Store references to C functions before clearing globals
+            local log_debug_fn = _luaswift_debug_log_debug
+            local log_info_fn = _luaswift_debug_log_info
+            local log_warn_fn = _luaswift_debug_log_warn
+            local log_error_fn = _luaswift_debug_log_error
+            local log_setLevel_fn = _luaswift_debug_log_setLevel
+            local console_print_fn = _luaswift_debug_console_print
+            local console_inspect_fn = _luaswift_debug_console_inspect
+            local console_trace_fn = _luaswift_debug_console_trace
+            local console_time_fn = _luaswift_debug_console_time
+            local console_timeEnd_fn = _luaswift_debug_console_timeEnd
+            local console_assert_fn = _luaswift_debug_console_assert
 
-                luaswift.debug = {
-                    log = {
-                        debug = log_debug_fn,
-                        info = log_info_fn,
-                        warn = log_warn_fn,
-                        error = log_error_fn,
-                        setLevel = log_setLevel_fn
-                    },
-                    console = {
-                        print = console_print_fn,
-                        inspect = console_inspect_fn,
-                        trace = console_trace_fn,
-                        time = console_time_fn,
-                        timeEnd = console_timeEnd_fn,
-                        assert = console_assert_fn
-                    }
+            luaswift.debug = {
+                log = {
+                    debug = log_debug_fn,
+                    info = log_info_fn,
+                    warn = log_warn_fn,
+                    error = log_error_fn,
+                    setLevel = log_setLevel_fn
+                },
+                console = {
+                    print = console_print_fn,
+                    inspect = console_inspect_fn,
+                    trace = console_trace_fn,
+                    time = console_time_fn,
+                    timeEnd = console_timeEnd_fn,
+                    assert = console_assert_fn
                 }
+            }
 
-                -- Create top-level global alias (avoid conflict with Lua's debug table)
-                debug_module = luaswift.debug
+            -- Create top-level global alias (avoid conflict with Lua's debug table)
+            debug_module = luaswift.debug
 
-                -- Clean up global namespace
-                _luaswift_debug_log_debug = nil
-                _luaswift_debug_log_info = nil
-                _luaswift_debug_log_warn = nil
-                _luaswift_debug_log_error = nil
-                _luaswift_debug_log_setLevel = nil
-                _luaswift_debug_console_print = nil
-                _luaswift_debug_console_inspect = nil
-                _luaswift_debug_console_trace = nil
-                _luaswift_debug_console_time = nil
-                _luaswift_debug_console_timeEnd = nil
-                _luaswift_debug_console_assert = nil
-                package.loaded["luaswift.debug"] = luaswift.debug
-                """)
-        } catch {
+            -- Clean up global namespace
+            _luaswift_debug_log_debug = nil
+            _luaswift_debug_log_info = nil
+            _luaswift_debug_log_warn = nil
+            _luaswift_debug_log_error = nil
+            _luaswift_debug_log_setLevel = nil
+            _luaswift_debug_console_print = nil
+            _luaswift_debug_console_inspect = nil
+            _luaswift_debug_console_trace = nil
+            _luaswift_debug_console_time = nil
+            _luaswift_debug_console_timeEnd = nil
+            _luaswift_debug_console_assert = nil
+            package.loaded["luaswift.debug"] = luaswift.debug
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] DebugModule setup failed: \(error)")
+                print("[LuaSwift] DebugModule setup failed: \(error)")
             #endif
         }
     }

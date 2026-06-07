@@ -27,12 +27,13 @@ import Thales
 /// local deriv = cas.differentiate("x^3", "x")    -- {expression = "3*x^2", ...}
 /// local sol = cas.solve("2*x + 5 = 13", "x")     -- "x = 4"
 /// ```
-public struct ThalesModule {
+public struct ThalesModule: LuaSwiftModule {
 
     // MARK: - Registration
 
     /// Register the CAS module with a LuaEngine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Simplification
         engine.registerFunction(name: "_luaswift_cas_simplify", callback: simplifyCallback)
         engine.registerFunction(name: "_luaswift_cas_simplify_trig", callback: simplifyTrigCallback)
@@ -76,11 +77,16 @@ public struct ThalesModule {
         engine.registerFunction(name: "_luaswift_cas_partial_fractions", callback: partialFractionsCallback)
 
         // Set up the Lua namespace
-        do {
-            try engine.run(casLuaWrapper)
-        } catch {
+        try engine.run(casLuaWrapper)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] Thales CAS module setup failed: \(error)")
+                print("[LuaSwift] ThalesModule setup failed: \(error)")
             #endif
         }
     }

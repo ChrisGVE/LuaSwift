@@ -18,10 +18,10 @@ import LuaSwift
 let engine = try LuaEngine()
 
 // Explicitly install HTTP module to enable network access
-ModuleRegistry.installHTTPModule(in: engine)
+try HTTPModule.install(in: engine)
 
 // Optionally also install JSON for parsing responses
-ModuleRegistry.installJSONModule(in: engine)
+try JSONModule.install(in: engine)
 ```
 
 ## Function Reference
@@ -344,8 +344,8 @@ end
 
 ## Security Considerations
 
-- HTTPModule is **not** included in `ModuleRegistry.installModules()` by default
-- Host application must explicitly call `ModuleRegistry.installHTTPModule(in:)`
+- HTTPModule is **not** included in `ModuleRegistry.install(in:)` by default
+- Host application must explicitly call `try HTTPModule.install(in:)`
 - This allows apps to control whether Lua scripts can make network requests
 - Consider your app's security requirements before enabling
 - All requests go through URLSession with standard iOS/macOS security

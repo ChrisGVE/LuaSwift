@@ -21,10 +21,10 @@ The Geometry module provides 2D and 3D geometry operations backed by Apple's SIM
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Geometry module (requires LUASWIFT_INCLUDE_NUMERICSWIFT=1)
-ModuleRegistry.installGeometryModule(in: engine)
+try GeometryModule.install(in: engine)
 ```
 
 Build with NumericSwift enabled:

@@ -10,10 +10,10 @@ The SVG module provides tools for creating SVG (Scalable Vector Graphics) docume
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the SVG module
-ModuleRegistry.installSVGModule(in: engine)
+try SVGModule.install(in: engine)
 ```
 
 ## Basic Usage

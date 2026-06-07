@@ -38,12 +38,13 @@ import NumericSwift
 /// )
 /// print(result.x[1], result.x[2], result.fun)
 /// ```
-public struct OptimizeModule {
+public struct OptimizeModule: LuaSwiftModule {
 
     // MARK: - Registration
 
     /// Register the optimization module with a LuaEngine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register Swift callbacks
         engine.registerFunction(name: "_luaswift_optimize_minimize_scalar", callback: makeMinimizeScalarCallback(engine))
         engine.registerFunction(name: "_luaswift_optimize_root_scalar", callback: makeRootScalarCallback(engine))
@@ -53,111 +54,116 @@ public struct OptimizeModule {
         engine.registerFunction(name: "_luaswift_optimize_curve_fit", callback: makeCurveFitCallback(engine))
 
         // Set up Lua namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                if not luaswift.optimize then luaswift.optimize = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            if not luaswift.optimize then luaswift.optimize = {} end
 
-                local optimize = luaswift.optimize
+            local optimize = luaswift.optimize
 
-                -- minimize_scalar: Scalar function minimization
-                function optimize.minimize_scalar(func, options)
-                    options = options or {}
-                    local result = _luaswift_optimize_minimize_scalar(func,
-                        options.method or "brent",
-                        options.bracket and options.bracket[1],
-                        options.bracket and options.bracket[2],
-                        options.xtol or 1e-8,
-                        options.maxiter or 500)
-                    return result
-                end
+            -- minimize_scalar: Scalar function minimization
+            function optimize.minimize_scalar(func, options)
+                options = options or {}
+                local result = _luaswift_optimize_minimize_scalar(func,
+                    options.method or "brent",
+                    options.bracket and options.bracket[1],
+                    options.bracket and options.bracket[2],
+                    options.xtol or 1e-8,
+                    options.maxiter or 500)
+                return result
+            end
 
-                -- root_scalar: Scalar root finding
-                function optimize.root_scalar(func, options)
-                    options = options or {}
-                    local result = _luaswift_optimize_root_scalar(func,
-                        options.method or "bisect",
-                        options.bracket and options.bracket[1],
-                        options.bracket and options.bracket[2],
-                        options.x0,
-                        options.x1,
-                        options.xtol or 1e-8,
-                        options.maxiter or 100)
-                    return result
-                end
+            -- root_scalar: Scalar root finding
+            function optimize.root_scalar(func, options)
+                options = options or {}
+                local result = _luaswift_optimize_root_scalar(func,
+                    options.method or "bisect",
+                    options.bracket and options.bracket[1],
+                    options.bracket and options.bracket[2],
+                    options.x0,
+                    options.x1,
+                    options.xtol or 1e-8,
+                    options.maxiter or 100)
+                return result
+            end
 
-                -- minimize: Multivariate minimization
-                function optimize.minimize(func, x0, options)
-                    options = options or {}
-                    local result = _luaswift_optimize_minimize(func, x0,
-                        options.method or "Nelder-Mead",
-                        options.xtol or 1e-8,
-                        options.ftol or 1e-8,
-                        options.maxiter)
-                    return result
-                end
+            -- minimize: Multivariate minimization
+            function optimize.minimize(func, x0, options)
+                options = options or {}
+                local result = _luaswift_optimize_minimize(func, x0,
+                    options.method or "Nelder-Mead",
+                    options.xtol or 1e-8,
+                    options.ftol or 1e-8,
+                    options.maxiter)
+                return result
+            end
 
-                -- root: Multivariate root finding
-                function optimize.root(func, x0, options)
-                    options = options or {}
-                    local result = _luaswift_optimize_root(func, x0,
-                        options.method or "hybr",
-                        options.tol or 1e-8,
-                        options.maxiter or 100)
-                    return result
-                end
+            -- root: Multivariate root finding
+            function optimize.root(func, x0, options)
+                options = options or {}
+                local result = _luaswift_optimize_root(func, x0,
+                    options.method or "hybr",
+                    options.tol or 1e-8,
+                    options.maxiter or 100)
+                return result
+            end
 
-                -- least_squares: Nonlinear least squares with optional bounds
-                function optimize.least_squares(residuals, x0, options)
-                    options = options or {}
-                    local lower = options.bounds and options.bounds.lower
-                    local upper = options.bounds and options.bounds.upper
-                    local result = _luaswift_optimize_least_squares(residuals, x0,
-                        options.ftol or 1e-8,
-                        options.xtol or 1e-8,
-                        options.maxiter or 100,
-                        lower,
-                        upper)
-                    return result
-                end
+            -- least_squares: Nonlinear least squares with optional bounds
+            function optimize.least_squares(residuals, x0, options)
+                options = options or {}
+                local lower = options.bounds and options.bounds.lower
+                local upper = options.bounds and options.bounds.upper
+                local result = _luaswift_optimize_least_squares(residuals, x0,
+                    options.ftol or 1e-8,
+                    options.xtol or 1e-8,
+                    options.maxiter or 100,
+                    lower,
+                    upper)
+                return result
+            end
 
-                -- curve_fit: Fit function to data
-                -- Supports both f(x, params) and f(x, a, b, c, ...) calling conventions
-                function optimize.curve_fit(func, xdata, ydata, p0, options)
-                    options = options or {}
-                    -- Lua 5.1 compatibility: unpack vs table.unpack
-                    local unpack_func = table.unpack or unpack
-                    -- Wrap function to support expanded form: f(x, a, b, c) -> f(x, params)
-                    local wrapped_func = function(x, params)
-                        -- Try expanded form first (f(x, a, b, c, ...))
-                        local success, result = pcall(function()
-                            return func(x, unpack_func(params))
-                        end)
-                        if success then
-                            return result
-                        end
-                        -- Fall back to array form (f(x, params))
-                        return func(x, params)
+            -- curve_fit: Fit function to data
+            -- Supports both f(x, params) and f(x, a, b, c, ...) calling conventions
+            function optimize.curve_fit(func, xdata, ydata, p0, options)
+                options = options or {}
+                -- Lua 5.1 compatibility: unpack vs table.unpack
+                local unpack_func = table.unpack or unpack
+                -- Wrap function to support expanded form: f(x, a, b, c) -> f(x, params)
+                local wrapped_func = function(x, params)
+                    -- Try expanded form first (f(x, a, b, c, ...))
+                    local success, result = pcall(function()
+                        return func(x, unpack_func(params))
+                    end)
+                    if success then
+                        return result
                     end
-                    local result = _luaswift_optimize_curve_fit(wrapped_func, xdata, ydata, p0,
-                        options.ftol or 1e-8,
-                        options.xtol or 1e-8,
-                        options.maxiter or 100)
-                    -- Unpack array: [popt, pcov, info]
-                    return result[1], result[2], result[3]
+                    -- Fall back to array form (f(x, params))
+                    return func(x, params)
                 end
+                local result = _luaswift_optimize_curve_fit(wrapped_func, xdata, ydata, p0,
+                    options.ftol or 1e-8,
+                    options.xtol or 1e-8,
+                    options.maxiter or 100)
+                -- Unpack array: [popt, pcov, info]
+                return result[1], result[2], result[3]
+            end
 
-                -- Also update math.optimize if it exists
-                if math then
-                    if not math.optimize then math.optimize = {} end
-                    for k, v in pairs(optimize) do
-                        math.optimize[k] = v
-                    end
+            -- Also update math.optimize if it exists
+            if math then
+                if not math.optimize then math.optimize = {} end
+                for k, v in pairs(optimize) do
+                    math.optimize[k] = v
                 end
-                """)
-        } catch {
+            end
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] OptimizeModule setup failed: \(error)")
+                print("[LuaSwift] OptimizeModule setup failed: \(error)")
             #endif
         }
     }

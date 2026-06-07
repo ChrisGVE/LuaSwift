@@ -32,7 +32,7 @@ import Foundation
 ///
 /// local output = drawing:render()
 /// ```
-public struct SVGModule {
+public struct SVGModule: LuaSwiftModule {
 
     // MARK: - Registration
 
@@ -40,7 +40,8 @@ public struct SVGModule {
     ///
     /// The SVG module is implemented primarily in Lua for proper group nesting support.
     /// Swift provides an optional XML escape helper for performance.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register XML escape helper for performance (optional - Lua has fallback)
         let xmlEscapeCallback: ([LuaValue]) throws -> LuaValue = { args in
             guard let text = args.first?.stringValue else {
@@ -51,10 +52,17 @@ public struct SVGModule {
         engine.registerFunction(name: "_luaswift_svg_xml_escape", callback: xmlEscapeCallback)
 
         // Set up the luaswift.svg namespace (pure Lua implementation)
-        do {
-            try engine.run(svgLuaWrapper)
-        } catch {
-            // Module setup failed
+        try engine.run(svgLuaWrapper)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
+            #if DEBUG
+                print("[LuaSwift] SVGModule setup failed: \(error)")
+            #endif
         }
     }
 

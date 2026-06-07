@@ -12,10 +12,10 @@ The Number Theory module exposes number-theoretic arithmetic functions under the
 
 ```swift
 // Requires LUASWIFT_INCLUDE_NUMERICSWIFT=1 at build time
-ModuleRegistry.installNumberTheoryModule(in: engine)
+try NumberTheoryModule.install(in: engine)
 
 // Or install all modules (only activates when NumericSwift is present)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 ```
 
 ```lua

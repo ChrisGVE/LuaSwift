@@ -40,7 +40,7 @@ import NumericSwift
 ///     0, 1, 0, 1, 0, 1
 /// )
 /// ```
-public struct IntegrateModule {
+public struct IntegrateModule: LuaSwiftModule {
 
     // MARK: - Helper: Convert String to ODEMethod
 
@@ -55,7 +55,8 @@ public struct IntegrateModule {
     // MARK: - Registration
 
     /// Register the integration module with a LuaEngine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register Swift callbacks - use closures that capture the engine
         engine.registerFunction(name: "_luaswift_integrate_quad", callback: makeQuadCallback(engine))
         engine.registerFunction(name: "_luaswift_integrate_dblquad", callback: makeDblquadCallback(engine))
@@ -68,109 +69,114 @@ public struct IntegrateModule {
         engine.registerFunction(name: "_luaswift_integrate_odeint", callback: makeOdeintCallback(engine))
 
         // Set up Lua namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                if not luaswift.integrate then luaswift.integrate = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            if not luaswift.integrate then luaswift.integrate = {} end
 
-                local integrate = luaswift.integrate
+            local integrate = luaswift.integrate
 
-                -- quad: Adaptive quadrature
-                -- Returns: value, error (scipy-style)
-                function integrate.quad(f, a, b, options)
-                    options = options or {}
-                    local result = _luaswift_integrate_quad(f, a, b,
-                        options.epsabs or 1.49e-8,
-                        options.epsrel or 1.49e-8,
-                        options.limit or 50)
-                    return result.value, result.error
+            -- quad: Adaptive quadrature
+            -- Returns: value, error (scipy-style)
+            function integrate.quad(f, a, b, options)
+                options = options or {}
+                local result = _luaswift_integrate_quad(f, a, b,
+                    options.epsabs or 1.49e-8,
+                    options.epsrel or 1.49e-8,
+                    options.limit or 50)
+                return result.value, result.error
+            end
+
+            -- dblquad: Double integration
+            -- Returns: value, error (scipy-style)
+            function integrate.dblquad(f, xa, xb, ya, yb, options)
+                options = options or {}
+                local result = _luaswift_integrate_dblquad(f, xa, xb, ya, yb,
+                    options.epsabs or 1.49e-8,
+                    options.epsrel or 1.49e-8)
+                return result.value, result.error
+            end
+
+            -- tplquad: Triple integration
+            -- Returns: value, error (scipy-style)
+            function integrate.tplquad(f, xa, xb, ya, yb, za, zb, options)
+                options = options or {}
+                local result = _luaswift_integrate_tplquad(f, xa, xb, ya, yb, za, zb,
+                    options.epsabs or 1.49e-8,
+                    options.epsrel or 1.49e-8)
+                return result.value, result.error
+            end
+
+            -- fixed_quad: Fixed-order Gauss quadrature
+            -- Returns: single value (scipy-style)
+            function integrate.fixed_quad(f, a, b, n)
+                return _luaswift_integrate_fixed_quad(f, a, b, n or 5)
+            end
+
+            -- romberg: Romberg integration
+            -- Returns: value, error (scipy-style)
+            function integrate.romberg(f, a, b, options)
+                options = options or {}
+                local result = _luaswift_integrate_romberg(f, a, b,
+                    options.tol or 1e-8,
+                    options.divmax or 10)
+                return result.value, result.error
+            end
+
+            -- simps: Simpson's rule
+            function integrate.simps(y, x, dx)
+                return _luaswift_integrate_simps(y, x, dx)
+            end
+
+            -- trapz: Trapezoidal rule
+            function integrate.trapz(y, x, dx)
+                return _luaswift_integrate_trapz(y, x, dx)
+            end
+
+            -- solve_ivp: ODE solver
+            function integrate.solve_ivp(fun, t_span, y0, options)
+                options = options or {}
+                return _luaswift_integrate_solve_ivp(fun, t_span, y0,
+                    options.method or "RK45",
+                    options.t_eval,
+                    options.max_step or math.huge,
+                    options.rtol or 1e-3,
+                    options.atol or 1e-6,
+                    options.first_step)
+            end
+
+            -- odeint: scipy-style ODE solver
+            function integrate.odeint(func, y0, t, options)
+                options = options or {}
+                local result = _luaswift_integrate_odeint(func, y0, t,
+                    options.rtol or 1.49e-8,
+                    options.atol or 1.49e-8,
+                    options.args,
+                    options.full_output or false)
+                if options.full_output then
+                    -- result is {y, info}, unpack to two return values
+                    return result[1], result[2]
+                else
+                    return result
                 end
+            end
 
-                -- dblquad: Double integration
-                -- Returns: value, error (scipy-style)
-                function integrate.dblquad(f, xa, xb, ya, yb, options)
-                    options = options or {}
-                    local result = _luaswift_integrate_dblquad(f, xa, xb, ya, yb,
-                        options.epsabs or 1.49e-8,
-                        options.epsrel or 1.49e-8)
-                    return result.value, result.error
+            -- Also update math.integrate if it exists
+            if math then
+                if not math.integrate then math.integrate = {} end
+                for k, v in pairs(integrate) do
+                    math.integrate[k] = v
                 end
+            end
+            """)
+    }
 
-                -- tplquad: Triple integration
-                -- Returns: value, error (scipy-style)
-                function integrate.tplquad(f, xa, xb, ya, yb, za, zb, options)
-                    options = options or {}
-                    local result = _luaswift_integrate_tplquad(f, xa, xb, ya, yb, za, zb,
-                        options.epsabs or 1.49e-8,
-                        options.epsrel or 1.49e-8)
-                    return result.value, result.error
-                end
-
-                -- fixed_quad: Fixed-order Gauss quadrature
-                -- Returns: single value (scipy-style)
-                function integrate.fixed_quad(f, a, b, n)
-                    return _luaswift_integrate_fixed_quad(f, a, b, n or 5)
-                end
-
-                -- romberg: Romberg integration
-                -- Returns: value, error (scipy-style)
-                function integrate.romberg(f, a, b, options)
-                    options = options or {}
-                    local result = _luaswift_integrate_romberg(f, a, b,
-                        options.tol or 1e-8,
-                        options.divmax or 10)
-                    return result.value, result.error
-                end
-
-                -- simps: Simpson's rule
-                function integrate.simps(y, x, dx)
-                    return _luaswift_integrate_simps(y, x, dx)
-                end
-
-                -- trapz: Trapezoidal rule
-                function integrate.trapz(y, x, dx)
-                    return _luaswift_integrate_trapz(y, x, dx)
-                end
-
-                -- solve_ivp: ODE solver
-                function integrate.solve_ivp(fun, t_span, y0, options)
-                    options = options or {}
-                    return _luaswift_integrate_solve_ivp(fun, t_span, y0,
-                        options.method or "RK45",
-                        options.t_eval,
-                        options.max_step or math.huge,
-                        options.rtol or 1e-3,
-                        options.atol or 1e-6,
-                        options.first_step)
-                end
-
-                -- odeint: scipy-style ODE solver
-                function integrate.odeint(func, y0, t, options)
-                    options = options or {}
-                    local result = _luaswift_integrate_odeint(func, y0, t,
-                        options.rtol or 1.49e-8,
-                        options.atol or 1.49e-8,
-                        options.args,
-                        options.full_output or false)
-                    if options.full_output then
-                        -- result is {y, info}, unpack to two return values
-                        return result[1], result[2]
-                    else
-                        return result
-                    end
-                end
-
-                -- Also update math.integrate if it exists
-                if math then
-                    if not math.integrate then math.integrate = {} end
-                    for k, v in pairs(integrate) do
-                        math.integrate[k] = v
-                    end
-                end
-                """)
-        } catch {
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] IntegrateModule setup failed: \(error)")
+                print("[LuaSwift] IntegrateModule setup failed: \(error)")
             #endif
         }
     }

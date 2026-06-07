@@ -44,7 +44,7 @@ let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDo
 IOModule.setAllowedDirectories([documentsURL.path], for: engine)
 
 // Then install the module
-ModuleRegistry.installIOModule(in: engine)
+try IOModule.install(in: engine)
 
 // Now Lua can access files within the Documents directory
 ```

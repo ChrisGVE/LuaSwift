@@ -25,10 +25,10 @@ uses `-1` to mark noise points.
 
 ```swift
 // Install all modules (NumericSwift build flag required)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the cluster module
-ModuleRegistry.installMathModule(in: engine)
+try MathXModule.install(in: engine)
 ```
 
 ```lua

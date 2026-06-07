@@ -16,16 +16,16 @@ power series objects algebraically. It also exposes symbolic series dispatchers 
 CAS backend is present.
 
 The module requires `MathExprModule` to be loaded first (it uses the expression evaluator
-internally). Install order is handled automatically by `ModuleRegistry.installModules`.
+internally). Install order is handled automatically by `ModuleRegistry.install(in:)`.
 
 ## Installation
 
 ```swift
 // Install all modules (recommended — handles ordering automatically)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the Series module (MathExprModule must already be installed)
-ModuleRegistry.installSeriesModule(in: engine)
+try SeriesModule.install(in: engine)
 ```
 
 ```lua

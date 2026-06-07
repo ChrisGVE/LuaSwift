@@ -4,7 +4,7 @@
 
 ## Overview
 
-LuaSwift provides optional modules that extend Lua's capabilities. Install all modules with `ModuleRegistry.installModules(in: engine)`, or install individually.
+LuaSwift provides optional modules that extend Lua's capabilities. Install all modules with `try ModuleRegistry.install(in: engine)`, or install individually.
 
 After installation, call `luaswift.extend_stdlib()` to:
 - Extend `string`, `table`, `utf8` with additional functions
@@ -104,10 +104,10 @@ These modules require explicit installation and configuration.
 ```swift
 // File I/O: Configure which directories Lua can access
 IOModule.setAllowedDirectories([documentsPath, cachePath], for: engine)
-ModuleRegistry.installIOModule(in: engine)
+try IOModule.install(in: engine)
 
 // HTTP: Enable network requests
-ModuleRegistry.installHTTPModule(in: engine)
+try HTTPModule.install(in: engine)
 ```
 
 The `iox` module restricts file operations to explicitly allowed directories only.
@@ -117,17 +117,17 @@ The `iox` module restricts file operations to explicitly allowed directories onl
 ### All Modules
 
 ```swift
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 try engine.run("luaswift.extend_stdlib()")
 ```
 
 ### Selective Installation
 
 ```swift
-ModuleRegistry.installJSONModule(in: engine)
-ModuleRegistry.installStringXModule(in: engine)
-ModuleRegistry.installMathModule(in: engine)
-ModuleRegistry.installLinAlgModule(in: engine)
+try JSONModule.install(in: engine)
+try StringXModule.install(in: engine)
+try MathXModule.install(in: engine)
+try LinAlgModule.install(in: engine)
 ```
 
 ### Module Dependencies

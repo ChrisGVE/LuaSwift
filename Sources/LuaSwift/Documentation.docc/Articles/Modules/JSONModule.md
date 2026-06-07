@@ -10,10 +10,10 @@ The JSON module provides fast, type-safe JSON encoding and decoding using Swift'
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the JSON module
-ModuleRegistry.installJSONModule(in: engine)
+try JSONModule.install(in: engine)
 ```
 
 ## Basic Usage

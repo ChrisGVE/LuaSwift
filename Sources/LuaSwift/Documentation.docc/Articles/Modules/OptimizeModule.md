@@ -22,10 +22,10 @@ All algorithms are implemented in the **NumericSwift** library; this module prov
 
 ```swift
 // Install all modules (NumericSwift must be enabled at compile time)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the optimize module
-ModuleRegistry.installMathModule(in: engine)
+try MathXModule.install(in: engine)
 ```
 
 ```lua

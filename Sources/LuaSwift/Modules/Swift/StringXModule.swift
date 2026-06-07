@@ -66,7 +66,7 @@ import Foundation
 /// local s = stringx.wrap("long text here", 10)    -- word wrapped
 /// local s = stringx.truncate("long text", 7)      -- "long..."
 /// ```
-public struct StringXModule {
+public struct StringXModule: LuaSwiftModule {
 
   /// Register the StringX module with a LuaEngine.
   ///
@@ -74,7 +74,8 @@ public struct StringXModule {
   /// string utility functions.
   ///
   /// - Parameter engine: The Lua engine to register with
-  public static func register(in engine: LuaEngine) {
+  /// - Throws: An error if the module's Lua setup code fails to run.
+  public static func install(in engine: LuaEngine) throws {
     // Register Swift callbacks
     engine.registerFunction(name: "_luaswift_stringx_strip", callback: stripCallback)
     engine.registerFunction(name: "_luaswift_stringx_lstrip", callback: lstripCallback)
@@ -105,200 +106,205 @@ public struct StringXModule {
     engine.registerFunction(name: "_luaswift_stringx_slice", callback: sliceCallback)
 
     // Set up the luaswift.stringx namespace
-    do {
-      try engine.run(
-        """
-        if not luaswift then luaswift = {} end
+    try engine.run(
+      """
+      if not luaswift then luaswift = {} end
 
-        -- Store references to C functions before clearing globals
-        local strip_fn = _luaswift_stringx_strip
-        local lstrip_fn = _luaswift_stringx_lstrip
-        local rstrip_fn = _luaswift_stringx_rstrip
-        local split_fn = _luaswift_stringx_split
-        local replace_fn = _luaswift_stringx_replace
-        local join_fn = _luaswift_stringx_join
-        local startswith_fn = _luaswift_stringx_startswith
-        local endswith_fn = _luaswift_stringx_endswith
-        local contains_fn = _luaswift_stringx_contains
-        local count_fn = _luaswift_stringx_count
-        local capitalize_fn = _luaswift_stringx_capitalize
-        local title_fn = _luaswift_stringx_title
-        local lpad_fn = _luaswift_stringx_lpad
-        local rpad_fn = _luaswift_stringx_rpad
-        local center_fn = _luaswift_stringx_center
-        local is_alpha_fn = _luaswift_stringx_is_alpha
-        local is_digit_fn = _luaswift_stringx_is_digit
-        local is_alnum_fn = _luaswift_stringx_is_alnum
-        local is_space_fn = _luaswift_stringx_is_space
-        local is_upper_fn = _luaswift_stringx_is_upper
-        local is_lower_fn = _luaswift_stringx_is_lower
-        local is_empty_fn = _luaswift_stringx_is_empty
-        local is_blank_fn = _luaswift_stringx_is_blank
-        local splitlines_fn = _luaswift_stringx_splitlines
-        local wrap_fn = _luaswift_stringx_wrap
-        local truncate_fn = _luaswift_stringx_truncate
-        local slice_fn = _luaswift_stringx_slice
+      -- Store references to C functions before clearing globals
+      local strip_fn = _luaswift_stringx_strip
+      local lstrip_fn = _luaswift_stringx_lstrip
+      local rstrip_fn = _luaswift_stringx_rstrip
+      local split_fn = _luaswift_stringx_split
+      local replace_fn = _luaswift_stringx_replace
+      local join_fn = _luaswift_stringx_join
+      local startswith_fn = _luaswift_stringx_startswith
+      local endswith_fn = _luaswift_stringx_endswith
+      local contains_fn = _luaswift_stringx_contains
+      local count_fn = _luaswift_stringx_count
+      local capitalize_fn = _luaswift_stringx_capitalize
+      local title_fn = _luaswift_stringx_title
+      local lpad_fn = _luaswift_stringx_lpad
+      local rpad_fn = _luaswift_stringx_rpad
+      local center_fn = _luaswift_stringx_center
+      local is_alpha_fn = _luaswift_stringx_is_alpha
+      local is_digit_fn = _luaswift_stringx_is_digit
+      local is_alnum_fn = _luaswift_stringx_is_alnum
+      local is_space_fn = _luaswift_stringx_is_space
+      local is_upper_fn = _luaswift_stringx_is_upper
+      local is_lower_fn = _luaswift_stringx_is_lower
+      local is_empty_fn = _luaswift_stringx_is_empty
+      local is_blank_fn = _luaswift_stringx_is_blank
+      local splitlines_fn = _luaswift_stringx_splitlines
+      local wrap_fn = _luaswift_stringx_wrap
+      local truncate_fn = _luaswift_stringx_truncate
+      local slice_fn = _luaswift_stringx_slice
 
-        luaswift.stringx = {
-            strip = strip_fn,
-            lstrip = lstrip_fn,
-            rstrip = rstrip_fn,
-            split = split_fn,
-            replace = replace_fn,
-            join = join_fn,
-            startswith = startswith_fn,
-            endswith = endswith_fn,
-            contains = contains_fn,
-            count = count_fn,
-            capitalize = capitalize_fn,
-            title = title_fn,
-            lpad = lpad_fn,
-            rpad = rpad_fn,
-            center = center_fn,
-            -- Character classification (new is_<name> convention)
-            is_alpha = is_alpha_fn,
-            is_digit = is_digit_fn,
-            is_alnum = is_alnum_fn,
-            is_space = is_space_fn,
-            is_upper = is_upper_fn,
-            is_lower = is_lower_fn,
-            is_empty = is_empty_fn,
-            is_blank = is_blank_fn,
-            -- Backward compatibility aliases (deprecated, use is_<name> instead)
-            isalpha = is_alpha_fn,
-            isdigit = is_digit_fn,
-            isalnum = is_alnum_fn,
-            isspace = is_space_fn,
-            isupper = is_upper_fn,
-            islower = is_lower_fn,
-            isempty = is_empty_fn,
-            isblank = is_blank_fn,
-            splitlines = splitlines_fn,
-            wrap = wrap_fn,
-            truncate = truncate_fn,
-            slice = slice_fn,
+      luaswift.stringx = {
+          strip = strip_fn,
+          lstrip = lstrip_fn,
+          rstrip = rstrip_fn,
+          split = split_fn,
+          replace = replace_fn,
+          join = join_fn,
+          startswith = startswith_fn,
+          endswith = endswith_fn,
+          contains = contains_fn,
+          count = count_fn,
+          capitalize = capitalize_fn,
+          title = title_fn,
+          lpad = lpad_fn,
+          rpad = rpad_fn,
+          center = center_fn,
+          -- Character classification (new is_<name> convention)
+          is_alpha = is_alpha_fn,
+          is_digit = is_digit_fn,
+          is_alnum = is_alnum_fn,
+          is_space = is_space_fn,
+          is_upper = is_upper_fn,
+          is_lower = is_lower_fn,
+          is_empty = is_empty_fn,
+          is_blank = is_blank_fn,
+          -- Backward compatibility aliases (deprecated, use is_<name> instead)
+          isalpha = is_alpha_fn,
+          isdigit = is_digit_fn,
+          isalnum = is_alnum_fn,
+          isspace = is_space_fn,
+          isupper = is_upper_fn,
+          islower = is_lower_fn,
+          isempty = is_empty_fn,
+          isblank = is_blank_fn,
+          splitlines = splitlines_fn,
+          wrap = wrap_fn,
+          truncate = truncate_fn,
+          slice = slice_fn,
 
-            -- import() extends the string table and metatable
-            import = function()
-                -- Add functions to string table
-                string.strip = strip_fn
-                string.lstrip = lstrip_fn
-                string.rstrip = rstrip_fn
-                string.split = split_fn
-                string.replace = replace_fn
-                string.join = join_fn
-                string.startswith = startswith_fn
-                string.endswith = endswith_fn
-                string.contains = contains_fn
-                string.count = count_fn
-                string.capitalize = capitalize_fn
-                string.title = title_fn
-                string.lpad = lpad_fn
-                string.rpad = rpad_fn
-                string.center = center_fn
-                -- Character classification (new is_<name> convention)
-                string.is_alpha = is_alpha_fn
-                string.is_digit = is_digit_fn
-                string.is_alnum = is_alnum_fn
-                string.is_space = is_space_fn
-                string.is_upper = is_upper_fn
-                string.is_lower = is_lower_fn
-                string.is_empty = is_empty_fn
-                string.is_blank = is_blank_fn
-                -- Backward compatibility aliases
-                string.isalpha = is_alpha_fn
-                string.isdigit = is_digit_fn
-                string.isalnum = is_alnum_fn
-                string.isspace = is_space_fn
-                string.isupper = is_upper_fn
-                string.islower = is_lower_fn
-                string.isempty = is_empty_fn
-                string.isblank = is_blank_fn
-                string.splitlines = splitlines_fn
-                string.wrap = wrap_fn
-                string.truncate = truncate_fn
-                string.slice = slice_fn
+          -- import() extends the string table and metatable
+          import = function()
+              -- Add functions to string table
+              string.strip = strip_fn
+              string.lstrip = lstrip_fn
+              string.rstrip = rstrip_fn
+              string.split = split_fn
+              string.replace = replace_fn
+              string.join = join_fn
+              string.startswith = startswith_fn
+              string.endswith = endswith_fn
+              string.contains = contains_fn
+              string.count = count_fn
+              string.capitalize = capitalize_fn
+              string.title = title_fn
+              string.lpad = lpad_fn
+              string.rpad = rpad_fn
+              string.center = center_fn
+              -- Character classification (new is_<name> convention)
+              string.is_alpha = is_alpha_fn
+              string.is_digit = is_digit_fn
+              string.is_alnum = is_alnum_fn
+              string.is_space = is_space_fn
+              string.is_upper = is_upper_fn
+              string.is_lower = is_lower_fn
+              string.is_empty = is_empty_fn
+              string.is_blank = is_blank_fn
+              -- Backward compatibility aliases
+              string.isalpha = is_alpha_fn
+              string.isdigit = is_digit_fn
+              string.isalnum = is_alnum_fn
+              string.isspace = is_space_fn
+              string.isupper = is_upper_fn
+              string.islower = is_lower_fn
+              string.isempty = is_empty_fn
+              string.isblank = is_blank_fn
+              string.splitlines = splitlines_fn
+              string.wrap = wrap_fn
+              string.truncate = truncate_fn
+              string.slice = slice_fn
 
-                -- Add to string metatable for s:method() syntax
-                local mt = getmetatable("")
-                if mt and mt.__index then
-                    local idx = mt.__index
-                    if type(idx) == "table" then
-                        idx.strip = strip_fn
-                        idx.lstrip = lstrip_fn
-                        idx.rstrip = rstrip_fn
-                        idx.split = split_fn
-                        idx.replace = replace_fn
-                        idx.startswith = startswith_fn
-                        idx.endswith = endswith_fn
-                        idx.contains = contains_fn
-                        idx.count = count_fn
-                        idx.capitalize = capitalize_fn
-                        idx.title = title_fn
-                        idx.lpad = lpad_fn
-                        idx.rpad = rpad_fn
-                        idx.center = center_fn
-                        -- Character classification (new is_<name> convention)
-                        idx.is_alpha = is_alpha_fn
-                        idx.is_digit = is_digit_fn
-                        idx.is_alnum = is_alnum_fn
-                        idx.is_space = is_space_fn
-                        idx.is_upper = is_upper_fn
-                        idx.is_lower = is_lower_fn
-                        idx.is_empty = is_empty_fn
-                        idx.is_blank = is_blank_fn
-                        -- Backward compatibility aliases
-                        idx.isalpha = is_alpha_fn
-                        idx.isdigit = is_digit_fn
-                        idx.isalnum = is_alnum_fn
-                        idx.isspace = is_space_fn
-                        idx.isupper = is_upper_fn
-                        idx.islower = is_lower_fn
-                        idx.isempty = is_empty_fn
-                        idx.isblank = is_blank_fn
-                        idx.splitlines = splitlines_fn
-                        idx.wrap = wrap_fn
-                        idx.truncate = truncate_fn
-                        idx.slice = slice_fn
-                    end
-                end
-            end
-        }
+              -- Add to string metatable for s:method() syntax
+              local mt = getmetatable("")
+              if mt and mt.__index then
+                  local idx = mt.__index
+                  if type(idx) == "table" then
+                      idx.strip = strip_fn
+                      idx.lstrip = lstrip_fn
+                      idx.rstrip = rstrip_fn
+                      idx.split = split_fn
+                      idx.replace = replace_fn
+                      idx.startswith = startswith_fn
+                      idx.endswith = endswith_fn
+                      idx.contains = contains_fn
+                      idx.count = count_fn
+                      idx.capitalize = capitalize_fn
+                      idx.title = title_fn
+                      idx.lpad = lpad_fn
+                      idx.rpad = rpad_fn
+                      idx.center = center_fn
+                      -- Character classification (new is_<name> convention)
+                      idx.is_alpha = is_alpha_fn
+                      idx.is_digit = is_digit_fn
+                      idx.is_alnum = is_alnum_fn
+                      idx.is_space = is_space_fn
+                      idx.is_upper = is_upper_fn
+                      idx.is_lower = is_lower_fn
+                      idx.is_empty = is_empty_fn
+                      idx.is_blank = is_blank_fn
+                      -- Backward compatibility aliases
+                      idx.isalpha = is_alpha_fn
+                      idx.isdigit = is_digit_fn
+                      idx.isalnum = is_alnum_fn
+                      idx.isspace = is_space_fn
+                      idx.isupper = is_upper_fn
+                      idx.islower = is_lower_fn
+                      idx.isempty = is_empty_fn
+                      idx.isblank = is_blank_fn
+                      idx.splitlines = splitlines_fn
+                      idx.wrap = wrap_fn
+                      idx.truncate = truncate_fn
+                      idx.slice = slice_fn
+                  end
+              end
+          end
+      }
 
-        -- Create top-level global alias
-        stringx = luaswift.stringx
+      -- Create top-level global alias
+      stringx = luaswift.stringx
 
-        -- Clean up global namespace
-        _luaswift_stringx_strip = nil
-        _luaswift_stringx_lstrip = nil
-        _luaswift_stringx_rstrip = nil
-        _luaswift_stringx_split = nil
-        _luaswift_stringx_replace = nil
-        _luaswift_stringx_join = nil
-        _luaswift_stringx_startswith = nil
-        _luaswift_stringx_endswith = nil
-        _luaswift_stringx_contains = nil
-        _luaswift_stringx_count = nil
-        _luaswift_stringx_capitalize = nil
-        _luaswift_stringx_title = nil
-        _luaswift_stringx_lpad = nil
-        _luaswift_stringx_rpad = nil
-        _luaswift_stringx_center = nil
-        _luaswift_stringx_is_alpha = nil
-        _luaswift_stringx_is_digit = nil
-        _luaswift_stringx_is_alnum = nil
-        _luaswift_stringx_is_space = nil
-        _luaswift_stringx_is_upper = nil
-        _luaswift_stringx_is_lower = nil
-        _luaswift_stringx_is_empty = nil
-        _luaswift_stringx_is_blank = nil
-        _luaswift_stringx_splitlines = nil
-        _luaswift_stringx_wrap = nil
-        _luaswift_stringx_truncate = nil
-        _luaswift_stringx_slice = nil
-        package.loaded["luaswift.stringx"] = luaswift.stringx
-        """)
-    } catch {
+      -- Clean up global namespace
+      _luaswift_stringx_strip = nil
+      _luaswift_stringx_lstrip = nil
+      _luaswift_stringx_rstrip = nil
+      _luaswift_stringx_split = nil
+      _luaswift_stringx_replace = nil
+      _luaswift_stringx_join = nil
+      _luaswift_stringx_startswith = nil
+      _luaswift_stringx_endswith = nil
+      _luaswift_stringx_contains = nil
+      _luaswift_stringx_count = nil
+      _luaswift_stringx_capitalize = nil
+      _luaswift_stringx_title = nil
+      _luaswift_stringx_lpad = nil
+      _luaswift_stringx_rpad = nil
+      _luaswift_stringx_center = nil
+      _luaswift_stringx_is_alpha = nil
+      _luaswift_stringx_is_digit = nil
+      _luaswift_stringx_is_alnum = nil
+      _luaswift_stringx_is_space = nil
+      _luaswift_stringx_is_upper = nil
+      _luaswift_stringx_is_lower = nil
+      _luaswift_stringx_is_empty = nil
+      _luaswift_stringx_is_blank = nil
+      _luaswift_stringx_splitlines = nil
+      _luaswift_stringx_wrap = nil
+      _luaswift_stringx_truncate = nil
+      _luaswift_stringx_slice = nil
+      package.loaded["luaswift.stringx"] = luaswift.stringx
+      """)
+  }
+
+  /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+  ///
+  /// - Parameter engine: The Lua engine to register with
+  public static func register(in engine: LuaEngine) {
+    do { try install(in: engine) } catch {
       #if DEBUG
         print("[LuaSwift] StringXModule setup failed: \(error)")
       #endif

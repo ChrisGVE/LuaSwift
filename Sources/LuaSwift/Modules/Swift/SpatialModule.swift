@@ -45,12 +45,13 @@ import NumericSwift
 /// local tri = math.spatial.Delaunay(points)
 /// print(tri.simplices, tri.neighbors)
 /// ```
-public struct SpatialModule {
+public struct SpatialModule: LuaSwiftModule {
 
     // MARK: - Registration
 
     /// Register the spatial module with a LuaEngine.
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register Swift callbacks for distance functions
         engine.registerFunction(name: "_luaswift_spatial_euclidean", callback: euclideanCallback)
         engine.registerFunction(name: "_luaswift_spatial_sqeuclidean", callback: sqeuclideanCallback)
@@ -76,129 +77,134 @@ public struct SpatialModule {
         engine.registerFunction(name: "_luaswift_spatial_voronoi", callback: voronoiCallback)
         engine.registerFunction(name: "_luaswift_spatial_convexhull", callback: convexhullCallback)
 
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
-                if not luaswift.spatial then luaswift.spatial = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
+            if not luaswift.spatial then luaswift.spatial = {} end
 
-                local spatial = {}
+            local spatial = {}
 
-                ----------------------------------------------------------------
-                -- Distance functions (Swift-backed with BLAS)
-                ----------------------------------------------------------------
-                spatial.distance = {}
+            ----------------------------------------------------------------
+            -- Distance functions (Swift-backed with BLAS)
+            ----------------------------------------------------------------
+            spatial.distance = {}
 
-                function spatial.distance.euclidean(p1, p2)
-                    return _luaswift_spatial_euclidean(p1, p2)
-                end
+            function spatial.distance.euclidean(p1, p2)
+                return _luaswift_spatial_euclidean(p1, p2)
+            end
 
-                function spatial.distance.sqeuclidean(p1, p2)
-                    return _luaswift_spatial_sqeuclidean(p1, p2)
-                end
+            function spatial.distance.sqeuclidean(p1, p2)
+                return _luaswift_spatial_sqeuclidean(p1, p2)
+            end
 
-                function spatial.distance.cityblock(p1, p2)
-                    return _luaswift_spatial_cityblock(p1, p2)
-                end
+            function spatial.distance.cityblock(p1, p2)
+                return _luaswift_spatial_cityblock(p1, p2)
+            end
 
-                function spatial.distance.chebyshev(p1, p2)
-                    return _luaswift_spatial_chebyshev(p1, p2)
-                end
+            function spatial.distance.chebyshev(p1, p2)
+                return _luaswift_spatial_chebyshev(p1, p2)
+            end
 
-                function spatial.distance.minkowski(p1, p2, p)
-                    return _luaswift_spatial_minkowski(p1, p2, p or 2)
-                end
+            function spatial.distance.minkowski(p1, p2, p)
+                return _luaswift_spatial_minkowski(p1, p2, p or 2)
+            end
 
-                function spatial.distance.cosine(p1, p2)
-                    return _luaswift_spatial_cosine(p1, p2)
-                end
+            function spatial.distance.cosine(p1, p2)
+                return _luaswift_spatial_cosine(p1, p2)
+            end
 
-                function spatial.distance.correlation(p1, p2)
-                    return _luaswift_spatial_correlation(p1, p2)
-                end
+            function spatial.distance.correlation(p1, p2)
+                return _luaswift_spatial_correlation(p1, p2)
+            end
 
-                ----------------------------------------------------------------
-                -- cdist: Compute pairwise distances between two sets (Swift-backed)
-                ----------------------------------------------------------------
-                function spatial.cdist(XA, XB, metric)
-                    return _luaswift_spatial_cdist(XA, XB, metric or "euclidean")
-                end
+            ----------------------------------------------------------------
+            -- cdist: Compute pairwise distances between two sets (Swift-backed)
+            ----------------------------------------------------------------
+            function spatial.cdist(XA, XB, metric)
+                return _luaswift_spatial_cdist(XA, XB, metric or "euclidean")
+            end
 
-                ----------------------------------------------------------------
-                -- pdist: Compute pairwise distances within one set (Swift-backed)
-                ----------------------------------------------------------------
-                function spatial.pdist(X, metric)
-                    return _luaswift_spatial_pdist(X, metric or "euclidean")
-                end
+            ----------------------------------------------------------------
+            -- pdist: Compute pairwise distances within one set (Swift-backed)
+            ----------------------------------------------------------------
+            function spatial.pdist(X, metric)
+                return _luaswift_spatial_pdist(X, metric or "euclidean")
+            end
 
-                ----------------------------------------------------------------
-                -- squareform: Convert between condensed and square distance matrix
-                ----------------------------------------------------------------
-                function spatial.squareform(X)
-                    return _luaswift_spatial_squareform(X)
-                end
+            ----------------------------------------------------------------
+            -- squareform: Convert between condensed and square distance matrix
+            ----------------------------------------------------------------
+            function spatial.squareform(X)
+                return _luaswift_spatial_squareform(X)
+            end
 
-                ----------------------------------------------------------------
-                -- KDTree: K-dimensional tree (Swift-backed)
-                ----------------------------------------------------------------
-                local KDTree = {}
-                KDTree.__index = KDTree
+            ----------------------------------------------------------------
+            -- KDTree: K-dimensional tree (Swift-backed)
+            ----------------------------------------------------------------
+            local KDTree = {}
+            KDTree.__index = KDTree
 
-                function spatial.KDTree(points)
-                    local self = setmetatable({}, KDTree)
-                    self._handle = _luaswift_spatial_kdtree_build(points)
-                    self.points = points
-                    self.n = #points
-                    self.dim = points[1] and #points[1] or 0
-                    return self
-                end
+            function spatial.KDTree(points)
+                local self = setmetatable({}, KDTree)
+                self._handle = _luaswift_spatial_kdtree_build(points)
+                self.points = points
+                self.n = #points
+                self.dim = points[1] and #points[1] or 0
+                return self
+            end
 
-                function KDTree:query(point, k)
-                    k = k or 1
-                    local result = _luaswift_spatial_kdtree_query(self._handle, point, k)
-                    return result[1], result[2]  -- indices, distances
-                end
+            function KDTree:query(point, k)
+                k = k or 1
+                local result = _luaswift_spatial_kdtree_query(self._handle, point, k)
+                return result[1], result[2]  -- indices, distances
+            end
 
-                function KDTree:query_radius(point, r)
-                    local result = _luaswift_spatial_kdtree_query_radius(self._handle, point, r)
-                    return result[1], result[2]  -- indices, distances
-                end
+            function KDTree:query_radius(point, r)
+                local result = _luaswift_spatial_kdtree_query_radius(self._handle, point, r)
+                return result[1], result[2]  -- indices, distances
+            end
 
-                function KDTree:query_pairs(r)
-                    return _luaswift_spatial_kdtree_query_pairs(self._handle, r)
-                end
+            function KDTree:query_pairs(r)
+                return _luaswift_spatial_kdtree_query_pairs(self._handle, r)
+            end
 
-                ----------------------------------------------------------------
-                -- Voronoi: Voronoi diagram computation (Swift-backed)
-                ----------------------------------------------------------------
-                function spatial.Voronoi(points)
-                    return _luaswift_spatial_voronoi(points)
-                end
+            ----------------------------------------------------------------
+            -- Voronoi: Voronoi diagram computation (Swift-backed)
+            ----------------------------------------------------------------
+            function spatial.Voronoi(points)
+                return _luaswift_spatial_voronoi(points)
+            end
 
-                ----------------------------------------------------------------
-                -- Delaunay: Delaunay triangulation (Swift-backed)
-                ----------------------------------------------------------------
-                function spatial.Delaunay(points)
-                    return _luaswift_spatial_delaunay(points)
-                end
+            ----------------------------------------------------------------
+            -- Delaunay: Delaunay triangulation (Swift-backed)
+            ----------------------------------------------------------------
+            function spatial.Delaunay(points)
+                return _luaswift_spatial_delaunay(points)
+            end
 
-                ----------------------------------------------------------------
-                -- ConvexHull: Convex hull computation (Swift-backed)
-                ----------------------------------------------------------------
-                function spatial.ConvexHull(points)
-                    return _luaswift_spatial_convexhull(points)
-                end
+            ----------------------------------------------------------------
+            -- ConvexHull: Convex hull computation (Swift-backed)
+            ----------------------------------------------------------------
+            function spatial.ConvexHull(points)
+                return _luaswift_spatial_convexhull(points)
+            end
 
-                -- Store the module
-                luaswift.spatial = spatial
+            -- Store the module
+            luaswift.spatial = spatial
 
-                -- Also update math.spatial if math table exists
-                if math then
-                    math.spatial = spatial
-                end
-                """)
-        } catch {
+            -- Also update math.spatial if math table exists
+            if math then
+                math.spatial = spatial
+            end
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] SpatialModule setup failed: \(error)")
+                print("[LuaSwift] SpatialModule setup failed: \(error)")
             #endif
         }
     }

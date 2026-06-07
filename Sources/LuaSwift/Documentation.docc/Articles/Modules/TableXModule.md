@@ -10,10 +10,10 @@ The TableX module provides comprehensive table manipulation functions including 
 
 ```swift
 // Install all modules
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the TableX module
-ModuleRegistry.installTableXModule(in: engine)
+try TableXModule.install(in: engine)
 ```
 
 ## Basic Usage

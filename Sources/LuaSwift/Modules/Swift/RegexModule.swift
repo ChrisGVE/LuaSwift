@@ -39,7 +39,7 @@ import Foundation
 /// -- Quick match (no compile)
 /// local match = regex.match(text, pattern)
 /// ```
-public struct RegexModule {
+public struct RegexModule: LuaSwiftModule {
 
     /// Register the Regex module with a LuaEngine.
     ///
@@ -56,7 +56,8 @@ public struct RegexModule {
     /// - `split(text)`: Split by pattern
     ///
     /// - Parameter engine: The Lua engine to register with
-    public static func register(in engine: LuaEngine) {
+    /// - Throws: An error if the module's Lua setup code fails to run.
+    public static func install(in engine: LuaEngine) throws {
         // Register compile function
         engine.registerFunction(name: "_luaswift_regex_compile", callback: compileCallback)
 
@@ -72,84 +73,89 @@ public struct RegexModule {
         engine.registerFunction(name: "_luaswift_regex_split", callback: splitCallback)
 
         // Set up the luaswift.regex namespace
-        do {
-            try engine.run("""
-                if not luaswift then luaswift = {} end
+        try engine.run("""
+            if not luaswift then luaswift = {} end
 
-                -- Store references to C functions before clearing globals
-                local compile_fn = _luaswift_regex_compile
-                local quick_match_fn = _luaswift_regex_match
-                local match_method_fn = _luaswift_regex_match_method
-                local find_all_fn = _luaswift_regex_find_all
-                local test_fn = _luaswift_regex_test
-                local replace_fn = _luaswift_regex_replace
-                local replace_all_fn = _luaswift_regex_replace_all
-                local split_fn = _luaswift_regex_split
+            -- Store references to C functions before clearing globals
+            local compile_fn = _luaswift_regex_compile
+            local quick_match_fn = _luaswift_regex_match
+            local match_method_fn = _luaswift_regex_match_method
+            local find_all_fn = _luaswift_regex_find_all
+            local test_fn = _luaswift_regex_test
+            local replace_fn = _luaswift_regex_replace
+            local replace_all_fn = _luaswift_regex_replace_all
+            local split_fn = _luaswift_regex_split
 
-                -- Registry to store compiled regex patterns
-                local regex_registry = {}
+            -- Registry to store compiled regex patterns
+            local regex_registry = {}
 
-                -- Metatable for compiled regex objects
-                local regex_mt = {
-                    __index = {
-                        match = function(self, text)
-                            return match_method_fn(self._id, text)
-                        end,
-                        find_all = function(self, text)
-                            return find_all_fn(self._id, text)
-                        end,
-                        test = function(self, text)
-                            return test_fn(self._id, text)
-                        end,
-                        replace = function(self, text, replacement)
-                            return replace_fn(self._id, text, replacement)
-                        end,
-                        replace_all = function(self, text, replacement)
-                            return replace_all_fn(self._id, text, replacement)
-                        end,
-                        split = function(self, text)
-                            return split_fn(self._id, text)
-                        end
-                    },
-                    __tostring = function(self)
-                        return "Regex(" .. self._pattern .. ")"
+            -- Metatable for compiled regex objects
+            local regex_mt = {
+                __index = {
+                    match = function(self, text)
+                        return match_method_fn(self._id, text)
+                    end,
+                    find_all = function(self, text)
+                        return find_all_fn(self._id, text)
+                    end,
+                    test = function(self, text)
+                        return test_fn(self._id, text)
+                    end,
+                    replace = function(self, text, replacement)
+                        return replace_fn(self._id, text, replacement)
+                    end,
+                    replace_all = function(self, text, replacement)
+                        return replace_all_fn(self._id, text, replacement)
+                    end,
+                    split = function(self, text)
+                        return split_fn(self._id, text)
                     end
-                }
-
-                -- Compile function
-                local function compile(pattern, flags)
-                    local id = compile_fn(pattern, flags or "")
-                    local pattern_str = pattern
-                    if flags and flags ~= "" then
-                        pattern_str = pattern_str .. " [" .. flags .. "]"
-                    end
-                    local obj = {
-                        _id = id,
-                        _pattern = pattern_str
-                    }
-                    regex_registry[id] = pattern
-                    return setmetatable(obj, regex_mt)
+                },
+                __tostring = function(self)
+                    return "Regex(" .. self._pattern .. ")"
                 end
+            }
 
-                luaswift.regex = {
-                    compile = compile,
-                    match = quick_match_fn
+            -- Compile function
+            local function compile(pattern, flags)
+                local id = compile_fn(pattern, flags or "")
+                local pattern_str = pattern
+                if flags and flags ~= "" then
+                    pattern_str = pattern_str .. " [" .. flags .. "]"
+                end
+                local obj = {
+                    _id = id,
+                    _pattern = pattern_str
                 }
+                regex_registry[id] = pattern
+                return setmetatable(obj, regex_mt)
+            end
 
-                -- Clean up global namespace
-                _luaswift_regex_compile = nil
-                _luaswift_regex_match = nil
-                _luaswift_regex_match_method = nil
-                _luaswift_regex_find_all = nil
-                _luaswift_regex_test = nil
-                _luaswift_regex_replace = nil
-                _luaswift_regex_replace_all = nil
-                _luaswift_regex_split = nil
-                package.loaded["luaswift.regex"] = luaswift.regex
-                """)
-        } catch {
+            luaswift.regex = {
+                compile = compile,
+                match = quick_match_fn
+            }
+
+            -- Clean up global namespace
+            _luaswift_regex_compile = nil
+            _luaswift_regex_match = nil
+            _luaswift_regex_match_method = nil
+            _luaswift_regex_find_all = nil
+            _luaswift_regex_test = nil
+            _luaswift_regex_replace = nil
+            _luaswift_regex_replace_all = nil
+            _luaswift_regex_split = nil
+            package.loaded["luaswift.regex"] = luaswift.regex
+            """)
+    }
+
+    /// Deprecated alias for ``install(in:)`` that swallows setup failures.
+    ///
+    /// - Parameter engine: The Lua engine to register with
+    public static func register(in engine: LuaEngine) {
+        do { try install(in: engine) } catch {
             #if DEBUG
-            print("[LuaSwift] RegexModule setup failed: \(error)")
+                print("[LuaSwift] RegexModule setup failed: \(error)")
             #endif
         }
     }

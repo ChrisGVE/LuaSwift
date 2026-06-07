@@ -12,10 +12,10 @@ The Distributions module provides scipy.stats-compatible probability distributio
 
 ```swift
 // Install all modules (NumericSwift must be available)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the distributions module
-DistributionsModule.register(in: engine)
+try DistributionsModule.install(in: engine)
 ```
 
 ```lua

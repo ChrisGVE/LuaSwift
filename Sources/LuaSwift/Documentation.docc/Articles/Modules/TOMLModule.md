@@ -23,11 +23,11 @@ The Swift-side registration helpers are only compiled when the `LUASWIFT_TOMLKIT
 
 ```swift
 // Install all modules (TOML included only if flag is set)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the TOML module
 // (only available when LUASWIFT_INCLUDE_TOMLKIT=1)
-ModuleRegistry.installTOMLModule(in: engine)
+try TOMLModule.install(in: engine)
 ```
 
 ## Basic Usage

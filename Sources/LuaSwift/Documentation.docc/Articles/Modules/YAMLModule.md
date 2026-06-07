@@ -16,10 +16,10 @@ The YAML module provides YAML encoding and decoding using the [Yams](https://git
 
 ```swift
 // Install all modules (YAML included by default)
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 
 // Or install just the YAML module
-ModuleRegistry.installYAMLModule(in: engine)
+try YAMLModule.install(in: engine)
 ```
 
 ## Basic Usage

@@ -51,7 +51,7 @@ print(result.numberValue!)  // 3.0
 
 ```swift
 let engine = try LuaEngine()
-ModuleRegistry.installModules(in: engine)
+try ModuleRegistry.install(in: engine)
 try engine.run("luaswift.extend_stdlib()")
 
 // Now all modules are available
@@ -67,8 +67,8 @@ try engine.run("""
 let engine = try LuaEngine()
 
 // Install only what you need
-ModuleRegistry.installJSONModule(in: engine)
-ModuleRegistry.installStringXModule(in: engine)
+try JSONModule.install(in: engine)
+try StringXModule.install(in: engine)
 ```
 
 ## Architecture

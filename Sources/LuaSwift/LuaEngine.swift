@@ -1359,8 +1359,20 @@ public final class LuaEngine {
         // Set package.path to the specified path only (don't append to existing)
         // This is intentional: in sandboxed mode, we've cleared package.path
         // and only want to allow loading from explicitly specified directories
-        let code = "package.path = '\(path)/?.lua'"
-        luaL_dostring(L, code)
+        //
+        // Built via the C API rather than generated Lua source so the path is
+        // treated as data: quotes or other Lua-meaningful characters in the
+        // path cannot break or inject into a string literal (issue #16)
+        lua_getglobal(L, "package")
+        guard lua_istable(L, -1) else {
+            // No package table (e.g. removed by the host): silently do
+            // nothing, matching the previous luaL_dostring failure behavior
+            lua_pop(L, 1)
+            return
+        }
+        lua_pushstring(L, "\(path)/?.lua")
+        lua_setfield(L, -2, "path")
+        lua_pop(L, 1)
     }
 
     private func registerServerGlobal(_ server: LuaValueServer) {

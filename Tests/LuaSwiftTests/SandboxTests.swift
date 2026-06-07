@@ -248,6 +248,37 @@ final class SandboxTests: XCTestCase {
                        "packagePath should set package.path")
     }
 
+    func testPackagePathWithSingleQuote() throws {
+        // A single quote in the path must not break package.path setup
+        // (issue #16: path was interpolated into a Lua string literal)
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: "/tmp/it's-a-dir",
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        let result = try engine.evaluate("return package.path")
+        XCTAssertEqual(result.stringValue, "/tmp/it's-a-dir/?.lua",
+                       "packagePath containing a single quote should be set verbatim")
+    }
+
+    func testPackagePathWithLuaMeaningfulSequences() throws {
+        // Lua-meaningful sequences in the path must end up verbatim in
+        // package.path and never be executed as code (issue #16)
+        let maliciousPath = "/tmp/x']..os.exit()..['"
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: maliciousPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        let result = try engine.evaluate("return package.path")
+        XCTAssertEqual(result.stringValue, "\(maliciousPath)/?.lua",
+                       "packagePath must be treated as data, never as Lua code")
+    }
+
     // MARK: - Preload Searcher Still Works
 
     func testPreloadSearcherWorks() throws {

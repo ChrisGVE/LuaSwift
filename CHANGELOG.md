@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`packagePath` set via C API** - `LuaEngineConfiguration.packagePath` is now applied through `lua_getglobal`/`lua_setfield` instead of generated Lua source, so paths containing quotes or other Lua-meaningful characters are set verbatim and can no longer break (or inject into) the assignment ([#16](https://github.com/ChrisGVE/LuaSwift/issues/16)).
+
 ## [1.9.1] - 2026-05-31
 
 ### Fixed

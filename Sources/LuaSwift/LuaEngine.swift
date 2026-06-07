@@ -172,8 +172,13 @@ public final class LuaEngine {
     /// `nil` when the limit is disabled (state created via `luaL_newstate`).
     /// Freed in `deinit`, strictly **after** `lua_close` — the allocator
     /// dereferences it for every free performed during close.
+    ///
+    /// Held as an opaque raw pointer: the concrete accounting struct stays
+    /// private to LuaEngine+VMAllocator.swift, which performs the typed cast
+    /// (allocate/free in ``makeLimitedState(limit:accounting:)`` /
+    /// ``freeVMAccounting()``).
     /// internal: shared with LuaEngine+VMAllocator.swift
-    internal var vmAccounting: UnsafeMutablePointer<VMAllocationAccounting>?
+    internal var vmAccounting: UnsafeMutableRawPointer?
 
     /// Current allocated bytes tracked by Swift modules
     private var _allocatedBytes: Int = 0

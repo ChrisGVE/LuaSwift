@@ -180,4 +180,48 @@ final class VMMemoryLimitTests: XCTestCase {
             XCTAssertEqual(result.numberValue, 2_000_000)
         }
     }
+
+    // MARK: - Shrink Under Limit (CR-004)
+
+    /// A shrink (`nsize <= osize`) must never be denied by the allocator: Lua's
+    /// contract (Reference Manual §4.13) guarantees the allocator does not fail
+    /// when reducing a block. A script that grows a large buffer right up to
+    /// the ceiling and then shrinks it must complete without a `.memoryError`
+    /// on the shrink — proving the shrink path returns a valid pointer even
+    /// when `realloc` cannot move the block.
+    func testShrinkUnderLimitNeverDenied() throws {
+        let engine = try LuaEngine(configuration: configuration(vmMemoryLimit: 16_000_000))
+
+        // Build a large table near the limit, then truncate it (shrink) and
+        // force a GC pass that reallocates/shrinks internal structures. The
+        // final small allocation must succeed.
+        let result = try engine.evaluate("""
+            local t = {}
+            for i = 1, 200000 do t[i] = i end   -- grow large
+            for i = 200000, 50, -1 do t[i] = nil end  -- shrink it back down
+            collectgarbage()                     -- triggers shrinking reallocs
+            local s = string.rep('z', 100000)    -- large, then drop -> shrink
+            s = string.sub(s, 1, 10)             -- shrink the string buffer
+            collectgarbage()
+            return #s + #t
+        """)
+        XCTAssertEqual(result.numberValue, 10 + 49)
+    }
+
+    /// Repeatedly growing to the ceiling and shrinking back must stay healthy:
+    /// if the shrink path ever returned nil (the CR-004 bug) or failed to
+    /// credit freed bytes, a later pass would spuriously hit `.memoryError`.
+    func testRepeatedGrowShrinkStaysHealthy() throws {
+        let engine = try LuaEngine(configuration: configuration(vmMemoryLimit: 12_000_000))
+
+        for _ in 1...10 {
+            let n = try engine.evaluate("""
+                local s = string.rep('q', 3000000)  -- grow
+                s = string.sub(s, 1, 1)             -- shrink hard
+                collectgarbage()
+                return #s
+            """)
+            XCTAssertEqual(n.numberValue, 1)
+        }
+    }
 }

@@ -423,6 +423,14 @@ public struct HTTPModule: LuaSwiftModule {
         case .array(let arr):
             return try arr.map { try convertLuaToJSON($0) }
         case .table(let dict):
+            // The `json.null` sentinel carries JSONModule.jsonNullMarker as its
+            // sole field; serialize it as JSON null so request bodies honor the
+            // sentinel exactly like json.encode does (mirrors
+            // JSONModule.convertLuaToJSON, including the single-key check that
+            // keeps ordinary objects containing the marker key intact).
+            if dict.count == 1, case .bool(true)? = dict[JSONModule.jsonNullMarker] {
+                return NSNull()
+            }
             var jsonDict: [String: Any] = [:]
             for (key, val) in dict {
                 jsonDict[key] = try convertLuaToJSON(val)

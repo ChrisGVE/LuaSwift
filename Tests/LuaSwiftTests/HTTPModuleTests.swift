@@ -165,6 +165,63 @@ final class HTTPModuleTests: XCTestCase {
         XCTAssertEqual(arr[1].numberValue, 30)
     }
 
+    /// A `json.null` sentinel in a request body must encode as JSON `null`,
+    /// exactly as `json.encode` does — not leak the internal marker table
+    /// (issue #17).
+    func testPostWithJSONNullSentinel() throws {
+        let base = try Self.requireHTTPBase()
+
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local json = luaswift.json
+            local resp = http.post("\(base)/post", {
+                json = {value = json.null}
+            })
+            -- The mock server echoes the raw request body in `data`.
+            local data = json.decode(resp.body)
+            local parsed = json.decode(data.data)
+            return {data.data, json.is_null(parsed.value)}
+        """)
+
+        guard let arr = result.arrayValue, arr.count >= 2 else {
+            XCTFail("Expected array with 2 elements")
+            return
+        }
+        XCTAssertEqual(arr[0].stringValue, "{\"value\":null}",
+                       "json.null must encode as JSON null in the request body")
+        XCTAssertEqual(arr[1].boolValue, true,
+                       "Decoded null field should satisfy json.is_null")
+    }
+
+    /// The sentinel must also encode as `null` when nested inside an array
+    /// (exercises the recursive array branch of the encoder).
+    func testPostWithJSONNullSentinelInArray() throws {
+        let base = try Self.requireHTTPBase()
+
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local json = luaswift.json
+            local resp = http.post("\(base)/post", {
+                json = {list = {1, json.null, 3}}
+            })
+            local data = json.decode(resp.body)
+            local parsed = json.decode(data.data)
+            return {
+                json.is_null(parsed.list[2]),
+                data.data:find("__luaswift_json_null", 1, true) == nil
+            }
+        """)
+
+        guard let arr = result.arrayValue, arr.count >= 2 else {
+            XCTFail("Expected array with 2 elements")
+            return
+        }
+        XCTAssertEqual(arr[0].boolValue, true,
+                       "Null inside an array should round-trip as JSON null")
+        XCTAssertEqual(arr[1].boolValue, true,
+                       "Internal null marker must not leak into the wire body")
+    }
+
     func testPutRequest() throws {
         let base = try Self.requireHTTPBase()
 

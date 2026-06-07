@@ -16,10 +16,10 @@
   final class PlotModuleTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-      super.setUp()
-      engine = try! LuaEngine()
-      PlotModule.register(in: engine)
+    override func setUpWithError() throws {
+      try super.setUpWithError()
+      engine = try LuaEngine()
+      try PlotModule.install(in: engine)
     }
 
     override func tearDown() {

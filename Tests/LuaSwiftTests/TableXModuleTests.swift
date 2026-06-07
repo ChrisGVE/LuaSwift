@@ -16,10 +16,10 @@ final class TableXModuleTests: XCTestCase {
 
   var engine: LuaEngine!
 
-  override func setUp() {
-    super.setUp()
-    engine = try! LuaEngine()
-    TableXModule.register(in: engine)
+  override func setUpWithError() throws {
+    try super.setUpWithError()
+    engine = try LuaEngine()
+    try TableXModule.install(in: engine)
   }
 
   override func tearDown() {
@@ -341,8 +341,8 @@ final class TableXModuleTests: XCTestCase {
   #if LUASWIFT_NUMERICSWIFT
     func testDeepcopyPreservesComplexType() throws {
       // Register required modules
-      ComplexModule.register(in: engine)
-      TypesModule.register(in: engine)
+      try ComplexModule.install(in: engine)
+      try TypesModule.install(in: engine)
 
       let result = try engine.evaluate(
         """
@@ -384,8 +384,8 @@ final class TableXModuleTests: XCTestCase {
 
     func testDeepcopyPreservesVec2Type() throws {
       // Register required modules
-      GeometryModule.register(in: engine)
-      TypesModule.register(in: engine)
+      try GeometryModule.install(in: engine)
+      try TypesModule.install(in: engine)
 
       let result = try engine.evaluate(
         """
@@ -423,8 +423,8 @@ final class TableXModuleTests: XCTestCase {
 
     func testDeepcopyPreservesVec3Type() throws {
       // Register required modules
-      GeometryModule.register(in: engine)
-      TypesModule.register(in: engine)
+      try GeometryModule.install(in: engine)
+      try TypesModule.install(in: engine)
 
       let result = try engine.evaluate(
         """
@@ -462,9 +462,9 @@ final class TableXModuleTests: XCTestCase {
 
     func testDeepcopyNestedMixedTypes() throws {
       // Register required modules
-      ComplexModule.register(in: engine)
-      GeometryModule.register(in: engine)
-      TypesModule.register(in: engine)
+      try ComplexModule.install(in: engine)
+      try GeometryModule.install(in: engine)
+      try TypesModule.install(in: engine)
 
       let result = try engine.evaluate(
         """
@@ -511,8 +511,8 @@ final class TableXModuleTests: XCTestCase {
 
     func testDeepmergeReplacesTypedObjects() throws {
       // Register required modules
-      ComplexModule.register(in: engine)
-      TypesModule.register(in: engine)
+      try ComplexModule.install(in: engine)
+      try TypesModule.install(in: engine)
 
       let result = try engine.evaluate(
         """
@@ -546,8 +546,8 @@ final class TableXModuleTests: XCTestCase {
 
     func testDeepmergeTypedWithRegularTable() throws {
       // Register required modules
-      GeometryModule.register(in: engine)
-      TypesModule.register(in: engine)
+      try GeometryModule.install(in: engine)
+      try TypesModule.install(in: engine)
 
       let result = try engine.evaluate(
         """

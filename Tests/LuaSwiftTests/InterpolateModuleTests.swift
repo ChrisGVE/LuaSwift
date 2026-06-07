@@ -17,7 +17,7 @@ final class InterpolateModuleTests: XCTestCase {
         super.setUp()
         do {
             engine = try LuaEngine()
-            ModuleRegistry.installModules(in: engine)
+            try ModuleRegistry.install(in: engine)
             try engine.run("luaswift.extend_stdlib()")
         } catch {
             XCTFail("Failed to initialize engine: \(error)")

@@ -21,7 +21,7 @@ final class RegexModuleTests: XCTestCase {
         super.setUp()
         do {
             engine = try LuaEngine()
-            ModuleRegistry.installRegexModule(in: engine)
+            try RegexModule.install(in: engine)
         } catch {
             XCTFail("Failed to initialize engine: \(error)")
         }

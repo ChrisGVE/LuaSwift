@@ -17,7 +17,7 @@ final class TOMLModuleTests: XCTestCase {
         super.setUp()
         do {
             engine = try LuaEngine()
-            ModuleRegistry.installTOMLModule(in: engine)
+            try TOMLModule.install(in: engine)
         } catch {
             XCTFail("Failed to initialize engine: \(error)")
         }

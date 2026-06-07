@@ -55,74 +55,74 @@ final class ModuleRequireTests: XCTestCase {
     }
 
     func testJSONRequire() throws {
-        ModuleRegistry.installJSONModule(in: engine)
+        try JSONModule.install(in: engine)
         try assertRequireExposes("luaswift.json", member: "encode", ofType: "function")
         try assertRequireExposes("luaswift.json", member: "decode", ofType: "function")
     }
 
     #if LUASWIFT_YAMS
         func testYAMLRequire() throws {
-            ModuleRegistry.installYAMLModule(in: engine)
+            try YAMLModule.install(in: engine)
             try assertRequireExposes("luaswift.yaml", member: "encode", ofType: "function")
         }
     #endif
 
     func testRegexRequire() throws {
-        ModuleRegistry.installRegexModule(in: engine)
+        try RegexModule.install(in: engine)
         try assertRequireExposes("luaswift.regex", member: "compile", ofType: "function")
     }
 
     func testMathXRequire() throws {
-        ModuleRegistry.installMathModule(in: engine)
+        try MathXModule.install(in: engine)
         try assertRequireExposes("luaswift.mathx", member: "round", ofType: "function")
         // Backward-compatibility alias.
         try assertRequireExposes("luaswift.math", member: "round", ofType: "function")
     }
 
     func testUTF8XRequire() throws {
-        ModuleRegistry.installUTF8XModule(in: engine)
+        try UTF8XModule.install(in: engine)
         try assertRequireExposes("luaswift.utf8x", member: "width", ofType: "function")
     }
 
     func testStringXRequire() throws {
-        ModuleRegistry.installStringXModule(in: engine)
+        try StringXModule.install(in: engine)
         try assertRequireExposes("luaswift.stringx", member: "split", ofType: "function")
     }
 
     func testTableXRequire() throws {
-        ModuleRegistry.installTableXModule(in: engine)
+        try TableXModule.install(in: engine)
         try assertRequireExposes("luaswift.tablex", member: "deepcopy", ofType: "function")
     }
 
     #if DEBUG
         func testDebugRequire() throws {
-            ModuleRegistry.installDebugModule(in: engine)
+            try DebugModule.install(in: engine)
             try assertRequireExposes("luaswift.debug", member: "log", ofType: "table")
         }
     #endif
 
     func testUIRequire() throws {
-        ModuleRegistry.installUIModule(in: engine)
+        try UIModule.install(in: engine)
         try assertRequireExposes("luaswift.ui", member: "alert", ofType: "function")
     }
 
     #if LUASWIFT_ARRAYSWIFT
         func testArrayRequire() throws {
-            ModuleRegistry.installArrayModule(in: engine)
+            try ArrayModule.install(in: engine)
             try assertRequireExposes("luaswift.array", member: "array", ofType: "function")
         }
     #endif
 
     #if LUASWIFT_NUMERICSWIFT
         func testLinAlgRequire() throws {
-            ModuleRegistry.installLinAlgModule(in: engine)
+            try LinAlgModule.install(in: engine)
             try assertRequireExposes("luaswift.linalg", member: "matrix", ofType: "function")
         }
     #endif
 
     #if LUASWIFT_TOMLKIT
         func testTOMLRequire() throws {
-            ModuleRegistry.installTOMLModule(in: engine)
+            try TOMLModule.install(in: engine)
             try assertRequireExposes("luaswift.toml", member: "encode", ofType: "function")
         }
     #endif

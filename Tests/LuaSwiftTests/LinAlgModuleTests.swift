@@ -17,7 +17,7 @@ final class LinAlgModuleTests: XCTestCase {
         super.setUp()
         do {
             engine = try LuaEngine()
-            ModuleRegistry.installLinAlgModule(in: engine)
+            try LinAlgModule.install(in: engine)
         } catch {
             XCTFail("Failed to initialize engine: \(error)")
         }

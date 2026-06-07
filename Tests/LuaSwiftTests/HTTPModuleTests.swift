@@ -14,11 +14,11 @@ import XCTest
 final class HTTPModuleTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-        super.setUp()
-        engine = try! LuaEngine()
-        ModuleRegistry.installHTTPModule(in: engine)
-        ModuleRegistry.installJSONModule(in: engine)  // For json parsing in tests
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        engine = try LuaEngine()
+        try HTTPModule.install(in: engine)
+        try JSONModule.install(in: engine)  // For json parsing in tests
     }
 
     override func tearDown() {
@@ -422,7 +422,7 @@ final class HTTPModuleTests: XCTestCase {
 
         // Create a second engine
         let engine2 = try LuaEngine()
-        ModuleRegistry.installHTTPModule(in: engine2)
+        try HTTPModule.install(in: engine2)
 
         // Both engines should be able to make requests independently
         let result1 = try engine.evaluate("""

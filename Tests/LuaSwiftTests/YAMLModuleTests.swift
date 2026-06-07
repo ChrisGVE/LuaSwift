@@ -17,7 +17,7 @@ final class YAMLModuleTests: XCTestCase {
         super.setUp()
         do {
             engine = try LuaEngine()
-            ModuleRegistry.installYAMLModule(in: engine)
+            try YAMLModule.install(in: engine)
         } catch {
             XCTFail("Failed to initialize engine: \(error)")
         }

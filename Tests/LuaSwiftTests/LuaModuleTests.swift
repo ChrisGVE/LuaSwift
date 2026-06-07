@@ -49,7 +49,7 @@ final class LuaModuleTests: XCTestCase {
         let engine = try LuaEngine(configuration: config)
 
         // Register Swift-backed modules (svg.lua was replaced by SVGModule.swift)
-        SVGModule.register(in: engine)
+        try SVGModule.install(in: engine)
 
         return engine
     }
@@ -68,7 +68,7 @@ final class LuaModuleTests: XCTestCase {
         try engine.run(pathConfig)
 
         // Register Swift-backed modules (svg.lua was replaced by SVGModule.swift)
-        SVGModule.register(in: engine)
+        try SVGModule.install(in: engine)
     }
 
     // MARK: - SVG Module Tests
@@ -955,7 +955,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testExtendStdlibExists() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             return type(luaswift.extend_stdlib) == "function"
@@ -965,7 +965,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testExtendStdlibImportsStringx() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             luaswift.extend_stdlib()
@@ -976,7 +976,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testExtendStdlibImportsMathx() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             luaswift.extend_stdlib()
@@ -987,7 +987,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testExtendStdlibImportsTablex() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             luaswift.extend_stdlib()
@@ -999,7 +999,7 @@ final class LuaModuleTests: XCTestCase {
     #if LUASWIFT_NUMERICSWIFT
     func testExtendStdlibCreatesMathComplex() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             luaswift.extend_stdlib()
@@ -1011,7 +1011,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testExtendStdlibCreatesMathLinalg() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             luaswift.extend_stdlib()
@@ -1023,7 +1023,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testExtendStdlibCreatesMathGeo() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             luaswift.extend_stdlib()
@@ -1038,7 +1038,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testTopLevelAliasJson() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             return json.encode({a = 1})
@@ -1049,7 +1049,7 @@ final class LuaModuleTests: XCTestCase {
     #if LUASWIFT_NUMERICSWIFT
     func testTopLevelAliasComplex() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             local c = complex.new(1, 2)
@@ -1060,7 +1060,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testTopLevelAliasLinalg() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             local m = linalg.eye(3)
@@ -1071,7 +1071,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testTopLevelAliasGeo() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             local v = geo.vec3(1, 2, 3)
@@ -1082,7 +1082,7 @@ final class LuaModuleTests: XCTestCase {
 
     func testTopLevelAliasTypes() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             return types.typeof(complex.new(1, 2))
@@ -1094,7 +1094,7 @@ final class LuaModuleTests: XCTestCase {
     #if LUASWIFT_ARRAYSWIFT
     func testTopLevelAliasArray() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             local a = array.array({1, 2, 3})

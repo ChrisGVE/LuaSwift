@@ -15,9 +15,9 @@ final class IOModuleTests: XCTestCase {
     var engine: LuaEngine!
     var tempDir: URL!
 
-    override func setUp() {
-        super.setUp()
-        engine = try! LuaEngine()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        engine = try LuaEngine()
 
         // Create a temporary directory for testing
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("LuaSwiftIOTests-\(UUID().uuidString)")
@@ -25,7 +25,7 @@ final class IOModuleTests: XCTestCase {
 
         // Configure allowed directories and install module
         IOModule.setAllowedDirectories([tempDir.path], for: engine)
-        ModuleRegistry.installIOModule(in: engine)
+        try IOModule.install(in: engine)
     }
 
     override func tearDown() {
@@ -39,7 +39,7 @@ final class IOModuleTests: XCTestCase {
 
     func testNoAllowedDirectoriesError() throws {
         let newEngine = try LuaEngine()
-        ModuleRegistry.installIOModule(in: newEngine)
+        try IOModule.install(in: newEngine)
 
         XCTAssertThrowsError(try newEngine.run("""
             local iox = luaswift.iox

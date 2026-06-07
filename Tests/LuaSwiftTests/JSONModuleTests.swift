@@ -21,7 +21,7 @@ final class JSONModuleTests: XCTestCase {
         super.setUp()
         do {
             engine = try LuaEngine()
-            ModuleRegistry.installJSONModule(in: engine)
+            try JSONModule.install(in: engine)
         } catch {
             XCTFail("Failed to initialize engine: \(error)")
         }

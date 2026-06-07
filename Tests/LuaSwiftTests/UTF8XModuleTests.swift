@@ -16,10 +16,10 @@ final class UTF8XModuleTests: XCTestCase {
 
   var engine: LuaEngine!
 
-  override func setUp() {
-    super.setUp()
-    engine = try! LuaEngine()
-    UTF8XModule.register(in: engine)
+  override func setUpWithError() throws {
+    try super.setUpWithError()
+    engine = try LuaEngine()
+    try UTF8XModule.install(in: engine)
   }
 
   override func tearDown() {

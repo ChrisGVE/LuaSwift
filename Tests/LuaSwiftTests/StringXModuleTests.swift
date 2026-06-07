@@ -15,10 +15,10 @@ import XCTest
 final class StringXModuleTests: XCTestCase {
   var engine: LuaEngine!
 
-  override func setUp() {
-    super.setUp()
-    engine = try! LuaEngine()
-    ModuleRegistry.installStringXModule(in: engine)
+  override func setUpWithError() throws {
+    try super.setUpWithError()
+    engine = try LuaEngine()
+    try StringXModule.install(in: engine)
   }
 
   override func tearDown() {

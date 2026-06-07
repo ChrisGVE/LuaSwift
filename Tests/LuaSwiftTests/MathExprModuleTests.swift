@@ -15,10 +15,10 @@ import XCTest
 final class MathExprModuleTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-        super.setUp()
-        engine = try! LuaEngine()
-        MathExprModule.register(in: engine)
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        engine = try LuaEngine()
+        try MathExprModule.install(in: engine)
     }
 
     override func tearDown() {
@@ -1115,7 +1115,7 @@ final class MathExprModuleTests: XCTestCase {
     func testMathEvalCallable() throws {
         // Test that math.eval is callable via __call
         // First register MathSciModule to create the namespace
-        MathSciModule.register(in: engine)
+        try MathSciModule.install(in: engine)
 
         let result = try engine.evaluate("""
             -- math.eval should be callable
@@ -1126,7 +1126,7 @@ final class MathExprModuleTests: XCTestCase {
     }
 
     func testMathEvalCallableWithVariables() throws {
-        MathSciModule.register(in: engine)
+        try MathSciModule.install(in: engine)
 
         let result = try engine.evaluate("""
             return math.eval("x^2 + 1", {x = 3})
@@ -1136,7 +1136,7 @@ final class MathExprModuleTests: XCTestCase {
     }
 
     func testMathEvalDotSolve() throws {
-        MathSciModule.register(in: engine)
+        try MathSciModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local solution = math.eval.solve("2*x = 6")
@@ -1466,7 +1466,7 @@ final class MathExprModuleTests: XCTestCase {
 
     func testLaTeXSummationGeometricSeries() throws {
         // Register series module for LaTeX summation support
-        SeriesModule.register(in: engine)
+        try SeriesModule.install(in: engine)
 
         // Sum of geometric series: sum_{n=0}^{10} 1/2^n ≈ 2 - 1/2^10 ≈ 1.999
         let result = try engine.evaluate(#"""
@@ -1480,7 +1480,7 @@ final class MathExprModuleTests: XCTestCase {
 
     func testLaTeXProductFactorial() throws {
         // Register series module for LaTeX product support
-        SeriesModule.register(in: engine)
+        try SeriesModule.install(in: engine)
 
         // Product: prod_{i=1}^{5} i = 5! = 120
         let result = try engine.evaluate(#"""
@@ -1493,7 +1493,7 @@ final class MathExprModuleTests: XCTestCase {
 
     func testLaTeXSummationWithExpression() throws {
         // Register series module for LaTeX summation support
-        SeriesModule.register(in: engine)
+        try SeriesModule.install(in: engine)
 
         // Sum of squares: sum_{k=1}^{4} k^2 = 1 + 4 + 9 + 16 = 30
         let result = try engine.evaluate(#"""
@@ -1506,7 +1506,7 @@ final class MathExprModuleTests: XCTestCase {
 
     func testLaTeXProductWithFraction() throws {
         // Register series module for LaTeX product support
-        SeriesModule.register(in: engine)
+        try SeriesModule.install(in: engine)
 
         // Product: prod_{n=2}^{4} (n+1)/n = 3/2 * 4/3 * 5/4 = 5/2 = 2.5
         let result = try engine.evaluate(#"""
@@ -1519,7 +1519,7 @@ final class MathExprModuleTests: XCTestCase {
 
     func testLaTeXSummationSimple() throws {
         // Register series module for LaTeX summation support
-        SeriesModule.register(in: engine)
+        try SeriesModule.install(in: engine)
 
         // Sum: sum_{i=1}^{5} i = 1 + 2 + 3 + 4 + 5 = 15
         let result = try engine.evaluate(#"""

@@ -21,7 +21,7 @@ struct LinAlgExtrasTests {
 
     private func createEngine() throws -> LuaEngine {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
         return engine
     }
 

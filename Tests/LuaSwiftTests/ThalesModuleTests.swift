@@ -15,10 +15,10 @@
   final class ThalesModuleTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-      super.setUp()
-      engine = try! LuaEngine()
-      ModuleRegistry.installThalesModule(in: engine)
+    override func setUpWithError() throws {
+      try super.setUpWithError()
+      engine = try LuaEngine()
+      try ThalesModule.install(in: engine)
     }
 
     override func tearDown() {

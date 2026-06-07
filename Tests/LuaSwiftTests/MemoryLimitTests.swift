@@ -139,7 +139,7 @@ final class MemoryLimitTests: XCTestCase {
         // Each Double is 8 bytes. 100 doubles = 800 bytes.
         // Set limit to 400 bytes (50 doubles max)
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         // Creating array of 100 elements (800 bytes) should fail
         XCTAssertThrowsError(try engine.run("luaswift.array.zeros({100})")) { error in
@@ -154,7 +154,7 @@ final class MemoryLimitTests: XCTestCase {
     func testArrayZerosSucceedsUnderLimit() throws {
         // 10 doubles = 80 bytes, set limit to 200 bytes
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 200))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         // Creating array of 10 elements should succeed
         let result = try engine.evaluate("""
@@ -167,7 +167,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testArrayOnesRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.array.ones({100})")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -180,7 +180,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testArrayFullRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.array.full({100}, 3.14)")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -193,7 +193,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testArrayLinspaceRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.array.linspace(0, 1, 100)")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -206,7 +206,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testArrayRandRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.array.random.rand({100})")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -220,7 +220,7 @@ final class MemoryLimitTests: XCTestCase {
     func testArrayEyeRespectsMemoryLimit() throws {
         // 10x10 = 100 doubles = 800 bytes
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.array.eye(10)")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -237,7 +237,7 @@ final class MemoryLimitTests: XCTestCase {
     #if LUASWIFT_NUMERICSWIFT
     func testLinalgZerosRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installLinAlgModule(in: engine)
+        try LinAlgModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.linalg.zeros(10, 10)")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -250,7 +250,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testLinalgOnesRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installLinAlgModule(in: engine)
+        try LinAlgModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.linalg.ones(10, 10)")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -263,7 +263,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testLinalgEyeRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installLinAlgModule(in: engine)
+        try LinAlgModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.linalg.eye(10)")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -277,7 +277,7 @@ final class MemoryLimitTests: XCTestCase {
     func testLinalgDiagRespectsMemoryLimit() throws {
         // Creating 20x20 matrix from 20 element vector = 400 doubles = 3200 bytes
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 1600))
-        ModuleRegistry.installLinAlgModule(in: engine)
+        try LinAlgModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("""
             local v = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20}
@@ -293,7 +293,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testLinalgLinspaceRespectsMemoryLimit() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 400))
-        ModuleRegistry.installLinAlgModule(in: engine)
+        try LinAlgModule.install(in: engine)
 
         XCTAssertThrowsError(try engine.run("luaswift.linalg.linspace(0, 1, 100)")) { error in
             guard case LuaError.runtimeError(let message) = error else {
@@ -312,7 +312,7 @@ final class MemoryLimitTests: XCTestCase {
         // Each 10-element array is 80 bytes
         // Set limit to allow 2 arrays but not 3
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 200))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         // First two arrays should succeed
         let result = try engine.evaluate("""
@@ -338,7 +338,7 @@ final class MemoryLimitTests: XCTestCase {
     func testNoMemoryLimitAllowsLargeAllocations() throws {
         // Default configuration has no limit
         let engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         // Large array should succeed
         let result = try engine.evaluate("""
@@ -355,7 +355,7 @@ final class MemoryLimitTests: XCTestCase {
     #if LUASWIFT_ARRAYSWIFT
     func testAllocatedBytesIsTrackedCorrectly() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 10000))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         // Initial state
         XCTAssertEqual(engine.allocatedBytes, 0)
@@ -370,7 +370,7 @@ final class MemoryLimitTests: XCTestCase {
 
     func testResetTrackerAllowsNewAllocations() throws {
         let engine = try LuaEngine(configuration: .init(sandboxed: true, packagePath: nil, memoryLimit: 500))
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
 
         // Fill up to limit
         try engine.run("""

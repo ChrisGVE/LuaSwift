@@ -24,7 +24,7 @@ final class UIModuleTests: XCTestCase {
     super.setUp()
     do {
       engine = try LuaEngine()
-      ModuleRegistry.installUIModule(in: engine)
+      try UIModule.install(in: engine)
     } catch {
       XCTFail("Failed to initialize engine: \(error)")
     }
@@ -165,7 +165,7 @@ final class UIModuleTests: XCTestCase {
   func testInstallOnFreshEngineDoesNotThrow() throws {
     let freshEngine = try LuaEngine()
     // Must not throw even though no dialog will be shown
-    XCTAssertNoThrow(ModuleRegistry.installUIModule(in: freshEngine))
+    XCTAssertNoThrow(try UIModule.install(in: freshEngine))
 
     let result = try freshEngine.evaluate("return type(luaswift.ui)")
     XCTAssertEqual(result.stringValue, "table")
@@ -173,8 +173,8 @@ final class UIModuleTests: XCTestCase {
 
   func testInstallDoesNotAlterOtherModules() throws {
     let freshEngine = try LuaEngine()
-    ModuleRegistry.installModules(in: freshEngine)
-    ModuleRegistry.installUIModule(in: freshEngine)
+    try ModuleRegistry.install(in: freshEngine)
+    try UIModule.install(in: freshEngine)
 
     // Core modules still present
     let jsonType = try freshEngine.evaluate("return type(luaswift.json)")

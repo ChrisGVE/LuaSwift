@@ -21,9 +21,9 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
-        ComplexModule.register(in: engine)
-        MathXModule.register(in: engine)
+        try ArrayModule.install(in: engine)
+        try ComplexModule.install(in: engine)
+        try MathXModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }
@@ -150,8 +150,8 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ComplexModule.register(in: engine)
-        MathXModule.register(in: engine)
+        try ComplexModule.install(in: engine)
+        try MathXModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }
@@ -245,7 +245,7 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installLinAlgModule(in: engine)
+        try LinAlgModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }

@@ -22,7 +22,7 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }
@@ -112,7 +112,7 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }
@@ -243,7 +243,7 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }
@@ -301,7 +301,7 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }
@@ -379,7 +379,7 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }
@@ -472,7 +472,7 @@
       super.setUp()
       do {
         engine = try LuaEngine()
-        ModuleRegistry.installArrayModule(in: engine)
+        try ArrayModule.install(in: engine)
       } catch {
         XCTFail("Failed to initialize engine: \(error)")
       }

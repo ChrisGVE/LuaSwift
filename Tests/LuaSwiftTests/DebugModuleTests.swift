@@ -16,10 +16,10 @@ import XCTest
 final class DebugModuleTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-        super.setUp()
-        engine = try! LuaEngine()
-        ModuleRegistry.installDebugModule(in: engine)
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        engine = try LuaEngine()
+        try DebugModule.install(in: engine)
     }
 
     override func tearDown() {

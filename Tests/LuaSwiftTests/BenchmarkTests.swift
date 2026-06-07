@@ -18,10 +18,10 @@ import XCTest
 final class BenchmarkTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-        super.setUp()
-        engine = try! LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        engine = try LuaEngine()
+        try ModuleRegistry.install(in: engine)
     }
 
     override func tearDown() {

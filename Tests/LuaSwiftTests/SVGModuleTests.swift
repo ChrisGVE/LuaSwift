@@ -14,10 +14,10 @@ import XCTest
 final class SVGModuleTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-        super.setUp()
-        engine = try! LuaEngine()
-        SVGModule.register(in: engine)
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        engine = try LuaEngine()
+        try SVGModule.install(in: engine)
     }
 
     override func tearDown() {

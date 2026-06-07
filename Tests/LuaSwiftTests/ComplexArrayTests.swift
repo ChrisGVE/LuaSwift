@@ -21,10 +21,10 @@ final class ComplexArrayTests: XCTestCase {
         super.setUp()
         do {
             engine = try LuaEngine()
-            ModuleRegistry.installArrayModule(in: engine)
-            ModuleRegistry.installLinAlgModule(in: engine)
-            ComplexModule.register(in: engine)
-            MathExprModule.register(in: engine)
+            try ArrayModule.install(in: engine)
+            try LinAlgModule.install(in: engine)
+            try ComplexModule.install(in: engine)
+            try MathExprModule.install(in: engine)
         } catch {
             XCTFail("Failed to initialize engine: \(error)")
         }

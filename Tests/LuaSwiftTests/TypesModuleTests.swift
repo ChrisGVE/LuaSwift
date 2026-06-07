@@ -14,11 +14,11 @@ import XCTest
 final class TypesModuleTests: XCTestCase {
     var engine: LuaEngine!
 
-    override func setUp() {
-        super.setUp()
-        engine = try! LuaEngine()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        engine = try LuaEngine()
         // Install all modules since types module depends on other modules for conversions
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
     }
 
     override func tearDown() {

@@ -21,7 +21,7 @@ struct GeometryModuleTests {
     @Test("Vec2 creation and properties")
     func vec2Creation() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -38,7 +38,7 @@ struct GeometryModuleTests {
     @Test("Vec2 length and normalize")
     func vec2LengthNormalize() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -57,7 +57,7 @@ struct GeometryModuleTests {
     @Test("Vec2 dot product")
     func vec2Dot() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -72,7 +72,7 @@ struct GeometryModuleTests {
     @Test("Vec2 cross product")
     func vec2Cross() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -87,7 +87,7 @@ struct GeometryModuleTests {
     @Test("Vec2 rotate")
     func vec2Rotate() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -104,7 +104,7 @@ struct GeometryModuleTests {
     @Test("Vec2 operators")
     func vec2Operators() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -134,7 +134,7 @@ struct GeometryModuleTests {
     @Test("Vec2 lerp")
     func vec2Lerp() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -154,7 +154,7 @@ struct GeometryModuleTests {
     @Test("Vec3 creation and properties")
     func vec3Creation() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -172,7 +172,7 @@ struct GeometryModuleTests {
     @Test("Vec3 length and normalize")
     func vec3LengthNormalize() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -190,7 +190,7 @@ struct GeometryModuleTests {
     @Test("Vec3 cross product")
     func vec3Cross() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -209,7 +209,7 @@ struct GeometryModuleTests {
     @Test("Vec3 operators")
     func vec3Operators() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -234,7 +234,7 @@ struct GeometryModuleTests {
     @Test("Quaternion identity")
     func quatIdentity() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -252,7 +252,7 @@ struct GeometryModuleTests {
     @Test("Quaternion from axis-angle")
     func quatFromAxisAngle() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -268,7 +268,7 @@ struct GeometryModuleTests {
     @Test("Quaternion rotate vector")
     func quatRotateVector() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -288,7 +288,7 @@ struct GeometryModuleTests {
     @Test("Quaternion slerp")
     func quatSlerp() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -307,7 +307,7 @@ struct GeometryModuleTests {
     @Test("Transform3D identity")
     func transform3DIdentity() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -326,7 +326,7 @@ struct GeometryModuleTests {
     @Test("Transform3D translate")
     func transform3DTranslate() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -345,7 +345,7 @@ struct GeometryModuleTests {
     @Test("Transform3D scale")
     func transform3DScale() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -366,7 +366,7 @@ struct GeometryModuleTests {
     @Test("Distance calculation")
     func distanceCalc() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -381,7 +381,7 @@ struct GeometryModuleTests {
     @Test("Distance with quaternions")
     func distanceQuaternion() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -396,7 +396,7 @@ struct GeometryModuleTests {
     @Test("Distance sugar syntax vec2")
     func distanceSugarVec2() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -411,7 +411,7 @@ struct GeometryModuleTests {
     @Test("Distance sugar syntax vec3")
     func distanceSugarVec3() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -426,7 +426,7 @@ struct GeometryModuleTests {
     @Test("Distance sugar syntax quaternion")
     func distanceSugarQuat() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -441,7 +441,7 @@ struct GeometryModuleTests {
     @Test("Angle between vec2")
     func angleBetweenVec2() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -457,7 +457,7 @@ struct GeometryModuleTests {
     @Test("Angle between vec3")
     func angleBetweenVec3() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -473,7 +473,7 @@ struct GeometryModuleTests {
     @Test("Angle sugar syntax vec2")
     func angleSugarVec2() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -489,7 +489,7 @@ struct GeometryModuleTests {
     @Test("Angle sugar syntax vec3")
     func angleSugarVec3() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -505,7 +505,7 @@ struct GeometryModuleTests {
     @Test("Angle between parallel vectors")
     func angleBetweenParallel() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -521,7 +521,7 @@ struct GeometryModuleTests {
     @Test("Angle between opposite vectors")
     func angleBetweenOpposite() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -537,7 +537,7 @@ struct GeometryModuleTests {
     @Test("Convex hull")
     func convexHull() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -558,7 +558,7 @@ struct GeometryModuleTests {
     @Test("Point in polygon")
     func pointInPolygon() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -581,7 +581,7 @@ struct GeometryModuleTests {
     @Test("In polygon modern API")
     func inPolygonModern() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -604,7 +604,7 @@ struct GeometryModuleTests {
     @Test("In polygon sugar syntax")
     func inPolygonSugar() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -627,7 +627,7 @@ struct GeometryModuleTests {
     @Test("Circle sugar syntax vec2")
     func circleSugarVec2() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -646,7 +646,7 @@ struct GeometryModuleTests {
     @Test("geo.angle alias for angle_between")
     func geoAngleAlias() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -665,7 +665,7 @@ struct GeometryModuleTests {
     @Test("vec2:angle polymorphic (no arg returns own angle)")
     func vec2AnglePolymorphic() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -688,7 +688,7 @@ struct GeometryModuleTests {
     @Test("Line intersection")
     func lineIntersection() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -706,7 +706,7 @@ struct GeometryModuleTests {
     @Test("Triangle area")
     func areaTriangle() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -722,7 +722,7 @@ struct GeometryModuleTests {
     @Test("Centroid calculation")
     func centroid() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -743,7 +743,7 @@ struct GeometryModuleTests {
     @Test("Circle from 3 points")
     func circleFrom3Points() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -763,7 +763,7 @@ struct GeometryModuleTests {
     @Test("Circle constructor with vec2")
     func circleConstructorVec2() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -782,7 +782,7 @@ struct GeometryModuleTests {
     @Test("Circle constructor with xyz")
     func circleConstructorXYZ() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -799,7 +799,7 @@ struct GeometryModuleTests {
     @Test("Circle chainable translate")
     func circleTranslate() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -816,7 +816,7 @@ struct GeometryModuleTests {
     @Test("Circle chainable scale")
     func circleScale() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -833,7 +833,7 @@ struct GeometryModuleTests {
     @Test("Circle contains point")
     func circleContains() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -853,7 +853,7 @@ struct GeometryModuleTests {
     @Test("Circle area and circumference")
     func circleAreaCircumference() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -870,7 +870,7 @@ struct GeometryModuleTests {
     @Test("Circle point_at")
     func circlePointAt() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -890,7 +890,7 @@ struct GeometryModuleTests {
     @Test("Circle bounds")
     func circleBounds() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -909,7 +909,7 @@ struct GeometryModuleTests {
     @Test("Circle from 3 points returns circle object")
     func circleFrom3PointsReturnsCircleObject() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -929,7 +929,7 @@ struct GeometryModuleTests {
     @Test("Plane from 3 points")
     func planeFrom3Points() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -950,7 +950,7 @@ struct GeometryModuleTests {
     @Test("Plane-plane intersection")
     func planePlaneIntersection() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -973,7 +973,7 @@ struct GeometryModuleTests {
     @Test("Polymorphic intersection line-line")
     func intersectionLineLine() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -991,7 +991,7 @@ struct GeometryModuleTests {
     @Test("Polymorphic intersection line-plane")
     func intersectionLinePlane() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1012,7 +1012,7 @@ struct GeometryModuleTests {
     @Test("Polymorphic intersection plane-plane")
     func intersectionPlanePlane() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1034,7 +1034,7 @@ struct GeometryModuleTests {
     @Test("Parallel planes no intersection")
     func parallelPlanesNoIntersection() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1053,7 +1053,7 @@ struct GeometryModuleTests {
     @Test("Vec2 has __luaswift_type marker")
     func vec2TypeMarker() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1067,7 +1067,7 @@ struct GeometryModuleTests {
     @Test("Vec3 has __luaswift_type marker")
     func vec3TypeMarker() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1081,7 +1081,7 @@ struct GeometryModuleTests {
     @Test("Quaternion has __luaswift_type marker")
     func quaternionTypeMarker() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1095,7 +1095,7 @@ struct GeometryModuleTests {
     @Test("Transform3D has __luaswift_type marker")
     func transform3DTypeMarker() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1111,7 +1111,7 @@ struct GeometryModuleTests {
     @Test("Vec2 to_polar method")
     func vec2ToPolar() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1128,7 +1128,7 @@ struct GeometryModuleTests {
     @Test("Vec2 to_polar at origin")
     func vec2ToPolarOrigin() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1145,7 +1145,7 @@ struct GeometryModuleTests {
     @Test("Vec2 to_polar on x-axis")
     func vec2ToPolarXAxis() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1162,7 +1162,7 @@ struct GeometryModuleTests {
     @Test("Vec2 to_polar on y-axis")
     func vec2ToPolarYAxis() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1179,7 +1179,7 @@ struct GeometryModuleTests {
     @Test("from_polar factory function")
     func fromPolar() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1195,7 +1195,7 @@ struct GeometryModuleTests {
     @Test("from_polar at 45 degrees")
     func fromPolar45Degrees() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1211,7 +1211,7 @@ struct GeometryModuleTests {
     @Test("Vec2 polar round-trip")
     func vec2PolarRoundTrip() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1229,7 +1229,7 @@ struct GeometryModuleTests {
     @Test("Vec3 to_spherical method")
     func vec3ToSpherical() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1247,7 +1247,7 @@ struct GeometryModuleTests {
     @Test("Vec3 to_spherical on x-axis")
     func vec3ToSphericalXAxis() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1265,7 +1265,7 @@ struct GeometryModuleTests {
     @Test("from_spherical factory function")
     func fromSpherical() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1282,7 +1282,7 @@ struct GeometryModuleTests {
     @Test("from_spherical at equator")
     func fromSphericalEquator() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1299,7 +1299,7 @@ struct GeometryModuleTests {
     @Test("Vec3 spherical round-trip")
     func vec3SphericalRoundTrip() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1322,7 +1322,7 @@ struct GeometryModuleTests {
     @Test("Vec3 to_cylindrical method")
     func vec3ToCylindrical() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1340,7 +1340,7 @@ struct GeometryModuleTests {
     @Test("from_cylindrical factory function")
     func fromCylindrical() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1357,7 +1357,7 @@ struct GeometryModuleTests {
     @Test("Vec3 cylindrical round-trip")
     func vec3CylindricalRoundTrip() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1380,7 +1380,7 @@ struct GeometryModuleTests {
     @Test("geo.polar_to_cart function")
     func geoPolarToCart() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1396,7 +1396,7 @@ struct GeometryModuleTests {
     @Test("geo.cart_to_polar function")
     func geoCartToPolar() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1412,7 +1412,7 @@ struct GeometryModuleTests {
     @Test("geo.spherical_to_cart function")
     func geoSphericalToCart() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1429,7 +1429,7 @@ struct GeometryModuleTests {
     @Test("geo.cart_to_spherical function")
     func geoCartToSpherical() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1451,7 +1451,7 @@ struct GeometryModuleTests {
     @Test("Polynomial constructor and evaluate")
     func polynomialConstructorEvaluate() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // p(x) = 2 + 3x + x^2 = 2 + 3(2) + 4 = 12 at x=2
         let result = try engine.evaluate("""
@@ -1469,7 +1469,7 @@ struct GeometryModuleTests {
     @Test("Polynomial degree and coefficients")
     func polynomialDegreeCoefficients() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1489,7 +1489,7 @@ struct GeometryModuleTests {
     @Test("Polynomial derivative")
     func polynomialDerivative() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // p(x) = 1 + 2x + 3x^2 → p'(x) = 2 + 6x
         let result = try engine.evaluate("""
@@ -1508,7 +1508,7 @@ struct GeometryModuleTests {
     @Test("Polynomial tostring")
     func polynomialToString() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1525,7 +1525,7 @@ struct GeometryModuleTests {
     @Test("geo.polyeval direct evaluation")
     func polyevalDirect() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // Evaluate 1 + 2x + 3x^2 at x = 2: 1 + 4 + 12 = 17
         let result = try engine.evaluate("""
@@ -1539,8 +1539,8 @@ struct GeometryModuleTests {
     @Test("polyfit linear fit exact")
     func polyfitLinearExact() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
-        LinAlgModule.register(in: engine)
+        try GeometryModule.install(in: engine)
+        try LinAlgModule.install(in: engine)
 
         // Fit a line to 3 collinear points: y = 2x + 1
         // Points: (0, 1), (1, 3), (2, 5)
@@ -1561,8 +1561,8 @@ struct GeometryModuleTests {
     @Test("polyfit quadratic fit exact")
     func polyfitQuadraticExact() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
-        LinAlgModule.register(in: engine)
+        try GeometryModule.install(in: engine)
+        try LinAlgModule.install(in: engine)
 
         // Fit quadratic to 3 points on y = x^2: (0, 0), (1, 1), (2, 4)
         let result = try engine.evaluate("""
@@ -1583,8 +1583,8 @@ struct GeometryModuleTests {
     @Test("polyfit with separate xs ys arrays")
     func polyfitSeparateArrays() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
-        LinAlgModule.register(in: engine)
+        try GeometryModule.install(in: engine)
+        try LinAlgModule.install(in: engine)
 
         // Fit y = 3x + 2 using separate arrays
         let result = try engine.evaluate("""
@@ -1603,8 +1603,8 @@ struct GeometryModuleTests {
     @Test("polyfit evaluates fitted polynomial at original points")
     func polyfitEvaluateOriginalPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
-        LinAlgModule.register(in: engine)
+        try GeometryModule.install(in: engine)
+        try LinAlgModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1626,7 +1626,7 @@ struct GeometryModuleTests {
     @Test("polynomial roots for quadratic")
     func polynomialRootsQuadratic() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // p(x) = x^2 - 3x + 2 = (x-1)(x-2), roots at x=1 and x=2
         let result = try engine.evaluate("""
@@ -1647,7 +1647,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline interpolates through all knots exactly")
     func cubicSplineInterpolatesKnots() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1671,7 +1671,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline with two separate arrays")
     func cubicSplineTwoArrays() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1696,7 +1696,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline smooth interpolation between knots")
     func cubicSplineInterpolation() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // For y = x^2 sampled at points, the cubic spline should
         // closely approximate the true function between knots
@@ -1725,7 +1725,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline natural boundary conditions")
     func cubicSplineNaturalBoundary() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // Natural cubic spline has S''(x_0) = 0 and S''(x_n) = 0
         let result = try engine.evaluate("""
@@ -1748,7 +1748,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline derivative is continuous")
     func cubicSplineDerivativeContinuous() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // First derivative should be continuous at knots
         let result = try engine.evaluate("""
@@ -1777,7 +1777,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline domain method")
     func cubicSplineDomain() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1795,7 +1795,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline knots and values accessors")
     func cubicSplineKnotsValues() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1818,7 +1818,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline segments count")
     func cubicSplineSegments() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1833,7 +1833,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline tostring representation")
     func cubicSplineTostring() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1850,7 +1850,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline evaluate_array batch evaluation")
     func cubicSplineEvaluateArray() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1871,7 +1871,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline with two points gives linear interpolation")
     func cubicSplineTwoPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1895,7 +1895,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline extrapolates outside domain")
     func cubicSplineExtrapolation() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // Extrapolation should use endpoint segments
         let result = try engine.evaluate("""
@@ -1918,7 +1918,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline with clamped bc_type delegates to InterpolateModule")
     func cubicSplineClampedBC() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         // Clamped boundary conditions with zero end derivatives
         let result = try engine.evaluate("""
@@ -1944,7 +1944,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline with not-a-knot bc_type delegates to InterpolateModule")
     func cubicSplineNotAKnotBC() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         // not-a-knot is scipy's default - third derivative continuous at 2nd/2nd-last knots
         let result = try engine.evaluate("""
@@ -1973,7 +1973,7 @@ struct GeometryModuleTests {
     @Test("cubic_spline bc_type with separate x,y arrays")
     func cubicSplineBCWithSeparateArrays() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installModules(in: engine)
+        try ModuleRegistry.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -1997,7 +1997,7 @@ struct GeometryModuleTests {
     @Test("bspline degree 1 is piecewise linear")
     func bsplineDegree1Linear() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // Degree 1 B-spline with 3 control points should be piecewise linear
         let result = try engine.evaluate("""
@@ -2027,7 +2027,7 @@ struct GeometryModuleTests {
     @Test("bspline basis functions sum to 1 (partition of unity)")
     func bsplineBasisPartitionOfUnity() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2056,7 +2056,7 @@ struct GeometryModuleTests {
     @Test("bspline cubic with 4 control points")
     func bsplineCubic4Points() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // Cubic B-spline with 4 control points is a single Bezier curve
         let result = try engine.evaluate("""
@@ -2087,7 +2087,7 @@ struct GeometryModuleTests {
     @Test("bspline sample generates points")
     func bsplineSample() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2120,7 +2120,7 @@ struct GeometryModuleTests {
     @Test("bspline 3D curve")
     func bspline3D() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2155,7 +2155,7 @@ struct GeometryModuleTests {
     @Test("bspline derivative")
     func bsplineDerivative() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // For linear B-spline, derivative should be constant within each segment
         let result = try engine.evaluate("""
@@ -2178,7 +2178,7 @@ struct GeometryModuleTests {
     @Test("bspline domain method")
     func bsplineDomain() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2201,7 +2201,7 @@ struct GeometryModuleTests {
     @Test("bspline control_points accessor")
     func bsplineControlPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2222,7 +2222,7 @@ struct GeometryModuleTests {
     @Test("bspline tostring representation")
     func bsplineTostring() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2240,7 +2240,7 @@ struct GeometryModuleTests {
     @Test("bspline_uniform_knots generates correct size")
     func bsplineUniformKnots() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2261,7 +2261,7 @@ struct GeometryModuleTests {
     @Test("bspline_fit 2D points with cubic spline")
     func bsplineFit2DCubic() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         // Generate points along a sine curve
         let result = try engine.evaluate("""
@@ -2300,7 +2300,7 @@ struct GeometryModuleTests {
     @Test("bspline_fit 3D helix curve")
     func bsplineFit3DHelix() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2338,7 +2338,7 @@ struct GeometryModuleTests {
     @Test("bspline_fit linear degree reproduces line")
     func bsplineFitLinear() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2366,7 +2366,7 @@ struct GeometryModuleTests {
     @Test("bspline_fit with uniform parameterization")
     func bsplineFitUniformParam() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2392,7 +2392,7 @@ struct GeometryModuleTests {
     @Test("circle_fit exact points recovers original circle")
     func circleFitExactPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2417,7 +2417,7 @@ struct GeometryModuleTests {
     @Test("circle_fit with noisy points gives approximate result")
     func circleFitNoisyPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2449,7 +2449,7 @@ struct GeometryModuleTests {
     @Test("circle_fit taubin method")
     func circleFitTaubin() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2473,7 +2473,7 @@ struct GeometryModuleTests {
     @Test("circle_fit collinear points returns nil")
     func circleFitCollinear() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2493,7 +2493,7 @@ struct GeometryModuleTests {
     @Test("circle_fit residuals method")
     func circleFitResiduals() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2520,7 +2520,7 @@ struct GeometryModuleTests {
     @Test("circle_fit fit_points method")
     func circleFitFitPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2546,7 +2546,7 @@ struct GeometryModuleTests {
     @Test("circle_fit algebraic vs taubin comparison")
     func circleFitMethodComparison() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2578,7 +2578,7 @@ struct GeometryModuleTests {
     @Test("circle_fit with array-style points")
     func circleFitArrayPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2602,7 +2602,7 @@ struct GeometryModuleTests {
     @Test("circle_fit with minimum 3 points")
     func circleFitMinPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2626,7 +2626,7 @@ struct GeometryModuleTests {
     @Test("circle_fit fitted circle inherits circle methods")
     func circleFitInheritsMethods() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2658,7 +2658,7 @@ struct GeometryModuleTests {
     @Test("ellipse constructor with center vec2")
     func ellipseConstructorVec2() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2677,7 +2677,7 @@ struct GeometryModuleTests {
     @Test("ellipse constructor with coordinates")
     func ellipseConstructorCoords() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2696,7 +2696,7 @@ struct GeometryModuleTests {
     @Test("ellipse area and circumference")
     func ellipseAreaCircumference() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2714,7 +2714,7 @@ struct GeometryModuleTests {
     @Test("ellipse contains point")
     func ellipseContains() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2732,7 +2732,7 @@ struct GeometryModuleTests {
     @Test("ellipse eccentricity")
     func ellipseEccentricity() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2747,7 +2747,7 @@ struct GeometryModuleTests {
     @Test("ellipse point_at generates points on ellipse")
     func ellipsePointAt() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2767,7 +2767,7 @@ struct GeometryModuleTests {
     @Test("ellipse foci")
     func ellipseFoci() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2787,7 +2787,7 @@ struct GeometryModuleTests {
     @Test("ellipse tostring")
     func ellipseTostring() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2804,7 +2804,7 @@ struct GeometryModuleTests {
     @Test("ellipse_fit exact points recovers original ellipse")
     func ellipseFitExactPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2839,7 +2839,7 @@ struct GeometryModuleTests {
     @Test("ellipse_fit with rotated ellipse")
     func ellipseFitRotated() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2873,7 +2873,7 @@ struct GeometryModuleTests {
     @Test("ellipse_fit with circle returns equal semi-axes")
     func ellipseFitCircle() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2905,7 +2905,7 @@ struct GeometryModuleTests {
     @Test("ellipse_fit with collinear points returns nil")
     func ellipseFitCollinear() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2924,7 +2924,7 @@ struct GeometryModuleTests {
     @Test("ellipse to_conic conversion")
     func ellipseToConic() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2948,7 +2948,7 @@ struct GeometryModuleTests {
     @Test("ellipse chainable transformations")
     func ellipseChainable() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2976,7 +2976,7 @@ struct GeometryModuleTests {
     @Test("sphere constructor with center vec3")
     func sphereConstructorWithVec3() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -2995,7 +2995,7 @@ struct GeometryModuleTests {
     @Test("sphere constructor with coordinates")
     func sphereConstructorWithCoordinates() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3013,7 +3013,7 @@ struct GeometryModuleTests {
     @Test("sphere volume and surface area")
     func sphereVolumeAndSurfaceArea() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3031,7 +3031,7 @@ struct GeometryModuleTests {
     @Test("sphere contains point")
     func sphereContainsPoint() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3051,7 +3051,7 @@ struct GeometryModuleTests {
     @Test("sphere point_at generates points on sphere")
     func spherePointAt() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3080,7 +3080,7 @@ struct GeometryModuleTests {
     @Test("sphere_fit exact points recovers original sphere")
     func sphereFitExactPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3111,7 +3111,7 @@ struct GeometryModuleTests {
     @Test("sphere_fit with noisy points")
     func sphereFitNoisyPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3144,7 +3144,7 @@ struct GeometryModuleTests {
     @Test("sphere_fit with coplanar points returns nil")
     func sphereFitCoplanarPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3166,7 +3166,7 @@ struct GeometryModuleTests {
     @Test("sphere_fit with too few points returns nil")
     func sphereFitTooFewPoints() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3185,7 +3185,7 @@ struct GeometryModuleTests {
     @Test("sphere_from_4_points returns proper sphere object")
     func sphereFrom4PointsReturnsSphereObject() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3214,7 +3214,7 @@ struct GeometryModuleTests {
     @Test("sphere translate")
     func sphereTranslate() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3238,7 +3238,7 @@ struct GeometryModuleTests {
     @Test("sphere scale")
     func sphereScale() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3255,7 +3255,7 @@ struct GeometryModuleTests {
     @Test("sphere bounds")
     func sphereBounds() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3276,7 +3276,7 @@ struct GeometryModuleTests {
     @Test("sphere distance to point")
     func sphereDistanceToPoint() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3296,7 +3296,7 @@ struct GeometryModuleTests {
     @Test("sphere clone")
     func sphereClone() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3323,8 +3323,8 @@ struct GeometryModuleTests {
     @Test("geo.fit with 'line' fits linear polynomial")
     func geoFitLine() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
-        ModuleRegistry.installLinAlgModule(in: engine)  // Required for polyfit
+        try GeometryModule.install(in: engine)
+        try LinAlgModule.install(in: engine)  // Required for polyfit
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3349,8 +3349,8 @@ struct GeometryModuleTests {
     @Test("geo.fit with 'polynomial' and degree option")
     func geoFitPolynomial() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
-        ModuleRegistry.installLinAlgModule(in: engine)  // Required for polyfit
+        try GeometryModule.install(in: engine)
+        try LinAlgModule.install(in: engine)  // Required for polyfit
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3374,7 +3374,7 @@ struct GeometryModuleTests {
     @Test("geo.fit with 'circle'")
     func geoFitCircle() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3397,7 +3397,7 @@ struct GeometryModuleTests {
     @Test("geo.fit with 'ellipse'")
     func geoFitEllipse() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3425,7 +3425,7 @@ struct GeometryModuleTests {
     @Test("geo.fit with 'sphere'")
     func geoFitSphere() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3451,7 +3451,7 @@ struct GeometryModuleTests {
     @Test("geo.fit with 'spline' creates cubic spline")
     func geoFitSpline() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3476,7 +3476,7 @@ struct GeometryModuleTests {
     @Test("geo.fit with 'bspline' creates B-spline")
     func geoFitBspline() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry
@@ -3503,7 +3503,7 @@ struct GeometryModuleTests {
     @Test("geo.fit with unknown shape throws error")
     func geoFitUnknownShape() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
+        try GeometryModule.install(in: engine)
 
         do {
             _ = try engine.evaluate("""
@@ -3521,8 +3521,8 @@ struct GeometryModuleTests {
     @Test("geo.fit aliases work correctly")
     func geoFitAliases() throws {
         let engine = try LuaEngine()
-        ModuleRegistry.installGeometryModule(in: engine)
-        ModuleRegistry.installLinAlgModule(in: engine)  // Required for polyfit
+        try GeometryModule.install(in: engine)
+        try LinAlgModule.install(in: engine)  // Required for polyfit
 
         let result = try engine.evaluate("""
             local geo = luaswift.geometry

@@ -65,6 +65,14 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
+        // Capture the entry stack top. callLuaFunction is designed to be called
+        // re-entrantly from inside a Swift callback (see the `map` example above),
+        // where the recursive lock is already held and the callback's C-stack
+        // window is non-empty. All stack discipline below is therefore relative
+        // to this base, not absolute — the post-call cleanliness check compares
+        // against `entryTop`, not 0.
+        let entryTop = lua_gettop(L)
+
         // Reset per-run state so a prior cancel/limit or structured-error stash
         // does not persist into this call.
         abortReason.store(AbortReason.none, ordering: .releasing)
@@ -107,8 +115,9 @@ extension LuaEngine {
             lua_pop(L, 1)
 
             #if DEBUG
-            assert(lua_gettop(L) == 0,
-                "Stack not clean after callLuaFunction abort: top=\(lua_gettop(L))")
+            assert(lua_gettop(L) == entryTop,
+                "Stack not restored to entry base after callLuaFunction abort: "
+                + "top=\(lua_gettop(L)), entryTop=\(entryTop)")
             #endif
 
             // Classify via errorFromCode (reads abortReason first, then stash).

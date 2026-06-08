@@ -355,6 +355,49 @@ final class LuaCallbackTests: XCTestCase {
         XCTAssertEqual(result.numberValue, 42, "Should call Lua function and return doubled value")
     }
 
+    /// Regression: a re-entrant `callLuaFunction` whose inner Lua function
+    /// errors must surface the error as a thrown `LuaError`, not trip the
+    /// debug-build stack-cleanliness assert. The outer call enters from a
+    /// Swift callback that received an argument, so the callback's C-stack
+    /// window is non-empty (top != 0); the assert must compare against the
+    /// entry base, not 0. Before the fix this aborted the process in DEBUG.
+    func testCallLuaFunctionReentrantErrorDoesNotTripAssert() throws {
+        let engine = try LuaEngine()
+
+        // The callback receives a function AND a number (window top == 2),
+        // then re-enters callLuaFunction with a function that raises an error.
+        engine.registerFunction(name: "applyOrFail") { args in
+            guard case .luaFunction(let ref) = args.first else {
+                throw LuaError.callbackError("Expected function")
+            }
+            defer { engine.releaseLuaFunction(ref: ref) }
+            // Propagates the inner Lua runtime error back out.
+            return try engine.callLuaFunction(ref: ref, args: [.number(7)])
+        }
+
+        XCTAssertThrowsError(
+            try engine.evaluate("""
+                return applyOrFail(function(x) error("inner boom: " .. x) end, 99)
+            """),
+            "Re-entrant callLuaFunction error must throw, not crash"
+        ) { error in
+            guard let luaError = error as? LuaError else {
+                return XCTFail("Expected LuaError, got \(error)")
+            }
+            // The host should see a real runtime failure carrying the message,
+            // not a cancellation/limit misclassification.
+            let described = "\(luaError)"
+            XCTAssertTrue(
+                described.contains("inner boom"),
+                "Error should carry the inner Lua message, got: \(described)"
+            )
+        }
+
+        // Engine must remain usable after the re-entrant error.
+        let after = try engine.evaluate("return 1 + 1")
+        XCTAssertEqual(after.numberValue, 2, "Engine should still work after re-entrant error")
+    }
+
     func testReleaseLuaFunction() throws {
         let engine = try LuaEngine()
 

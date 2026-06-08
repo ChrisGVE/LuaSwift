@@ -35,27 +35,16 @@
 //  Neighbors:
 //    LuaEngine+Debug.swift          — public API; runDebug arms the hook
 //    LuaEngine+DebugStepping.swift  — dispatchDebugEvent creates the inspector
-//    LuaEngine+Introspection.swift  — pushGlobalsTable (mirrored locally)
+//    LuaEngine+Introspection.swift  — pushGlobalsTable (shared internal helper)
 //
 
 import Foundation
 import CLua
 
-// MARK: - Globals Table Push (local helper for inspector)
-
-/// Push the engine's globals table onto the Lua stack.
-/// Mirrors `pushGlobalsTable` in LuaEngine+Introspection.swift but is
-/// file-private here to avoid a cross-file dependency on an internal helper.
-@inline(__always)
-private func pushGlobalsTableForDebug(_ L: OpaquePointer) {
-    #if LUA_VERSION_51
-    lua_pushvalue(L, LUA_GLOBALSINDEX)
-    #else
-    _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(LUA_RIDX_GLOBALS))
-    #endif
-}
-
 // MARK: - Debug Inspector Implementation
+// The globals-table push helper (`pushGlobalsTable`) lives in
+// LuaEngine+Introspection.swift and is shared `internal`; this file uses it
+// directly instead of mirroring it.
 
 /// Concrete implementation of ``LuaDebugInspector``.
 ///
@@ -157,7 +146,7 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
         guard valid else { return [] }
         var result: [(name: String, value: LuaInspectedValue)] = []
 
-        pushGlobalsTableForDebug(L)
+        pushGlobalsTable(L)
         let globalsIdx = lua_gettop(L)
 
         var truncated = false

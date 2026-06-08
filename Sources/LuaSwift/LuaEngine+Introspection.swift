@@ -69,9 +69,13 @@ import CLua
 /// we always enumerate the canonical globals table regardless of whether a
 /// chunk has rebound `_ENV`.
 ///
+/// `internal` (not file-private) so the debug inspector
+/// (`LuaEngine+DebugInspector.swift`) shares this single definition rather than
+/// mirroring it.
+///
 /// - Parameter L: A valid Lua state.
 @inline(__always)
-private func pushGlobalsTable(_ L: OpaquePointer) {
+internal func pushGlobalsTable(_ L: OpaquePointer) {
     #if LUA_VERSION_51
     lua_pushvalue(L, LUA_GLOBALSINDEX)
     #else

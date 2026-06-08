@@ -139,24 +139,32 @@ internal func dispatchDebugEvent(
 
     guard isLine || isCall || isTail || isRet else { return }
 
-    // Compute live stack depth for stepping decisions (and to set fromLevel).
-    let currentLevel = currentStackLevel(L)
-
+    // For LINE events the step filter needs the live stack depth; compute it
+    // lazily so the O(depth) lua_getstack walk is NOT performed on CALL/RET
+    // events that hit the stepState != nil early-return below (CR-109).
     if isLine {
+        let currentLevel = currentStackLevel(L)
         // LINE: apply step filter — may skip this event entirely.
         guard shouldPauseForStep(event: rawEvent, currentLevel: currentLevel,
                                  state: engine.stepState) else { return }
+        // Populate the debug record with source/line/name info.
+        guard lua_getinfo(L, "nSl", ar) != 0 else { return }
+        let event = buildDebugEvent(ar: ar, isLine: true, isCall: false, isTail: false)
+        processDebugPause(L: L, ar: ar, engine: engine, event: event, currentLevel: currentLevel)
     } else {
         // CALL/RET: pause only in breakpoint mode (stepState == nil).
         // In step mode, stepping decisions are always LINE-based.
+        // currentStackLevel is computed only after confirming we will pause
+        // (stepState == nil), avoiding an unnecessary O(depth) walk on every
+        // CALL/RET event while a step command is active.
         guard engine.stepState == nil else { return }
+        let currentLevel = currentStackLevel(L)
+        // Populate the debug record with source/line/name info.
+        guard lua_getinfo(L, "nSl", ar) != 0 else { return }
+        let event = buildDebugEvent(ar: ar, isLine: false,
+                                    isCall: isCall || isTail, isTail: isTail)
+        processDebugPause(L: L, ar: ar, engine: engine, event: event, currentLevel: currentLevel)
     }
-
-    // Populate the debug record with source/line/name info.
-    guard lua_getinfo(L, "nSl", ar) != 0 else { return }
-
-    let event = buildDebugEvent(ar: ar, isLine: isLine, isCall: isCall, isTail: isTail)
-    processDebugPause(L: L, ar: ar, engine: engine, event: event, currentLevel: currentLevel)
 }
 
 // MARK: - dispatchDebugEvent private helpers

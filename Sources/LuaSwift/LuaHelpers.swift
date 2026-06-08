@@ -439,12 +439,54 @@ func luaL_openlibs(_ L: OpaquePointer?) {
     #endif
 }
 
+/// Load a Lua source chunk with an explicit name parameter (Swift wrapper).
+///
+/// `luaL_loadbuffer` is a C macro defined as
+/// `luaL_loadbufferx(L,s,sz,n,NULL)` and cannot be imported into Swift
+/// directly. This wrapper expands it for source text (mode = nil / "t")
+/// across all supported Lua versions (5.1–5.5).
+///
+/// - Parameters:
+///   - L: Lua state.
+///   - buf: Pointer to the source bytes.
+///   - sz: Byte count of the source.
+///   - name: Chunk name for error messages and tracebacks. Follows Lua's
+///     prefix conventions: `@name` for file-like tail-truncation,
+///     `=name` for verbatim head-truncation, bare for source-snippet form.
+/// - Returns: Lua status code (`LUA_OK` on success).
+@inline(__always)
+func luaL_loadbuffer_source(
+    _ L: OpaquePointer?,
+    _ buf: UnsafePointer<CChar>,
+    _ sz: Int,
+    _ name: UnsafePointer<CChar>
+) -> Int32 {
+    // On Lua 5.1, luaL_loadbuffer is a real function (not a macro).
+    // On 5.2–5.5, luaL_loadbufferx is the underlying function;
+    // passing NULL as mode tells the loader to accept both text and binary,
+    // which matches what the macro expansion does.
+    #if LUA_VERSION_51
+    return CLua.luaL_loadbuffer(L, buf, sz, name)
+    #else
+    return luaL_loadbufferx(L, buf, sz, name, nil)
+    #endif
+}
+
 /// Load and run a string (replaces luaL_dostring macro)
-/// Returns 0 on success, non-zero on error
+///
+/// Passes the source string as its own chunk name — exactly equivalent to
+/// `luaL_loadstring` (which is defined as `luaL_loadbuffer(L,s,strlen(s),s)`).
+/// This preserves the `[string "…"]` traceback form that internal callers
+/// rely on.
+///
+/// - Returns: 0 on success, non-zero on error.
 @inline(__always)
 @discardableResult
 func luaL_dostring(_ L: OpaquePointer?, _ s: String) -> Int32 {
-    let loadResult = luaL_loadstring(L, s)
+    // Pass the source as its own name — same as luaL_loadstring.
+    let loadResult = s.withCString { codeCStr in
+        luaL_loadbuffer_source(L, codeCStr, s.utf8.count, codeCStr)
+    }
     if loadResult != 0 {
         return loadResult
     }

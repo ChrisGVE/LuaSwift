@@ -105,10 +105,21 @@ extension LuaEngine {
     /// Use this when you don't need the return value. Any return values
     /// from the Lua code are discarded.
     ///
-    /// - Parameter code: The Lua code to execute
+    /// - Parameters:
+    ///   - code: The Lua source code to execute.
+    ///   - chunkName: An optional name for this chunk, used in error messages
+    ///     and tracebacks instead of a truncated snippet of the source.
+    ///     When provided, LuaSwift passes `"@" + chunkName` to `luaL_loadbuffer`
+    ///     so that Lua's `short_src` uses the `@`-prefix truncation rule: names
+    ///     up to `LUA_IDSIZE` (60 bytes) appear verbatim; longer names are
+    ///     truncated from the **head**, showing `"…"` followed by the tail. This
+    ///     preserves the most-specific path component — ideal for names such as
+    ///     `"config.yaml:$.scripts.init"`. When `nil`, the source text itself is
+    ///     used as the name (replicating `luaL_loadstring` exactly), which
+    ///     produces the familiar `[string "..."]` traceback form.
     /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
     ///   ``requestCancellation()`` was called from another thread during execution
-    public func run(_ code: String) throws {
+    public func run(_ code: String, chunkName: String? = nil) throws {
         lock.lock()
         defer { lock.unlock() }
 
@@ -124,8 +135,12 @@ extension LuaEngine {
         // Clear any previous write error
         lastWriteError = nil
 
-        // Load the code
-        let loadResult = luaL_loadstring(L, code)
+        // Load the code.
+        // When chunkName is nil we pass the source string as the name — that is
+        // exactly what luaL_loadstring does (luaL_loadstring(L,s) == luaL_loadbuffer(L,s,len,s)).
+        // When chunkName is provided we prefix it with "@" so Lua applies tail
+        // truncation in short_src rather than head truncation.
+        let loadResult = loadSourceChunk(L, code: code, chunkName: chunkName)
         if loadResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
@@ -161,11 +176,15 @@ extension LuaEngine {
 
     /// Execute Lua code and return the result.
     ///
-    /// - Parameter code: The Lua code to execute
+    /// - Parameters:
+    ///   - code: The Lua source code to execute.
+    ///   - chunkName: An optional name for this chunk, used in error messages
+    ///     and tracebacks. See ``run(_:chunkName:)`` for the full name-prefix
+    ///     convention and `LUA_IDSIZE` truncation behavior.
     /// - Returns: The result of the execution as a `LuaValue`
     /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
     ///   ``requestCancellation()`` was called from another thread during execution
-    public func evaluate(_ code: String) throws -> LuaValue {
+    public func evaluate(_ code: String, chunkName: String? = nil) throws -> LuaValue {
         lock.lock()
         defer { lock.unlock() }
 
@@ -180,8 +199,8 @@ extension LuaEngine {
         // Clear any previous write error
         lastWriteError = nil
 
-        // Load the code
-        let loadResult = luaL_loadstring(L, code)
+        // Load the code — same name-mapping convention as run(_:chunkName:).
+        let loadResult = loadSourceChunk(L, code: code, chunkName: chunkName)
         if loadResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
@@ -216,6 +235,48 @@ extension LuaEngine {
         let result = valueFromStack(at: -1)
         lua_pop(L, 1)
         return result
+    }
+
+    /// Load a Lua source string onto the stack, applying the chunk-name
+    /// convention used throughout LuaSwift.
+    ///
+    /// **Name-prefix rule (implements issue #23):**
+    /// - `chunkName == nil` → pass the source string itself as the name,
+    ///   replicating `luaL_loadstring` exactly. Tracebacks show
+    ///   `[string "…"]`, preserving pre-#23 behavior byte-for-byte.
+    /// - `chunkName != nil` → pass `"@" + chunkName`. Lua's `@` prefix
+    ///   directs `short_src` to apply tail truncation when the name exceeds
+    ///   `LUA_IDSIZE` (60 bytes): names that fit appear verbatim; longer
+    ///   names show `"…"` + the tail. This keeps the most-specific path
+    ///   component visible — correct for `FragmentProvenance.displayName`
+    ///   style names. The alternative prefix `=` would truncate from the
+    ///   head instead, losing specificity.
+    ///
+    /// internal: shared by run(_:chunkName:), evaluate(_:chunkName:), and
+    /// the coroutine load path in LuaEngine+Coroutines.swift.
+    ///
+    /// - Parameters:
+    ///   - L: The Lua state to load into.
+    ///   - code: Lua source text.
+    ///   - chunkName: Caller-supplied chunk name, or nil for default behavior.
+    /// - Returns: Lua status code (`LUA_OK` on success).
+    @discardableResult
+    internal func loadSourceChunk(
+        _ L: OpaquePointer,
+        code: String,
+        chunkName: String?
+    ) -> Int32 {
+        // Use luaL_loadbuffer_source (LuaHelpers.swift) — the Swift wrapper
+        // for the luaL_loadbuffer macro — so we can supply an explicit name.
+        // luaL_loadstring is equivalent to:
+        //   luaL_loadbuffer(L, s, strlen(s), s)
+        // so passing the source as name reproduces that behavior exactly.
+        let name = chunkName.map { "@" + $0 } ?? code
+        return code.withCString { codeCStr in
+            name.withCString { nameCStr in
+                luaL_loadbuffer_source(L, codeCStr, code.utf8.count, nameCStr)
+            }
+        }
     }
 
     // MARK: - Random Seeding

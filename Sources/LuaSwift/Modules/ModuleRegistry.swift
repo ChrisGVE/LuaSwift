@@ -97,10 +97,14 @@ public struct ModuleRegistry {
     var unavailable: Set<String> = []
 
     /// Run one module installation, recording (not propagating) its failure
-    /// so the remaining modules still get installed.
+    /// so the remaining modules still get installed. On success, the module
+    /// name is recorded in ``LuaEngine/installedModules`` for introspection
+    /// (F4 / #21).
     func collectFailure(_ moduleName: String, _ installModule: () throws -> Void) {
       do {
         try installModule()
+        // SUCCESS PATH: record the installed module name for introspection.
+        engine.installedModules.insert(moduleName)
       } catch {
         failures.append(.init(module: moduleName, underlyingError: error))
         unavailable.insert(moduleName)

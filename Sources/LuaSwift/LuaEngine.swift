@@ -227,6 +227,29 @@ public final class LuaEngine {
     /// internal: written by the errfunc handler, read+cleared by errorFromCode
     internal var pendingRuntimeFailure: LuaRuntimeFailure?
 
+    // MARK: - Introspection Bookkeeping (#21)
+
+    /// Names of modules successfully installed via ``ModuleRegistry/install(in:)``
+    /// (or individual ``LuaSwiftModule/install(in:)`` calls that call
+    /// ``recordInstalledModule(_:)``). Populated on every successful install;
+    /// returned by ``installedModuleNames``.
+    ///
+    /// internal: written by ModuleRegistry.install and recordInstalledModule;
+    /// read by the installedModuleNames property under lock.
+    internal var installedModules: Set<String> = []
+
+    /// Snapshot of the raw global key set taken at the very end of
+    /// ``init(configuration:)`` — after the standard library is opened, all
+    /// modules are installed, and sandbox is applied, but before any user code
+    /// runs. Used by ``globalNames(includingStandardLibrary:)`` to distinguish
+    /// engine-baseline globals from user-defined ones.
+    ///
+    /// The snapshot uses the same raw ``lua_next`` walk as the introspection
+    /// methods — safe at init time because no run is active.
+    ///
+    /// internal: written once at end of init; read by globalNames under lock.
+    internal var baselineGlobalNames: Set<String> = []
+
     /// Allocation-accounting box passed as `ud` to the custom `lua_Alloc`
     /// function when ``LuaEngineConfiguration/vmMemoryLimit`` is set.
     /// `nil` when the limit is disabled (state created via `luaL_newstate`).
@@ -413,6 +436,12 @@ public final class LuaEngine {
         if let packagePath = configuration.packagePath {
             setPackagePath(packagePath)
         }
+
+        // Snapshot the baseline global key set for includingStandardLibrary
+        // filtering (F4 / #21). This must come last — after stdlib open, sandbox
+        // application, and any future init-time module installs — so that the
+        // snapshot reflects exactly what the engine exposes before user code runs.
+        baselineGlobalNames = rawGlobalKeySet(on: state)
     }
 
     deinit {

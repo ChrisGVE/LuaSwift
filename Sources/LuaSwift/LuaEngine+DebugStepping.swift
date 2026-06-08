@@ -228,7 +228,7 @@ private func processDebugPause(
     case .stop:
         // Reuse the F1 cancellation unwind — identical path as
         // requestCancellation() firing in the compositor hook.
-        engine.abortReason.store(1, ordering: .releasing)
+        engine.abortReason.store(AbortReason.cancelled, ordering: .releasing)
         lua_pushstring(L, cancelledSentinel)
         _ = lua_error(L)
         // lua_error does not return (longjmp to pcall boundary).

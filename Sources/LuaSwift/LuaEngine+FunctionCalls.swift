@@ -67,7 +67,7 @@ extension LuaEngine {
 
         // Reset per-run state so a prior cancel/limit or structured-error stash
         // does not persist into this call.
-        abortReason.store(0, ordering: .releasing)
+        abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
         pendingRuntimeFailure = nil
 

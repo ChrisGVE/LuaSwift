@@ -24,6 +24,22 @@ import Atomics
 import Foundation
 import CLua
 
+// MARK: - Abort Reason Constants (CR-108)
+
+/// Named constants for the ``LuaEngine/abortReason`` atomic field.
+///
+/// Using named constants eliminates bare `0`/`1`/`2` literals across
+/// +CompositorHook, +Execution, and +Coroutines and makes every comparison
+/// self-documenting.
+internal enum AbortReason {
+    /// No abort in progress.
+    static let none:                  UInt8 = 0
+    /// Abort caused by ``LuaEngine/requestCancellation()``.
+    static let cancelled:             UInt8 = 1
+    /// Abort caused by exceeding ``LuaEngine/setInstructionLimit(_:)``.
+    static let instructionLimitExceeded: UInt8 = 2
+}
+
 // MARK: - Sentinel Constants
 
 /// Internal marker raised by the compositor hook for a cancel abort.
@@ -71,7 +87,7 @@ internal func compositorHookCallback(
     // Check here first — even during a debug session, a cancel issued via
     // requestCancellation() while NOT paused must be honoured.
     if engine.cancellationRequested.load(ordering: .acquiring) {
-        engine.abortReason.store(1, ordering: .releasing)
+        engine.abortReason.store(AbortReason.cancelled, ordering: .releasing)
         lua_pushstring(L, cancelledSentinel)
         _ = lua_error(L)
         return  // unreachable; lua_error does not return
@@ -84,7 +100,7 @@ internal func compositorHookCallback(
         engine.instructionAccumulator += engine.armedHookCount
         if engine.instructionLimit > 0,
            engine.instructionAccumulator >= engine.instructionLimit {
-            engine.abortReason.store(2, ordering: .releasing)
+            engine.abortReason.store(AbortReason.instructionLimitExceeded, ordering: .releasing)
             lua_pushstring(L, instructionLimitSentinel)
             _ = lua_error(L)
             return  // unreachable

@@ -138,7 +138,7 @@ extension LuaEngine {
 
         // Reset per-run state. abortReason, accumulator, and structured-error
         // stash must be clean so stale values from a prior run cannot fire spuriously.
-        abortReason.store(0, ordering: .releasing)
+        abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
         pendingRuntimeFailure = nil
 
@@ -226,7 +226,7 @@ extension LuaEngine {
         }
 
         // Reset per-run state (same reasoning as run(_:) above)
-        abortReason.store(0, ordering: .releasing)
+        abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
         pendingRuntimeFailure = nil
 
@@ -358,15 +358,22 @@ extension LuaEngine {
     internal func errorFromCode(_ code: Int32, message: String) -> LuaError {
         // Step 1: Out-of-band reason set by the compositor hook — authoritative.
         let reason = abortReason.load(ordering: .acquiring)
-        if reason == 1 { return .cancelled }
-        if reason == 2 { return .instructionLimitExceeded }
+        if reason == AbortReason.cancelled { return .cancelled }
+        if reason == AbortReason.instructionLimitExceeded { return .instructionLimitExceeded }
 
-        // Step 2: Belt-and-suspenders sentinel matching.
-        if code == LUA_ERRRUN && message.contains(instructionLimitSentinel) {
-            return .instructionLimitExceeded
-        }
-        if code == LUA_ERRRUN && message.contains(cancelledSentinel) {
-            return .cancelled
+        // Step 2: Belt-and-suspenders sentinel matching — only when the hook DID
+        // set an abort reason (abortReason != none). This gates the string-fallback
+        // behind the atomic, preventing untrusted Lua from manufacturing
+        // .cancelled/.instructionLimitExceeded by calling error() with a sentinel
+        // string (CR-102). abortReason is reset to .none at every run entry point,
+        // so this branch is only reachable after a genuine hook-triggered abort.
+        if reason != AbortReason.none && code == LUA_ERRRUN {
+            if message.contains(instructionLimitSentinel) {
+                return .instructionLimitExceeded
+            }
+            if message.contains(cancelledSentinel) {
+                return .cancelled
+            }
         }
 
         // Step 3: Structured error captured by the errfunc handler (#19).

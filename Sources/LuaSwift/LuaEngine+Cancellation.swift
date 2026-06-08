@@ -67,7 +67,7 @@ extension LuaEngine {
     /// the result of the cancelled run.
     public func resetCancellation() {
         cancellationRequested.store(false, ordering: .releasing)
-        abortReason.store(0, ordering: .releasing)
+        abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
     }
 }

@@ -125,7 +125,7 @@ extension LuaEngine {
         let thread = handle.threadPointer
 
         // Reset per-run state so a prior cancel/limit abort does not persist.
-        abortReason.store(0, ordering: .releasing)
+        abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
 
         // Push values onto the thread's stack
@@ -172,15 +172,19 @@ extension LuaEngine {
             lua_pop(thread, 1)
 
             let reason = abortReason.load(ordering: .acquiring)
-            if reason == 1 { return .error(.cancelled) }
-            if reason == 2 { return .error(.instructionLimitExceeded) }
+            if reason == AbortReason.cancelled { return .error(.cancelled) }
+            if reason == AbortReason.instructionLimitExceeded { return .error(.instructionLimitExceeded) }
 
-            // Belt-and-suspenders sentinel matching
-            if message.contains(cancelledSentinel) {
-                return .error(.cancelled)
-            }
-            if message.contains(instructionLimitSentinel) {
-                return .error(.instructionLimitExceeded)
+            // Belt-and-suspenders sentinel matching — gated behind abortReason != .none
+            // so an untrusted coroutine calling error("__luaswift_cancelled__") does not
+            // manufacture a spurious .cancelled (same guard as errorFromCode in +Execution).
+            if reason != AbortReason.none {
+                if message.contains(cancelledSentinel) {
+                    return .error(.cancelled)
+                }
+                if message.contains(instructionLimitSentinel) {
+                    return .error(.instructionLimitExceeded)
+                }
             }
             return .error(LuaError.coroutineError(message))
         }

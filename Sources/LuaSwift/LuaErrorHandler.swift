@@ -206,7 +206,7 @@ internal func runtimeErrorHandler(
 
     // SENTINEL PASS-THROUGH: compositor hook set abort reason — do not wrap.
     let abortReason = engine.abortReason.load(ordering: .relaxed)
-    if abortReason != 0 { return 1 }
+    if abortReason != AbortReason.none { return 1 }
 
     // Belt-and-suspenders: sentinel string — pass through untouched.
     if lua_type(L, 1) == LUA_TSTRING,

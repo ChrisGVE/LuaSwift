@@ -214,7 +214,7 @@ extension LuaEngine {
 
     /// Reset per-run mutable state. Called at the top of every runDebug entry point.
     private func resetRunState() {
-        abortReason.store(0, ordering: .releasing)
+        abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
         pendingRuntimeFailure = nil
         lastWriteError = nil

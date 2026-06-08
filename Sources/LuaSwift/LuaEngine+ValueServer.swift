@@ -38,9 +38,12 @@ extension LuaEngine {
     ///
     /// - Parameter server: The server to register
     public func register(server: LuaValueServer) {
-        // register touches the Lua state (creates global metatables).
-        // Non-throwing: if paused, block on lock (waits for pause to end).
-        // In practice hosts register servers before running code.
+        // Fast-fail when the VM is paused. The Lua state must not be touched
+        // while the debug hook holds the run lock. Non-throwing: returns without
+        // registering. Callers should register servers before running code (the
+        // pre-run contract stated in the documentation); a guard here prevents
+        // C-level UB if a caller mistakenly registers from a debug handler.
+        guard !isPaused.load(ordering: .acquiring) else { return }
         lock.lock()
         defer { lock.unlock() }
 
@@ -52,6 +55,9 @@ extension LuaEngine {
     ///
     /// - Parameter namespace: The namespace of the server to unregister
     public func unregister(namespace: String) {
+        // Same isPaused guard as register(server:) — Lua state must not be
+        // touched while the debug hook holds the run lock.
+        guard !isPaused.load(ordering: .acquiring) else { return }
         lock.lock()
         defer { lock.unlock() }
 

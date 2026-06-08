@@ -39,8 +39,10 @@ extension LuaEngine {
         name: String,
         callback: @escaping ([LuaValue]) throws -> LuaValue
     ) {
-        // registerFunction touches the Lua state. Non-throwing:
-        // block on lock if paused (waits for debug pause to end).
+        // Fast-fail when the VM is paused. The Lua state must not be touched
+        // while the debug hook holds the run lock. Non-throwing: no-op return.
+        // Callers should register functions before running code.
+        guard !isPaused.load(ordering: .acquiring) else { return }
         lock.lock()
         defer { lock.unlock() }
 
@@ -52,6 +54,8 @@ extension LuaEngine {
     ///
     /// - Parameter name: The name of the function to unregister
     public func unregisterFunction(name: String) {
+        // Same isPaused guard as registerFunction — no-op when paused.
+        guard !isPaused.load(ordering: .acquiring) else { return }
         lock.lock()
         defer { lock.unlock() }
 

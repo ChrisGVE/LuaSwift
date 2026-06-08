@@ -55,7 +55,7 @@ extension LuaEngine {
     /// }
     /// ```
     public func callLuaFunction(ref: Int32, args: [LuaValue]) throws -> LuaValue {
-        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+        guard !isPaused.load(ordering: .acquiring) else {
             throw LuaError.enginePaused
         }
         lock.lock()

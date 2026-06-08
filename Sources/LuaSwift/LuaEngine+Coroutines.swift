@@ -54,7 +54,7 @@ extension LuaEngine {
     /// """)
     /// ```
     public func createCoroutine(code: String, chunkName: String? = nil) throws -> CoroutineHandle {
-        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+        guard !isPaused.load(ordering: .acquiring) else {
             throw LuaError.enginePaused
         }
         lock.lock()
@@ -112,7 +112,7 @@ extension LuaEngine {
     /// // result2 == .yielded([.number(11.0)])
     /// ```
     public func resume(_ handle: CoroutineHandle, with values: [LuaValue] = []) throws -> CoroutineResult {
-        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+        guard !isPaused.load(ordering: .acquiring) else {
             throw LuaError.enginePaused
         }
         lock.lock()

@@ -126,7 +126,7 @@ extension LuaEngine {
     /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
     ///   ``requestCancellation()`` was called from another thread during execution
     public func run(_ code: String, chunkName: String? = nil) throws {
-        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+        guard !isPaused.load(ordering: .acquiring) else {
             throw LuaError.enginePaused
         }
         lock.lock()
@@ -215,7 +215,7 @@ extension LuaEngine {
     /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
     ///   ``requestCancellation()`` was called from another thread during execution
     public func evaluate(_ code: String, chunkName: String? = nil) throws -> LuaValue {
-        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+        guard !isPaused.load(ordering: .acquiring) else {
             throw LuaError.enginePaused
         }
         lock.lock()

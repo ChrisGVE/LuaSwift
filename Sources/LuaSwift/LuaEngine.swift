@@ -277,9 +277,13 @@ public final class LuaEngine {
     /// method throws ``LuaError/enginePaused`` immediately. The `<`/`<=` depth
     /// comparisons in the stepping logic also rely on the VM being parked here.
     ///
-    /// Uses `ManagedAtomic<Bool>` (swift-atomics) with `.sequentiallyConsistent`
-    /// ordering so any thread that reads `true` observes a fully-consistent view
-    /// of the paused state before deciding to throw.
+    /// Uses `ManagedAtomic<Bool>` (swift-atomics) with `.releasing` stores and
+    /// `.acquiring` loads. The store-release from the VM thread (setting `true`)
+    /// synchronises with the load-acquire from any observer thread, ensuring
+    /// that a thread reading `true` sees the fully-consistent paused state before
+    /// deciding to throw. Full sequential-consistency (`dmb ish` on ARM64) is not
+    /// required here because no other operation must be globally sequenced in
+    /// between the store and the load — a release/acquire pair is sufficient.
     ///
     /// internal: written by compositorHookCallback, read by every guarded method
     internal let isPaused = ManagedAtomic<Bool>(false)

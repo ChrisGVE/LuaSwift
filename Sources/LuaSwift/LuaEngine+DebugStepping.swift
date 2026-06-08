@@ -203,13 +203,13 @@ private func processDebugPause(
     // The engine lock is already held by the active run on this thread.
     // isPaused prevents any other thread from acquiring the lock while we
     // are inside the handler (they throw .enginePaused instead).
-    engine.isPaused.store(true, ordering: .sequentiallyConsistent)
+    engine.isPaused.store(true, ordering: .releasing)
 
     let inspector = DebugInspectorImpl(L: L)
     let command = engine.debugHandler!(event, inspector)
     inspector.invalidate()
 
-    engine.isPaused.store(false, ordering: .sequentiallyConsistent)
+    engine.isPaused.store(false, ordering: .releasing)
 
     // Apply the returned command.
     switch command {

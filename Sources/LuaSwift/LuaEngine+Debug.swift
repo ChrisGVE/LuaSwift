@@ -23,12 +23,13 @@
 //  The compositor hook fires on the VM thread (lock held by the active run).
 //  When a debug handler is set and the current event passes the step check,
 //  the hook:
-//    1. Sets isPaused = true (ManagedAtomic, sequentially consistent).
+//    1. Sets isPaused = true (releasing store — synchronises-with acquiring loads
+//       on other threads).
 //    2. Builds a DebugInspectorImpl (validity-scoped; only inert
 //       LuaInspectedValue snapshots cross threads).
 //    3. Calls handler(event, inspector) SYNCHRONOUSLY — the lock stays held.
 //    4. Invalidates the inspector.
-//    5. Sets isPaused = false.
+//    5. Sets isPaused = false (releasing store).
 //    6. Processes the returned LuaDebugCommand.
 //
 //  No deadlock: any call from another thread during a pause sees isPaused==true
@@ -119,7 +120,7 @@ extension LuaEngine {
     /// - Throws: ``LuaError`` — including ``LuaError/cancelled`` when the
     ///   handler issues `.stop`.
     public func runDebug(_ source: String, chunkName: String? = nil) throws -> LuaValue {
-        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+        guard !isPaused.load(ordering: .acquiring) else {
             throw LuaError.enginePaused
         }
         lock.lock()
@@ -152,7 +153,7 @@ extension LuaEngine {
     /// - Returns: The last return value from the Lua code.
     /// - Throws: ``LuaError`` — including ``LuaError/cancelled`` on `.stop`.
     public func runDebug(_ chunk: CompiledChunk) throws -> LuaValue {
-        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+        guard !isPaused.load(ordering: .acquiring) else {
             throw LuaError.enginePaused
         }
         lock.lock()

@@ -235,11 +235,23 @@ extension LuaInspectedValue {
 
     // MARK: - Typed cycle / depth-limit markers
 
+    /// Preview string written for a cycle placeholder. Single source of truth:
+    /// the inspector (``materialiseTable`` in LuaEngine+DebugInspector.swift)
+    /// emits this exact string and ``isCycle`` matches it, so the two sites can
+    /// never silently disagree if the wording changes.
+    /// internal: the public contract is ``isCycle``, not the raw string.
+    internal static let cycleMarker = "<cycle>"
+
+    /// Preview string written for a depth-limit placeholder. Paired with
+    /// ``isDepthLimited`` the same way ``cycleMarker`` is paired with ``isCycle``.
+    /// internal: the public contract is ``isDepthLimited``, not the raw string.
+    internal static let depthLimitMarker = "<depth limit>"
+
     /// `true` when this value is a `.reference` placeholder inserted because
     /// the table was already seen in the current DFS path (cycle detection).
     /// Prefer this over matching the `preview` string directly.
     public var isCycle: Bool {
-        if case .reference(_, let preview, nil) = self { return preview == "<cycle>" }
+        if case .reference(_, let preview, nil) = self { return preview == Self.cycleMarker }
         return false
     }
 
@@ -247,7 +259,7 @@ extension LuaInspectedValue {
     /// the recursion reached ``maxInspectionDepth`` before fully materialising
     /// the table's children. Prefer this over matching the `preview` string.
     public var isDepthLimited: Bool {
-        if case .reference(_, let preview, nil) = self { return preview == "<depth limit>" }
+        if case .reference(_, let preview, nil) = self { return preview == Self.depthLimitMarker }
         return false
     }
 }

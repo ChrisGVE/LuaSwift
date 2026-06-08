@@ -111,6 +111,19 @@ extension LuaEngine {
     /// `DebugSession` knows it issued `.stop` and treats the resulting
     /// `.cancelled` as a debugger-stop — no separate error case is required.
     ///
+    /// ## Coroutines (current limitation)
+    ///
+    /// Debug events (`.line`/`.call`/`.ret`) fire only for code running on the
+    /// main VM thread of this `runDebug` call. Lua hooks are installed per
+    /// `lua_State` (per coroutine thread) in 5.4+, and the debug mask is armed
+    /// only on the main thread here, so code executing inside a coroutine —
+    /// whether resumed by an in-Lua `coroutine.resume` or by the host
+    /// ``resume(_:with:)`` API — does **not** deliver line/call/ret events and
+    /// is effectively stepped over by the debugger. Cooperative cancellation
+    /// and the instruction limit are unaffected for host-driven coroutines
+    /// (``resume(_:with:)`` arms the COUNT hook on the coroutine thread).
+    /// Stepping into coroutine bodies is tracked as a future enhancement.
+    ///
     /// - Parameters:
     ///   - source: Lua source code to execute.
     ///   - chunkName: Optional chunk name for error messages and tracebacks.

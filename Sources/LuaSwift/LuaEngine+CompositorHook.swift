@@ -86,6 +86,10 @@ internal func compositorHookCallback(
     // Step 1: cooperative cancellation check (lock-free atomic read).
     // Check here first — even during a debug session, a cancel issued via
     // requestCancellation() while NOT paused must be honoured.
+    // `.acquiring` here is conservative: the flag itself is the only state the
+    // cancelling thread publishes before this read, so `.relaxed` would also be
+    // correct — acquire is kept to match the release store in requestCancellation()
+    // and keep the ordering protocol uniform across the atomic fields.
     if engine.cancellationRequested.load(ordering: .acquiring) {
         engine.abortReason.store(AbortReason.cancelled, ordering: .releasing)
         lua_pushstring(L, cancelledSentinel)

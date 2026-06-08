@@ -81,18 +81,6 @@ extension LuaEngine {
         }
     }
 
-    /// Convenience: clear the current engine unconditionally.
-    ///
-    /// Use only at the outermost run boundary where there is guaranteed to be no
-    /// enclosing frame that set the TLS. Run entry points must use the
-    /// ``setAsCurrentEngine()``/``restoreCurrentEngine(_:)`` pair instead.
-    ///
-    /// internal: kept for backward compatibility with any callers that do not
-    /// nest; prefer the pair form for new code.
-    internal func clearCurrentEngine() {
-        Thread.current.threadDictionary.removeObject(forKey: Self.currentEngineKey)
-    }
-
     // MARK: - Memory Tracking
 
     /// Current allocated bytes tracked by Swift modules.

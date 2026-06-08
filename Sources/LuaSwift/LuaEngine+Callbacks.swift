@@ -96,9 +96,10 @@ extension LuaEngine {
         }
 
         // Save/restore the TLS engine so the compositor hook can still find
-        // this engine after the callback returns. A bare clearCurrentEngine()
-        // here would wipe the key mid-run, silently disabling cancel/limit
-        // checks for the rest of the execution (correction #2 fix).
+        // this engine after the callback returns. An unconditional clear here
+        // would wipe the key mid-run, silently disabling cancel/limit
+        // checks for the rest of the execution (correction #2 fix) — which is
+        // exactly why the save/restore pair is used instead.
         let previous = setAsCurrentEngine()
         defer { restoreCurrentEngine(previous) }
 

@@ -170,6 +170,12 @@ internal func dispatchDebugEvent(
 // MARK: - dispatchDebugEvent private helpers
 
 /// Build a LuaDebugEvent from the populated debug record.
+///
+/// Precondition: the booleans encode exactly one raw hook event. The caller
+/// (`dispatchDebugEvent`) passes `isLine` for LINE, `isCall: isCall || isTail`
+/// for CALL **and** tail-call (both normalise to `.call` carrying the callee
+/// frame, see CR-103), and neither for RET. The branch order therefore reads
+/// as: LINE → `.line`; CALL-or-tail → `.call(frame)`; otherwise → `.ret`.
 private func buildDebugEvent(
     ar: UnsafeMutablePointer<lua_Debug>,
     isLine: Bool,

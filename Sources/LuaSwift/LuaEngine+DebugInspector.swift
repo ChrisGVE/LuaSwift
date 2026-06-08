@@ -60,8 +60,11 @@ private func pushGlobalsTableForDebug(_ L: OpaquePointer) {
 /// Concrete implementation of ``LuaDebugInspector``.
 ///
 /// Created inside `dispatchDebugEvent`, valid only while the handler callback
-/// executes. All methods `precondition(isValid)` so use-after-invalidation
-/// traps at the call site rather than silently reading stale state.
+/// executes. After ``invalidate()`` every method short-circuits via
+/// `guard valid else { return [] }` and returns a neutral empty result rather
+/// than reading a dangling `lua_State` — a guard, not a `precondition`, so the
+/// safety holds even under `-Ounchecked` (which elides preconditions). The
+/// ``isValid`` flag remains the authoritative use-after-invalidation signal.
 ///
 /// Snapshots are taken lazily per-call but always from inside the valid
 /// callback window — the `lua_State` is parked (not executing instructions)
@@ -71,7 +74,13 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
     private var valid: Bool = true
 
     /// Set of raw table pointers already visited in the current snapshot walk
-    /// (cycle detection). Reset after each public method call.
+    /// (cycle detection). Held as an instance field — rather than a per-call
+    /// local — only to reuse its allocated capacity across the potentially large
+    /// `globals()` walk. It MUST be emptied (`removeAll()`) at the end of every
+    /// public method so a pointer visited by one call is not mistaken for a
+    /// cycle by the next. The early-return guards in each method (`guard valid`,
+    /// `guard lua_getstack`) all fire BEFORE any insertion, so those paths leave
+    /// the set already empty — the reset is only needed on the full-walk path.
     private var visitedTables: Set<UnsafeRawPointer> = []
 
     internal init(L: OpaquePointer) {
@@ -235,10 +244,10 @@ private func materialiseTable(
     let rawPtr = UnsafeRawPointer(ptr)
 
     if visited.contains(rawPtr) {
-        return .reference(kind: .table, preview: "<cycle>", children: nil)
+        return .reference(kind: .table, preview: LuaInspectedValue.cycleMarker, children: nil)
     }
     if depth >= LuaInspectedValue.maxInspectionDepth {
-        return .reference(kind: .table, preview: "<depth limit>", children: nil)
+        return .reference(kind: .table, preview: LuaInspectedValue.depthLimitMarker, children: nil)
     }
 
     let preview = "table: \(String(format: "%p", UInt(bitPattern: rawPtr)))"

@@ -649,4 +649,60 @@ final class DebugTests: XCTestCase {
         XCTAssertTrue(pausedLines.contains(2),
             "stepInto must pause inside inner() at line 2. Lines: \(pausedLines)")
     }
+
+    // MARK: - 17. CALL/RET events suppressed during active stepping (CR-112)
+
+    /// While a step command is active, the handler must receive ONLY .line events.
+    /// .call and .ret events are suppressed by the dispatcher until the step
+    /// completes (i.e. stepState returns to nil via .continueRun or another
+    /// LINE-based pause triggers the next step command).
+    ///
+    /// This verifies the documented behavior: in stepping mode the handler is
+    /// authoritative about call depth only through inspector.callStack, not
+    /// through call/ret event counting.
+    func testCallRetNotDeliveredDuringStepping() throws {
+        let engine = try makeEngine()
+        var receivedCallEvents = 0
+        var receivedRetEvents  = 0
+        var lineEventCount     = 0
+
+        engine.setDebugHandler { event, _ in
+            switch event {
+            case .call:
+                receivedCallEvents += 1
+                return .continueRun
+            case .ret:
+                receivedRetEvents += 1
+                return .continueRun
+            case .line:
+                lineEventCount += 1
+                // Issue a step command after the first line so stepping mode is
+                // active for the remainder of the run.
+                if lineEventCount == 1 { return .stepInto }
+                if lineEventCount >= 5 { return .stop }
+                return .stepInto
+            }
+        }
+
+        _ = try? engine.runDebug("""
+            local function helper()
+              local x = 1
+              local y = 2
+            end
+            helper()
+            local z = 3
+            """)
+
+        // We were in stepping mode after the first line event (line 5: helper()).
+        // .call for helper() and .ret from helper() must NOT have been delivered
+        // while stepping was active.
+        XCTAssertEqual(receivedCallEvents, 0,
+            "No .call events should be delivered while stepping is active. " +
+            "Got \(receivedCallEvents) .call event(s).")
+        XCTAssertEqual(receivedRetEvents, 0,
+            "No .ret events should be delivered while stepping is active. " +
+            "Got \(receivedRetEvents) .ret event(s).")
+        XCTAssertGreaterThan(lineEventCount, 0,
+            "LINE events must still be delivered during stepping. Got \(lineEventCount).")
+    }
 }

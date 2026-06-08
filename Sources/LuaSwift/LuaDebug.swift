@@ -98,11 +98,32 @@ public enum LuaDebugEvent: Sendable {
 /// ## Stop terminal state
 ///
 /// `.stop` reuses the F1 cancellation unwind path: the compositor hook sets
-/// `abortReason = 1` (cancelled) and raises `lua_error` with the cancelled
-/// sentinel. A `runDebug` run aborted by `.stop` surfaces as
+/// `abortReason = AbortReason.cancelled` and raises `lua_error` with the
+/// cancelled sentinel. A `runDebug` run aborted by `.stop` surfaces as
 /// `LuaError.cancelled`. MoonSwift's `DebugSession` distinguishes a debugger
 /// stop from a user-initiated cancel by knowing it issued the `.stop` command
 /// to `runDebug` — no separate error case is needed.
+///
+/// ## Event delivery in stepping vs. breakpoint mode
+///
+/// The handler receives **different event types** depending on the active mode:
+///
+/// - **Breakpoint mode** (`stepState == nil`, i.e. after `.continueRun` or at
+///   the start of a `runDebug` call): `.line`, `.call`, and `.ret` events are
+///   all delivered to the handler. Use `inspector.callStack` for the live
+///   stack at any pause.
+///
+/// - **Stepping mode** (any of `.stepOver`, `.stepInto`, `.stepOut`): **only
+///   `.line` events are delivered**. `.call` and `.ret` events are suppressed
+///   in the dispatcher (`dispatchDebugEvent`) while a `StepState` is active,
+///   because stepping decisions are entirely LINE-based. The authoritative
+///   call stack during a step pause is `inspector.callStack` (not inferred
+///   from call/return event counts).
+///
+/// This means: if the handler issues `.stepInto` and then expects to receive
+/// a `.call` event for the function being entered, it will not — the first
+/// event after `.stepInto` is the `.line` event at the first executable line
+/// inside the called function.
 public enum LuaDebugCommand: Sendable {
     /// Resume normal execution. Step state is cleared; the handler is not
     /// called again until the next breakpoint or step pause.
@@ -299,8 +320,19 @@ public protocol LuaDebugInspector: AnyObject {
 /// The signature of the handler closure stored by ``LuaEngine/setDebugHandler(_:)``.
 ///
 /// The handler is called synchronously on the VM thread at each debug event.
-/// The `inspector` parameter is valid only for the duration of the call; using
-/// it after the closure returns traps via `precondition`.
+/// The `inspector` parameter is valid only for the duration of the call; it
+/// returns empty/neutral values after the closure returns (see ``LuaDebugInspector``).
+///
+/// ## Event delivery rules
+///
+/// In **breakpoint mode** (after `.continueRun` or at `runDebug` start):
+/// `.line`, `.call`, and `.ret` events are all delivered.
+///
+/// In **stepping mode** (while any of `.stepOver`/`.stepInto`/`.stepOut` is
+/// active): **only `.line` events are delivered**. `.call` and `.ret` events
+/// are suppressed by the dispatcher. Use `inspector.callStack` as the
+/// authoritative stack during a step pause — do not infer depth from
+/// call/return event counts.
 ///
 /// The handler **must not** call back into `LuaEngine` methods that touch the
 /// Lua state (`run`, `evaluate`, `callLuaFunction`, etc.) — the VM is

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Cooperative cancellation** (`LuaEngine.requestCancellation()` / `resetCancellation()`) — closes [#22](https://github.com/ChrisGVE/LuaSwift/issues/22).
+  A periodic compositor hook fires every 10 000 Lua VM instructions (tunable `hookInterval`) and checks an atomic cancellation flag; if set, the in-flight run aborts and throws `LuaError.cancelled`. Measured abort latency is ~1–3 ms on Apple Silicon, well inside the 200 ms target (CI threshold 400 ms).
+  - `requestCancellation()` is lock-free (no `NSLock`); safe to call from any thread while Lua executes.
+  - `resetCancellation()` clears the flag, the out-of-band abort-reason flag, and the instruction accumulator so the engine can be reused.
+  - `LuaError.cancelled` — new additive case.
+  - Applied to every execution entry point: `run`/`evaluate` (source and `CompiledChunk`), `callLuaFunction`, and coroutine `resume`.
+  - **C-function limitation:** a C function that never returns to the VM loop (e.g. `string.rep("A", 1e9)`) cannot be interrupted — same documented limitation as the instruction limit.
+  - **Reuse-safety guarantee:** `lua_error` unwinds to the `pcall` boundary exactly as for `instructionLimitExceeded`; a `#if DEBUG` `lua_gettop` assertion at every pcall boundary confirms the stack is clean. `resetCancellation()` is required only after a `.cancelled` outcome; a normally-completing run never sets the flag.
+  - Verified on Lua 5.1, 5.4, and 5.5.
+- **Compositor hook replaces once-fire instruction hook** — the single `lua_sethook` slot is now multiplexed: (1) cancellation check, (2) instruction-limit accumulation. When `instructionLimit` is set, the hook is armed with `min(hookInterval, instructionLimit)` so the first fire cannot overshoot a limit smaller than the default interval; the exact-at-limit semantics of the existing instruction-limit API are preserved.
+- **TLS save/restore for engine recovery** — `setAsCurrentEngine()` now returns the previous occupant and the new `restoreCurrentEngine(_:)` puts it back, so a Swift callback invoked mid-run no longer permanently clears the TLS key the compositor hook uses; the cancel/limit check remains active for the full duration of the run even after callbacks return.
+
 ## [1.10.1] - 2026-06-07
 
 ### Fixed

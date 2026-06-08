@@ -9,14 +9,18 @@
 //
 //  Location: Sources/LuaSwift/LuaEngine+Bytecode.swift
 //
-//  Context: Bytecode concern of LuaEngine. precompile(_:) produces
+//  Context: Bytecode concern of LuaEngine. precompile(_:chunkName:) produces
 //  provenance-typed CompiledChunk values (CompiledChunk.swift) that the
 //  run(_:)/evaluate(_:) overloads here validate before loading; the
 //  deprecated raw-Data compile/runBytecode/evaluateBytecode API is kept
 //  alongside until removal (issue #9). All paths funnel through
 //  loadAndExecuteBytecode, which arms the compositor hook
 //  (LuaEngine+Execution.swift, armCompositorHook) and converts results
-//  via valueFromStack (LuaEngine+Bridging.swift).
+//  via valueFromStack (LuaEngine+Bridging.swift). The chunk-name embedding
+//  for bytecode happens in compileSource (before lua_dump) via the shared
+//  loadSourceChunk helper in LuaEngine+Execution.swift — for binary chunks,
+//  Lua's loader ignores the load-time name and reads it from Proto.source,
+//  so embedding at compile time is the only effective mechanism (#23).
 //
 
 import Foundation
@@ -37,12 +41,34 @@ extension LuaEngine {
     /// persisted across launches; see ``CompiledChunk`` for the trust
     /// boundary of persisted caches.
     ///
-    /// - Parameter code: Valid Lua source code to compile
-    /// - Returns: The compiled chunk, stamped with this build's provenance
+    /// ## Chunk names and bytecode tracebacks
+    ///
+    /// When `chunkName` is provided, LuaSwift embeds `"@" + chunkName` into the
+    /// bytecode's `Proto.source` field **before** `lua_dump`. This is the only
+    /// way to influence traceback output for binary chunks: Lua's loader ignores
+    /// the name argument passed to `lua_load`/`luaL_loadbuffer` for binary
+    /// chunks — it reads the name directly from the embedded `Proto.source`.
+    /// Therefore embedding at compile time (here) is mandatory; passing a name
+    /// at load time is cosmetic only for binary chunks.
+    ///
+    /// The `@`-prefix rule (tail truncation at `LUA_IDSIZE` = 60 bytes) is the
+    /// same convention as ``run(_:chunkName:)`` — see that method for details.
+    ///
+    /// The `debug` info (including `source`) is preserved in the dump — `strip`
+    /// is passed as `0` on Lua 5.3+ and the 3-arg `lua_dump` on 5.1/5.2
+    /// retains debug info by default.
+    ///
+    /// - Parameters:
+    ///   - code: Valid Lua source code to compile.
+    ///   - chunkName: An optional caller-supplied name embedded into the
+    ///     bytecode at compile time. When `nil`, the source string itself is
+    ///     used as the name (same as `luaL_loadstring`), producing the standard
+    ///     `[string "…"]` traceback form with no behavior change from pre-#23.
+    /// - Returns: The compiled chunk, stamped with this build's provenance.
     /// - Throws: `LuaError.syntaxError` if the source has syntax errors,
     ///   `LuaError.runtimeError` if the bytecode dump fails
-    public func precompile(_ code: String) throws -> CompiledChunk {
-        CompiledChunk(bytecode: try compileSource(code))
+    public func precompile(_ code: String, chunkName: String? = nil) throws -> CompiledChunk {
+        CompiledChunk(bytecode: try compileSource(code, chunkName: chunkName), chunkName: chunkName)
     }
 
     /// Execute a precompiled chunk without returning a result.
@@ -121,8 +147,20 @@ extension LuaEngine {
     }
 
     /// Compile Lua source and dump it to bytecode. Shared machinery behind
-    /// ``precompile(_:)`` and the deprecated ``compile(_:)``.
-    private func compileSource(_ code: String) throws -> Data {
+    /// ``precompile(_:chunkName:)`` and the deprecated ``compile(_:)``.
+    ///
+    /// Applies the same `"@" + chunkName` name-prefix convention as the source
+    /// execution path, but here the name is embedded into `Proto.source` inside
+    /// the dump. That embedding is what makes the name appear in tracebacks when
+    /// the bytecode is later loaded and run — the load-time name arg for binary
+    /// chunks is ignored by Lua's loader.
+    ///
+    /// - Parameters:
+    ///   - code: Lua source text to compile.
+    ///   - chunkName: Optional chunk name. When `nil`, the source string itself
+    ///     is used (matches `luaL_loadstring`); when non-nil, `"@" + chunkName`
+    ///     is used so `short_src` applies tail truncation.
+    private func compileSource(_ code: String, chunkName: String? = nil) throws -> Data {
         lock.lock()
         defer { lock.unlock() }
 
@@ -130,8 +168,11 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
-        // Load source — leaves compiled function on stack top on success
-        let loadResult = luaL_loadstring(L, code)
+        // Load source — applies the same name-prefix convention as run/evaluate
+        // so the name is embedded in Proto.source before lua_dump.
+        // luaL_loadstring(L, s) == luaL_loadbuffer(L, s, len, s), so passing
+        // the source as name when chunkName is nil is an exact behavioral match.
+        let loadResult = loadSourceChunk(L, code: code, chunkName: chunkName)
         if loadResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)

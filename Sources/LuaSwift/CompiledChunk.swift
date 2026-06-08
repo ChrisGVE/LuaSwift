@@ -58,11 +58,19 @@ public struct CompiledChunk: Codable, Equatable, Sendable {
     // MARK: - Current-build provenance
 
     /// The encoded-representation version this build writes and the highest
-    /// it understands. It is also the **minimum** accepted: a decoded
-    /// ``formatVersion`` below this value (`< 1`, i.e. `0` or negative, which a
-    /// tampered or truncated cache can produce) is rejected, since no such
-    /// format ever existed.
-    internal static let currentFormatVersion = 1
+    /// it understands.
+    ///
+    /// **Version history:**
+    /// - `1` — initial format (formatVersion, luaVersion, integerSize,
+    ///   numberSize, endianness, bytecode).
+    /// - `2` — adds the optional `chunkName` field (issue #23). A v1 chunk
+    ///   decoded under v2 has `chunkName == nil` (decoded with
+    ///   `decodeIfPresent`, so absent keys are silently nil).
+    ///
+    /// The value is also the **minimum** accepted: a decoded ``formatVersion``
+    /// below `1` (producible by a tampered or truncated cache) is rejected,
+    /// since no such format ever existed.
+    internal static let currentFormatVersion = 2
 
     /// The Lua version embedded in this LuaSwift build, e.g. `"5.4"`.
     /// Mirrors the `LUA_VERSION_*` compile-time selection (Package.swift).
@@ -115,6 +123,19 @@ public struct CompiledChunk: Codable, Equatable, Sendable {
     /// and the Lua binary-signature check before releasing them to the loader.
     private let bytecode: Data
 
+    /// The caller-supplied chunk name from ``LuaEngine/precompile(_:chunkName:)``,
+    /// or `nil` when the chunk was compiled without an explicit name.
+    ///
+    /// This field is **host metadata** — it mirrors the name that was embedded
+    /// into the bytecode's `Proto.source` field at compile time and is stored
+    /// here for inspection without needing to parse the binary. The traceback
+    /// name actually shown by Lua comes from the embedded `Proto.source`;
+    /// storing a different value here does not affect traceback output.
+    ///
+    /// Codable: absent in v1 chunks — decoded as `nil` via `decodeIfPresent`
+    /// so old caches remain loadable without a `keyNotFound` error.
+    public let chunkName: String?
+
     /// Explicit keys so the encoded representation is a stable, documented
     /// contract independent of property order or future renames.
     private enum CodingKeys: String, CodingKey {
@@ -124,20 +145,50 @@ public struct CompiledChunk: Codable, Equatable, Sendable {
         case numberSize
         case endianness
         case bytecode
+        case chunkName
     }
 
     // MARK: - Creation
 
     /// Wrap freshly dumped bytecode, stamping the current build's provenance.
-    /// Internal: only ``LuaEngine/precompile(_:)`` creates chunks; consumers
-    /// persist and restore them via `Codable`.
-    internal init(bytecode: Data) {
+    ///
+    /// - Parameters:
+    ///   - bytecode: The raw bytes produced by `lua_dump`.
+    ///   - chunkName: The caller-supplied chunk name used during compilation,
+    ///     or `nil` if none was provided. This must match the name that was
+    ///     passed to `luaL_loadbuffer` before the dump so that
+    ///     ``chunkName`` accurately reflects what is embedded in the bytecode.
+    ///
+    /// Internal: only ``LuaEngine/precompile(_:chunkName:)`` creates chunks;
+    /// consumers persist and restore them via `Codable`.
+    internal init(bytecode: Data, chunkName: String? = nil) {
         self.formatVersion = Self.currentFormatVersion
         self.luaVersion = Self.currentLuaVersion
         self.integerSize = Self.currentIntegerSize
         self.numberSize = Self.currentNumberSize
         self.endianness = Self.currentEndianness
         self.bytecode = bytecode
+        self.chunkName = chunkName
+    }
+
+    // MARK: - Decodable (custom, for v1 forward-compat)
+
+    /// Decode a `CompiledChunk` from a Codable container.
+    ///
+    /// `chunkName` uses `decodeIfPresent` so that v1 chunks (format version 1,
+    /// no `chunkName` key) decode cleanly with `chunkName == nil`. All other
+    /// fields were present in v1, so they use the throwing `decode` form.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+        self.luaVersion = try container.decode(String.self, forKey: .luaVersion)
+        self.integerSize = try container.decode(Int.self, forKey: .integerSize)
+        self.numberSize = try container.decode(Int.self, forKey: .numberSize)
+        self.endianness = try container.decode(String.self, forKey: .endianness)
+        self.bytecode = try container.decode(Data.self, forKey: .bytecode)
+        // Optional — absent in v1 chunks; decodeIfPresent returns nil for a
+        // missing key instead of throwing keyNotFound.
+        self.chunkName = try container.decodeIfPresent(String.self, forKey: .chunkName)
     }
 
     // MARK: - Compatibility validation

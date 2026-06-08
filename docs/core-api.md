@@ -343,6 +343,36 @@ engine.setDebugHandler(nil)
 CALL and RET events are suppressed while a step command (`.stepInto`,
 `.stepOver`, `.stepOut`) is active; only LINE events are delivered.
 
+### Inspecting untrusted code — breadth bound
+
+> **Security:** the inspector is **unbounded by default**, and that default is
+> unsafe for debugging untrusted Lua.
+
+`locals()`/`upvalues()`/`globals()` eagerly materialize one `LuaInspectedValue`
+per table entry, under the engine lock, while the VM is paused. Against trusted
+code this is the correct, faithful behavior — the host, not the library, owns the
+trust decision. But a **hostile** script can build a table (or `_G`) with millions
+of keys; inspecting it then allocates a `Child` per entry and can exhaust host
+memory — a debugger-only DoS (CWE-400, SEC-201).
+
+`LuaInspectedValue.maxInspectionBreadth` reports the active cap: `nil` (unbounded)
+in a default build. To bound it, compile LuaSwift with the opt-in flag:
+
+```
+LUASWIFT_BOUNDED_INSPECTION=1 swift build
+```
+
+(Package.swift reads the env var and defines the flag, like the other
+`LUASWIFT_*` build switches.)
+
+Each table (and `_G` itself) then materializes at most
+`LuaInspectedValue.boundedInspectionBreadth` (10,000) real children followed by a
+single breadth-limit sentinel child — detect it via `value.isBreadthLimited`
+rather than matching the preview string. The cap is generous enough never to
+truncate realistic debug data while stopping adversarial million-entry breadth
+bombs. **If you debug untrusted code, set this flag.** Trusted-code debugging
+needs no bound and keeps the faithful default.
+
 ## swift-atomics Dependency
 
 LuaSwift uses [`swift-atomics`](https://github.com/apple/swift-atomics) for

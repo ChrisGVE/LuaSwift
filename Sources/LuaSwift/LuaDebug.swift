@@ -233,6 +233,43 @@ extension LuaInspectedValue {
     /// Matches MoonSwift's alias-bomb budget.
     public static let maxInspectionDepth: Int = 64
 
+    // MARK: - Breadth (opt-in)
+
+    /// Maximum number of children eagerly materialised per table, or `nil` for
+    /// unbounded (the default build).
+    ///
+    /// **Default = unbounded.** The inspector faithfully snapshots every entry
+    /// of every table — appropriate for a library whose job is to execute Lua
+    /// inside a Swift app. The caller, not the library, decides the trust level.
+    ///
+    /// **Risk to be aware of when debugging UNTRUSTED code:** a hostile script
+    /// can build a table with millions of keys; calling ``LuaDebugInspector``
+    /// `globals()`/`locals()` against it then allocates one `Child` per entry
+    /// eagerly, under the engine lock, while the VM is paused — a debugger-only
+    /// host-memory-exhaustion DoS (CWE-400).
+    ///
+    /// **Mitigant (opt-in, compile-time):** build LuaSwift with
+    /// `-D LUASWIFT_BOUNDED_INSPECTION` (env `LUASWIFT_BOUNDED_INSPECTION=1` for
+    /// SwiftPM). Each table then materialises at most
+    /// ``boundedInspectionBreadth`` children and appends a single
+    /// breadth-limit sentinel child (``isBreadthLimited``) in place of the rest.
+    /// Trusted-code debugging needs no bound and keeps the faithful default.
+    public static var maxInspectionBreadth: Int? {
+        #if LUASWIFT_BOUNDED_INSPECTION
+        return boundedInspectionBreadth
+        #else
+        return nil
+        #endif
+    }
+
+    #if LUASWIFT_BOUNDED_INSPECTION
+    /// Per-table / per-globals child cap active under
+    /// `-D LUASWIFT_BOUNDED_INSPECTION`. Generous enough never to truncate
+    /// realistic debug data while stopping adversarial million-entry breadth
+    /// bombs. Only compiled in when the bounding flag is set.
+    public static let boundedInspectionBreadth = 10_000
+    #endif
+
     // MARK: - Typed cycle / depth-limit markers
 
     /// Preview string written for a cycle placeholder. Single source of truth:
@@ -247,6 +284,12 @@ extension LuaInspectedValue {
     /// internal: the public contract is ``isDepthLimited``, not the raw string.
     internal static let depthLimitMarker = "<depth limit>"
 
+    /// Preview string written for a breadth-limit placeholder child, appended
+    /// when a table exceeds ``maxInspectionBreadth`` (only possible under
+    /// `-D LUASWIFT_BOUNDED_INSPECTION`). Paired with ``isBreadthLimited``.
+    /// internal: the public contract is ``isBreadthLimited``, not the raw string.
+    internal static let breadthLimitMarker = "<breadth limit>"
+
     /// `true` when this value is a `.reference` placeholder inserted because
     /// the table was already seen in the current DFS path (cycle detection).
     /// Prefer this over matching the `preview` string directly.
@@ -260,6 +303,15 @@ extension LuaInspectedValue {
     /// the table's children. Prefer this over matching the `preview` string.
     public var isDepthLimited: Bool {
         if case .reference(_, let preview, nil) = self { return preview == Self.depthLimitMarker }
+        return false
+    }
+
+    /// `true` when this value is the sentinel child appended because a table
+    /// exceeded ``maxInspectionBreadth`` (only under `-D LUASWIFT_BOUNDED_INSPECTION`).
+    /// Its presence means the parent table's children list was truncated.
+    /// Prefer this over matching the `preview` string directly.
+    public var isBreadthLimited: Bool {
+        if case .reference(_, let preview, nil) = self { return preview == Self.breadthLimitMarker }
         return false
     }
 }

@@ -33,6 +33,12 @@ let includeArraySwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_AR
 let includeNumericSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_NUMERICSWIFT"] == "1"
 let includeThales = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_THALES"] == "1"
 
+// Set LUASWIFT_BOUNDED_INSPECTION=1 to cap the debug inspector's per-table
+// breadth (defends a debugger that inspects UNTRUSTED Lua against a
+// million-entry "breadth bomb" — see LuaInspectedValue.maxInspectionBreadth).
+// Default off: the inspector is unbounded and faithful (the host chooses trust).
+let boundedInspection = ProcessInfo.processInfo.environment["LUASWIFT_BOUNDED_INSPECTION"] == "1"
+
 // Map version to directory path
 let cluaPath: String = {
     switch selectedVersion {
@@ -222,6 +228,9 @@ let package = Package(
                 if includeThales {
                     settings.append(.define("LUASWIFT_THALES"))
                 }
+                if boundedInspection {
+                    settings.append(.define("LUASWIFT_BOUNDED_INSPECTION"))
+                }
                 return settings
             }(),
             linkerSettings: {
@@ -258,6 +267,9 @@ let package = Package(
                 }
                 if includeThales {
                     settings.append(.define("LUASWIFT_THALES"))
+                }
+                if boundedInspection {
+                    settings.append(.define("LUASWIFT_BOUNDED_INSPECTION"))
                 }
                 return settings
             }()

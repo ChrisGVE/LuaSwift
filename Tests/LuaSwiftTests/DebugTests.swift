@@ -454,6 +454,99 @@ final class DebugTests: XCTestCase {
         }
     }
 
+    // MARK: - 9b. Reference previews use opaque ids, not raw addresses (SEC-202)
+
+    /// Reference previews must read as stable opaque ids (`"table #1"`,
+    /// `"function #2"`) and never embed a raw heap address (`0x…`). Leaking the
+    /// Lua/host heap pointer into a preview that may be serialised off-device
+    /// would be an ASLR oracle. The same object must read as the same `#n`
+    /// within one snapshot.
+    func testInspectorPreviewsUseOpaqueIdsNotAddresses() throws {
+        let engine = try makeEngine()
+        var captured: [(name: String, value: LuaInspectedValue)] = []
+
+        engine.setDebugHandler { event, inspector in
+            if case .line(let n) = event, n == 4 {
+                captured = inspector.locals(frameLevel: 0)
+                return .stop
+            }
+            return .continueRun
+        }
+
+        _ = try? engine.runDebug("""
+            local t = { inner = {} }
+            local f = function() end
+            local g = t
+            local probe = 1
+            """)
+
+        func preview(of name: String) -> String? {
+            guard case .reference(_, let p, _)? = captured.first(where: { $0.name == name })?.value
+            else { return nil }
+            return p
+        }
+
+        let tPreview = preview(of: "t")
+        XCTAssertNotNil(tPreview, "table local `t` must materialise as a reference")
+        if let p = tPreview {
+            XCTAssertTrue(p.hasPrefix("table #"), "table preview must be an opaque id, got: \(p)")
+            XCTAssertFalse(p.contains("0x"), "preview must not embed a raw address, got: \(p)")
+            XCTAssertFalse(p.contains(":"), "preview must use the `#id` form, got: \(p)")
+        }
+
+        if let fp = preview(of: "f") {
+            XCTAssertTrue(fp.hasPrefix("function #"), "function preview must be an opaque id, got: \(fp)")
+            XCTAssertFalse(fp.contains("0x"), "function preview must not embed a raw address, got: \(fp)")
+        } else {
+            XCTFail("function local `f` must materialise as a reference")
+        }
+
+        // `g` aliases `t` — same underlying table → same opaque id within the snapshot.
+        if let tp = tPreview, let gp = preview(of: "g") {
+            XCTAssertEqual(gp, tp, "Aliased table must read as the same opaque id (\(tp)) — got \(gp)")
+        }
+    }
+
+    #if LUASWIFT_BOUNDED_INSPECTION
+    // MARK: - 9c. Breadth cap truncates wide tables (SEC-201, bounded build only)
+
+    /// Under `-D LUASWIFT_BOUNDED_INSPECTION`, a table wider than
+    /// ``LuaInspectedValue/boundedInspectionBreadth`` materialises at most that
+    /// many real children plus a single ``LuaInspectedValue/isBreadthLimited``
+    /// sentinel, instead of eagerly allocating one child per entry (the
+    /// memory-exhaustion defense). This test compiles only in the bounded build.
+    func testInspectorBreadthCapTruncatesWideTable() throws {
+        let engine = try makeEngine()
+        let cap = LuaInspectedValue.boundedInspectionBreadth
+        var captured: LuaInspectedValue?
+
+        engine.setDebugHandler { event, inspector in
+            if case .line(let n) = event, n == 2 {
+                captured = inspector.locals(frameLevel: 0).first { $0.name == "wide" }?.value
+                return .stop
+            }
+            return .continueRun
+        }
+
+        // Build a table with cap+5 string-keyed entries.
+        _ = try? engine.runDebug("""
+            local wide = {} for i = 1, \(cap + 5) do wide["k" .. i] = i end
+            local probe = 1
+            """)
+
+        guard case .reference(.table, _, let children)? = captured, let kids = children else {
+            return XCTFail("wide table must materialise as a .table reference with children")
+        }
+        XCTAssertEqual(kids.count, cap + 1,
+            "Bounded build must materialise exactly \(cap) children + 1 sentinel, got \(kids.count)")
+        XCTAssertTrue(kids.last?.value.isBreadthLimited ?? false,
+            "The final child must be the breadth-limit sentinel")
+        // No real entry should itself be flagged as breadth-limited.
+        XCTAssertEqual(kids.dropLast().filter { $0.value.isBreadthLimited }.count, 0,
+            "Only the trailing sentinel may be breadth-limited")
+    }
+    #endif
+
     // MARK: - 10. Inspector isValid after callback
 
     /// Using the inspector after the callback returns is a programming error.

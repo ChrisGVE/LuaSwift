@@ -73,15 +73,16 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
     private let L: OpaquePointer
     private var valid: Bool = true
 
-    /// Set of raw table pointers already visited in the current snapshot walk
-    /// (cycle detection). Held as an instance field — rather than a per-call
-    /// local — only to reuse its allocated capacity across the potentially large
-    /// `globals()` walk. It MUST be emptied (`removeAll()`) at the end of every
-    /// public method so a pointer visited by one call is not mistaken for a
-    /// cycle by the next. The early-return guards in each method (`guard valid`,
-    /// `guard lua_getstack`) all fire BEFORE any insertion, so those paths leave
-    /// the set already empty — the reset is only needed on the full-walk path.
-    private var visitedTables: Set<UnsafeRawPointer> = []
+    /// Per-snapshot walk state (cycle-detection set + stable opaque-id table for
+    /// reference previews). Held as an instance field — rather than a per-call
+    /// local — only to reuse allocated capacity across the potentially large
+    /// `globals()` walk. It MUST be reset to a fresh ``InspectionContext`` at the
+    /// end of every public method so a pointer or id assigned by one call is not
+    /// carried into the next. The early-return guards in each method
+    /// (`guard valid`, `guard lua_getstack`) all fire BEFORE any insertion, so
+    /// those paths leave it already empty — the reset only matters on the
+    /// full-walk path.
+    private var inspectionContext = InspectionContext()
 
     internal init(L: OpaquePointer) {
         self.L = L
@@ -117,13 +118,13 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
             let name = String(cString: rawName)
             // Skip internal Lua temporaries (names starting with '(')
             if !name.hasPrefix("(") {
-                let value = inspectedValueFromStack(L, at: -1, visited: &visitedTables)
+                let value = inspectedValueFromStack(L, at: -1, context: &inspectionContext)
                 result.append((name: name, value: value))
             }
             lua_pop(L, 1)
             idx += 1
         }
-        visitedTables.removeAll()
+        inspectionContext = InspectionContext()
         return result
     }
 
@@ -142,13 +143,13 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
         while true {
             guard let rawName = lua_getupvalue(L, funcIdx, idx) else { break }
             let name = String(cString: rawName)
-            let value = inspectedValueFromStack(L, at: -1, visited: &visitedTables)
+            let value = inspectedValueFromStack(L, at: -1, context: &inspectionContext)
             result.append((name: name, value: value))
             lua_pop(L, 1)
             idx += 1
         }
         lua_pop(L, 1)  // pop the function itself
-        visitedTables.removeAll()
+        inspectionContext = InspectionContext()
         return result
     }
 
@@ -159,23 +160,62 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
         pushGlobalsTableForDebug(L)
         let globalsIdx = lua_gettop(L)
 
+        var truncated = false
         lua_pushnil(L)
         while lua_next(L, globalsIdx) != 0 {
             // stack: [globals, key, value]
+            // Same opt-in breadth bound as materialiseTable: a hostile script
+            // can make `_G` itself enormous (SEC-201). Unbounded by default.
+            if let cap = LuaInspectedValue.maxInspectionBreadth, result.count >= cap {
+                lua_pop(L, 2)  // pop value AND key to abandon the traversal early
+                truncated = true
+                break
+            }
             if lua_type(L, -2) == LUA_TSTRING,
                let key = lua_getstring(L, -2) {
-                let value = inspectedValueFromStack(L, at: -1, visited: &visitedTables)
+                let value = inspectedValueFromStack(L, at: -1, context: &inspectionContext)
                 result.append((name: key, value: value))
             }
             lua_pop(L, 1)  // pop value, keep key
         }
         lua_pop(L, 1)  // pop globals table
-        visitedTables.removeAll()
+        inspectionContext = InspectionContext()
+        if truncated {
+            let sentinel = breadthLimitSentinelChild()
+            result.append((name: sentinel.key, value: sentinel.value))
+        }
         return result
     }
 }
 
 // MARK: - LuaInspectedValue Materialiser
+
+/// Mutable state threaded through one inspection snapshot walk.
+///
+/// Carries two concerns that must both be per-snapshot:
+///  - `visited`: raw GC-object pointers already on the current DFS path, for
+///    cycle detection (a pointer is stable and unique within the state).
+///  - opaque-id assignment: each distinct reference object gets a small stable
+///    integer, used to build previews like `"table #3"` instead of embedding
+///    the raw heap address. This keeps the inspector from leaking Lua/host
+///    heap pointers into preview strings that may be serialised off-device
+///    (e.g. a remote-debug wire or an uploaded crash log) — an ASLR oracle
+///    otherwise (SEC-202). Ids are scoped to one snapshot, so the same object
+///    reads as the same `#n` within a single `locals()`/`globals()` call.
+internal struct InspectionContext {
+    var visited: Set<UnsafeRawPointer> = []
+    private var ids: [UnsafeRawPointer: Int] = [:]
+    private var nextId = 1
+
+    /// Stable opaque id for `ptr` within this snapshot (assigned on first use).
+    mutating func id(for ptr: UnsafeRawPointer) -> Int {
+        if let existing = ids[ptr] { return existing }
+        let assigned = nextId
+        nextId += 1
+        ids[ptr] = assigned
+        return assigned
+    }
+}
 
 /// Convert the Lua value at `index` to a ``LuaInspectedValue`` snapshot.
 ///
@@ -186,12 +226,14 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
 /// - Functions/userdata/threads → `.reference(kind:, preview:, children: nil)`.
 ///
 /// Uses `lua_topointer` for cycle detection — the pointer is stable for
-/// the lifetime of the GC object and unique within the state.
+/// the lifetime of the GC object and unique within the state. The pointer is
+/// used only as a key (cycle set + opaque-id table); it never reaches a
+/// preview string (see ``InspectionContext``, SEC-202).
 ///
 /// - Parameters:
 ///   - L: The Lua state (must be mid-debug-pause; no instructions executing).
 ///   - index: Stack index of the value.
-///   - visited: In-out set of already-visited table pointers (cycle detection).
+///   - context: In-out per-snapshot walk state (cycle set + opaque ids).
 ///   - depth: Current nesting depth (starts at 0 for the outermost call).
 /// - Returns: The materialised ``LuaInspectedValue``.
 ///
@@ -199,7 +241,7 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
 internal func inspectedValueFromStack(
     _ L: OpaquePointer,
     at index: Int32,
-    visited: inout Set<UnsafeRawPointer>,
+    context: inout InspectionContext,
     depth: Int = 0
 ) -> LuaInspectedValue {
     // Absolute index so it stays valid while we push/pop during table walk.
@@ -212,13 +254,13 @@ internal func inspectedValueFromStack(
     case LUA_TNUMBER:  return .scalar(.number(lua_tonumber(L, absIndex)))
     case LUA_TSTRING:  return materialiseString(L, absIndex: absIndex)
     case LUA_TTABLE:
-        return materialiseTable(L, absIndex: absIndex, visited: &visited, depth: depth)
+        return materialiseTable(L, absIndex: absIndex, context: &context, depth: depth)
     case LUA_TFUNCTION:
-        return materialisePointerRef(L, absIndex: absIndex, kind: .function, label: "function")
+        return materialisePointerRef(L, absIndex: absIndex, kind: .function, label: "function", context: &context)
     case LUA_TUSERDATA, LUA_TLIGHTUSERDATA:
-        return materialisePointerRef(L, absIndex: absIndex, kind: .userdata, label: "userdata")
+        return materialisePointerRef(L, absIndex: absIndex, kind: .userdata, label: "userdata", context: &context)
     case LUA_TTHREAD:
-        return materialisePointerRef(L, absIndex: absIndex, kind: .thread, label: "thread")
+        return materialisePointerRef(L, absIndex: absIndex, kind: .thread, label: "thread", context: &context)
     default:           return .scalar(.nil)
     }
 }
@@ -235,36 +277,47 @@ private func materialiseString(_ L: OpaquePointer, absIndex: Int32) -> LuaInspec
 private func materialiseTable(
     _ L: OpaquePointer,
     absIndex: Int32,
-    visited: inout Set<UnsafeRawPointer>,
+    context: inout InspectionContext,
     depth: Int
 ) -> LuaInspectedValue {
     guard let ptr = lua_topointer(L, absIndex) else {
-        return .reference(kind: .table, preview: "table: (unknown)", children: nil)
+        return .reference(kind: .table, preview: "table #?", children: nil)
     }
     let rawPtr = UnsafeRawPointer(ptr)
 
-    if visited.contains(rawPtr) {
+    if context.visited.contains(rawPtr) {
         return .reference(kind: .table, preview: LuaInspectedValue.cycleMarker, children: nil)
     }
     if depth >= LuaInspectedValue.maxInspectionDepth {
         return .reference(kind: .table, preview: LuaInspectedValue.depthLimitMarker, children: nil)
     }
 
-    let preview = "table: \(String(format: "%p", UInt(bitPattern: rawPtr)))"
-    visited.insert(rawPtr)
-    defer { visited.remove(rawPtr) }
+    // Opaque stable id, not the raw heap address (SEC-202).
+    let preview = "table #\(context.id(for: rawPtr))"
+    context.visited.insert(rawPtr)
+    defer { context.visited.remove(rawPtr) }
 
     var children: [LuaInspectedValue.Child] = []
+    var truncated = false
     lua_pushnil(L)
     while lua_next(L, absIndex) != 0 {
         // stack: [absIndex=table, ..., key@-2, value@-1]
+        // Breadth bound (opt-in): stop once the per-table cap is reached so an
+        // adversarially wide table cannot exhaust host memory (SEC-201). In the
+        // default unbounded build maxInspectionBreadth is nil and this never
+        // fires — zero behaviour change.
+        if let cap = LuaInspectedValue.maxInspectionBreadth, children.count >= cap {
+            lua_pop(L, 2)  // pop value AND key to abandon the traversal early
+            truncated = true
+            break
+        }
         let keyType = lua_type(L, -2)
         if keyType == LUA_TSTRING, let k = lua_getstring(L, -2) {
-            let val = inspectedValueFromStack(L, at: -1, visited: &visited, depth: depth + 1)
+            let val = inspectedValueFromStack(L, at: -1, context: &context, depth: depth + 1)
             children.append(LuaInspectedValue.Child(key: k, value: val))
         } else if keyType == LUA_TNUMBER {
             let k = "\(lua_tonumber(L, -2))"
-            let val = inspectedValueFromStack(L, at: -1, visited: &visited, depth: depth + 1)
+            let val = inspectedValueFromStack(L, at: -1, context: &context, depth: depth + 1)
             children.append(LuaInspectedValue.Child(key: k, value: val))
         } else {
             // Skip non-string/number keys (uncommon, but safe to omit).
@@ -273,16 +326,33 @@ private func materialiseTable(
         }
         lua_pop(L, 1)  // pop value, keep key
     }
+    if truncated {
+        children.append(breadthLimitSentinelChild())
+    }
     return .reference(kind: .table, preview: preview, children: children)
+}
+
+/// Sentinel child appended in place of the entries dropped when a table
+/// exceeds ``LuaInspectedValue/maxInspectionBreadth``. Detect it via
+/// ``LuaInspectedValue/isBreadthLimited``.
+private func breadthLimitSentinelChild() -> LuaInspectedValue.Child {
+    LuaInspectedValue.Child(
+        key: LuaInspectedValue.breadthLimitMarker,
+        value: .reference(kind: .table, preview: LuaInspectedValue.breadthLimitMarker, children: nil)
+    )
 }
 
 private func materialisePointerRef(
     _ L: OpaquePointer,
     absIndex: Int32,
     kind: LuaRefKind,
-    label: String
+    label: String,
+    context: inout InspectionContext
 ) -> LuaInspectedValue {
-    let ptr = lua_topointer(L, absIndex)
-    let addrStr = ptr.map { String(format: "%p", UInt(bitPattern: UnsafeRawPointer($0))) } ?? "?"
-    return .reference(kind: kind, preview: "\(label): \(addrStr)", children: nil)
+    // Opaque stable id, not the raw heap address (SEC-202): "function #4".
+    guard let ptr = lua_topointer(L, absIndex) else {
+        return .reference(kind: kind, preview: "\(label) #?", children: nil)
+    }
+    let id = context.id(for: UnsafeRawPointer(ptr))
+    return .reference(kind: kind, preview: "\(label) #\(id)", children: nil)
 }

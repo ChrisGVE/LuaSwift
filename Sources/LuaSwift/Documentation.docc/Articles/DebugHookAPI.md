@@ -216,9 +216,25 @@ and the snapshot is valid after the callback ends.
 
 - **Depth cap:** table children are materialised up to 64 levels
   (`LuaInspectedValue.maxInspectionDepth`). A table at the cap depth returns
-  `.reference(kind:.table, preview:"<depth limit>", children: nil)`.
+  `.reference(kind:.table, preview:"<depth limit>", children: nil)`
+  (`isDepthLimited`).
 - **Cycle detection:** a table pointer seen twice in the current walk returns
-  `.reference(kind:.table, preview:"<cycle>", children: nil)`.
+  `.reference(kind:.table, preview:"<cycle>", children: nil)` (`isCycle`).
+- **Opaque previews (SEC-202):** reference previews are stable per-snapshot
+  opaque ids — `"table #3"`, `"function #4"` — **not** raw heap addresses. The
+  same object reads as the same `#n` within one `locals()`/`globals()` call.
+  This keeps the Lua/host heap pointer from leaking into a preview string that
+  could be serialised off-device (e.g. a remote-debug wire or an uploaded crash
+  log), which would otherwise be an ASLR oracle.
+- **Breadth bound (opt-in, SEC-201):** the inspector is **unbounded by default**
+  — it faithfully materialises every entry of every table, because the host (not
+  the library) owns the trust decision. When you debug *untrusted* Lua, build
+  with `-D LUASWIFT_BOUNDED_INSPECTION` (env `LUASWIFT_BOUNDED_INSPECTION=1`):
+  each table (and `_G` itself) then yields at most
+  `LuaInspectedValue.boundedInspectionBreadth` (10,000) real children followed by
+  one breadth-limit sentinel child (`isBreadthLimited`), instead of allocating
+  one `Child` per entry under the held lock — the defense against an
+  adversarial million-entry breadth bomb (host-memory-exhaustion DoS).
 - **Raw access:** every level uses `lua_next` only — `__pairs`, `__index`,
   and `__len` are never invoked, consistent with the F4 raw-access discipline.
 

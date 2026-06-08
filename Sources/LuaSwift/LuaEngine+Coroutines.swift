@@ -33,7 +33,14 @@ extension LuaEngine {
     /// The coroutine starts in a suspended state. Use `resume(_:with:)` to begin
     /// execution. The coroutine can yield values using `coroutine.yield()` in Lua.
     ///
-    /// - Parameter code: The Lua code to execute in the coroutine
+    /// - Parameters:
+    ///   - code: The Lua source code to execute in the coroutine.
+    ///   - chunkName: An optional name for this chunk, used in error messages
+    ///     and tracebacks produced during coroutine execution. Applies the same
+    ///     `"@" + chunkName` prefix convention as ``run(_:chunkName:)`` — see
+    ///     that method for the full `LUA_IDSIZE` truncation behavior. When `nil`,
+    ///     the source text itself is used as the name, preserving the existing
+    ///     `[string "…"]` traceback form with no behavior change.
     /// - Returns: A handle to the coroutine
     /// - Throws: `LuaError` if the code cannot be loaded
     ///
@@ -46,7 +53,7 @@ extension LuaEngine {
     ///     return y * 2
     /// """)
     /// ```
-    public func createCoroutine(code: String) throws -> CoroutineHandle {
+    public func createCoroutine(code: String, chunkName: String? = nil) throws -> CoroutineHandle {
         lock.lock()
         defer { lock.unlock() }
 
@@ -59,8 +66,10 @@ extension LuaEngine {
             throw LuaError.coroutineError("Failed to create thread")
         }
 
-        // Load the code into the thread
-        let loadResult = luaL_loadstring(thread, code)
+        // Load the code into the thread — same name-prefix convention as run/evaluate.
+        // luaL_loadstring is equivalent to luaL_loadbuffer with the source as name,
+        // so passing nil here preserves the existing default behavior exactly.
+        let loadResult = loadSourceChunk(thread, code: code, chunkName: chunkName)
         if loadResult != LUA_OK {
             let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)  // Pop the thread from main state

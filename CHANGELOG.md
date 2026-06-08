@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-06-08
+
 ### Added
 - **Public debug-hook API** (interactive debugger support) — implements [#20](https://github.com/ChrisGVE/LuaSwift/issues/20).
   LuaSwift now exposes a complete event/command-driven debug API for building interactive debuggers (MoonSwift `DebugSession`). Highlights:

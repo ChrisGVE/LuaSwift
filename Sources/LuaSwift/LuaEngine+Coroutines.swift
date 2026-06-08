@@ -75,7 +75,15 @@ extension LuaEngine {
         let loadResult = loadSourceChunk(thread, code: code, chunkName: chunkName)
         if loadResult != LUA_OK {
             let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(L, 1)  // Pop the thread from main state
+            // Remove the error message from the thread's stack before the thread
+            // itself is popped from the main state. Failing to pop here leaves the
+            // thread's stack non-empty, inconsistent with every other error path.
+            lua_pop(thread, 1)  // pop error message from thread stack
+            #if DEBUG
+            assert(lua_gettop(thread) == 0,
+                   "createCoroutine: thread stack not empty after syntax-error cleanup")
+            #endif
+            lua_pop(L, 1)  // pop the thread object from main state
             throw LuaError.syntaxError(message)
         }
 
@@ -124,9 +132,12 @@ extension LuaEngine {
 
         let thread = handle.threadPointer
 
-        // Reset per-run state so a prior cancel/limit abort does not persist.
+        // Reset per-run state so a prior cancel/limit abort or stale structured-
+        // error stash does not persist into this resume (consistent with all other
+        // entry points: run/evaluate/callLuaFunction/runDebug all reset this triple).
         abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
+        pendingRuntimeFailure = nil
 
         // Push values onto the thread's stack
         for value in values {

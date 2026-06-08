@@ -105,17 +105,30 @@ internal func rawGlobalKeySet(on L: OpaquePointer) -> Set<String> {
 /// - Table iteration uses `lua_next` (raw), not `pairs` — `__pairs` is not invoked.
 /// - Nested table access uses `lua_next` recursively — `__index` is never
 ///   triggered at any depth.
-/// - Functions are ref-counted in the registry but otherwise read verbatim —
-///   `__call` is never invoked.
+/// - Functions: when `pinFunctions` is `true` (default, call path), a
+///   registry reference is created via `luaL_ref` so the function survives
+///   as a re-invokable `.luaFunction(ref)`. When `false` (introspection path),
+///   functions are returned as `.nil` — no registry pin is created and no
+///   release is required. See `pinFunctions:` below.
 ///
-/// The returned `.luaFunction` values are bound to the engine that owns `L`;
-/// see the module-level re-injection prohibition.
+/// The returned `.luaFunction` values (when `pinFunctions: true`) are bound
+/// to the engine that owns `L`; see the module-level re-injection prohibition.
 ///
 /// - Parameters:
 ///   - L: A valid Lua state. Must have no active run.
 ///   - index: Stack index of the value to materialise (positive or negative).
+///   - pinFunctions: When `false`, Lua functions are returned as `.nil` without
+///     creating a `luaL_ref`. Use this for read-only introspection paths where
+///     the caller never calls or releases the function reference — avoids
+///     an unbounded Lua registry leak when called repeatedly (e.g. after every
+///     run). Defaults to `true` to preserve the existing behaviour for all
+///     non-introspection call sites.
 /// - Returns: The materialised `LuaValue`.
-internal func rawValueFromStack(_ L: OpaquePointer, at index: Int32) -> LuaValue {
+internal func rawValueFromStack(
+    _ L: OpaquePointer,
+    at index: Int32,
+    pinFunctions: Bool = true
+) -> LuaValue {
     let type = lua_type(L, index)
 
     switch type {
@@ -133,15 +146,25 @@ internal func rawValueFromStack(_ L: OpaquePointer, at index: Int32) -> LuaValue
         return .string(str)
 
     case LUA_TTABLE:
-        return rawTableFromStack(L, at: index)
+        return rawTableFromStack(L, at: index, pinFunctions: pinFunctions)
 
     case LUA_TFUNCTION:
-        // Store a reference in the Lua registry so the GC cannot collect the
-        // function while Swift holds the LuaValue. The ref is an opaque
-        // handle; the caller must not re-inject it into a different engine.
-        lua_pushvalue(L, index)
-        let ref = luaL_ref(L, LUA_REGISTRYINDEX)
-        return .luaFunction(ref)
+        if pinFunctions {
+            // Store a reference in the Lua registry so the GC cannot collect
+            // the function while Swift holds the LuaValue. The ref is an
+            // opaque handle; the caller must not re-inject it into a different
+            // engine, and must call releaseLuaFunction(ref:) when done.
+            lua_pushvalue(L, index)
+            let ref = luaL_ref(L, LUA_REGISTRYINDEX)
+            return .luaFunction(ref)
+        } else {
+            // Read-only introspection path: do not pin the function. Returning
+            // .nil signals "present but not representable inertly" and prevents
+            // an unbounded registry leak when globalValue is called repeatedly.
+            // LuaValue has no dedicated "function placeholder" case; nil is the
+            // documented limitation for introspection of function-typed globals.
+            return .nil
+        }
 
     default:
         return .nil
@@ -155,7 +178,11 @@ internal func rawValueFromStack(_ L: OpaquePointer, at index: Int32) -> LuaValue
 /// which applies the same raw guarantee at every depth. This satisfies
 /// PRD §F4 acceptance criterion: "a **nested** table with a side-effecting
 /// `__pairs` is enumerated WITHOUT invoking the metamethod."
-private func rawTableFromStack(_ L: OpaquePointer, at index: Int32) -> LuaValue {
+private func rawTableFromStack(
+    _ L: OpaquePointer,
+    at index: Int32,
+    pinFunctions: Bool = true
+) -> LuaValue {
     // Normalise to an absolute index so it remains valid while we push/pop.
     let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
 
@@ -168,7 +195,7 @@ private func rawTableFromStack(_ L: OpaquePointer, at index: Int32) -> LuaValue 
         // stack: …, key@-2, value@-1
         let keyType = lua_type(L, -2)
         // Materialise the value via raw recursion before popping it.
-        let value = rawValueFromStack(L, at: -1)
+        let value = rawValueFromStack(L, at: -1, pinFunctions: pinFunctions)
 
         if keyType == LUA_TNUMBER {
             let keyNum = Int(lua_tonumber(L, -2))
@@ -319,10 +346,15 @@ extension LuaEngine {
     /// on the globals table metatable is never triggered. Returns `nil` when
     /// the global is absent or its value is Lua `nil`.
     ///
-    /// Returned `.luaFunction` values are bound to THIS engine via the Lua
-    /// registry. They MUST NOT be re-injected into a different engine
-    /// (especially a sandboxed one). Doing so would expose closures across
-    /// an isolation boundary.
+    /// **Function globals:** Lua globals whose type is `function` are returned
+    /// as `nil` rather than as `.luaFunction`. Creating a `luaL_ref` for each
+    /// function global would grow the Lua registry without bound when
+    /// `globalValue` is called repeatedly (e.g. after every run by MoonSwift),
+    /// because there is no release path at the call site. The nil return
+    /// signals "present but not representable inertly" — the caller can use
+    /// ``globalNames(includingStandardLibrary:)`` to confirm the key exists and
+    /// inspect its type, but cannot call it via this API (intentional: the
+    /// re-injection prohibition applies).
     ///
     /// **Between-runs only.** See ``globalNames(includingStandardLibrary:)``
     /// for the full safety rationale.
@@ -344,7 +376,12 @@ extension LuaEngine {
         lua_pushstring_binary(L, name)   // [globals, name]
         lua_rawget(L, -2)                // [globals, value]  — raw: no __index
 
-        let value = rawValueFromStack(L, at: -1)
+        // pinFunctions: false — do not create a luaL_ref for function globals.
+        // globalValue is called after every run by MoonSwift; pinning functions
+        // would grow the Lua registry without bound since there is no release
+        // API at the call site. Function globals are returned as .nil.
+        // See: LuaEngine+Introspection.swift rawValueFromStack pinFunctions: doc.
+        let value = rawValueFromStack(L, at: -1, pinFunctions: false)
         lua_pop(L, 2)                    // pop value + globals table
 
         // Treat Lua nil as Swift nil — "absent" and "nil" are semantically

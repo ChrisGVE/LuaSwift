@@ -170,8 +170,13 @@ final class StructuredErrorTests: XCTestCase {
 
     // MARK: - Error from registered Swift function (line == nil)
 
-    /// An error raised inside a registered Swift callback — which has no Lua
-    /// source frame — must yield line == nil without crashing.
+    /// An error raised inside a registered Swift callback must yield `line == nil`.
+    ///
+    /// PRD §F2: "For errors raised inside a Swift callback via `throw`, line is
+    /// nil (no Lua source line maps to Swift code)." The errfunc recognises
+    /// Swift-callback errors by detecting that level 1 is a C frame whose name
+    /// is NOT "error" (the Lua `error()` builtin) — i.e. it is a C trampoline
+    /// — and returns nil for the line in that case.
     func testSwiftCallbackErrorYieldsNilLine() throws {
         let engine = try LuaEngine()
         engine.registerFunction(name: "swiftError") { _ in
@@ -180,12 +185,9 @@ final class StructuredErrorTests: XCTestCase {
         guard let failure = runtimeFailure(from: {
             try engine.run("swiftError()")
         }) else { return }
-        // The Swift callback's C frame has no Lua source line.
-        // Depending on whether the Lua call site is captured, line may or may
-        // not be nil — what we must guarantee is no crash.
-        // If a Lua frame exists at the call site, line may be non-nil; that is
-        // acceptable. We test no-crash is the primary guarantee here.
-        _ = failure.line  // must not crash
+        XCTAssertNil(failure.line,
+            "Swift callback errors must yield line==nil per PRD §F2. " +
+            "Got line=\(String(describing: failure.line))")
     }
 
     // MARK: - Non-string error object (no __tostring)
@@ -322,5 +324,57 @@ final class StructuredErrorTests: XCTestCase {
         }) else { return }
         XCTAssertNotNil(failure.frames, "frames must not be nil")
         XCTAssertFalse(failure.frames!.isEmpty, "frames must not be empty")
+    }
+
+    // MARK: - error("x", 0) — level 0 suppresses location
+
+    /// `error("x", 0)` passes level=0 to Lua's error(), which suppresses the
+    /// standard "chunk:line:" prefix. The errfunc sees a plain string with no
+    /// location prefix. Because the error is raised via the C `error` builtin
+    /// with level 0, level 2 (the Lua caller) is still present, BUT Lua does NOT
+    /// embed the location prefix in the message. Our errfunc still tries to read
+    /// level 2 — so line may be non-nil. However the STRIPPED message must equal
+    /// exactly "x" (no prefix to strip), and the rawMessage must equal "x" too.
+    ///
+    /// The key assertion is that rawMessage == "x" (no "chunk:N: x" prefix)
+    /// because Lua itself suppressed the location string at level 0.
+    func testErrorLevel0YieldsNoMessagePrefix() throws {
+        let engine = try LuaEngine()
+        guard let failure = runtimeFailure(from: {
+            try engine.run(#"error("x", 0)"#)
+        }) else { return }
+        // rawMessage must be exactly "x" — level 0 suppresses Lua's "chunk:N: " prefix.
+        XCTAssertEqual(failure.rawMessage, "x",
+            "error(\"x\", 0) must yield rawMessage==\"x\" (no location prefix). " +
+            "Got '\(failure.rawMessage)'")
+        // stripped message must also be "x".
+        XCTAssertEqual(failure.message, "x",
+            "error(\"x\", 0) must yield message==\"x\". Got '\(failure.message)'")
+    }
+
+    // MARK: - runDebug(.stop) → .cancelled
+
+    /// Returning .stop from the debug handler inside runDebug(CompiledChunk)
+    /// must surface LuaError.cancelled (not a hang or crash).
+    func testRunDebugCompiledChunkStopYieldsCancelled() throws {
+        let engine = try LuaEngine(
+            configuration: LuaEngineConfiguration(sandboxed: false, packagePath: nil, memoryLimit: 0))
+        engine.setDebugHandler { event, _ in
+            if case .line = event { return .stop }
+            return .continueRun
+        }
+        let chunk = try engine.precompile("local x = 1\nlocal y = 2", chunkName: "stop_test.lua")
+        var caught: Error?
+        do {
+            _ = try engine.runDebug(chunk)
+        } catch {
+            caught = error
+        }
+        XCTAssertNotNil(caught, "Expected LuaError.cancelled from runDebug(CompiledChunk) with .stop")
+        if let luaErr = caught as? LuaError, case .cancelled = luaErr {
+            // correct
+        } else {
+            XCTFail("Expected LuaError.cancelled, got: \(String(describing: caught))")
+        }
     }
 }

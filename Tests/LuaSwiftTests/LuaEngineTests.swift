@@ -319,10 +319,23 @@ final class LuaEngineTests: XCTestCase {
                 XCTFail("Expected LuaError, got \(type(of: error))")
                 return
             }
+            // Extract the denial message from whichever runtime-error form is thrown.
+            let msg: String
             switch luaError {
-            case .runtimeError, .runtimeFailure: break  // either form is expected
-            default: XCTFail("Expected runtime error, got \(luaError)")
+            case .runtimeError(let s):
+                msg = s
+            case .runtimeFailure(let f):
+                msg = f.message
+            default:
+                XCTFail("Expected runtime error, got \(luaError)")
+                return
             }
+            // The sandbox sets os.execute = nil; the Lua VM emits "attempt to call
+            // a nil value" when the script tries to call os.execute().
+            XCTAssertTrue(
+                msg.contains("nil") || msg.contains("attempt to call"),
+                "Sandbox denial message must mention 'nil' or 'attempt to call'; got '\(msg)'"
+            )
         }
     }
 
@@ -334,10 +347,23 @@ final class LuaEngineTests: XCTestCase {
                 XCTFail("Expected LuaError, got \(type(of: error))")
                 return
             }
+            // Extract the denial message from whichever runtime-error form is thrown.
+            let msg: String
             switch luaError {
-            case .runtimeError, .runtimeFailure: break  // either form is expected
-            default: XCTFail("Expected runtime error, got \(luaError)")
+            case .runtimeError(let s):
+                msg = s
+            case .runtimeFailure(let f):
+                msg = f.message
+            default:
+                XCTFail("Expected runtime error, got \(luaError)")
+                return
             }
+            // The sandbox sets io.open = nil; the Lua VM emits "attempt to call
+            // a nil value" when the script tries to call io.open().
+            XCTAssertTrue(
+                msg.contains("nil") || msg.contains("attempt to call"),
+                "Sandbox denial message must mention 'nil' or 'attempt to call'; got '\(msg)'"
+            )
         }
     }
 

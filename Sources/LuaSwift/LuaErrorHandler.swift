@@ -244,39 +244,76 @@ private func extractRawMessage(_ L: OpaquePointer) -> String {
     return "<error: \(typeName)>"
 }
 
-/// Scan the Lua stack upward from level 1 to find the first non-C frame.
+/// Scan the Lua stack upward from level 1 to find the source line of the error.
 ///
-/// For an explicit `error()` call, level 1 is the C `error` builtin
-/// (currentline == -1) and the Lua caller is at level 2. For a VM-internal
-/// error (e.g. `nil + 1`), the Lua frame is already at level 1. Both cases
-/// produce the correct source line.
+/// **Error-origin rules (PRD §F2):**
 ///
-/// - Returns: `(line, shortSrc)` — `line` is nil when no Lua frame is found.
+/// - **VM-internal error** (`nil + 1`, type mismatch, etc.): level 1 is the
+///   Lua frame where the error occurred (`what == "Lua"`). The line is read
+///   directly from that frame.
+///
+/// - **Explicit `error()` call**: level 1 is the C `error` builtin
+///   (`what == "C"`, `name == "error"`). The Lua caller at level 2 is the
+///   Lua source line that called `error()`, which is the correct line to report.
+///   We recognise this case by checking `name == "error"` at level 1.
+///
+/// - **Error from a Swift callback** (C trampoline raises `lua_error` after
+///   a Swift `throw`): level 1 is the C trampoline (`what == "C"`, but
+///   `name` is NOT "error"). The Lua call-site is at level 2 but it is the
+///   CALLER's line, not the error origin — per PRD §F2 the line must be
+///   `nil` for Swift callback errors. We return nil in this case.
+///
+/// - Returns: `(line, shortSrc)` — `line` is nil when no Lua source line
+///   can be attributed to the error origin.
 private func extractErrorLocation(_ L: OpaquePointer) -> (Int?, String) {
-    var foundLine: Int? = nil
-    var foundShortSrc: String = ""
-    var scanLevel: Int32 = 1
-    while true {
-        var ar = lua_Debug()
-        guard lua_getstack(L, scanLevel, &ar) != 0 else { break }
-        guard lua_getinfo(L, "Sl", &ar) != 0 else { break }
-
-        let what = ar.what.map { String(cString: $0) } ?? "C"
-        if what != "C" {
-            if ar.currentline >= 0 {
-                foundLine = Int(ar.currentline)
-            }
-            foundShortSrc = withUnsafeBytes(of: ar.short_src) { rawBuf in
-                guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: CChar.self) else {
-                    return ""
-                }
-                return String(cString: ptr)
-            }
-            break
-        }
-        scanLevel += 1
+    var ar = lua_Debug()
+    // Level 1 = first frame above the errfunc itself.
+    guard lua_getstack(L, 1, &ar) != 0,
+          lua_getinfo(L, "Sln", &ar) != 0 else {
+        return (nil, "")
     }
-    return (foundLine, foundShortSrc)
+
+    let what = ar.what.map { String(cString: $0) } ?? "C"
+
+    if what != "C" {
+        // VM-internal error: the error source IS this Lua frame.
+        let line: Int? = ar.currentline >= 0 ? Int(ar.currentline) : nil
+        let src: String = withUnsafeBytes(of: ar.short_src) { rawBuf in
+            guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return ""
+            }
+            return String(cString: ptr)
+        }
+        return (line, src)
+    }
+
+    // Level 1 is a C frame. Distinguish error() vs. Swift-callback vs. other C.
+    let name = ar.name.map { String(cString: $0) } ?? ""
+    if name == "error" {
+        // The explicit Lua error() builtin is at level 1; the Lua caller is at
+        // level 2 — that IS the source of the error() call, which is the
+        // correct line to report.
+        var ar2 = lua_Debug()
+        guard lua_getstack(L, 2, &ar2) != 0,
+              lua_getinfo(L, "Sl", &ar2) != 0 else {
+            return (nil, "")
+        }
+        let what2 = ar2.what.map { String(cString: $0) } ?? "C"
+        guard what2 != "C" else { return (nil, "") }
+        let line: Int? = ar2.currentline >= 0 ? Int(ar2.currentline) : nil
+        let src: String = withUnsafeBytes(of: ar2.short_src) { rawBuf in
+            guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return ""
+            }
+            return String(cString: ptr)
+        }
+        return (line, src)
+    }
+
+    // Level 1 is a C frame that is NOT the error() builtin — this is a Swift
+    // callback trampoline or another C function. Per PRD §F2, Swift callback
+    // errors must yield line == nil (the error origin has no Lua source line).
+    return (nil, "")
 }
 
 /// Strip the exact `"shortSrc:line: "` prefix from `message` if present.

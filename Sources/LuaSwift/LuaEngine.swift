@@ -214,6 +214,19 @@ public final class LuaEngine {
     /// internal: set in LuaEngine+ValueServer.swift, checked on execution paths
     internal var lastWriteError: LuaError?
 
+    /// Structured runtime error captured by the errfunc message handler (#19).
+    ///
+    /// The `@convention(c)` handler (`runtimeErrorHandler` in LuaHelpers.swift)
+    /// stores a fully-parsed ``LuaRuntimeFailure`` here while the failing Lua
+    /// stack is still intact — before `lua_pcall` unwinds it. After `pcall`
+    /// returns, ``errorFromCode(_:message:)`` reads this stash and clears it.
+    ///
+    /// Reset to `nil` at the start of every run entry point so a stale value
+    /// from a prior error run cannot affect the next one.
+    ///
+    /// internal: written by the errfunc handler, read+cleared by errorFromCode
+    internal var pendingRuntimeFailure: LuaRuntimeFailure?
+
     /// Allocation-accounting box passed as `ud` to the custom `lua_Alloc`
     /// function when ``LuaEngineConfiguration/vmMemoryLimit`` is set.
     /// `nil` when the limit is disabled (state created via `luaL_newstate`).

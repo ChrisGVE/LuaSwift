@@ -524,3 +524,246 @@ func lua_pushstring_binary(_ L: OpaquePointer?, _ str: String) {
         lua_pushlstring(L, ptr, len)
     }
 }
+
+// MARK: - Structured Error Handler (#19)
+
+/// Walk the Lua call stack and return structured frame info.
+///
+/// Scans upward from `startLevel` calling `lua_getstack`/`lua_getinfo("Sln")`.
+/// Stops when `lua_getstack` returns 0 (no more frames).
+///
+/// - Parameters:
+///   - L: The Lua state to inspect.
+///   - startLevel: The first level to examine (0 = innermost).
+/// - Returns: Array of `LuaStackFrame` values, innermost first.
+///
+/// internal: shared by runtimeErrorHandler and any future stack-inspection code
+internal func walkLuaStack(_ L: OpaquePointer, startLevel: Int = 0) -> [LuaStackFrame] {
+    var frames: [LuaStackFrame] = []
+    var level = startLevel
+    while true {
+        var ar = lua_Debug()
+        guard lua_getstack(L, Int32(level), &ar) != 0 else { break }
+        // "S" = source/what/short_src  "l" = currentline  "n" = name/namewhat
+        guard lua_getinfo(L, "Sln", &ar) != 0 else { break }
+
+        let source: String = withUnsafeBytes(of: ar.short_src) { rawBuf in
+            // short_src is a fixed-length C char array — read until the first NUL.
+            guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return "?"
+            }
+            return String(cString: ptr)
+        }
+
+        let name: String? = ar.name.map { String(cString: $0) }
+        let currentLine: Int? = (ar.currentline >= 0) ? Int(ar.currentline) : nil
+
+        frames.append(LuaStackFrame(
+            name: name,
+            source: source,
+            currentLine: currentLine,
+            level: level - startLevel
+        ))
+        level += 1
+    }
+    return frames
+}
+
+/// Build a traceback string from the Lua call stack.
+///
+/// On Lua 5.2+ delegates to `luaL_traceback` (the standard implementation).
+/// On Lua 5.1, which lacks `luaL_traceback`, performs a manual
+/// `lua_getstack`/`lua_getinfo` walk and formats each frame in the same
+/// `"chunk:line: in function 'name'"` style that `luaL_traceback` produces.
+/// The result is always non-nil and non-empty (at minimum `"stack traceback:"`).
+///
+/// - Parameters:
+///   - L: The Lua state to inspect.
+///   - message: Optional message to prepend (mirrors the `msg` arg of `luaL_traceback`).
+/// - Returns: The traceback string.
+///
+/// internal: called by runtimeErrorHandler
+internal func buildTraceback(_ L: OpaquePointer, message: String?) -> String {
+    #if LUA_VERSION_51
+    // Lua 5.1: manual walk — luaL_traceback does not exist.
+    var parts: [String] = []
+    if let msg = message { parts.append(msg) }
+    parts.append("stack traceback:")
+    var level = 1  // start at 1 to skip the C error builtin at 0
+    while true {
+        var ar = lua_Debug()
+        guard lua_getstack(L, Int32(level), &ar) != 0 else { break }
+        guard lua_getinfo(L, "Sln", &ar) != 0 else { break }
+
+        let src: String = withUnsafeBytes(of: ar.short_src) { rawBuf in
+            guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return "?"
+            }
+            return String(cString: ptr)
+        }
+
+        let lineStr = ar.currentline >= 0 ? "\(ar.currentline)" : "?"
+        let nameStr: String
+        if let n = ar.name.map({ String(cString: $0) }), !n.isEmpty {
+            nameStr = "in function '\(n)'"
+        } else {
+            let whatStr = ar.what.map({ String(cString: $0) }) ?? "?"
+            nameStr = whatStr == "main" ? "in main chunk" : "in ?"
+        }
+        parts.append("\t\(src):\(lineStr): \(nameStr)")
+        level += 1
+    }
+    return parts.joined(separator: "\n")
+    #else
+    // Lua 5.2+: luaL_traceback is available and covers all edge cases.
+    // luaL_traceback(L, L1, msg, level) pushes a traceback string onto L.
+    // L1 == L means we trace the same state. level=1 skips the error-handler
+    // frame itself (same convention as the Lua standard library).
+    let topBefore = lua_gettop(L)
+    if let msg = message {
+        msg.withCString { cStr in
+            luaL_traceback(L, L, cStr, 1)
+        }
+    } else {
+        luaL_traceback(L, L, nil, 1)
+    }
+    // The traceback string is now on top of the stack; capture and clean up.
+    let result = lua_tostring(L, -1).map { String(cString: $0) } ?? "stack traceback: (unavailable)"
+    lua_settop(L, topBefore)
+    return result
+    #endif
+}
+
+/// The `lua_pcall` error handler for structured runtime errors (#19).
+///
+/// A free function (no captures) installed as the `errfunc` argument to every
+/// `lua_pcall` call. Lua invokes it with the error object at stack index 1
+/// **while the failing stack is still intact** — before `lua_pcall` unwinds it.
+///
+/// ## Pass-through rule (sentinel/abort)
+///
+/// If the engine's `abortReason` flag is non-zero (cancel or limit set by the
+/// compositor hook), the handler returns immediately leaving the error object
+/// unchanged (return 1). This ensures `LuaError.cancelled` and
+/// `.instructionLimitExceeded` survive and are not wrapped in `.runtimeFailure`.
+/// Belt-and-suspenders: also bail if the error string carries a `__luaswift_`
+/// prefix (the sentinel used by the compositor hook).
+///
+/// ## Non-string error objects
+///
+/// When the error object is not a string (e.g. `error({table})`), the handler
+/// emits a typed placeholder `"<error: typename>"` via `lua_typename` ONLY.
+/// It must **not** call `__tostring`, `luaL_tolstring`, or any other metamethod
+/// — doing so from inside an error handler risks `LUA_ERRERR`, blows the
+/// cancellation instruction budget, and can re-enter the error path.
+///
+/// ## Line number: first-non-C-frame scan
+///
+/// Scans upward from level 1 to find the **first frame whose `what != "C"`**.
+/// For an explicit `error()` call, level 1 is the C `error` builtin
+/// (currentline == -1) and the Lua caller is at level 2. For a VM-internal
+/// error (e.g. `nil + 1`), the Lua frame is already at level 1. Both cases
+/// produce the correct source line.
+///
+/// ## Swift stash
+///
+/// Stores the result in `engine.pendingRuntimeFailure` via the TLS
+/// `currentEngine` key (installed by `setAsCurrentEngine()` before the pcall),
+/// then returns 1 leaving the error object unchanged. After `lua_pcall` returns,
+/// `errorFromCode` reads and clears the stash to produce `.runtimeFailure`.
+///
+/// ## Coroutines (out of scope)
+///
+/// Coroutine `resume` uses `lua_resume` (no errfunc) — this handler is NOT
+/// called for coroutine errors. Structured errors for coroutines are out of
+/// scope for #19; the existing `.coroutineError` path handles them.
+internal func runtimeErrorHandler(
+    _ L: OpaquePointer?
+) -> Int32 {
+    guard let L = L else { return 1 }
+
+    // Recover the owning engine via TLS (installed by setAsCurrentEngine()).
+    guard let engine = LuaEngine.currentEngine else { return 1 }
+
+    // SENTINEL PASS-THROUGH: compositor hook set abort reason — do not wrap.
+    // abortReason: 0=none, 1=cancelled, 2=instructionLimit.
+    let abortReason = engine.abortReason.load(ordering: .relaxed)
+    if abortReason != 0 { return 1 }
+
+    // Belt-and-suspenders: sentinel string — pass through untouched.
+    if lua_type(L, 1) == LUA_TSTRING {
+        if let cStr = lua_tostring(L, 1) {
+            let msg = String(cString: cStr)
+            if msg.hasPrefix("__luaswift_") { return 1 }
+        }
+    }
+
+    // RAW MESSAGE: read from the stack without invoking any metamethod.
+    let rawMessage: String
+    if lua_type(L, 1) == LUA_TSTRING {
+        rawMessage = lua_tostring(L, 1).map { String(cString: $0) } ?? "<error: string>"
+    } else {
+        // Non-string error object — type placeholder only, no __tostring call.
+        let typeName = lua_typename(L, lua_type(L, 1)).map { String(cString: $0) } ?? "userdata"
+        rawMessage = "<error: \(typeName)>"
+    }
+
+    // LINE NUMBER: scan upward from level 1 for the first non-C frame.
+    // Level 1 when called from error() is the C `error` builtin; the Lua
+    // caller is at level 2. For VM-internal errors the Lua frame is at level 1.
+    var foundLine: Int? = nil
+    var foundShortSrc: String = ""
+    var scanLevel: Int32 = 1
+    while true {
+        var ar = lua_Debug()
+        guard lua_getstack(L, scanLevel, &ar) != 0 else { break }
+        guard lua_getinfo(L, "Sl", &ar) != 0 else { break }
+
+        let what = ar.what.map { String(cString: $0) } ?? "C"
+        if what != "C" {
+            if ar.currentline >= 0 {
+                foundLine = Int(ar.currentline)
+            }
+            foundShortSrc = withUnsafeBytes(of: ar.short_src) { rawBuf in
+                guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                    return ""
+                }
+                return String(cString: ptr)
+            }
+            break
+        }
+        scanLevel += 1
+    }
+
+    // TRACEBACK: always non-nil (manual walk on 5.1, luaL_traceback on 5.2+).
+    let traceback = buildTraceback(L, message: nil)
+
+    // FRAMES: full walk from level 0 for the structured frames array.
+    let frames = walkLuaStack(L, startLevel: 0)
+
+    // STRIPPED MESSAGE: remove exact "shortSrc:line: " prefix if present.
+    // Exact-prefix matching is required because chunk names may contain colons
+    // (e.g. "config.yaml:$.scripts.init:3: msg"), making regex unreliable.
+    let strippedMessage: String
+    if let line = foundLine, !foundShortSrc.isEmpty {
+        let prefix = "\(foundShortSrc):\(line): "
+        if rawMessage.hasPrefix(prefix) {
+            strippedMessage = String(rawMessage.dropFirst(prefix.count))
+        } else {
+            strippedMessage = rawMessage
+        }
+    } else {
+        strippedMessage = rawMessage
+    }
+
+    // STASH: store for errorFromCode to read after pcall returns.
+    engine.pendingRuntimeFailure = LuaRuntimeFailure(
+        message: strippedMessage,
+        rawMessage: rawMessage,
+        line: foundLine,
+        traceback: traceback,
+        frames: frames.isEmpty ? nil : frames
+    )
+
+    return 1  // return error object unchanged so lua_pcall propagates it
+}

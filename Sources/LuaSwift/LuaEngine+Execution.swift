@@ -127,10 +127,11 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
-        // Reset per-run state. abortReason and accumulator must be clean so a
-        // stale value from a prior cancelled/limit run does not fire spuriously.
+        // Reset per-run state. abortReason, accumulator, and structured-error
+        // stash must be clean so stale values from a prior run cannot fire spuriously.
         abortReason.store(0, ordering: .releasing)
         instructionAccumulator = 0
+        pendingRuntimeFailure = nil
 
         // Clear any previous write error
         lastWriteError = nil
@@ -152,15 +153,35 @@ extension LuaEngine {
         defer { restoreCurrentEngine(previousEngine) }
         armCompositorHook(on: L)
 
+        // lua_pcall requires the errfunc to sit BELOW the called function on the
+        // stack. loadSourceChunk already pushed the chunk function, so we push the
+        // handler on top and then use lua_insert to slide it one position down.
+        //
+        // Stack after loadSourceChunk:    [chunk(1)]
+        // After lua_pushcfunction:        [chunk(1), handler(2)]
+        // After lua_insert(L, 1):         [handler(1), chunk(2)]   ← desired
+        //
+        // lua_insert(L, 1) moves the TOP element to index 1, shifting everything
+        // else up. It is shimmed for all Lua versions in LuaHelpers.swift.
+        lua_pushcfunction(L, runtimeErrorHandler)
+        lua_insert(L, 1)
+        let handlerIdx: Int32 = 1
+
         // Execute with nresults=0 (discard any return values)
-        let callResult = lua_pcall(L, 0, 0, 0)
+        let callResult = lua_pcall(L, 0, 0, handlerIdx)
+
+        // On success: stack is [handler(1)].
+        // On error:   stack is [handler(1), error_obj(2)].
+        // Remove the handler unconditionally so the expected stack base is restored.
+        lua_remove(L, handlerIdx)
+
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
 
             #if DEBUG
             // After an abort the stack must be back at the pcall base (0 args,
-            // 0 results requested). A non-zero top here means a stack leak.
+            // 0 results requested, handler removed). A non-zero top means a leak.
             assert(lua_gettop(L) == 0, "Stack not clean after pcall abort: top=\(lua_gettop(L))")
             #endif
 
@@ -195,6 +216,7 @@ extension LuaEngine {
         // Reset per-run state (same reasoning as run(_:) above)
         abortReason.store(0, ordering: .releasing)
         instructionAccumulator = 0
+        pendingRuntimeFailure = nil
 
         // Clear any previous write error
         lastWriteError = nil
@@ -212,8 +234,20 @@ extension LuaEngine {
         defer { restoreCurrentEngine(previousEngine) }
         armCompositorHook(on: L)
 
+        // Same handler-placement pattern as run(_:chunkName:):
+        // push handler, slide it below the chunk with lua_insert(L, 1).
+        lua_pushcfunction(L, runtimeErrorHandler)
+        lua_insert(L, 1)
+        let handlerIdx: Int32 = 1
+
         // Execute with nresults=1 (expect one return value)
-        let callResult = lua_pcall(L, 0, 1, 0)
+        let callResult = lua_pcall(L, 0, 1, handlerIdx)
+
+        // On success: stack is [handler(1), result(2)].
+        // On error:   stack is [handler(1), error_obj(2)].
+        // Remove handler unconditionally.
+        lua_remove(L, handlerIdx)
+
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
@@ -294,26 +328,42 @@ extension LuaEngine {
 
     /// Map a Lua status code (and error message) to the matching ``LuaError``.
     ///
-    /// Checks the out-of-band ``abortReason`` atomic flag FIRST so cancel/limit
-    /// are detected correctly even when a future errfunc (#19) reshapes the
-    /// error message before `pcall` returns. Falls back to string-sentinel
-    /// matching for the current (no-errfunc) case as a belt-and-suspenders.
+    /// Priority order:
+    /// 1. **Out-of-band abort reason** (``abortReason`` atomic, set by the
+    ///    compositor hook) — checked FIRST so cancel/limit are detected
+    ///    correctly even after the errfunc (#19) has run.
+    /// 2. **Belt-and-suspenders sentinel matching** — string sentinels for
+    ///    the same cancel/limit cases, for rare atomic-write-races on very
+    ///    old hardware.
+    /// 3. **Structured error stash** (``pendingRuntimeFailure``) — populated
+    ///    by the `runtimeErrorHandler` errfunc while the stack was intact.
+    ///    Cleared here after reading so it does not persist across calls.
+    /// 4. **Plain string fallback** — preserves the pre-#19 `.runtimeError`
+    ///    path for coroutine errors (which use `lua_resume`, no errfunc) and
+    ///    any edge case where the handler did not run (e.g. `LUA_ERRSYNTAX`).
     ///
     /// internal: shared with the bytecode and function-call paths
     internal func errorFromCode(_ code: Int32, message: String) -> LuaError {
-        // Out-of-band reason set by the compositor hook — authoritative.
+        // Step 1: Out-of-band reason set by the compositor hook — authoritative.
         let reason = abortReason.load(ordering: .acquiring)
         if reason == 1 { return .cancelled }
         if reason == 2 { return .instructionLimitExceeded }
 
-        // Belt-and-suspenders: string sentinel still matches in case the hook
-        // fires but the atomic write races the pcall return on very old hardware.
+        // Step 2: Belt-and-suspenders sentinel matching.
         if code == LUA_ERRRUN && message.contains(instructionLimitSentinel) {
             return .instructionLimitExceeded
         }
         if code == LUA_ERRRUN && message.contains(cancelledSentinel) {
             return .cancelled
         }
+
+        // Step 3: Structured error captured by the errfunc handler (#19).
+        // Consume and clear the stash so it cannot bleed into a subsequent call.
+        if code == LUA_ERRRUN, let failure = pendingRuntimeFailure {
+            pendingRuntimeFailure = nil
+            return .runtimeFailure(failure)
+        }
+
         // Lua 5.3's luaL_Buffer reports an allocation failure (e.g. a denial
         // by the vmMemoryLimit allocator during string.rep) as a *runtime*
         // error with this exact lauxlib.c message instead of LUA_ERRMEM.
@@ -321,6 +371,8 @@ extension LuaEngine {
         if code == LUA_ERRRUN && message.contains("not enough memory for buffer allocation") {
             return .memoryError(message)
         }
+
+        // Step 4: Plain string fallback (pre-#19 behavior, source-compatible).
         switch code {
         case LUA_ERRSYNTAX:
             return .syntaxError(message)

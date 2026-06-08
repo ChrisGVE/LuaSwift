@@ -38,6 +38,9 @@ extension LuaEngine {
     ///
     /// - Parameter server: The server to register
     public func register(server: LuaValueServer) {
+        // register touches the Lua state (creates global metatables).
+        // Non-throwing: if paused, block on lock (waits for pause to end).
+        // In practice hosts register servers before running code.
         lock.lock()
         defer { lock.unlock() }
 

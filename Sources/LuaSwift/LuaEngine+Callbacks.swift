@@ -39,6 +39,8 @@ extension LuaEngine {
         name: String,
         callback: @escaping ([LuaValue]) throws -> LuaValue
     ) {
+        // registerFunction touches the Lua state. Non-throwing:
+        // block on lock if paused (waits for debug pause to end).
         lock.lock()
         defer { lock.unlock() }
 

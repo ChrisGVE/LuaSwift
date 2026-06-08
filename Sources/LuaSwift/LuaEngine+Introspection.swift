@@ -293,6 +293,8 @@ extension LuaEngine {
     /// **Thread safety:** acquires the engine lock before touching the Lua
     /// state. Callers must ensure no run is active (see above).
     public func globalNames(includingStandardLibrary: Bool = true) -> [String] {
+        // globalNames walks the Lua VM state — unsafe while paused (mid-run).
+        // Non-throwing; block on lock (waits for debug pause to end).
         lock.lock()
         defer { lock.unlock() }
         guard let L = L else { return [] }
@@ -325,6 +327,7 @@ extension LuaEngine {
     /// - Parameter name: The global variable name to look up.
     /// - Returns: The typed `LuaValue`, or `nil` if the variable is absent or `nil`.
     public func globalValue(_ name: String) -> LuaValue? {
+        // globalValue touches the Lua VM state — non-throwing; block on lock.
         lock.lock()
         defer { lock.unlock() }
         guard let L = L else { return nil }

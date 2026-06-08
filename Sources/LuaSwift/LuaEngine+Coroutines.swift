@@ -54,6 +54,9 @@ extension LuaEngine {
     /// """)
     /// ```
     public func createCoroutine(code: String, chunkName: String? = nil) throws -> CoroutineHandle {
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
         lock.lock()
         defer { lock.unlock() }
 
@@ -109,6 +112,9 @@ extension LuaEngine {
     /// // result2 == .yielded([.number(11.0)])
     /// ```
     public func resume(_ handle: CoroutineHandle, with values: [LuaValue] = []) throws -> CoroutineResult {
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
         lock.lock()
         defer { lock.unlock() }
 
@@ -222,6 +228,11 @@ extension LuaEngine {
     ///
     /// - Parameter handle: The coroutine handle to destroy
     public func destroy(_ handle: CoroutineHandle) {
+        // destroy touches the Lua registry (luaL_unref) — guard against pause.
+        // This is a non-throwing method so we skip the guard if paused to avoid
+        // a breaking API change; callers that destroy during pause will block on
+        // the lock (which the VM thread holds) and wait for the pause to end.
+        // In practice MoonSwift never destroys coroutines during a debug pause.
         lock.lock()
         defer { lock.unlock() }
 

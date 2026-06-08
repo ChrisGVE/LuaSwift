@@ -90,6 +90,9 @@ extension LuaEngine {
     ///   `LuaError.syntaxError` if the bytecode fails to load,
     ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
     public func run(_ chunk: CompiledChunk) throws {
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
         let bytecode = try chunk.validatedBytecode()
         _ = try loadAndExecuteBytecode(bytecode, returningValue: false)
     }
@@ -114,6 +117,9 @@ extension LuaEngine {
     ///   `LuaError.syntaxError` if the bytecode fails to load,
     ///   `LuaError.instructionLimitExceeded` if the instruction limit is tripped
     public func evaluate(_ chunk: CompiledChunk) throws -> LuaValue {
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
         let bytecode = try chunk.validatedBytecode()
         return try loadAndExecuteBytecode(bytecode, returningValue: true)
     }
@@ -216,6 +222,9 @@ extension LuaEngine {
         corrupt the VM.
         """)
     public func runBytecode(_ bytecode: Data) throws {
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
         _ = try loadAndExecuteBytecode(bytecode, returningValue: false)
     }
 
@@ -236,7 +245,10 @@ extension LuaEngine {
         corrupt the VM.
         """)
     public func evaluateBytecode(_ bytecode: Data) throws -> LuaValue {
-        try loadAndExecuteBytecode(bytecode, returningValue: true)
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
+        return try loadAndExecuteBytecode(bytecode, returningValue: true)
     }
 
     /// Load dumped bytecode and execute it under the instruction hook.

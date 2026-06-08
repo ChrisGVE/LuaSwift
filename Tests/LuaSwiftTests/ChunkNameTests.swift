@@ -41,6 +41,11 @@ final class ChunkNameTests: XCTestCase {
     // MARK: - Helpers
 
     /// Run Lua code that calls error() and capture the thrown LuaError message.
+    ///
+    /// Accepts both `.runtimeError(String)` (pre-#19) and `.runtimeFailure`
+    /// (post-#19). For `.runtimeFailure` the `rawMessage` is returned so that
+    /// chunk-name presence checks (which look for `chunkName:line:` prefixes)
+    /// continue to work unchanged.
     private func errorMessage(from run: () throws -> Void) -> String {
         do {
             try run()
@@ -49,6 +54,7 @@ final class ChunkNameTests: XCTestCase {
         } catch let err as LuaError {
             switch err {
             case .runtimeError(let msg): return msg
+            case .runtimeFailure(let failure): return failure.rawMessage
             case .syntaxError(let msg): return msg
             default:
                 XCTFail("Unexpected LuaError case: \(err)")

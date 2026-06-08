@@ -315,9 +315,13 @@ final class LuaEngineTests: XCTestCase {
         let engine = try LuaEngine(configuration: .default)
 
         XCTAssertThrowsError(try engine.evaluate("os.execute('echo test')")) { error in
-            guard case LuaError.runtimeError = error else {
-                XCTFail("Expected runtime error")
+            guard let luaError = error as? LuaError else {
+                XCTFail("Expected LuaError, got \(type(of: error))")
                 return
+            }
+            switch luaError {
+            case .runtimeError, .runtimeFailure: break  // either form is expected
+            default: XCTFail("Expected runtime error, got \(luaError)")
             }
         }
     }
@@ -326,9 +330,13 @@ final class LuaEngineTests: XCTestCase {
         let engine = try LuaEngine(configuration: .default)
 
         XCTAssertThrowsError(try engine.evaluate("io.open('test.txt')")) { error in
-            guard case LuaError.runtimeError = error else {
-                XCTFail("Expected runtime error")
+            guard let luaError = error as? LuaError else {
+                XCTFail("Expected LuaError, got \(type(of: error))")
                 return
+            }
+            switch luaError {
+            case .runtimeError, .runtimeFailure: break  // either form is expected
+            default: XCTFail("Expected runtime error, got \(luaError)")
             }
         }
     }
@@ -372,9 +380,13 @@ final class LuaEngineTests: XCTestCase {
         let engine = try LuaEngine()
 
         XCTAssertThrowsError(try engine.evaluate("return undefined_variable.method()")) { error in
-            guard case LuaError.runtimeError = error else {
-                XCTFail("Expected runtime error")
+            guard let luaError = error as? LuaError else {
+                XCTFail("Expected LuaError, got \(type(of: error))")
                 return
+            }
+            switch luaError {
+            case .runtimeError, .runtimeFailure: break  // either form is expected
+            default: XCTFail("Expected runtime error, got \(luaError)")
             }
         }
     }

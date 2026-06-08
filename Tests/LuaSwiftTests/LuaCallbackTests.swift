@@ -151,15 +151,17 @@ final class LuaCallbackTests: XCTestCase {
 
         // Division by zero should propagate error
         XCTAssertThrowsError(try engine.evaluate("return divide(10, 0)")) { error in
-            if let luaError = error as? LuaError {
-                switch luaError {
-                case .runtimeError(let message):
-                    XCTAssertTrue(message.contains("Division by zero"))
-                default:
-                    XCTFail("Expected runtime error, got \(luaError)")
-                }
-            } else {
-                XCTFail("Expected LuaError, got \(error)")
+            guard let luaError = error as? LuaError else {
+                return XCTFail("Expected LuaError, got \(error)")
+            }
+            switch luaError {
+            case .runtimeError(let message):
+                XCTAssertTrue(message.contains("Division by zero"))
+            case .runtimeFailure(let failure):
+                // #19: structured errors carry rawMessage containing the full error
+                XCTAssertTrue(failure.rawMessage.contains("Division by zero"))
+            default:
+                XCTFail("Expected runtime error, got \(luaError)")
             }
         }
     }
@@ -174,15 +176,16 @@ final class LuaCallbackTests: XCTestCase {
         }
 
         XCTAssertThrowsError(try engine.evaluate("return fail()")) { error in
-            if let luaError = error as? LuaError {
-                switch luaError {
-                case .runtimeError(let message):
-                    XCTAssertTrue(message.contains("Swift callback error"))
-                default:
-                    XCTFail("Expected runtime error, got \(luaError)")
-                }
-            } else {
-                XCTFail("Expected LuaError, got \(error)")
+            guard let luaError = error as? LuaError else {
+                return XCTFail("Expected LuaError, got \(error)")
+            }
+            switch luaError {
+            case .runtimeError(let message):
+                XCTAssertTrue(message.contains("Swift callback error"))
+            case .runtimeFailure(let failure):
+                XCTAssertTrue(failure.rawMessage.contains("Swift callback error"))
+            default:
+                XCTFail("Expected runtime error, got \(luaError)")
             }
         }
     }

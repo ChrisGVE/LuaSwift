@@ -539,16 +539,17 @@ final class JSONModuleTests: XCTestCase {
         XCTAssertThrowsError(try engine.evaluate("""
             return luaswift.json.decode('not valid json')
             """)) { error in
-            if let luaError = error as? LuaError {
-                switch luaError {
-                case .runtimeError(let message):
-                    XCTAssertTrue(message.contains("json.decode error"))
-                default:
-                    XCTFail("Expected runtime error, got \(luaError)")
-                }
-            } else {
-                XCTFail("Expected LuaError, got \(error)")
+            guard let luaError = error as? LuaError else {
+                return XCTFail("Expected LuaError, got \(error)")
             }
+            // #19: structured errors surface as .runtimeFailure; rawMessage contains full error
+            let msg: String
+            switch luaError {
+            case .runtimeError(let m): msg = m
+            case .runtimeFailure(let f): msg = f.rawMessage
+            default: return XCTFail("Expected runtime error, got \(luaError)")
+            }
+            XCTAssertTrue(msg.contains("json.decode error"))
         }
     }
 
@@ -556,16 +557,16 @@ final class JSONModuleTests: XCTestCase {
         XCTAssertThrowsError(try engine.evaluate("""
             return luaswift.json.decode()
             """)) { error in
-            if let luaError = error as? LuaError {
-                switch luaError {
-                case .runtimeError(let message):
-                    XCTAssertTrue(message.contains("requires a string argument"))
-                default:
-                    XCTFail("Expected runtime error, got \(luaError)")
-                }
-            } else {
-                XCTFail("Expected LuaError, got \(error)")
+            guard let luaError = error as? LuaError else {
+                return XCTFail("Expected LuaError, got \(error)")
             }
+            let msg: String
+            switch luaError {
+            case .runtimeError(let m): msg = m
+            case .runtimeFailure(let f): msg = f.rawMessage
+            default: return XCTFail("Expected runtime error, got \(luaError)")
+            }
+            XCTAssertTrue(msg.contains("requires a string argument"))
         }
     }
 

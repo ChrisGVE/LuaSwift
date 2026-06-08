@@ -63,10 +63,11 @@ import Foundation
 /// - Lua 5.2+ emit `LUA_HOOKTAILCALL` (a call-shaped event) with no
 ///   matching return.
 ///
-/// Both are normalised to ``ret`` by the compositor hook, and the depth
-/// comparison in ``LuaEngine``'s step logic accounts for the frame collapse
+/// Both are normalised to ``call(_:)`` by the compositor hook, carrying the
+/// callee's ``LuaStackFrame`` — NOT to ``ret``. The stepping logic uses live
+/// ``lua_getstack`` depth measurement rather than CALL/RET event counting,
 /// so ``stepOver`` and ``stepOut`` produce the correct pause points on every
-/// Lua version.
+/// Lua version regardless of the tail-call event shape.
 public enum LuaDebugEvent: Sendable {
     /// The VM is about to execute the given source line number.
     case line(Int)

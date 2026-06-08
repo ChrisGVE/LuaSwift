@@ -117,6 +117,11 @@ let package = Package(
     dependencies: {
         var deps: [Package.Dependency] = [
             .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
+            // Lock-free atomics for cooperative cancellation (#22): the cancel/abort
+            // flags are written from a non-VM thread and read inside the C count hook.
+            // Swift's built-in Synchronization.Atomic needs iOS 18/macOS 15; this
+            // package supports the iOS 15/macOS 12 floor.
+            .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
         ]
         if includeYams {
             deps.append(.package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"))
@@ -168,6 +173,7 @@ let package = Package(
             dependencies: {
                 var deps: [Target.Dependency] = [
                     "CLua",
+                    .product(name: "Atomics", package: "swift-atomics"),
                 ]
                 if includeYams {
                     deps.append(.product(name: "Yams", package: "Yams"))

@@ -16,6 +16,11 @@
 //  and throws LuaError.cancelled (LuaError.swift). Atomic state lives in
 //  LuaEngine.swift alongside the other execution-control fields.
 //
+//  Neighbors:
+//    LuaEngine+CompositorHook.swift — hook that reads cancellationRequested
+//    LuaEngine+Execution.swift      — errorFromCode reads/clears abortReason
+//    LuaEngine.swift                — cancellationRequested, abortReason fields
+//
 
 import Atomics
 import Foundation
@@ -50,21 +55,25 @@ extension LuaEngine {
 
     /// Clear a prior cancellation request so the engine can be reused.
     ///
-    /// Call this after a ``LuaError/cancelled`` outcome before running another
+    /// Call this after a ``LuaError/cancelled`` or
+    /// ``LuaError/instructionLimitExceeded`` outcome before running another
     /// script on the same engine. Also clears the out-of-band abort-reason flag
     /// and the instruction accumulator so they do not carry over.
     ///
-    /// **When is this required?** Only after a `.cancelled` outcome. A run that
-    /// completes normally never sets ``cancellationRequested``, so no reset is
-    /// needed before the next run in the normal case. A run that trips the
-    /// instruction limit sets `abortReason` (cleared here) but not
-    /// `cancellationRequested`, so reset is still appropriate there for
-    /// symmetry, though the accumulator reset at the start of each run entry
-    /// point means `instructionLimit` already re-arms cleanly without it.
+    /// **When is this required?** After both `.cancelled` and
+    /// `.instructionLimitExceeded` outcomes: both set `abortReason`, which must
+    /// be cleared here so the next run's error-classification is unaffected.
+    /// A run that completes normally never sets these flags, so no reset is
+    /// needed in the normal case.
+    ///
+    /// **Must not be called during an active run.** Calling this while a script
+    /// is executing on another thread is a programming error: it races with the
+    /// compositor hook and can cause the running script to observe an
+    /// inconsistent cancellation state.
     ///
     /// **Thread-safety:** May be called from any thread. It is conventional to
     /// call it from the same thread/queue that owns the engine, after awaiting
-    /// the result of the cancelled run.
+    /// the result of the aborted run.
     public func resetCancellation() {
         cancellationRequested.store(false, ordering: .releasing)
         abortReason.store(AbortReason.none, ordering: .releasing)

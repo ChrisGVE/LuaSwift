@@ -341,9 +341,9 @@ public final class LuaEngine {
     ///
     /// The compositor hook reads this key on every fire to recover the owning
     /// engine without a process-global map. The key must survive nested
-    /// invocations (callbacks, coroutine resumes) where a deeper frame clears
-    /// the TLS before the compositor can read it — see ``setAsCurrentEngine()``
-    /// and ``clearCurrentEngine()``.
+    /// invocations (callbacks, coroutine resumes) where a deeper frame replaces
+    /// the TLS value — see ``setAsCurrentEngine()`` and
+    /// ``restoreCurrentEngine(_:)`` (in LuaEngine+TLS.swift).
     internal static let currentEngineKey = "LuaSwift.CurrentEngine"
 
     // MARK: - Initialization

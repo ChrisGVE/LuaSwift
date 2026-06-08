@@ -366,6 +366,14 @@ let engine = try LuaEngine(configuration: .unrestricted)
 
 **Resource limits:** `memoryLimit` bounds buffers allocated by Swift-backed modules, while `vmMemoryLimit` bounds total Lua VM allocation (strings, tables, etc.) via a custom allocator — a breach surfaces as `LuaError.memoryError`. The instruction limit (`setInstructionLimit`) is a CPU-bound control only: a single VM instruction calling a C function (such as `string.rep('A', 1e9)`) is not interrupted by it, so pair it with `vmMemoryLimit` when running untrusted code.
 
+**Cancellation:** Call `engine.requestCancellation()` from any thread to abort a running script; the run throws `LuaError.cancelled`. Call `engine.resetCancellation()` after both `.cancelled` and `.instructionLimitExceeded` before running again.
+
+**Structured errors:** Runtime errors during `run()` / `evaluate()` throw `LuaError.runtimeFailure(LuaRuntimeFailure)` with a stripped `message`, source `line`, full `traceback`, and a `frames` array. Coroutine errors (from `resume`) surface as the plain `LuaError.runtimeError(String)`.
+
+**Debug hook and introspection:** `engine.setDebugHandler { event, inspector in … }` installs a LINE/CALL/RET handler; `engine.runDebug(…)` activates it. The `inspector` gives read-only access to locals, upvalues, globals, and the call stack at each pause point. Use `LuaDebugCommand` to continue, step, or stop. See [Core API — Debug Hook API](docs/core-api.md#debug-hook-api) for details.
+
+**Chunk names:** `engine.precompile(_:chunkName:)` and `engine.run(_:chunkName:)` accept an optional `chunkName` that appears in error messages and tracebacks for easier debugging.
+
 ## App Store Compliance
 
 LuaSwift is designed to be App Store compliant per Apple's [App Store Review Guidelines 2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements).
@@ -438,6 +446,7 @@ LuaSwift's scientific computing modules are inspired by excellent open-source li
 
 **Required Dependencies:**
 - [Lua](https://www.lua.org/) - The Lua programming language (bundled)
+- [swift-atomics](https://github.com/apple/swift-atomics) - Lock-free flags for cancellation/debug coordination
 - [Yams](https://github.com/jpsim/Yams) - YAML parsing for Swift
 - [TOMLKit](https://github.com/LebJe/TOMLKit) - TOML parsing for Swift
 

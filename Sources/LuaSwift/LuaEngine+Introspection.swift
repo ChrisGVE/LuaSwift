@@ -51,6 +51,12 @@
 //  engine). Doing so would expose the parent engine's closures inside the
 //  sandbox, violating the isolation contract.
 //
+//  Neighbors:
+//    LuaEngine+DebugInspector.swift — inspector globals() delegates here
+//    LuaEngine+ValueServer.swift    — valueServers listed by registeredServers
+//    LuaEngine+Callbacks.swift      — callbacks listed by registeredFunctions
+//    LuaErrorHandler.swift          — rawValueFromStack used by walkLuaStack
+//
 
 import Foundation
 import CLua

@@ -207,7 +207,8 @@ extension LuaEngine {
             count = Int32(hookInterval)
         }
         armedHookCount = Int(count)
-        let mask = Int32(LUA_MASKCOUNT) | Int32(LUA_MASKLINE) | Int32(LUA_MASKCALL) | Int32(LUA_MASKRET)
+        let mask = Int32(LUA_MASKCOUNT)
+            | Int32(LUA_MASKLINE) | Int32(LUA_MASKCALL) | Int32(LUA_MASKRET)
         lua_sethook(state, compositorHookCallback, mask, count)
     }
 
@@ -244,7 +245,8 @@ extension LuaEngine {
             lua_pop(L, 1)
 
             #if DEBUG
-            assert(lua_gettop(L) == 0, "Stack not clean after runDebug pcall abort: top=\(lua_gettop(L))")
+            assert(lua_gettop(L) == 0,
+                   "Stack not clean after runDebug pcall abort: top=\(lua_gettop(L))")
             #endif
 
             if let writeError = lastWriteError {

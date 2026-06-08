@@ -130,9 +130,15 @@ try engine.run("""
 - <doc:MathExprModule>
 - <doc:DebugModule>
 
+### Structured Errors
+
+- ``LuaRuntimeFailure``
+- ``LuaStackFrame``
+
 ### Debug Hook API
 
 - <doc:DebugHookAPI>
+- ``LuaDebugHandler``
 - ``LuaDebugEvent``
 - ``LuaDebugCommand``
 - ``LuaDebugInspector``

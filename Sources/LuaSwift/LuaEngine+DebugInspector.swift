@@ -202,7 +202,8 @@ internal func inspectedValueFromStack(
     case LUA_TBOOLEAN: return .scalar(.bool(lua_toboolean(L, absIndex) != 0))
     case LUA_TNUMBER:  return .scalar(.number(lua_tonumber(L, absIndex)))
     case LUA_TSTRING:  return materialiseString(L, absIndex: absIndex)
-    case LUA_TTABLE:   return materialiseTable(L, absIndex: absIndex, visited: &visited, depth: depth)
+    case LUA_TTABLE:
+        return materialiseTable(L, absIndex: absIndex, visited: &visited, depth: depth)
     case LUA_TFUNCTION:
         return materialisePointerRef(L, absIndex: absIndex, kind: .function, label: "function")
     case LUA_TUSERDATA, LUA_TLIGHTUSERDATA:

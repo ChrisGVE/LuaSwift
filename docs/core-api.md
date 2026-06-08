@@ -204,6 +204,14 @@ do {
         print("Syntax error: \(message)")
     case .runtimeError(let message):
         print("Runtime error: \(message)")
+    case .runtimeFailure(let failure):
+        // Structured: includes line number, traceback, and call frames.
+        print("Runtime error at line \(failure.line.map(String.init) ?? "?"): \(failure.message)")
+        print(failure.traceback)
+    case .cancelled:
+        print("Run was cancelled")
+    case .instructionLimitExceeded:
+        print("Instruction limit exceeded")
     case .readOnlyAccess(let path):
         print("Cannot write to: \(path)")
     case .typeError(let expected, let actual):
@@ -213,6 +221,80 @@ do {
     }
 }
 ```
+
+## Structured Runtime Errors
+
+When a Lua runtime error occurs during `run()`, `evaluate()`, or
+`callLuaFunction()`, LuaSwift throws `LuaError.runtimeFailure(_:)` containing
+a `LuaRuntimeFailure` with:
+
+- `message`: The error message with the `"chunk:line: "` prefix stripped.
+- `rawMessage`: The unmodified error string Lua produced.
+- `line`: The Lua source line where the error originated, or `nil` for
+  Swift-callback errors (no Lua source line maps to Swift code).
+- `traceback`: A full stack-traceback string (works on all Lua versions,
+  including 5.1 which lacks `luaL_traceback`).
+- `frames`: A structured `[LuaStackFrame]` array with name, source, and line
+  for each frame.
+
+Coroutine errors from `resume(_:)` surface as `LuaError.runtimeError(String)`
+(unstructured), not `.runtimeFailure`, because `lua_resume` has no errfunc slot.
+
+## Cancellation
+
+```swift
+// Request cancellation from any thread (lock-free).
+engine.requestCancellation()
+
+// After a cancelled run, reset before the next run.
+engine.resetCancellation()
+```
+
+`run()` / `evaluate()` throw `LuaError.cancelled`. Call `resetCancellation()`
+after both `.cancelled` and `.instructionLimitExceeded` before running again.
+
+Instruction limits fire within `[limit, limit + hookInterval)` instructions due
+to hook granularity — not exactly at `limit`.
+
+## Debug Hook API
+
+```swift
+// Install a handler that fires on every Lua line.
+engine.setDebugHandler { event, inspector in
+    if case .line(let n) = event {
+        print("About to execute line \(n)")
+        let locals = inspector.locals(frameLevel: 0)
+        return .continueRun    // or .stop, .stepInto, .stepOver, .stepOut
+    }
+    return .continueRun
+}
+
+// Run with the debug hook active.
+try engine.runDebug("local x = 1\nlocal y = 2")
+
+// Remove the handler.
+engine.setDebugHandler(nil)
+```
+
+`LuaDebugInspector` gives read-only access to the paused VM:
+
+| Property / Method | Description |
+|---|---|
+| `callStack` | All Lua frames at pause time |
+| `locals(frameLevel:)` | Local variables at a given call-stack frame |
+| `upvalues(frameLevel:)` | Upvalues (closures) at a given frame |
+| `globals()` | All global names and their inspected values |
+| `isValid` | `false` after the debug callback returns |
+
+CALL and RET events are suppressed while a step command (`.stepInto`,
+`.stepOver`, `.stepOut`) is active; only LINE events are delivered.
+
+## swift-atomics Dependency
+
+LuaSwift uses [`swift-atomics`](https://github.com/apple/swift-atomics) for
+the lock-free `isPaused` and `abortReason` flags that coordinate between the
+Lua VM thread and threads calling `requestCancellation()`. This is the sole
+external Swift dependency; all Lua C source is bundled in-tree.
 
 ---
 

@@ -63,6 +63,14 @@ extension LuaEngine {
     ///   memory. Pair the instruction limit with
     ///   ``LuaEngineConfiguration/vmMemoryLimit`` to also bound Lua VM memory.
     ///
+    /// - Note: **Overshoot when `count > hookInterval`.** The compositor hook
+    ///   fires every `hookInterval` instructions (default 10 000). When `count`
+    ///   exceeds `hookInterval`, the abort fires at the first hook fire that
+    ///   reaches or surpasses `count` — i.e. the actual abort point is in the
+    ///   range `[count, count + hookInterval)`. For precise at-or-before
+    ///   semantics, set `count ≤ hookInterval`: the hook is then armed with
+    ///   `min(hookInterval, count)` so the first fire cannot overshoot the limit.
+    ///
     /// - Parameter count: Maximum instruction count per call. Pass `0` to disable
     ///   the hook entirely (the default). Negative values are treated as `0`.
     ///   Values above `Int32.max` are clamped to `Int32.max` (the hook count is a

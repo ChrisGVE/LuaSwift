@@ -27,6 +27,30 @@ import Atomics
 import Foundation
 import CLua
 
+// MARK: - Debug Step State (internal)
+
+/// Tracks the current stepping mode during a debug session.
+///
+/// Nil means the handler fires on every LINE event (breakpoint mode).
+/// Each non-nil case encodes the from-level captured at the point the
+/// step command was issued; the `shouldPauseForStep` helper compares
+/// the live stack depth against that level to decide when to pause.
+///
+/// ## Tail-call handling
+///
+/// Depth comparisons use strict `<` (stepOut) and `<=` (stepOver) so a
+/// tail call that collapses a frame still triggers the correct pause:
+/// when `f` tail-calls `g`, Lua may not emit a separate HOOKRET for `f`
+/// (5.2+: emits HOOKTAILCALL for `g`; 5.1: emits HOOKTAILRET for `f`
+/// before the tail call). Either way, the live depth after `g` returns is
+/// strictly less than `fromLevel` (stepOut) or equal to `fromLevel`
+/// (stepOver), so the comparison fires at the right point.
+internal enum StepState {
+    case stepOver(fromLevel: Int)
+    case stepInto
+    case stepOut(fromLevel: Int)
+}
+
 /// Main Lua execution engine.
 ///
 /// `LuaEngine` provides a type-safe Swift interface to the Lua interpreter.
@@ -226,6 +250,42 @@ public final class LuaEngine {
     ///
     /// internal: written by the errfunc handler, read+cleared by errorFromCode
     internal var pendingRuntimeFailure: LuaRuntimeFailure?
+
+    // MARK: - Debug-Hook State (#20)
+
+    /// The user-supplied debug handler installed via ``setDebugHandler(_:)``.
+    ///
+    /// `nil` when no handler is active. Written under the engine lock;
+    /// read inside the compositor hook on the VM thread (also under lock).
+    ///
+    /// internal: written by LuaEngine+Debug.swift, read by compositorHookCallback
+    internal var debugHandler: LuaDebugHandler?
+
+    /// Atomic pause flag set to `true` immediately before the debug handler is
+    /// called and back to `false` immediately after it returns.
+    ///
+    /// **Purpose:** the engine lock is held by the active run while the hook
+    /// fires. To prevent another thread from acquiring the lock and calling
+    /// back into the same `lua_State` (C-level UB), every public method that
+    /// touches `L` checks this flag **before** `lock.lock()`. If `true`, the
+    /// method throws ``LuaError/enginePaused`` immediately. The `<`/`<=` depth
+    /// comparisons in the stepping logic also rely on the VM being parked here.
+    ///
+    /// Uses `ManagedAtomic<Bool>` (swift-atomics) with `.sequentiallyConsistent`
+    /// ordering so any thread that reads `true` observes a fully-consistent view
+    /// of the paused state before deciding to throw.
+    ///
+    /// internal: written by compositorHookCallback, read by every guarded method
+    internal let isPaused = ManagedAtomic<Bool>(false)
+
+    /// The current stepping mode, or `nil` for breakpoint mode (pause on every
+    /// LINE event; handler decides via `.continueRun` / `.stop`).
+    ///
+    /// Only read/written on the VM thread (inside or around the compositor
+    /// hook), so no atomic is required.
+    ///
+    /// internal: managed by compositorHookCallback and LuaEngine+Debug.swift
+    internal var stepState: StepState?
 
     // MARK: - Introspection Bookkeeping (#21)
 

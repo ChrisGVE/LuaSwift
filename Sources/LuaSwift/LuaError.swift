@@ -156,6 +156,21 @@ public enum LuaError: Error, LocalizedError {
     /// Sandbox installation failed — a dangerous global may still be live
     case sandboxInstallationFailed(String)
 
+    /// Attempted to call a state-touching method while the engine is paused
+    /// at a debug hook event.
+    ///
+    /// While a ``LuaDebugHandler`` callback is executing, the VM thread holds
+    /// the Lua state mid-execution and the engine's `NSRecursiveLock` is held.
+    /// Any public method that would call back into the same `lua_State` would
+    /// produce C-level undefined behavior. LuaSwift fences this off with a
+    /// `ManagedAtomic<Bool>` `isPaused` flag: every state-touching public
+    /// method checks the flag **before** acquiring the lock and throws this
+    /// error when `isPaused` is `true`.
+    ///
+    /// The ``LuaDebugInspector`` provided to the handler is the ONLY
+    /// sanctioned interaction with engine state while paused.
+    case enginePaused
+
     /// Unknown error
     case unknown(code: Int, message: String?)
 
@@ -194,6 +209,8 @@ public enum LuaError: Error, LocalizedError {
             return "Lua runtime error: \(failure.message)"
         case .sandboxInstallationFailed(let message):
             return "Sandbox installation failed: \(message)"
+        case .enginePaused:
+            return "Cannot call LuaEngine methods while a debug handler is executing; use the inspector instead"
         case .unknown(let code, let message):
             if let message = message {
                 return "Lua error (code \(code)): \(message)"

@@ -9,18 +9,23 @@
 //
 //  Location: Sources/LuaSwift/LuaEngine.swift
 //
-//  Context: Core of the LuaEngine class — stored state (Lua state
-//  pointer, server/callback/coroutine registries, locks), Swift-module
-//  memory tracking, thread-local current-engine access, and the
-//  init/deinit lifecycle. Each functional concern lives in a sibling
-//  extension file: LuaEngine+Execution.swift (run/evaluate, instruction
-//  limit), LuaEngine+Bytecode.swift (precompile/CompiledChunk),
-//  LuaEngine+FunctionCalls.swift (Swift calls Lua),
-//  LuaEngine+Callbacks.swift (Lua calls Swift),
-//  LuaEngine+Coroutines.swift, LuaEngine+ValueServer.swift,
-//  LuaEngine+Bridging.swift (LuaValue <-> stack conversion),
-//  LuaEngine+Sandbox.swift, and LuaEngine+VMAllocator.swift (vm memory
-//  limit). Configuration is LuaEngineConfiguration.swift.
+//  Context: Core of the LuaEngine class — stored state only: the Lua state
+//  pointer, server/callback/coroutine registries, locks, atomics, and the
+//  init/deinit lifecycle. All methods live in sibling extension files:
+//    LuaEngine+Execution.swift      — run/evaluate, instruction limit
+//    LuaEngine+Bytecode.swift       — precompile/CompiledChunk
+//    LuaEngine+FunctionCalls.swift  — Swift calls Lua
+//    LuaEngine+Callbacks.swift      — Lua calls Swift
+//    LuaEngine+Coroutines.swift     — coroutine management
+//    LuaEngine+ValueServer.swift    — value server registration
+//    LuaEngine+Bridging.swift       — LuaValue <-> stack conversion
+//    LuaEngine+Sandbox.swift        — sandboxing
+//    LuaEngine+VMAllocator.swift    — VM memory limit allocator
+//    LuaEngine+TLS.swift            — TLS helpers + Swift memory tracking
+//    LuaEngine+Introspection.swift  — globals/modules introspection (#21)
+//    LuaEngine+Debug.swift          — debug-hook public API (#20)
+//    LuaEngine+CompositorHook.swift — compositor hook callback + sentinels
+//  Configuration: LuaEngineConfiguration.swift
 //
 
 import Atomics
@@ -232,7 +237,8 @@ public final class LuaEngine {
     /// Separate lock for memory tracking to avoid deadlock with main lock.
     /// The main lock is held during Lua execution, and callbacks during execution
     /// may need to track memory allocations.
-    private let memoryLock = NSLock()
+    /// internal: accessed by memory-tracking methods in LuaEngine+TLS.swift
+    internal let memoryLock = NSLock()
 
     /// Last write error (used to communicate errors from __newindex callback)
     /// internal: set in LuaEngine+ValueServer.swift, checked on execution paths
@@ -323,8 +329,9 @@ public final class LuaEngine {
     /// internal: shared with LuaEngine+VMAllocator.swift
     internal var vmAccounting: UnsafeMutableRawPointer?
 
-    /// Current allocated bytes tracked by Swift modules
-    private var _allocatedBytes: Int = 0
+    /// Current allocated bytes tracked by Swift modules.
+    /// internal: accessed by memory-tracking methods in LuaEngine+TLS.swift
+    internal var _allocatedBytes: Int = 0
 
     /// Thread-local key for storing the current engine during execution.
     ///
@@ -333,109 +340,7 @@ public final class LuaEngine {
     /// invocations (callbacks, coroutine resumes) where a deeper frame clears
     /// the TLS before the compositor can read it — see ``setAsCurrentEngine()``
     /// and ``clearCurrentEngine()``.
-    private static let currentEngineKey = "LuaSwift.CurrentEngine"
-
-    // MARK: - Memory Tracking
-
-    /// Current allocated bytes tracked by Swift modules.
-    ///
-    /// This tracks memory allocated by Swift-backed modules like Array and LinAlg.
-    /// It does not include Lua's internal memory usage.
-    public var allocatedBytes: Int {
-        memoryLock.lock()
-        defer { memoryLock.unlock() }
-        return _allocatedBytes
-    }
-
-    /// Track a memory allocation for Swift modules.
-    ///
-    /// Call this before allocating large data structures in Swift modules.
-    /// If the allocation would exceed the configured memory limit, this throws
-    /// a `memoryError`.
-    ///
-    /// - Parameter bytes: Number of bytes to allocate
-    /// - Throws: `LuaError.memoryError` if the allocation would exceed the limit
-    public func trackAllocation(bytes: Int) throws {
-        memoryLock.lock()
-        defer { memoryLock.unlock() }
-
-        if configuration.memoryLimit > 0 {
-            if _allocatedBytes + bytes > configuration.memoryLimit {
-                throw LuaError.memoryError("Memory limit exceeded: tried to allocate \(bytes) bytes, limit is \(configuration.memoryLimit), already allocated \(_allocatedBytes)")
-            }
-        }
-        _allocatedBytes += bytes
-    }
-
-    /// Track a memory deallocation for Swift modules.
-    ///
-    /// Call this when freeing memory in Swift modules.
-    ///
-    /// - Parameter bytes: Number of bytes freed
-    public func trackDeallocation(bytes: Int) {
-        memoryLock.lock()
-        defer { memoryLock.unlock() }
-        _allocatedBytes = max(0, _allocatedBytes - bytes)
-    }
-
-    /// Reset the memory tracker to zero.
-    ///
-    /// Useful for testing or when reusing an engine.
-    public func resetMemoryTracker() {
-        memoryLock.lock()
-        defer { memoryLock.unlock() }
-        _allocatedBytes = 0
-    }
-
-    /// Get the current engine from thread-local storage.
-    ///
-    /// This is available during callback execution from Swift modules.
-    /// Returns nil if called outside of a callback context.
-    public static var currentEngine: LuaEngine? {
-        Thread.current.threadDictionary[currentEngineKey] as? LuaEngine
-    }
-
-    /// Install this engine as the TLS current engine, returning the previous
-    /// occupant so the caller can restore it on exit.
-    ///
-    /// The return value **must** be passed back to ``restoreCurrentEngine(_:)``
-    /// in a `defer` block. This save/restore contract ensures that a Swift
-    /// callback invoked mid-run does not permanently clear the TLS key when
-    /// it finishes, which would prevent the compositor hook from reading the
-    /// engine on subsequent fires within the same run.
-    ///
-    /// internal: used by run entry points (LuaEngine+Execution/+Bytecode/
-    /// +FunctionCalls/+Coroutines) and the callback trampoline (+Callbacks).
-    @discardableResult
-    internal func setAsCurrentEngine() -> LuaEngine? {
-        let previous = Thread.current.threadDictionary[Self.currentEngineKey] as? LuaEngine
-        Thread.current.threadDictionary[Self.currentEngineKey] = self
-        return previous
-    }
-
-    /// Restore the TLS current engine to `previous` (the value captured by the
-    /// matching ``setAsCurrentEngine()`` call). Passing `nil` removes the key.
-    ///
-    /// internal: paired with every ``setAsCurrentEngine()`` call
-    internal func restoreCurrentEngine(_ previous: LuaEngine?) {
-        if let previous {
-            Thread.current.threadDictionary[Self.currentEngineKey] = previous
-        } else {
-            Thread.current.threadDictionary.removeObject(forKey: Self.currentEngineKey)
-        }
-    }
-
-    /// Convenience: clear the current engine unconditionally.
-    ///
-    /// Use only at the outermost run boundary where there is guaranteed to be no
-    /// enclosing frame that set the TLS. Run entry points must use the
-    /// ``setAsCurrentEngine()``/``restoreCurrentEngine(_:)`` pair instead.
-    ///
-    /// internal: kept for backward compatibility with any callers that do not
-    /// nest; prefer the pair form for new code.
-    internal func clearCurrentEngine() {
-        Thread.current.threadDictionary.removeObject(forKey: Self.currentEngineKey)
-    }
+    internal static let currentEngineKey = "LuaSwift.CurrentEngine"
 
     // MARK: - Initialization
 

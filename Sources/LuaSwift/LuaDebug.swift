@@ -28,9 +28,9 @@
 //  The handler receives a `LuaDebugInspector` whose `isValid` flag is
 //  `true` for the duration of the call. Once the handler returns,
 //  LuaSwift calls `invalidate()` (internal) and every subsequent method
-//  invocation on the inspector hits a `precondition(isValid)` trap.
-//  Using the inspector outside the callback is a programming error and
-//  traps deterministically — there is no silent stack corruption.
+//  returns a safe neutral value ([] / empty callStack) instead of touching
+//  the live lua_State — this fallback survives -Ounchecked. Using the
+//  inspector outside the callback is a programming error; check isValid.
 //
 //  ## LuaInspectedValue snapshot contract
 //
@@ -238,8 +238,11 @@ extension LuaInspectedValue {
 ///
 /// The inspector is valid **only** for the duration of the handler callback.
 /// LuaSwift flips ``isValid`` to `false` immediately after the handler
-/// returns. Every method `precondition(isValid)` — using the inspector
-/// after the callback has returned traps deterministically (never silently).
+/// returns. Every method checks ``isValid`` and returns a safe neutral value
+/// (`[]` / empty callStack) when `false`, rather than trapping — this safe
+/// fallback is preserved even under `-Ounchecked` where `precondition` is
+/// elided. Using the inspector after the callback is a programming error;
+/// callers must check ``isValid`` before using a stored inspector.
 ///
 /// ## Inspector scope
 ///
@@ -258,7 +261,9 @@ public protocol LuaDebugInspector: AnyObject {
     /// Whether the inspector is currently valid.
     ///
     /// `true` during the handler callback; `false` once the callback returns.
-    /// Methods `precondition(isValid)` — use after callback returns traps.
+    /// All methods return safe neutral values (empty arrays / empty callStack)
+    /// when `isValid` is `false`. Check this property before using a stored
+    /// inspector reference after the callback has returned.
     var isValid: Bool { get }
 
     /// The current call stack, innermost frame first (level 0).

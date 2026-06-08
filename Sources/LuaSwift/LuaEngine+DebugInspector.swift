@@ -17,9 +17,11 @@
 //  ## Inspector validity token
 //
 //  DebugInspectorImpl.isValid is true during the handler call; invalidate()
-//  flips it false after the handler returns. Every public method calls
-//  precondition(isValid) so use-after-callback traps deterministically at
-//  the programming-error call site.
+//  flips it false after the handler returns. Every public method guards on
+//  isValid and returns a safe neutral value ([] / empty callStack) when
+//  false. This safe-fallback approach is preserved under -Ounchecked
+//  (preconditions are elided there). Storing and using the inspector after
+//  the callback ends is a programming error; isValid is the signal.
 //
 //  ## Snapshot semantics
 //
@@ -85,12 +87,17 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
     public var isValid: Bool { valid }
 
     public var callStack: [LuaStackFrame] {
-        precondition(valid, "LuaDebugInspector used after callback returned")
+        // Return an empty stack rather than precondition-trapping so the safe
+        // fallback survives -Ounchecked (which elides preconditions). A stored
+        // inspector used after the callback returns will return neutral values
+        // instead of silently reading a dangling lua_State pointer. isValid is
+        // still the authoritative signal; callers are expected to check it.
+        guard valid else { return [] }
         return walkLuaStack(L, startLevel: 0)
     }
 
     public func locals(frameLevel: Int) -> [(name: String, value: LuaInspectedValue)] {
-        precondition(valid, "LuaDebugInspector used after callback returned")
+        guard valid else { return [] }
         var result: [(name: String, value: LuaInspectedValue)] = []
         var ar = lua_Debug()
         guard lua_getstack(L, Int32(frameLevel), &ar) != 0 else { return result }
@@ -112,7 +119,7 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
     }
 
     public func upvalues(frameLevel: Int) -> [(name: String, value: LuaInspectedValue)] {
-        precondition(valid, "LuaDebugInspector used after callback returned")
+        guard valid else { return [] }
         var result: [(name: String, value: LuaInspectedValue)] = []
 
         // Get the function at frameLevel via lua_getinfo("f").
@@ -137,7 +144,7 @@ internal final class DebugInspectorImpl: LuaDebugInspector {
     }
 
     public func globals() -> [(name: String, value: LuaInspectedValue)] {
-        precondition(valid, "LuaDebugInspector used after callback returned")
+        guard valid else { return [] }
         var result: [(name: String, value: LuaInspectedValue)] = []
 
         pushGlobalsTableForDebug(L)

@@ -145,6 +145,9 @@ private func buildTracebackManual(_ L: OpaquePointer, message: String?) -> Strin
 }
 
 /// Native traceback via luaL_traceback for Lua 5.2+.
+/// Not compiled on Lua 5.1 which lacks luaL_traceback — buildTraceback routes
+/// to buildTracebackManual on that version instead.
+#if !LUA_VERSION_51
 private func buildTracebackNative(_ L: OpaquePointer, message: String?) -> String {
     // luaL_traceback(L, L1, msg, level) pushes a traceback string onto L.
     // L1 == L means we trace the same state. level=1 skips the error-handler
@@ -162,6 +165,7 @@ private func buildTracebackNative(_ L: OpaquePointer, message: String?) -> Strin
     lua_settop(L, topBefore)
     return result
 }
+#endif
 
 // MARK: - Runtime Error Handler
 

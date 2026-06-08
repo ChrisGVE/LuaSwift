@@ -14,10 +14,91 @@
 //  +Coroutines.swift) maps Lua status codes to these cases via
 //  errorFromCode. The .cancelled case is set out-of-band via an atomic
 //  abortReason flag (LuaEngine.swift) so an errfunc (F2/#19) cannot
-//  repackage the sentinel as a runtime error.
+//  repackage the sentinel as a runtime error. The .runtimeFailure case
+//  carries a LuaRuntimeFailure captured by the errfunc message handler
+//  installed on every lua_pcall path (#19).
 //
 
 import Foundation
+
+// MARK: - Structured Error Types (#19)
+
+/// A single frame in a Lua call stack.
+///
+/// Produced by the errfunc message handler installed on every `lua_pcall` path.
+/// The handler walks `lua_getstack`/`lua_getinfo` while the failing stack is
+/// still intact — by the time `lua_pcall` returns the stack is unwound.
+///
+/// - `level` 0 is the innermost (most-recent) frame; higher levels are outer callers.
+/// - `source` uses the chunk name from `Proto.source`, which reflects the `chunkName`
+///   supplied to `run`/`evaluate`/`precompile`/`createCoroutine` (#23).
+/// - `currentLine` is `nil` when Lua reports `currentline == -1` (C frames,
+///   tail calls, or chunks whose debug info was stripped).
+public struct LuaStackFrame: Sendable, Equatable {
+    /// Function name if known (`nil` for anonymous functions and the main chunk).
+    public let name: String?
+    /// Chunk source identifier (from `Proto.source`, reflects `#23` chunk names).
+    public let source: String
+    /// Current line within the source chunk, or `nil` for C/tail/stripped frames.
+    public let currentLine: Int?
+    /// Stack level: 0 = innermost frame, increasing toward outer callers.
+    public let level: Int
+}
+
+/// Structured runtime error payload captured by the `lua_pcall` error handler.
+///
+/// Delivered exclusively wrapped in ``LuaError/runtimeFailure(_:)`` — it is
+/// **not** `: Error` itself, so it cannot be thrown standalone and cannot slip
+/// a `catch … as LuaError` guard in callers.
+///
+/// ## Field contract
+///
+/// - `message`: the Lua error string with the `chunkname:line:` prefix stripped.
+///   MoonSwift renders location information itself and expects the bare message.
+/// - `rawMessage`: the original string with the prefix intact (fallback).
+/// - `line`: 1-based source line in the raising chunk. Read from the **first
+///   frame whose `lua_getinfo("S")` `what != "C"`**, scanning upward from
+///   level 1. This yields the correct line for both an explicit `error()` call
+///   (level 1 is the C builtin; the Lua caller is at level 2) and a VM-internal
+///   error such as `nil + 1` (the Lua frame is already at level 1). `nil` when
+///   no Lua frame exists — e.g. an error raised inside a registered Swift
+///   function, or `error(msg, 0)`.
+/// - `traceback`: full traceback string, newest frame first, non-nil on all
+///   versions. On Lua 5.2+ this is produced by `luaL_traceback`; on 5.1 (which
+///   lacks `luaL_traceback`) a manual `lua_getstack`/`lua_getinfo` walk is used.
+/// - `frames`: structured frames from the same walk used to build `traceback`.
+///   `nil` only when the stack walk is empty (no Lua frames active).
+///
+/// ## Non-string errors
+///
+/// When the Lua program calls `error(obj)` with a non-string object, the
+/// handler emits a typed placeholder such as `"<error: table>"` using
+/// `lua_typename` **without** calling `__tostring` or any other metamethod.
+/// Invoking a metamethod from inside an error handler risks `LUA_ERRERR`
+/// (handler error), can blow the cancellation instruction budget, or re-enter
+/// the error path.
+///
+/// ## Sentinel pass-through
+///
+/// Cancel and instruction-limit raises (``LuaError/cancelled``,
+/// ``LuaError/instructionLimitExceeded``) are detected via the out-of-band
+/// ``LuaEngine/abortReason`` atomic before `pendingRuntimeFailure` is
+/// consulted, so they are never wrapped in `runtimeFailure`.
+public struct LuaRuntimeFailure: Sendable, Equatable {
+    /// Lua error message with `chunkname:line:` prefix stripped.
+    public let message: String
+    /// Original Lua error message with the prefix intact.
+    public let rawMessage: String
+    /// 1-based source line in the raising chunk, or `nil` for C-level errors.
+    public let line: Int?
+    /// Full traceback string, newest frame first. Non-nil on all Lua versions.
+    public let traceback: String
+    /// Structured stack frames from the same walk used to build `traceback`.
+    /// `nil` only when no Lua frames were active at error time.
+    public let frames: [LuaStackFrame]?
+}
+
+// MARK: - LuaError
 
 /// Errors that can occur during Lua execution.
 public enum LuaError: Error, LocalizedError {
@@ -62,6 +143,16 @@ public enum LuaError: Error, LocalizedError {
     /// The engine is safe to reuse after calling ``LuaEngine/resetCancellation()``.
     case cancelled
 
+    /// Structured runtime error with parsed location, stripped message, and traceback.
+    ///
+    /// Produced when the `lua_pcall` error handler successfully captures and
+    /// parses the error. See ``LuaRuntimeFailure`` for the full field contract.
+    ///
+    /// The existing ``runtimeError(_:)`` case is preserved for source
+    /// compatibility (MoonSwift matches it) and is used when no structured data
+    /// is available (e.g. the handler was not installed or returned unexpectedly).
+    case runtimeFailure(LuaRuntimeFailure)
+
     /// Sandbox installation failed — a dangerous global may still be live
     case sandboxInstallationFailed(String)
 
@@ -96,6 +187,11 @@ public enum LuaError: Error, LocalizedError {
             return "Instruction limit exceeded (possible infinite loop)"
         case .cancelled:
             return "Execution cancelled by requestCancellation()"
+        case .runtimeFailure(let failure):
+            if let line = failure.line {
+                return "Lua runtime error at line \(line): \(failure.message)"
+            }
+            return "Lua runtime error: \(failure.message)"
         case .sandboxInstallationFailed(let message):
             return "Sandbox installation failed: \(message)"
         case .unknown(let code, let message):

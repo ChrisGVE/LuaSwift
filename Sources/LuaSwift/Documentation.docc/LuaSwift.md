@@ -129,3 +129,12 @@ try engine.run("""
 - <doc:TypesModule>
 - <doc:MathExprModule>
 - <doc:DebugModule>
+
+### Debug Hook API
+
+- <doc:DebugHookAPI>
+- ``LuaDebugEvent``
+- ``LuaDebugCommand``
+- ``LuaDebugInspector``
+- ``LuaInspectedValue``
+- ``LuaRefKind``

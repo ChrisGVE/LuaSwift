@@ -7,6 +7,15 @@
 //
 //  SPDX-License-Identifier: Apache-2.0
 //
+//  Location: Sources/LuaSwift/LuaError.swift
+//
+//  Context: Error taxonomy for LuaEngine. Every execution entry point
+//  (LuaEngine+Execution.swift, +Bytecode.swift, +FunctionCalls.swift,
+//  +Coroutines.swift) maps Lua status codes to these cases via
+//  errorFromCode. The .cancelled case is set out-of-band via an atomic
+//  abortReason flag (LuaEngine.swift) so an errfunc (F2/#19) cannot
+//  repackage the sentinel as a runtime error.
+//
 
 import Foundation
 
@@ -48,6 +57,11 @@ public enum LuaError: Error, LocalizedError {
     /// Instruction count limit exceeded — possible infinite loop
     case instructionLimitExceeded
 
+    /// Execution aborted by ``LuaEngine/requestCancellation()``.
+    ///
+    /// The engine is safe to reuse after calling ``LuaEngine/resetCancellation()``.
+    case cancelled
+
     /// Sandbox installation failed — a dangerous global may still be live
     case sandboxInstallationFailed(String)
 
@@ -80,6 +94,8 @@ public enum LuaError: Error, LocalizedError {
             return "Lua coroutine error: \(message)"
         case .instructionLimitExceeded:
             return "Instruction limit exceeded (possible infinite loop)"
+        case .cancelled:
+            return "Execution cancelled by requestCancellation()"
         case .sandboxInstallationFailed(let message):
             return "Sandbox installation failed: \(message)"
         case .unknown(let code, let message):

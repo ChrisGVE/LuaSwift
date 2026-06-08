@@ -89,10 +89,12 @@ extension LuaEngine {
             throw LuaError.callbackError("Callback '\(name)' not found")
         }
 
-        // Set this engine as current for the duration of the callback
-        // This allows modules to access the engine for memory tracking
-        setAsCurrentEngine()
-        defer { clearCurrentEngine() }
+        // Save/restore the TLS engine so the compositor hook can still find
+        // this engine after the callback returns. A bare clearCurrentEngine()
+        // here would wipe the key mid-run, silently disabling cancel/limit
+        // checks for the rest of the execution (correction #2 fix).
+        let previous = setAsCurrentEngine()
+        defer { restoreCurrentEngine(previous) }
 
         return try callback(arguments)
     }

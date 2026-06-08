@@ -83,6 +83,17 @@ final class IntrospectionTests: XCTestCase {
         )
     }
 
+    func testInstalledModuleNames_excludesExtendStdlibFinalizationStep() throws {
+        let engine = try LuaEngine()
+        try ModuleRegistry.install(in: engine)
+        // extend_stdlib is a finalization step, not a module — it must never
+        // surface as an installed module (it would pollute MoonSwift's navigator).
+        XCTAssertFalse(
+            engine.installedModuleNames.contains("extend_stdlib"),
+            "extend_stdlib must not appear in installedModuleNames, got: \(engine.installedModuleNames)"
+        )
+    }
+
     func testInstalledModuleNames_emptyBeforeInstall() throws {
         let engine = try LuaEngine()
         XCTAssertTrue(

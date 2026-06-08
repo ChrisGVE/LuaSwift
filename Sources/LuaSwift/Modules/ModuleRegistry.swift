@@ -100,11 +100,17 @@ public struct ModuleRegistry {
     /// so the remaining modules still get installed. On success, the module
     /// name is recorded in ``LuaEngine/installedModules`` for introspection
     /// (F4 / #21).
-    func collectFailure(_ moduleName: String, _ installModule: () throws -> Void) {
+    func collectFailure(
+      _ moduleName: String, record: Bool = true, _ installModule: () throws -> Void
+    ) {
       do {
         try installModule()
-        // SUCCESS PATH: record the installed module name for introspection.
-        engine.installedModules.insert(moduleName)
+        // SUCCESS PATH: record the installed module name for introspection (#21),
+        // but only for real modules — `record: false` excludes finalization steps
+        // like extend_stdlib that are not LuaSwiftModules.
+        if record {
+          engine.installedModules.insert(moduleName)
+        }
       } catch {
         failures.append(.init(module: moduleName, underlyingError: error))
         unavailable.insert(moduleName)
@@ -185,8 +191,9 @@ public struct ModuleRegistry {
       collectFailure(name) { try moduleType.install(in: engine) }
     }
 
-    // extend_stdlib is a finalization step, not a module.
-    collectFailure("extend_stdlib") { try installExtendStdlib(in: engine) }
+    // extend_stdlib is a finalization step, not a module — do not record it in
+    // installedModules (it must not appear in installedModuleNames).
+    collectFailure("extend_stdlib", record: false) { try installExtendStdlib(in: engine) }
 
     if !failures.isEmpty {
       throw ModuleInstallError(failures: failures)

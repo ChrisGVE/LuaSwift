@@ -118,11 +118,12 @@ extension LuaEngine {
     ///     When provided, LuaSwift passes `"@" + chunkName` to `luaL_loadbuffer`
     ///     so that Lua's `short_src` uses the `@`-prefix truncation rule: names
     ///     up to `LUA_IDSIZE` (60 bytes) appear verbatim; longer names are
-    ///     truncated from the **head**, showing `"…"` followed by the tail. This
-    ///     preserves the most-specific path component — ideal for names such as
-    ///     `"config.yaml:$.scripts.init"`. When `nil`, the source text itself is
-    ///     used as the name (replicating `luaL_loadstring` exactly), which
-    ///     produces the familiar `[string "..."]` traceback form.
+    ///     tail-preserving — the **leftmost portion is dropped** and the name is
+    ///     shown as `"…"` followed by the rightmost (most-specific) characters.
+    ///     This keeps the most-specific path component visible — ideal for names
+    ///     such as `"config.yaml:$.scripts.init"`. When `nil`, the source text
+    ///     itself is used as the name (replicating `luaL_loadstring` exactly),
+    ///     which produces the familiar `[string "..."]` traceback form.
     /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
     ///   ``requestCancellation()`` was called from another thread during execution
     public func run(_ code: String, chunkName: String? = nil) throws {

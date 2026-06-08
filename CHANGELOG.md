@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Engine introspection API** (read-only, raw access) — implements [#21](https://github.com/ChrisGVE/LuaSwift/issues/21).
+  Five new properties/methods on `LuaEngine` let tooling (e.g. MoonSwift's Mock Environment navigator) inspect live engine state without executing user code:
+  - `registeredValueServerNames: [String]` — names of servers registered via `register(server:)`.
+  - `registeredFunctionNames: [String]` — names of Swift callbacks registered via `registerFunction(name:callback:)`.
+  - `installedModuleNames: [String]` — names of modules successfully installed via `ModuleRegistry.install(in:)` (or `recordInstalledModule(_:)` for direct installs).
+  - `globalNames(includingStandardLibrary: Bool) -> [String]` — raw enumeration of the engine's registry globals table; `false` returns only user-defined globals (those absent at engine init time).
+  - `globalValue(_ name: String) -> LuaValue?` — raw read of a global using `lua_rawget`; returns `nil` for absent/nil globals.
+  - **Raw access at every depth.** `globalNames` uses `lua_next` (not `pairs` — no `__pairs`); `globalValue` uses `lua_rawget` (not `lua_getglobal` / `lua_gettable` — no `__index`). The recursive table materialiser (`rawValueFromStack` / `rawTableFromStack`, internal) applies the same raw guarantee at every nesting level — a nested table's `__pairs` or `__index` is never invoked.
+  - **Globals-table identity.** Enumeration always targets the registry globals table (`LUA_RIDX_GLOBALS` on 5.2+, `LUA_GLOBALSINDEX` on 5.1), not the `_ENV` upvalue. A chunk that rebinds `_ENV` does not affect what `globalNames` enumerates.
+  - **Baseline snapshot.** At the end of `init(configuration:)` — after stdlib open, sandbox, and any init-time installs — the raw global key set is snapshotted into `baselineGlobalNames`. `globalNames(includingStandardLibrary: false)` subtracts this set so only user-defined globals (from executed code) are returned. The filter is deterministic and version-agnostic: no hardcoded stdlib name list.
+  - **`installedModules` bookkeeping.** `ModuleRegistry.install(in:)` now records each successfully installed module into `LuaEngine.installedModules`. `recordInstalledModule(_:)` is available for modules installed outside the registry.
+  - **Between-runs only.** All VM-touching methods are documented as safe only when no run is executing or paused; `NSRecursiveLock` is acquired before every access.
+  - **No re-injection.** Returned `.luaFunction` values are bound to the engine they were read from; re-injecting them into a different (especially sandboxed) engine is prohibited and documented.
+  - Works on Lua 5.1 through 5.5 (cross-version globals-table access already shimmed in `LuaHelpers.swift`).
 - **Structured runtime errors** (`LuaError.runtimeFailure(LuaRuntimeFailure)`) — implements [#19](https://github.com/ChrisGVE/LuaSwift/issues/19).
   Runtime errors from all `lua_pcall` paths now carry a fully-parsed `LuaRuntimeFailure` with `message` (prefix stripped), `rawMessage` (intact), `line` (`Int?`), `traceback` (`String`), and `frames` (`[LuaStackFrame]?`).
   - **Handler mechanism:** a `@convention(c)` free-function error handler is installed as the `errfunc` on every `lua_pcall` (source `run`/`evaluate`, `CompiledChunk`, `callLuaFunction`). It fires while the Lua stack is still intact — before `lua_pcall` unwinds — allowing `lua_getinfo` and traceback-building to see all active frames.

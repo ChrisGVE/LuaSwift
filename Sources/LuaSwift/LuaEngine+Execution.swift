@@ -120,6 +120,9 @@ extension LuaEngine {
     /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
     ///   ``requestCancellation()`` was called from another thread during execution
     public func run(_ code: String, chunkName: String? = nil) throws {
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
         lock.lock()
         defer { lock.unlock() }
 
@@ -206,6 +209,9 @@ extension LuaEngine {
     /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
     ///   ``requestCancellation()`` was called from another thread during execution
     public func evaluate(_ code: String, chunkName: String? = nil) throws -> LuaValue {
+        guard !isPaused.load(ordering: .sequentiallyConsistent) else {
+            throw LuaError.enginePaused
+        }
         lock.lock()
         defer { lock.unlock() }
 
@@ -409,14 +415,17 @@ extension LuaEngine {
 /// Abort is always `lua_error` (longjmp to the enclosing `pcall` boundary) — the
 /// same proven mechanism as the old instruction hook. `lua_yield` is NOT used: it
 /// cannot unwind through `pcall`, and 5.1 has no yieldable hooks.
-private func compositorHookCallback(
+internal func compositorHookCallback(
     _ L: OpaquePointer?,
     _ ar: UnsafeMutablePointer<lua_Debug>?
 ) {
     guard let L = L else { return }
     guard let engine = LuaEngine.currentEngine else { return }
+    guard let ar = ar else { return }
 
     // Step 1: cooperative cancellation check (lock-free atomic read).
+    // Check here first — even during a debug session, a cancel issued via
+    // requestCancellation() while NOT paused must be honoured.
     if engine.cancellationRequested.load(ordering: .acquiring) {
         engine.abortReason.store(1, ordering: .releasing)
         lua_pushstring(L, cancelledSentinel)
@@ -424,15 +433,25 @@ private func compositorHookCallback(
         return  // unreachable; lua_error does not return
     }
 
-    // Step 2: instruction-limit accumulation.
-    // Accumulate by the actually-armed count (not always hookInterval) so the
-    // first fire does not count more than was armed when limit < hookInterval.
-    engine.instructionAccumulator += engine.armedHookCount
-    if engine.instructionLimit > 0,
-       engine.instructionAccumulator >= engine.instructionLimit {
-        engine.abortReason.store(2, ordering: .releasing)
-        lua_pushstring(L, instructionLimitSentinel)
-        _ = lua_error(L)
+    // Step 2: instruction-limit accumulation (COUNT events only).
+    // Only accumulate on COUNT fires to avoid inflating the count on
+    // LINE/CALL/RET fires that the debug hook arms additionally.
+    if ar.pointee.event == LUA_HOOKCOUNT {
+        engine.instructionAccumulator += engine.armedHookCount
+        if engine.instructionLimit > 0,
+           engine.instructionAccumulator >= engine.instructionLimit {
+            engine.abortReason.store(2, ordering: .releasing)
+            lua_pushstring(L, instructionLimitSentinel)
+            _ = lua_error(L)
+            return  // unreachable
+        }
+    }
+
+    // Step 3: debug event dispatch (only when a handler is installed).
+    // The branch is a nil-check so it compiles to a single conditional move
+    // with no overhead when no handler is set (plain run/evaluate paths).
+    if engine.debugHandler != nil {
+        dispatchDebugEvent(L, ar: ar, engine: engine)
     }
 }
 

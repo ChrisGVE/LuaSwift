@@ -12,11 +12,13 @@
 //  Context: Coroutine concern of LuaEngine. Creates Lua threads pinned
 //  in the registry (tracked by the engine's coroutines map), resumes
 //  them through CoroutineHandle (CoroutineHandle.swift), and reports
-//  status/destruction. Each resume re-arms the instruction hook and
-//  matches the instruction-limit sentinel (LuaEngine+Execution.swift).
-//  The private thread-stack push/extract helpers mirror the engine-state
-//  bridging in LuaEngine+Bridging.swift but target the coroutine's own
-//  lua_State; convertToArrayIfContiguous is shared from there.
+//  status/destruction. Each resume re-arms the compositor hook
+//  (armCompositorHook, LuaEngine+Execution.swift) on the coroutine's
+//  own lua_State and consults abortReason to surface .cancelled or
+//  .instructionLimitExceeded. The private thread-stack push/extract
+//  helpers mirror the engine-state bridging in LuaEngine+Bridging.swift
+//  but target the coroutine's own lua_State;
+//  convertToArrayIfContiguous is shared from there.
 //
 
 import Foundation
@@ -107,14 +109,21 @@ extension LuaEngine {
 
         let thread = handle.threadPointer
 
+        // Reset per-run state so a prior cancel/limit abort does not persist.
+        abortReason.store(0, ordering: .releasing)
+        instructionAccumulator = 0
+
         // Push values onto the thread's stack
         for value in values {
             pushValueOnThread(thread, value)
         }
 
-        // Arm instruction-count hook on the coroutine thread so code running
-        // inside the coroutine is bounded too (hooks are per-lua_State in 5.4).
-        armInstructionHook(on: thread)
+        // Arm the compositor hook on the coroutine thread so code inside the
+        // coroutine is bounded too (hooks are per-lua_State in 5.4+; each
+        // coroutine thread needs its own hook installation).
+        let previousEngine = setAsCurrentEngine()
+        defer { restoreCurrentEngine(previousEngine) }
+        armCompositorHook(on: thread)
 
         // Resume the coroutine
         var nresults: Int32 = 0
@@ -142,13 +151,21 @@ extension LuaEngine {
             return .yielded(yieldedValues)
 
         default:
-            // Error occurred
+            // Error occurred. Consult abortReason first (authoritative), then
+            // fall back to string-sentinel matching for belt-and-suspenders.
             let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(thread, 1)
-            // Classify the instruction-limit sentinel consistently with the other
-            // execution paths; otherwise surface as a coroutine error.
+
+            let reason = abortReason.load(ordering: .acquiring)
+            if reason == 1 { return .error(.cancelled) }
+            if reason == 2 { return .error(.instructionLimitExceeded) }
+
+            // Belt-and-suspenders sentinel matching
+            if message.contains(cancelledSentinel) {
+                return .error(.cancelled)
+            }
             if message.contains(instructionLimitSentinel) {
-                return .error(LuaError.instructionLimitExceeded)
+                return .error(.instructionLimitExceeded)
             }
             return .error(LuaError.coroutineError(message))
         }

@@ -10,15 +10,17 @@
 //  Location: Sources/LuaSwift/LuaEngine+Execution.swift
 //
 //  Context: Source-execution concern of LuaEngine — run(_:)/evaluate(_:)
-//  for Lua source strings, plus the instruction-count limit shared by
-//  every execution entry point: armInstructionHook is called before each
-//  protected call here and in LuaEngine+Bytecode.swift,
-//  LuaEngine+FunctionCalls.swift, and LuaEngine+Coroutines.swift.
-//  errorFromCode maps Lua status codes (and the instruction-limit
-//  sentinel raised by the hook) to LuaError (LuaError.swift). Results
-//  are converted via valueFromStack (LuaEngine+Bridging.swift).
+//  for Lua source strings. The periodic compositor hook (armCompositorHook)
+//  is the single lua_sethook slot shared by cooperative cancellation (#22)
+//  and the instruction-count limit. It is called before every protected
+//  call here and in LuaEngine+Bytecode.swift, LuaEngine+FunctionCalls.swift,
+//  and LuaEngine+Coroutines.swift. errorFromCode reads the out-of-band
+//  abortReason flag first (before string matching) so cancel/limit are
+//  detected correctly even when a future errfunc (#19) reshapes the message.
+//  Results are converted via valueFromStack (LuaEngine+Bridging.swift).
 //
 
+import Atomics
 import Foundation
 import CLua
 
@@ -65,17 +67,35 @@ extension LuaEngine {
         instructionLimit = max(0, min(count, Int(Int32.max)))
     }
 
-    /// Arm (or disarm, when the limit is 0) the instruction-count hook on the
-    /// given Lua state. Called before every protected call so the limit applies
-    /// to every execution entry point, including coroutine threads. Centralized
-    /// here so no entry point can silently omit it.
-    /// internal: shared with the bytecode, function-call, and coroutine paths
-    internal func armInstructionHook(on state: OpaquePointer) {
+    /// Arm the periodic compositor hook on the given Lua state.
+    ///
+    /// The compositor fires every `min(hookInterval, instructionLimit)` instructions
+    /// (or every `hookInterval` when no limit is set). On each fire it checks the
+    /// cancellation flag first, then the instruction accumulator against the limit.
+    /// Using `min` prevents overshooting a limit that is smaller than `hookInterval`.
+    ///
+    /// Must be called at the start of every run entry point so cancellation and
+    /// the instruction limit apply to source execution, bytecode execution,
+    /// stored-function calls, and coroutine resumes alike.
+    ///
+    /// **TLS side-effect:** Installs this engine as the TLS current engine
+    /// (``setAsCurrentEngine()``) so the C compositor callback can recover it
+    /// without a global map. Callers must pair this with a restore on exit.
+    ///
+    /// internal: shared with +Bytecode, +FunctionCalls, +Coroutines
+    internal func armCompositorHook(on state: OpaquePointer) {
+        // Arm count: use min(hookInterval, limit) when a limit is active so the
+        // first fire cannot overshoot a limit smaller than hookInterval.
+        // Store the armed count so the hook can accumulate exactly that many
+        // instructions per fire regardless of which branch was taken.
+        let count: Int32
         if instructionLimit > 0 {
-            lua_sethook(state, instructionHook, Int32(LUA_MASKCOUNT), Int32(instructionLimit))
+            count = Int32(min(hookInterval, instructionLimit))
         } else {
-            lua_sethook(state, nil, 0, 0)
+            count = Int32(hookInterval)
         }
+        armedHookCount = Int(count)
+        lua_sethook(state, compositorHookCallback, Int32(LUA_MASKCOUNT), count)
     }
 
     // MARK: - Execution
@@ -86,7 +106,8 @@ extension LuaEngine {
     /// from the Lua code are discarded.
     ///
     /// - Parameter code: The Lua code to execute
-    /// - Throws: `LuaError` if execution fails
+    /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
+    ///   ``requestCancellation()`` was called from another thread during execution
     public func run(_ code: String) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -94,6 +115,11 @@ extension LuaEngine {
         guard let L = L else {
             throw LuaError.initializationFailed
         }
+
+        // Reset per-run state. abortReason and accumulator must be clean so a
+        // stale value from a prior cancelled/limit run does not fire spuriously.
+        abortReason.store(0, ordering: .releasing)
+        instructionAccumulator = 0
 
         // Clear any previous write error
         lastWriteError = nil
@@ -106,14 +132,22 @@ extension LuaEngine {
             throw LuaError.syntaxError(message)
         }
 
-        // Arm instruction-count hook (or disarm if limit is 0)
-        armInstructionHook(on: L)
+        // Arm the compositor hook and install TLS so the C callback can find us.
+        let previousEngine = setAsCurrentEngine()
+        defer { restoreCurrentEngine(previousEngine) }
+        armCompositorHook(on: L)
 
         // Execute with nresults=0 (discard any return values)
         let callResult = lua_pcall(L, 0, 0, 0)
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
+
+            #if DEBUG
+            // After an abort the stack must be back at the pcall base (0 args,
+            // 0 results requested). A non-zero top here means a stack leak.
+            assert(lua_gettop(L) == 0, "Stack not clean after pcall abort: top=\(lua_gettop(L))")
+            #endif
 
             // Check if this was a write error we generated
             if let writeError = lastWriteError {
@@ -129,7 +163,8 @@ extension LuaEngine {
     ///
     /// - Parameter code: The Lua code to execute
     /// - Returns: The result of the execution as a `LuaValue`
-    /// - Throws: `LuaError` if execution fails
+    /// - Throws: `LuaError` if execution fails, ``LuaError/cancelled`` if
+    ///   ``requestCancellation()`` was called from another thread during execution
     public func evaluate(_ code: String) throws -> LuaValue {
         lock.lock()
         defer { lock.unlock() }
@@ -137,6 +172,10 @@ extension LuaEngine {
         guard let L = L else {
             throw LuaError.initializationFailed
         }
+
+        // Reset per-run state (same reasoning as run(_:) above)
+        abortReason.store(0, ordering: .releasing)
+        instructionAccumulator = 0
 
         // Clear any previous write error
         lastWriteError = nil
@@ -149,14 +188,20 @@ extension LuaEngine {
             throw LuaError.syntaxError(message)
         }
 
-        // Arm instruction-count hook (or disarm if limit is 0)
-        armInstructionHook(on: L)
+        // Arm the compositor hook and install TLS
+        let previousEngine = setAsCurrentEngine()
+        defer { restoreCurrentEngine(previousEngine) }
+        armCompositorHook(on: L)
 
         // Execute with nresults=1 (expect one return value)
         let callResult = lua_pcall(L, 0, 1, 0)
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
+
+            #if DEBUG
+            assert(lua_gettop(L) == 0, "Stack not clean after pcall abort: top=\(lua_gettop(L))")
+            #endif
 
             // Check if this was a write error we generated
             if let writeError = lastWriteError {
@@ -167,7 +212,7 @@ extension LuaEngine {
             throw errorFromCode(callResult, message: message)
         }
 
-        // Convert result
+        // Convert result and pop it
         let result = valueFromStack(at: -1)
         lua_pop(L, 1)
         return result
@@ -187,11 +232,26 @@ extension LuaEngine {
     // MARK: - Error Classification
 
     /// Map a Lua status code (and error message) to the matching ``LuaError``.
+    ///
+    /// Checks the out-of-band ``abortReason`` atomic flag FIRST so cancel/limit
+    /// are detected correctly even when a future errfunc (#19) reshapes the
+    /// error message before `pcall` returns. Falls back to string-sentinel
+    /// matching for the current (no-errfunc) case as a belt-and-suspenders.
+    ///
     /// internal: shared with the bytecode and function-call paths
     internal func errorFromCode(_ code: Int32, message: String) -> LuaError {
-        // The instruction-count hook raises a runtime error carrying this sentinel.
+        // Out-of-band reason set by the compositor hook — authoritative.
+        let reason = abortReason.load(ordering: .acquiring)
+        if reason == 1 { return .cancelled }
+        if reason == 2 { return .instructionLimitExceeded }
+
+        // Belt-and-suspenders: string sentinel still matches in case the hook
+        // fires but the atomic write races the pcall return on very old hardware.
         if code == LUA_ERRRUN && message.contains(instructionLimitSentinel) {
             return .instructionLimitExceeded
+        }
+        if code == LUA_ERRRUN && message.contains(cancelledSentinel) {
+            return .cancelled
         }
         // Lua 5.3's luaL_Buffer reports an allocation failure (e.g. a denial
         // by the vmMemoryLimit allocator during string.rep) as a *runtime*
@@ -215,22 +275,62 @@ extension LuaEngine {
     }
 }
 
-// MARK: - Instruction Count Hook
+// MARK: - Compositor Hook
 
-/// Lua debug hook fired when the instruction count limit is reached.
+/// The single periodic count hook multiplexed across cooperative cancellation
+/// and the instruction limit.
 ///
-/// Called by the Lua VM every N instructions (set via `lua_sethook` with
-/// `LUA_MASKCOUNT`).  Raises a Lua runtime error that `pcall` catches and
-/// surfaces as ``LuaError/instructionLimitExceeded``.
-private func instructionHook(_ L: OpaquePointer?, _ ar: UnsafeMutablePointer<lua_Debug>?) -> Void {
+/// Fires every `armedHookCount` Lua VM instructions (set by ``armCompositorHook``
+/// via `lua_sethook` with `LUA_MASKCOUNT`). On each fire, in order:
+///
+/// 1. Reads the atomic ``cancellationRequested`` flag. If set, stores reason=1 in
+///    ``abortReason`` and raises `lua_error` with ``cancelledSentinel``.
+/// 2. Accumulates `armedHookCount` into ``instructionAccumulator``. If
+///    ``instructionLimit`` is nonzero and the accumulator has reached or exceeded
+///    it, stores reason=2 and raises `lua_error` with ``instructionLimitSentinel``.
+///
+/// Engine recovery uses LuaSwift's existing TLS pattern
+/// (``LuaEngine/currentEngine``) — `lua_sethook` provides no user-data slot, and
+/// `lua_getextraspace` is absent on 5.1/5.2.
+///
+/// Abort is always `lua_error` (longjmp to the enclosing `pcall` boundary) — the
+/// same proven mechanism as the old instruction hook. `lua_yield` is NOT used: it
+/// cannot unwind through `pcall`, and 5.1 has no yieldable hooks.
+private func compositorHookCallback(
+    _ L: OpaquePointer?,
+    _ ar: UnsafeMutablePointer<lua_Debug>?
+) {
     guard let L = L else { return }
-    // Private sentinel (not a human-facing string) so detection cannot collide
-    // with user Lua code calling `error("instruction limit exceeded")`.
-    lua_pushstring(L, instructionLimitSentinel)
-    _ = lua_error(L)
+    guard let engine = LuaEngine.currentEngine else { return }
+
+    // Step 1: cooperative cancellation check (lock-free atomic read).
+    if engine.cancellationRequested.load(ordering: .acquiring) {
+        engine.abortReason.store(1, ordering: .releasing)
+        lua_pushstring(L, cancelledSentinel)
+        _ = lua_error(L)
+        return  // unreachable; lua_error does not return
+    }
+
+    // Step 2: instruction-limit accumulation.
+    // Accumulate by the actually-armed count (not always hookInterval) so the
+    // first fire does not count more than was armed when limit < hookInterval.
+    engine.instructionAccumulator += engine.armedHookCount
+    if engine.instructionLimit > 0,
+       engine.instructionAccumulator >= engine.instructionLimit {
+        engine.abortReason.store(2, ordering: .releasing)
+        lua_pushstring(L, instructionLimitSentinel)
+        _ = lua_error(L)
+    }
 }
 
-/// Internal marker raised by ``instructionHook`` and matched in ``errorFromCode``.
-/// Deliberately unlikely to be produced by user Lua code.
+/// Internal marker raised by the compositor hook for a cancel abort.
+/// Deliberately unlikely to be produced by user Lua code. The out-of-band
+/// ``LuaEngine/abortReason`` flag is the authoritative signal; this string
+/// is a belt-and-suspenders fallback for ``errorFromCode``.
+/// internal: matched by errorFromCode in LuaEngine+Execution.swift
+internal let cancelledSentinel = "__luaswift_cancelled__"
+
+/// Internal marker raised by the compositor hook when the instruction limit
+/// is reached. Deliberately unlikely to be produced by user Lua code.
 /// internal: also matched by coroutine resume in LuaEngine+Coroutines.swift
 internal let instructionLimitSentinel = "__luaswift_instruction_limit_exceeded__"

@@ -14,9 +14,9 @@
 //  run(_:)/evaluate(_:) overloads here validate before loading; the
 //  deprecated raw-Data compile/runBytecode/evaluateBytecode API is kept
 //  alongside until removal (issue #9). All paths funnel through
-//  loadAndExecuteBytecode, which arms the instruction hook
-//  (LuaEngine+Execution.swift) and converts results via valueFromStack
-//  (LuaEngine+Bridging.swift).
+//  loadAndExecuteBytecode, which arms the compositor hook
+//  (LuaEngine+Execution.swift, armCompositorHook) and converts results
+//  via valueFromStack (LuaEngine+Bridging.swift).
 //
 
 import Foundation
@@ -218,6 +218,10 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
+        // Reset per-run state so a prior cancel/limit abort does not persist.
+        abortReason.store(0, ordering: .releasing)
+        instructionAccumulator = 0
+
         // Clear any previous write error
         lastWriteError = nil
 
@@ -240,14 +244,20 @@ extension LuaEngine {
             throw LuaError.syntaxError(message)
         }
 
-        // Arm instruction-count hook (or disarm if limit is 0)
-        armInstructionHook(on: L)
+        // Arm the compositor hook and install TLS so the C callback can find us.
+        let previousEngine = setAsCurrentEngine()
+        defer { restoreCurrentEngine(previousEngine) }
+        armCompositorHook(on: L)
 
         // Execute, keeping one return value only when the caller wants it
         let callResult = lua_pcall(L, 0, returningValue ? 1 : 0, 0)
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
+
+            #if DEBUG
+            assert(lua_gettop(L) == 0, "Stack not clean after pcall abort in bytecode path: top=\(lua_gettop(L))")
+            #endif
 
             if let writeError = lastWriteError {
                 lastWriteError = nil

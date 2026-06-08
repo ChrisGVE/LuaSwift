@@ -14,9 +14,9 @@
 //  references (created in LuaEngine+Bridging.swift); this file calls
 //  them (callLuaFunction) and manages their registry lifetime
 //  (releaseLuaFunction, withLuaFunction, callAndReleaseLuaFunction).
-//  Calls are bounded by the instruction hook and classified via
-//  errorFromCode (both LuaEngine+Execution.swift). The inverse
-//  direction — Lua calling Swift — lives in LuaEngine+Callbacks.swift.
+//  Calls are bounded by the compositor hook (armCompositorHook) and
+//  classified via errorFromCode (both LuaEngine+Execution.swift). The
+//  inverse direction — Lua calling Swift — lives in +Callbacks.swift.
 //
 
 import Foundation
@@ -62,6 +62,10 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
+        // Reset per-run state so a prior cancel/limit does not persist.
+        abortReason.store(0, ordering: .releasing)
+        instructionAccumulator = 0
+
         // Push the function from the registry
         _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
 
@@ -76,16 +80,23 @@ extension LuaEngine {
             pushSimpleValue(L, arg)
         }
 
-        // Arm instruction-count hook so stored-function calls are bounded too
-        armInstructionHook(on: L)
+        // Arm the compositor hook and install TLS.
+        let previousEngine = setAsCurrentEngine()
+        defer { restoreCurrentEngine(previousEngine) }
+        armCompositorHook(on: L)
 
-        // Call the function
+        // Stack base before pcall: function + nargs pushed, pcall pops them.
+        // On error pcall leaves one message on the stack; expected top = 0.
         let callResult = lua_pcall(L, Int32(args.count), 1, 0)
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
-            // Classify via errorFromCode so the instruction-limit sentinel surfaces
-            // as .instructionLimitExceeded, consistent with the other call paths.
+
+            #if DEBUG
+            assert(lua_gettop(L) == 0, "Stack not clean after callLuaFunction abort: top=\(lua_gettop(L))")
+            #endif
+
+            // Classify via errorFromCode (reads abortReason first).
             throw errorFromCode(callResult, message: message)
         }
 

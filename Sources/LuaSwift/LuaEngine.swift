@@ -196,6 +196,15 @@ public final class LuaEngine {
     /// a limit smaller than K.
     internal let hookInterval: Int = 10_000
 
+    /// The count actually passed to `lua_sethook` in the most recent
+    /// ``armCompositorHook`` call. The compositor accumulates this value (not
+    /// always `hookInterval`) so instruction-limit accounting is exact when the
+    /// limit is smaller than the interval.
+    ///
+    /// Only written on the VM thread (inside `armCompositorHook`) and read on
+    /// the VM thread (inside the compositor callback); no atomic needed.
+    internal var armedHookCount: Int = 0
+
     /// Separate lock for memory tracking to avoid deadlock with main lock.
     /// The main lock is held during Lua execution, and callbacks during execution
     /// may need to track memory allocations.

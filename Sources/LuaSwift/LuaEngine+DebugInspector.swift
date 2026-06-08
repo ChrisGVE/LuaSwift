@@ -237,18 +237,18 @@ private func materialiseTable(
     visited.insert(rawPtr)
     defer { visited.remove(rawPtr) }
 
-    var children: [(key: String, value: LuaInspectedValue)] = []
+    var children: [LuaInspectedValue.Child] = []
     lua_pushnil(L)
     while lua_next(L, absIndex) != 0 {
         // stack: [absIndex=table, ..., key@-2, value@-1]
         let keyType = lua_type(L, -2)
         if keyType == LUA_TSTRING, let k = lua_getstring(L, -2) {
             let val = inspectedValueFromStack(L, at: -1, visited: &visited, depth: depth + 1)
-            children.append((key: k, value: val))
+            children.append(LuaInspectedValue.Child(key: k, value: val))
         } else if keyType == LUA_TNUMBER {
             let k = "\(lua_tonumber(L, -2))"
             let val = inspectedValueFromStack(L, at: -1, visited: &visited, depth: depth + 1)
-            children.append((key: k, value: val))
+            children.append(LuaInspectedValue.Child(key: k, value: val))
         } else {
             // Skip non-string/number keys (uncommon, but safe to omit).
             lua_pop(L, 1)

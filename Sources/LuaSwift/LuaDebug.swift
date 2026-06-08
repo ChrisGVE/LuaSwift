@@ -151,15 +151,18 @@ public enum LuaRefKind: Sendable {
 ///   or `"function: 0x5678"`).
 /// - `children` contains the eagerly-snapshotted key–value pairs for **tables**
 ///   (up to ``maxInspectionDepth`` levels deep, raw `lua_next` only — no
-///   `__pairs` or `__index`). For functions, userdata, and threads `children`
-///   is always `nil`. For a table that was already visited in the current
-///   snapshot walk (cycle), `children` is `nil` and `preview` is `"<cycle>"`.
+///   `__pairs` or `__index`) as a typed `[Child]` array. For functions, userdata,
+///   and threads `children` is always `nil`. For a table that was already visited
+///   in the current snapshot walk (cycle), `children` is `nil` and `isCycle` is
+///   `true`. For a table at the depth cap, `children` is `nil` and
+///   `isDepthLimited` is `true`.
 ///
 /// ## Depth cap
 ///
 /// Table children are materialised up to 64 levels of nesting
 /// (`LuaInspectedValue.maxInspectionDepth`). Tables at that depth are returned
 /// as `.reference(kind:.table, preview:"<depth limit>", children: nil)`.
+/// Test with ``isDepthLimited`` rather than matching the preview string.
 ///
 /// ## Re-injection prohibition
 ///
@@ -168,22 +171,64 @@ public enum LuaRefKind: Sendable {
 /// re-injected into any `lua_State`, creating a dangling reference. Snapshots
 /// never hold live registry handles; they are safe to store and render after
 /// the debug callback ends.
-public indirect enum LuaInspectedValue: Sendable {
+public indirect enum LuaInspectedValue: Sendable, Equatable {
     /// A scalar Lua value: nil, boolean, integer, number, or string.
     case scalar(LuaValue)
     /// A reference-typed Lua value with a metamethod-free preview string.
-    /// `children` is non-nil only for tables and only up to the depth cap.
+    /// `children` is non-nil only for table values and only up to the depth cap.
+    /// Use ``isCycle`` / ``isDepthLimited`` to test the marker states without
+    /// string-matching the `preview` field.
     case reference(
         kind: LuaRefKind,
         preview: String,
-        children: [(key: String, value: LuaInspectedValue)]?
+        children: [Child]?
     )
 }
 
 extension LuaInspectedValue {
+    // MARK: - Child
+
+    /// A typed key–value pair in a table snapshot.
+    ///
+    /// Using a named struct instead of an anonymous tuple allows
+    /// `[Child]` to synthesise `Equatable` and `Sendable` conformances
+    /// without custom implementations, and enables `LuaInspectedValue`
+    /// itself to be `Equatable`.
+    public struct Child: Sendable, Equatable {
+        /// The key as a `String` (numeric keys are rendered with `String(format:)`).
+        public let key: String
+        /// The snapshotted value for this key.
+        public let value: LuaInspectedValue
+        /// Memberwise initialiser (public so test code can construct expected values).
+        public init(key: String, value: LuaInspectedValue) {
+            self.key = key
+            self.value = value
+        }
+    }
+
+    // MARK: - Depth
+
     /// Maximum table nesting depth for eager snapshotting.
     /// Matches MoonSwift's alias-bomb budget.
     public static let maxInspectionDepth: Int = 64
+
+    // MARK: - Typed cycle / depth-limit markers
+
+    /// `true` when this value is a `.reference` placeholder inserted because
+    /// the table was already seen in the current DFS path (cycle detection).
+    /// Prefer this over matching the `preview` string directly.
+    public var isCycle: Bool {
+        if case .reference(_, let preview, nil) = self { return preview == "<cycle>" }
+        return false
+    }
+
+    /// `true` when this value is a `.reference` placeholder inserted because
+    /// the recursion reached ``maxInspectionDepth`` before fully materialising
+    /// the table's children. Prefer this over matching the `preview` string.
+    public var isDepthLimited: Bool {
+        if case .reference(_, let preview, nil) = self { return preview == "<depth limit>" }
+        return false
+    }
 }
 
 // MARK: - LuaDebugInspector

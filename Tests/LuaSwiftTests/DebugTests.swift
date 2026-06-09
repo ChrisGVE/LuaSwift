@@ -936,6 +936,116 @@ final class DebugTests: XCTestCase {
         engine.destroy(handle)
     }
 
+    // MARK: - Coroutine debugging (in-Lua resume, #26)
+
+    /// A coroutine created and resumed entirely inside Lua via
+    /// `coroutine.create` + `coroutine.resume` is stepped *into* during a debug
+    /// session — its body LINE events fire (they were previously skipped because
+    /// the coroutine thread never received the hook).
+    func testInLuaCoroutineCreateDeliversLineEvents() throws {
+        let engine = try makeEngine()
+        var lines: [Int] = []
+
+        engine.setDebugHandler { event, _ in
+            if case .line(let n) = event { lines.append(n) }
+            return .continueRun
+        }
+
+        // Lines:        1: create(function()
+        //               2:     local inside = 10
+        //               3:     return inside
+        //               4: end)
+        //               5: local ok, val = coroutine.resume(co)
+        //               6: return val
+        let result = try engine.runDebug("""
+            local co = coroutine.create(function()
+                local inside = 10
+                return inside
+            end)
+            local ok, val = coroutine.resume(co)
+            return val
+            """)
+
+        XCTAssertEqual(result.numberValue, 10.0)
+        XCTAssertTrue(lines.contains(2) && lines.contains(3),
+            "In-Lua coroutine body lines (2, 3) must fire during a debug session. Got \(lines).")
+    }
+
+    /// `coroutine.wrap` is likewise stepped into during a debug session, and the
+    /// debug-mode reimplementation preserves multi-value returns.
+    func testInLuaCoroutineWrapDeliversLineEventsAndValues() throws {
+        let engine = try makeEngine()
+        var lines: [Int] = []
+
+        engine.setDebugHandler { event, _ in
+            if case .line(let n) = event { lines.append(n) }
+            return .continueRun
+        }
+
+        // The wrapped body yields three values on line 3; line 2 binds a local.
+        let result = try engine.runDebug("""
+            local gen = coroutine.wrap(function()
+                local x = 7
+                coroutine.yield(x, x + 1, x + 2)
+            end)
+            local a, b, c = gen()
+            return a + b + c
+            """)
+
+        XCTAssertEqual(result.numberValue, 7.0 + 8.0 + 9.0,
+            "wrap reimplementation must preserve all yielded values")
+        XCTAssertTrue(lines.contains(2),
+            "wrapped coroutine body must be stepped into. Got \(lines).")
+    }
+
+    /// The debug-mode `coroutine.wrap` reimplementation propagates errors raised
+    /// inside the coroutine, exactly like the standard library version.
+    func testInLuaCoroutineWrapPropagatesErrors() throws {
+        let engine = try makeEngine()
+        engine.setDebugHandler { _, _ in .continueRun }
+
+        var caught: Error?
+        do {
+            _ = try engine.runDebug("""
+                local gen = coroutine.wrap(function()
+                    error("boom from coroutine")
+                end)
+                gen()
+                """)
+        } catch {
+            caught = error
+        }
+
+        XCTAssertNotNil(caught, "Error raised inside a wrapped coroutine must propagate")
+        XCTAssertTrue("\(caught.map { "\($0)" } ?? "")".contains("boom from coroutine"),
+            "Propagated error must carry the original message. Got \(String(describing: caught)).")
+    }
+
+    /// After a debug run the standard `coroutine` library is restored: the shim's
+    /// helper global is gone and coroutines work normally on a later plain run.
+    func testCoroutineLibraryRestoredAfterDebugRun() throws {
+        let engine = try makeEngine()
+        engine.setDebugHandler { _, _ in .continueRun }
+
+        _ = try engine.runDebug("""
+            local co = coroutine.create(function() return 1 end)
+            coroutine.resume(co)
+            """)
+
+        // The shim's helper global must not linger, and coroutines must still
+        // work on a subsequent non-debug run (originals restored).
+        let leftover = try engine.evaluate("return _luaswift_arm_coroutine_hook == nil")
+        XCTAssertEqual(leftover.boolValue, true,
+            "Shim helper global must be cleared after the debug run")
+
+        let normal = try engine.evaluate("""
+            local gen = coroutine.wrap(function() coroutine.yield(99) end)
+            return gen()
+            """)
+        XCTAssertEqual(normal.numberValue, 99.0,
+            "coroutine.wrap must work normally after shims are removed")
+    }
+
     /// Without a debug session the coroutine resume path is unchanged: no handler,
     /// no debug events, normal completion.
     func testCoroutineResumeUnaffectedWithoutDebugSession() throws {

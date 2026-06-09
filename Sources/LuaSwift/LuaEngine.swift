@@ -307,6 +307,16 @@ public final class LuaEngine {
     /// internal: managed by compositorHookCallback and LuaEngine+Debug.swift
     internal var stepState: StepState?
 
+    /// Registry references to the original `coroutine.create` / `coroutine.wrap`
+    /// saved while the in-Lua coroutine debug shims are installed (#26).
+    ///
+    /// Non-`nil` only between ``installCoroutineDebugShims(on:)`` and
+    /// ``removeCoroutineDebugShims(on:)`` (scoped to a single `runDebug`/`resume`
+    /// call). Used to restore the standard library functions after the run so a
+    /// later non-debug run sees the untouched `coroutine` table.
+    /// internal: managed by LuaEngine+CoroutineDebug.swift
+    internal var coroutineShimSavedRefs: (create: Int32, wrap: Int32)?
+
     // MARK: - Introspection Bookkeeping (#21)
 
     /// Names of modules successfully installed via ``ModuleRegistry/install(in:)``

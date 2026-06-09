@@ -159,9 +159,14 @@ extension LuaEngine {
         if debugHandler != nil {
             stepState = nil
             armDebugHook(on: thread)
+            // Coroutines this body creates in-Lua share the main state's global
+            // coroutine table; install the hook-arming shims there so they are
+            // stepped into too (#26). Scoped to this resume.
+            if let L = L { installCoroutineDebugShims(on: L) }
         } else {
             armCompositorHook(on: thread)
         }
+        defer { if let L = L { removeCoroutineDebugShims(on: L) } }
 
         // Resume the coroutine
         var nresults: Int32 = 0

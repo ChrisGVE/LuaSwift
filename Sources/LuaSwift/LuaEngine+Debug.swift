@@ -121,10 +121,15 @@ extension LuaEngine {
     /// (a handler is installed): `resume` arms the full debug mask on the
     /// coroutine thread, so the debugger steps *into* the coroutine body.
     ///
-    /// **Remaining limitation:** a coroutine created and resumed entirely *inside*
-    /// Lua via `coroutine.resume` runs on a thread the host never sees, so its
-    /// body is still stepped over. Cooperative cancellation and the instruction
-    /// limit likewise apply to host-driven coroutines but not to in-Lua resumes.
+    /// **In-Lua coroutines** created and resumed entirely inside Lua via
+    /// `coroutine.create` / `coroutine.wrap` are also stepped into while a debug
+    /// session is active (#26): for the duration of the run, those library
+    /// functions are transparently routed through a hook-arming shim so each new
+    /// coroutine thread receives the debug mask before it first runs. The shim is
+    /// scoped to the run — the standard `coroutine` library is restored on exit,
+    /// so non-debug runs are unaffected. While stepped, in-Lua coroutines also
+    /// observe cooperative cancellation and the instruction limit on the same
+    /// footing as host-driven ones.
     ///
     /// - Parameters:
     ///   - source: Lua source code to execute.
@@ -248,6 +253,16 @@ extension LuaEngine {
     private func executeWithDebugHook(_ L: OpaquePointer) throws -> LuaValue {
         let previousEngine = setAsCurrentEngine()
         defer { restoreCurrentEngine(previousEngine) }
+
+        // With a session active, route in-Lua coroutine.create/wrap through the
+        // hook-arming shims so the debugger steps into coroutines the host never
+        // sees (#26). Installed BEFORE arming the hook (the shim itself disarms
+        // and the run re-arms below), and restored before returning.
+        if debugHandler != nil {
+            installCoroutineDebugShims(on: L)
+        }
+        defer { removeCoroutineDebugShims(on: L) }
+
         armDebugHook(on: L)
 
         // Push errfunc handler below the chunk (same pattern as evaluate).

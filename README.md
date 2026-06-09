@@ -327,6 +327,18 @@ For consumers who want fine-grained control, there are two approaches:
 
 The environment variable approach is used for maximum compatibility. Future versions may adopt [SPM Traits](https://theswiftdev.com/2025/all-about-swift-package-manager-traits/) when Swift 6.1+ becomes the minimum supported version.
 
+### Known Limitations of Optional Dependencies
+
+Two optional dependencies have open issues that affect opt-in builds. Default builds (all flags off) are unaffected.
+
+**NumericSwift (`LUASWIFT_INCLUDE_NUMERICSWIFT=1`) — compile failure ([#8](https://github.com/ChrisGVE/LuaSwift/issues/8))**
+
+Enabling NumericSwift currently fails to build with a compiler type-check timeout in NumericSwift's `SpecialFunctions.swift` (line 104): "the compiler is unable to type-check this expression in reasonable time." The flag is off by default, so standard builds are unaffected. A fix is tracked upstream in [ChrisGVE/NumericSwift](https://github.com/ChrisGVE/NumericSwift).
+
+**Thales (`LUASWIFT_INCLUDE_THALES=1`) — integration disabled ([#18](https://github.com/ChrisGVE/LuaSwift/issues/18))**
+
+The Thales CAS integration is currently a no-op: the flag is forced off and the Thales-dependent code is compiled out. The upstream Thales package removed `puiseuxSeries`, `residue`, and `convergenceRadius` from its public API, which broke the LuaSwift bindings. The Thales source is preserved in the repository and SeriesModule retains its no-Thales fallbacks. The integration will be re-enabled once the upstream API stabilises.
+
 ## Runtime Module Installation
 
 At runtime, install only the modules you need:

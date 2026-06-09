@@ -31,10 +31,29 @@ extension LuaEngine {
     ///
     /// Once registered, Lua code can call the function using its name.
     ///
+    /// ## Function arguments are owned by the callback
+    ///
+    /// When Lua passes a **function** to the callback it arrives as a
+    /// ``LuaValue/luaFunction(_:)`` carrying a Lua registry reference that the
+    /// engine pinned for the call. Ownership transfers to the callback: it MUST
+    /// release every such reference it receives — via
+    /// ``releaseLuaFunction(ref:)``, ``withLuaFunction(_:args:action:)``, or
+    /// ``callAndReleaseLuaFunction(_:args:)`` — otherwise the reference leaks for
+    /// the lifetime of the engine. This applies on **every** exit path, including
+    /// the ones where the callback rejects its input or returns early without
+    /// using the function. Release each ref exactly once (a double release is a
+    /// programming error). Non-function arguments carry no reference and need no
+    /// release.
+    ///
+    /// The engine itself never leaks: if a *later* argument fails to convert
+    /// (e.g. a cyclic table), the callback is not invoked and any function refs
+    /// already pinned for this same call are released before the error is raised.
+    ///
     /// - Parameters:
     ///   - name: The global name for the function
     ///   - callback: The Swift closure to execute. Takes an array of LuaValue arguments
-    ///               and returns a LuaValue result. Can throw errors.
+    ///               and returns a LuaValue result. Can throw errors. Owns and must
+    ///               release any ``LuaValue/luaFunction(_:)`` arguments it receives.
     public func registerFunction(
         name: String,
         callback: @escaping ([LuaValue]) throws -> LuaValue

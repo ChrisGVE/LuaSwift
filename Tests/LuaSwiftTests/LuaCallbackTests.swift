@@ -602,4 +602,42 @@ final class LuaCallbackTests: XCTestCase {
                 "Expected an out-of-range-key rejection, got \(error)")
         }
     }
+
+    /// When a callback argument fails to convert *after* an earlier function
+    /// argument was already pinned, the engine must release that pinned function
+    /// ref (the callback never runs, so it cannot release it itself). `luaL_ref`
+    /// reuses freed registry slots from a freelist, so a leak shows up as the
+    /// ref number advancing instead of being reused.
+    func testCallbackUndeliveredFunctionArgIsReleased() throws {
+        let engine = try LuaEngine()
+        // `grab` returns the registry ref number of its function argument.
+        engine.registerFunction(name: "grab") { args in
+            guard case .luaFunction(let ref)? = args.first else {
+                throw LuaError.callbackError("expected function")
+            }
+            return .number(Double(ref))
+        }
+        // `reject` gets (function, cyclicTable): arg 2 fails to convert, so the
+        // function ref pinned for arg 1 must be released on the abandon path.
+        engine.registerFunction(name: "reject") { _ in .nil }
+
+        func grabRef() throws -> Int32 {
+            let v = try engine.evaluate("return grab(function() end)")
+            let ref = Int32(v.numberValue ?? -1)
+            engine.releaseLuaFunction(ref: ref)  // return the slot to the freelist
+            return ref
+        }
+
+        let before = try grabRef()
+        // Trigger the abandon path many times; each must release its pinned arg.
+        for _ in 0..<50 {
+            XCTAssertThrowsError(try engine.evaluate("""
+                local t = {}; t.self = t
+                return reject(function() end, t)
+            """))
+        }
+        let after = try grabRef()
+        XCTAssertEqual(after, before,
+            "Registry ref slot was not reused — undelivered function args leaked")
+    }
 }

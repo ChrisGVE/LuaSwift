@@ -922,7 +922,9 @@ public struct MathExprModule: LuaSwiftModule {
     end
 
     local function complex_pow(a, n)
-        -- For now, only support real exponent
+        -- Handles both real and complex exponents.
+        -- Complex exponent (n has a non-zero imaginary part): uses a^n = exp(n * log(a)).
+        -- Real exponent: uses De Moivre's formula r^n * (cos(n*theta) + i*sin(n*theta)).
         a = to_complex(a)
         if is_complex(n) then
             -- Complex exponent: a^n = exp(n * log(a))

@@ -242,4 +242,117 @@ final class CompiledChunkTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Integer / number size mismatch (CR-022)
+
+    /// A chunk whose `integerSize` differs from the current build must be
+    /// rejected before the Lua loader sees it, with a descriptive runtimeError
+    /// naming the mismatched sizes. 4 bytes is a plausible "other" size for
+    /// any build where the native size is 8 bytes, and vice-versa — at least
+    /// one of 4 or 8 is guaranteed to differ from the real current size.
+    func testMismatchedIntegerSizeIsRejected() throws {
+        let engine = try LuaEngine()
+        let chunk = try engine.precompile("return 1")
+        let currentSize = CompiledChunk.currentIntegerSize
+        let foreignSize = currentSize == 8 ? 4 : 8
+        let tampered = try reencode(chunk) { $0["integerSize"] = foreignSize }
+        XCTAssertThrowsError(try engine.run(tampered)) { error in
+            guard case .runtimeError(let message)? = error as? LuaError else {
+                XCTFail("Expected .runtimeError, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("\(foreignSize)"),
+                          "Message should name the chunk's integer size: \(message)")
+            XCTAssertTrue(message.contains("\(currentSize)"),
+                          "Message should name the engine's integer size: \(message)")
+        }
+    }
+
+    /// A chunk whose `numberSize` differs from the current build must be
+    /// rejected with a descriptive runtimeError naming the mismatched sizes.
+    func testMismatchedNumberSizeIsRejected() throws {
+        let engine = try LuaEngine()
+        let chunk = try engine.precompile("return 1")
+        let currentSize = CompiledChunk.currentNumberSize
+        let foreignSize = currentSize == 8 ? 4 : 8
+        let tampered = try reencode(chunk) { $0["numberSize"] = foreignSize }
+        XCTAssertThrowsError(try engine.evaluate(tampered)) { error in
+            guard case .runtimeError(let message)? = error as? LuaError else {
+                XCTFail("Expected .runtimeError, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("\(foreignSize)"),
+                          "Message should name the chunk's number size: \(message)")
+            XCTAssertTrue(message.contains("\(currentSize)"),
+                          "Message should name the engine's number size: \(message)")
+        }
+    }
+
+    // MARK: - Golden wire-format fixture (CR-023)
+
+    /// A golden fixture that pins the JSON envelope field set so accidental
+    /// format changes are caught. The test verifies that a freshly compiled
+    /// chunk's JSON contains exactly the expected top-level keys and that the
+    /// decoded chunk round-trips correctly. Any addition or removal of a key
+    /// is a format change that must be intentional and reviewed.
+    func testGoldenWireFormatKeySet() throws {
+        let engine = try LuaEngine()
+        let chunk = try engine.precompile("return 42", chunkName: "fixture")
+        let encoded = try JSONEncoder().encode(chunk)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        // Exactly these seven keys must be present — no more, no less.
+        let expectedKeys: Set<String> = [
+            "formatVersion", "luaVersion", "integerSize",
+            "numberSize", "endianness", "bytecode", "chunkName"
+        ]
+        XCTAssertEqual(Set(object.keys), expectedKeys,
+                       "Wire format keys changed — update formatVersion and docs")
+        // The fixture round-trips and still evaluates to the original value.
+        let decoded = try JSONDecoder().decode(CompiledChunk.self, from: encoded)
+        let result = try engine.evaluate(decoded)
+        XCTAssertEqual(result.numberValue, 42)
+    }
+
+    // MARK: - Empty source (CR-024)
+
+    /// precompile("") on an empty source string must succeed (the Lua compiler
+    /// accepts an empty chunk), and the resulting chunk must evaluate to nil
+    /// (no `return` statement means the implicit return is nil).
+    func testEmptySourcePrecompilesAndRunsCleanly() throws {
+        let engine = try LuaEngine()
+        let chunk = try engine.precompile("")
+        // run should complete without throwing.
+        XCTAssertNoThrow(try engine.run(chunk))
+        // evaluate should return nil (empty chunk has no return value).
+        let result = try engine.evaluate(chunk)
+        XCTAssertTrue(result == .nil, "Empty chunk should evaluate to nil, got \(result)")
+    }
+
+    // MARK: - run(chunk) after a prior memoryError (CR-024)
+
+    /// After a vmMemoryLimit-triggered memoryError, the engine must still be
+    /// able to run a precompiled chunk — the protected call is the isolation
+    /// boundary and the prior failure must not have corrupted Lua state.
+    func testRunChunkAfterPriorMemoryError() throws {
+        let config = LuaEngineConfiguration(
+            sandboxed: true, packagePath: nil, memoryLimit: 0, vmMemoryLimit: 10_000_000)
+        let engine = try LuaEngine(configuration: config)
+
+        // Trigger a memoryError via a runaway allocation.
+        XCTAssertThrowsError(
+            try engine.evaluate("return string.rep('A', 100000000)")) { error in
+            guard case LuaError.memoryError = error else {
+                XCTFail("Expected memoryError, got \(error)")
+                return
+            }
+        }
+
+        // The engine's protected-call boundary must have unwound cleanly.
+        // A pre-compiled chunk must execute successfully after the error.
+        let chunk = try engine.precompile("return 2 + 2")
+        let result = try engine.evaluate(chunk)
+        XCTAssertEqual(result.numberValue, 4,
+                       "evaluate(chunk) must work after a prior memoryError")
+    }
 }

@@ -173,13 +173,10 @@ public final class LuaEngine {
     /// internal: managed by LuaEngine+Callbacks.swift
     internal var callbacks: [String: ([LuaValue]) throws -> LuaValue] = [:]
 
-    /// Cleanup closures run once in `deinit`, before the Lua state is closed.
-    ///
-    /// Modules that own engine-scoped external resources (e.g. ``HTTPModule``'s
-    /// URLSession pairs) register a handler here at install time so the resource
-    /// is released when the engine is deallocated. Handlers MUST capture only
-    /// value types (such as `ObjectIdentifier(engine)`) — capturing the engine
-    /// itself would re-introduce the retain cycle this mechanism exists to avoid.
+    /// Cleanup closures run once in `deinit` (before `lua_close`) to release
+    /// engine-scoped module resources, e.g. ``HTTPModule``'s URLSession pairs.
+    /// Handlers MUST capture only value types (such as `ObjectIdentifier(engine)`)
+    /// — capturing the engine would re-introduce the retain cycle this avoids.
     /// internal: appended by module install code; drained by deinit
     internal var deinitCleanupHandlers: [() -> Void] = []
 
@@ -307,13 +304,10 @@ public final class LuaEngine {
     /// internal: managed by compositorHookCallback and LuaEngine+Debug.swift
     internal var stepState: StepState?
 
-    /// Registry references to the original `coroutine.create` / `coroutine.wrap`
-    /// saved while the in-Lua coroutine debug shims are installed (#26).
-    ///
-    /// Non-`nil` only between ``installCoroutineDebugShims(on:)`` and
-    /// ``removeCoroutineDebugShims(on:)`` (scoped to a single `runDebug`/`resume`
-    /// call). Used to restore the standard library functions after the run so a
-    /// later non-debug run sees the untouched `coroutine` table.
+    /// Registry refs to the original `coroutine.create`/`wrap`, saved while the
+    /// in-Lua coroutine debug shims are installed (#26) so they can be restored
+    /// after the run. Non-`nil` only between ``installCoroutineDebugShims(on:)``
+    /// and ``removeCoroutineDebugShims(on:)``.
     /// internal: managed by LuaEngine+CoroutineDebug.swift
     internal var coroutineShimSavedRefs: (create: Int32, wrap: Int32)?
 
@@ -434,9 +428,8 @@ public final class LuaEngine {
     }
 
     deinit {
-        // Release engine-scoped module resources before tearing down the state.
-        // Handlers capture only value types, so running them here cannot keep
-        // the engine alive (see ``deinitCleanupHandlers``).
+        // Release engine-scoped module resources before tearing down the state
+        // (handlers capture only value types — see ``deinitCleanupHandlers``).
         for cleanup in deinitCleanupHandlers {
             cleanup()
         }

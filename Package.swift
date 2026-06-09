@@ -31,7 +31,15 @@ let includeTOMLKit = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_TOMLK
 let includePlotSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_PLOTSWIFT"] == "1"
 let includeArraySwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_ARRAYSWIFT"] == "1"
 let includeNumericSwift = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_NUMERICSWIFT"] == "1"
-let includeThales = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_THALES"] == "1"
+// Thales integration is DISABLED until the upstream package is ready: the
+// pinned Thales no longer exposes puiseuxSeries/residue/convergenceRadius, so
+// the opt-in build fails (issue #18). The flag is forced off here so that even
+// `LUASWIFT_INCLUDE_THALES=1` is a no-op — the Thales package is never fetched,
+// the `LUASWIFT_THALES` define is never set, and the `#if LUASWIFT_THALES`
+// source files (ThalesModule*.swift) compile out. The wiring below is kept as a
+// commented-in reference; re-enable by restoring the env-driven line:
+//   let includeThales = ProcessInfo.processInfo.environment["LUASWIFT_INCLUDE_THALES"] == "1"
+let includeThales = false
 
 // Set LUASWIFT_BOUNDED_INSPECTION=1 to cap the debug inspector's per-table
 // breadth (defends a debugger that inspects UNTRUSTED Lua against a

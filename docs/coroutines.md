@@ -30,8 +30,8 @@ if case .yielded(let values) = r2 {
 
 // Third resume - pass 5, returns 10
 let r3 = try engine.resume(handle, with: [.number(5)])
-if case .completed(let value) = r3 {
-    print(value.numberValue!) // 10.0
+if case .completed(let values) = r3 {
+    print(values.first!.numberValue!) // 10.0
 }
 
 // Clean up
@@ -62,7 +62,7 @@ case .normal:
 ```swift
 public enum CoroutineResult {
     case yielded([LuaValue])    // Coroutine yielded values
-    case completed(LuaValue)    // Coroutine finished
+    case completed([LuaValue])  // Coroutine finished — all return values
     case error(LuaError)        // Error occurred
 }
 ```
@@ -77,9 +77,9 @@ case .yielded(let values):
     // Coroutine paused, can resume later
     print("Yielded: \(values)")
 
-case .completed(let value):
-    // Coroutine finished normally
-    print("Result: \(value)")
+case .completed(let values):
+    // Coroutine finished normally — `values` holds every return value
+    print("Result: \(values)")
     engine.destroy(handle)
 
 case .error(let error):
@@ -104,7 +104,7 @@ try engine.resume(handle)
 
 // Second resume passes values
 let result = try engine.resume(handle, with: [.number(3), .number(4)])
-// result is .completed(.number(7))
+// result is .completed([.number(7)])
 ```
 
 ## Multiple Yields
@@ -123,8 +123,8 @@ while true {
     switch result {
     case .yielded(let values):
         print(values[0].numberValue!) // 1, 4, 9, 16, 25
-    case .completed(let value):
-        print(value.stringValue!) // "done"
+    case .completed(let values):
+        print(values.first!.stringValue!) // "done"
         engine.destroy(handle)
         break
     case .error(let error):

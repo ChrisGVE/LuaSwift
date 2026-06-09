@@ -231,7 +231,7 @@ See [Value Servers](value-servers.md) for detailed usage.
 ```swift
 public enum CoroutineResult {
     case yielded([LuaValue])    // Coroutine yielded values
-    case completed(LuaValue)    // Coroutine finished
+    case completed([LuaValue])  // Coroutine finished — all return values
     case error(LuaError)        // Error occurred
 }
 ```

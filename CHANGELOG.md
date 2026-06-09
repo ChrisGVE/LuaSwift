@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING:** `CoroutineResult.completed` now carries `[LuaValue]` instead of a
+  single `LuaValue` ([#26](https://github.com/ChrisGVE/LuaSwift/issues/26)). A
+  coroutine that returns multiple values on completion (`return 1, 2, 3`)
+  previously lost all but the last; `resume(_:with:)` now surfaces every return
+  value, in order, mirroring `.yielded`. A coroutine that returns nothing yields
+  `.completed([])`. Migration: replace `case .completed(let value)` with
+  `case .completed(let values)` and read `values.first` (or the full array).
+
 ## [1.11.0] - 2026-06-08
 
 ### Added

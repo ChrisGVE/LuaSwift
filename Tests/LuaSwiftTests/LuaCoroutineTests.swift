@@ -31,8 +31,8 @@ final class LuaCoroutineTests: XCTestCase {
         let result = try engine.resume(handle)
 
         switch result {
-        case .completed(let value):
-            XCTAssertEqual(value.numberValue, 42.0)
+        case .completed(let values):
+            XCTAssertEqual(values.first?.numberValue, 42.0)
         case .yielded:
             XCTFail("Expected completion, got yield")
         case .error(let error):
@@ -49,10 +49,48 @@ final class LuaCoroutineTests: XCTestCase {
         let result = try engine.resume(handle)
 
         switch result {
-        case .completed(let value):
-            XCTAssertEqual(value.stringValue, "hello")
+        case .completed(let values):
+            XCTAssertEqual(values.first?.stringValue, "hello")
         default:
             XCTFail("Expected completion with string")
+        }
+
+        engine.destroy(handle)
+    }
+
+    func testCoroutineCompletesWithMultipleValues() throws {
+        // Regression for #3: a coroutine that returns multiple values on
+        // completion must surface ALL of them, not just the last.
+        let engine = try LuaEngine()
+
+        let handle = try engine.createCoroutine(code: "return 1, 2, 3")
+        let result = try engine.resume(handle)
+
+        switch result {
+        case .completed(let values):
+            XCTAssertEqual(values.count, 3)
+            XCTAssertEqual(values[0].numberValue, 1.0)
+            XCTAssertEqual(values[1].numberValue, 2.0)
+            XCTAssertEqual(values[2].numberValue, 3.0)
+        default:
+            XCTFail("Expected completion with three values")
+        }
+
+        engine.destroy(handle)
+    }
+
+    func testCoroutineCompletesWithNoValues() throws {
+        // A coroutine that returns nothing completes with an empty array.
+        let engine = try LuaEngine()
+
+        let handle = try engine.createCoroutine(code: "local x = 1")
+        let result = try engine.resume(handle)
+
+        switch result {
+        case .completed(let values):
+            XCTAssertTrue(values.isEmpty)
+        default:
+            XCTFail("Expected completion with no values")
         }
 
         engine.destroy(handle)
@@ -81,8 +119,8 @@ final class LuaCoroutineTests: XCTestCase {
         // Second resume should complete
         let result2 = try engine.resume(handle)
         switch result2 {
-        case .completed(let value):
-            XCTAssertEqual(value.numberValue, 2.0)
+        case .completed(let values):
+            XCTAssertEqual(values.first?.numberValue, 2.0)
         default:
             XCTFail("Expected completion")
         }
@@ -122,8 +160,8 @@ final class LuaCoroutineTests: XCTestCase {
         }
 
         let result4 = try engine.resume(handle)
-        if case .completed(let value) = result4 {
-            XCTAssertEqual(value.stringValue, "done")
+        if case .completed(let values) = result4 {
+            XCTAssertEqual(values.first?.stringValue, "done")
         } else {
             XCTFail("Expected completion")
         }
@@ -173,8 +211,8 @@ final class LuaCoroutineTests: XCTestCase {
 
         // Second resume - pass value 21
         let result2 = try engine.resume(handle, with: [.number(21)])
-        if case .completed(let value) = result2 {
-            XCTAssertEqual(value.numberValue, 42.0)
+        if case .completed(let values) = result2 {
+            XCTAssertEqual(values.first?.numberValue, 42.0)
         } else {
             XCTFail("Expected completion with 42")
         }
@@ -193,8 +231,8 @@ final class LuaCoroutineTests: XCTestCase {
         _ = try engine.resume(handle)
         let result = try engine.resume(handle, with: [.number(10), .number(32)])
 
-        if case .completed(let value) = result {
-            XCTAssertEqual(value.numberValue, 42.0)
+        if case .completed(let values) = result {
+            XCTAssertEqual(values.first?.numberValue, 42.0)
         } else {
             XCTFail("Expected completion with 42")
         }
@@ -225,8 +263,8 @@ final class LuaCoroutineTests: XCTestCase {
 
         // Third resume: pass 5, returns 10
         let r3 = try engine.resume(handle, with: [.number(5)])
-        if case .completed(let v) = r3 {
-            XCTAssertEqual(v.numberValue, 10.0)
+        if case .completed(let values) = r3 {
+            XCTAssertEqual(values.first?.numberValue, 10.0)
         }
 
         engine.destroy(handle)
@@ -416,14 +454,14 @@ final class LuaCoroutineTests: XCTestCase {
 
         // Complete first coroutine
         let r3 = try engine.resume(handle1)
-        if case .completed(let v) = r3 {
-            XCTAssertEqual(v.stringValue, "A")
+        if case .completed(let values) = r3 {
+            XCTAssertEqual(values.first?.stringValue, "A")
         }
 
         // Complete second coroutine
         let r4 = try engine.resume(handle2)
-        if case .completed(let v) = r4 {
-            XCTAssertEqual(v.stringValue, "B")
+        if case .completed(let values) = r4 {
+            XCTAssertEqual(values.first?.stringValue, "B")
         }
 
         engine.destroy(handle1)
@@ -486,8 +524,8 @@ final class LuaCoroutineTests: XCTestCase {
         XCTAssertEqual(results, [1.0, 2.0, 3.0])
 
         let finalResult = try engine.resume(handle)
-        if case .completed(let value) = finalResult {
-            XCTAssertEqual(value.stringValue, "done")
+        if case .completed(let values) = finalResult {
+            XCTAssertEqual(values.first?.stringValue, "done")
         }
 
         engine.destroy(handle)

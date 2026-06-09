@@ -704,8 +704,8 @@ final class LuaEngineTests: XCTestCase {
         }
 
         let result2 = try engine.resume(handle)
-        if case .completed(let value) = result2 {
-            XCTAssertEqual(value.stringValue, "done\0!")
+        if case .completed(let values) = result2 {
+            XCTAssertEqual(values.first?.stringValue, "done\0!")
         } else {
             XCTFail("Expected completed result")
         }

@@ -372,6 +372,8 @@ public struct DebugModule: LuaSwiftModule {
             }
         case .luaFunction(let ref):
             return "[function:\(ref)]"
+        case .opaqueReference(let kind):
+            return "[\(kind)]"
         }
     }
 
@@ -426,6 +428,8 @@ public struct DebugModule: LuaSwiftModule {
             }
         case .luaFunction(let ref):
             return "[function:\(ref)]"
+        case .opaqueReference(let kind):
+            return "[\(kind)]"
         }
     }
 }

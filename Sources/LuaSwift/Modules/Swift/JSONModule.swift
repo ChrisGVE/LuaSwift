@@ -287,8 +287,8 @@ public struct JSONModule: LuaSwiftModule {
             }
             return jsonDict
 
-        case .luaFunction:
-            throw LuaError.runtimeError("Cannot serialize function to JSON")
+        case .luaFunction, .opaqueReference:
+            throw LuaError.runtimeError("Cannot serialize a function/reference value to JSON")
         }
     }
 

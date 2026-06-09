@@ -442,8 +442,8 @@ public struct HTTPModule: LuaSwiftModule {
         case .complex(let re, let im):
             // JSON doesn't have native complex support, encode as object with type marker
             return ["__type": "complex", "re": re, "im": im] as [String: Any]
-        case .luaFunction:
-            throw LuaError.runtimeError("Cannot serialize function to JSON")
+        case .luaFunction, .opaqueReference:
+            throw LuaError.runtimeError("Cannot serialize a function/reference value to JSON")
         }
     }
 }

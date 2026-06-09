@@ -91,18 +91,26 @@ lock until the pause ends.
 
 The `LuaDebugInspector` is the ONLY sanctioned interaction while paused.
 
-## Coroutines (current limitation)
+## Coroutines
 
 Lua installs hooks per `lua_State`, and each coroutine runs on its own thread
-(`lua_State`). `runDebug` arms the full debug mask (`COUNT|LINE|CALL|RET`) only
-on the main thread, so `.line`/`.call`/`.ret` events are **not** delivered for
-code running inside a coroutine body — the debugger effectively steps over the
-whole coroutine. This applies to both in-Lua `coroutine.resume` and the host
-``resume(_:with:)`` API. Cancellation and the instruction limit still apply to
-host-driven coroutines because `resume(_:with:)` arms the COUNT hook on the
-coroutine thread (`armCompositorHook`); they do not extend to coroutines that a
-script resumes internally. Per-coroutine debug arming is a deferred enhancement
-(tracked as a GitHub issue), not a delivered guarantee.
+(`lua_State`). `runDebug` arms the full debug mask (`COUNT|LINE|CALL|RET`) on its
+own thread.
+
+**Host-driven coroutines are debuggable.** When a debug session is active (a
+handler is installed via `setDebugHandler`), `resume(_:with:)` arms the *full*
+debug mask on the coroutine's thread — not just `COUNT`. So `.line`/`.call`/`.ret`
+events fire inside the coroutine body, and the debugger steps *into* a coroutine
+resumed through the host API. The coroutine starts each resume in breakpoint mode
+(no carried step state); the handler's returned `LuaDebugCommand`s drive stepping
+as usual.
+
+**Remaining limitation — in-Lua resumes.** A coroutine created and resumed
+entirely inside Lua (`co = coroutine.create(...); coroutine.resume(co)`) runs on a
+thread the host never arms, so its body is still stepped over. Cancellation and
+the instruction limit are likewise delivered for host-driven `resume(_:with:)`
+but not for in-Lua resumes. Hooking script-internal coroutine threads remains a
+deferred enhancement.
 
 ## Native stepping with tail-call handling
 

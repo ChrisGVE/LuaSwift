@@ -144,12 +144,24 @@ extension LuaEngine {
             pushValueOnThread(thread, value)
         }
 
-        // Arm the compositor hook on the coroutine thread so code inside the
-        // coroutine is bounded too (hooks are per-lua_State in 5.4+; each
-        // coroutine thread needs its own hook installation).
+        // Arm the hook on the coroutine thread so code inside the coroutine is
+        // bounded too (hooks are per-lua_State in 5.4+; each coroutine thread
+        // needs its own hook installation).
+        //
+        // When a debug session is active (a handler is installed), arm the FULL
+        // LINE/CALL/RET mask so the debugger steps *into* the coroutine body
+        // (#26) — host-driven resume is no longer silently stepped over. The
+        // coroutine starts in breakpoint mode (stepState = nil); stepping is
+        // re-decided per resume from the handler's commands. With no debug
+        // session the COUNT-only hook is armed exactly as before.
         let previousEngine = setAsCurrentEngine()
         defer { restoreCurrentEngine(previousEngine) }
-        armCompositorHook(on: thread)
+        if debugHandler != nil {
+            stepState = nil
+            armDebugHook(on: thread)
+        } else {
+            armCompositorHook(on: thread)
+        }
 
         // Resume the coroutine
         var nresults: Int32 = 0
@@ -157,47 +169,15 @@ extension LuaEngine {
 
         switch status {
         case LUA_OK:
-            // Coroutine completed normally
-            let result = valueFromThread(thread, at: -1)
-            if nresults > 0 {
-                lua_pop(thread, nresults)
-            }
-            return .completed(result)
+            // Coroutine completed normally — return ALL of its return values.
+            return .completed(collectThreadResults(thread, count: nresults))
 
         case LUA_YIELD:
-            // Coroutine yielded
-            var yieldedValues: [LuaValue] = []
-            if nresults > 0 {
-                // Read from bottom of result section to top: -nresults, ..., -1
-                for i in 0..<nresults {
-                    yieldedValues.append(valueFromThread(thread, at: -nresults + i))
-                }
-                lua_pop(thread, nresults)
-            }
-            return .yielded(yieldedValues)
+            // Coroutine yielded — return every yielded value.
+            return .yielded(collectThreadResults(thread, count: nresults))
 
         default:
-            // Error occurred. Consult abortReason first (authoritative), then
-            // fall back to string-sentinel matching for belt-and-suspenders.
-            let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(thread, 1)
-
-            let reason = abortReason.load(ordering: .acquiring)
-            if reason == AbortReason.cancelled { return .error(.cancelled) }
-            if reason == AbortReason.instructionLimitExceeded { return .error(.instructionLimitExceeded) }
-
-            // Belt-and-suspenders sentinel matching — gated behind abortReason != .none
-            // so an untrusted coroutine calling error("__luaswift_cancelled__") does not
-            // manufacture a spurious .cancelled (same guard as errorFromCode in +Execution).
-            if reason != AbortReason.none {
-                if message.contains(cancelledSentinel) {
-                    return .error(.cancelled)
-                }
-                if message.contains(instructionLimitSentinel) {
-                    return .error(.instructionLimitExceeded)
-                }
-            }
-            return .error(LuaError.coroutineError(message))
+            return classifyResumeError(thread)
         }
     }
 
@@ -262,6 +242,48 @@ extension LuaEngine {
 
     // MARK: - Private Coroutine Helpers
 
+    /// Classify a non-`OK`/`YIELD` `lua_resume` status into a
+    /// `CoroutineResult.error`, popping the error message off the thread stack.
+    ///
+    /// `abortReason` is authoritative (consulted first). String-sentinel
+    /// matching is a belt-and-suspenders fallback, gated behind
+    /// `abortReason != .none` so an untrusted coroutine calling
+    /// `error("__luaswift_cancelled__")` cannot manufacture a spurious
+    /// `.cancelled` (same guard as `errorFromCode` in LuaEngine+Execution.swift).
+    private func classifyResumeError(_ thread: OpaquePointer) -> CoroutineResult {
+        let message = lua_tostring(thread, -1).map { String(cString: $0) } ?? "Unknown error"
+        lua_pop(thread, 1)
+
+        let reason = abortReason.load(ordering: .acquiring)
+        if reason == AbortReason.cancelled { return .error(.cancelled) }
+        if reason == AbortReason.instructionLimitExceeded { return .error(.instructionLimitExceeded) }
+
+        if reason != AbortReason.none {
+            if message.contains(cancelledSentinel) {
+                return .error(.cancelled)
+            }
+            if message.contains(instructionLimitSentinel) {
+                return .error(.instructionLimitExceeded)
+            }
+        }
+        return .error(LuaError.coroutineError(message))
+    }
+
+    /// Read `nresults` values from the top of the thread's stack in
+    /// bottom-to-top order (`-nresults, …, -1`) and pop them all. Returns an
+    /// empty array when `nresults <= 0`. Shared by the completed and yielded
+    /// resume paths so both surface every value the coroutine produced.
+    private func collectThreadResults(_ thread: OpaquePointer, count nresults: Int32) -> [LuaValue] {
+        guard nresults > 0 else { return [] }
+        var values: [LuaValue] = []
+        values.reserveCapacity(Int(nresults))
+        for i in 0..<nresults {
+            values.append(valueFromThread(thread, at: -nresults + i))
+        }
+        lua_pop(thread, nresults)
+        return values
+    }
+
     private func pushValueOnThread(_ thread: OpaquePointer, _ value: LuaValue) {
         switch value {
         case .string(let str):
@@ -291,6 +313,9 @@ extension LuaEngine {
         case .luaFunction(let ref):
             // Push the function from the registry
             _ = lua_rawgeti(thread, LUA_REGISTRYINDEX, lua_Integer(ref))
+        case .opaqueReference:
+            // Non-re-injectable introspection placeholder — nothing to push.
+            lua_pushnil(thread)
         }
     }
 

@@ -127,7 +127,7 @@ internal enum StepState {
 /// """)
 ///
 /// let result1 = try engine.resume(handle)  // .yielded([.number(1)])
-/// let result2 = try engine.resume(handle, with: [.number(5)])  // .completed(.number(10))
+/// let result2 = try engine.resume(handle, with: [.number(5)])  // .completed([.number(10)])
 /// engine.destroy(handle)
 /// ```
 ///

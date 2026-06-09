@@ -30,7 +30,7 @@ import Foundation
 ///
 /// // Second resume continues with a value
 /// let result2 = try engine.resume(handle, with: [.number(5.0)])
-/// // result2 == .completed(.number(15.0))
+/// // result2 == .completed([.number(15.0)])
 ///
 /// engine.destroy(handle)
 /// ```
@@ -63,10 +63,12 @@ public enum CoroutineResult {
     /// Call `resume(_:with:)` again to continue execution.
     case yielded([LuaValue])
 
-    /// The coroutine completed and returned the given value.
+    /// The coroutine completed and returned the given values.
     ///
-    /// The coroutine is now dead and cannot be resumed.
-    case completed(LuaValue)
+    /// Carries **all** values the coroutine returned (Lua functions may return
+    /// multiple values), in order. A coroutine that returns nothing yields an
+    /// empty array. The coroutine is now dead and cannot be resumed.
+    case completed([LuaValue])
 
     /// An error occurred during execution.
     ///

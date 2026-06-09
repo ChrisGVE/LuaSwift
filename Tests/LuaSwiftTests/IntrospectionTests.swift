@@ -189,6 +189,45 @@ final class IntrospectionTests: XCTestCase {
         )
     }
 
+    // MARK: - Reference-typed globals (#27 / CR-107)
+
+    func testGlobalValue_functionGlobal_isOpaqueReference() throws {
+        // CR-107 / #27: a function global must read as a typed, non-re-injectable
+        // opaqueReference — present and typed — not as .nil.
+        let engine = try LuaEngine()
+        try engine.run("function greet() return 1 end")
+        let value = engine.globalValue("greet")
+        switch value {
+        case .opaqueReference(let kind):
+            XCTAssertEqual(kind, .function, "Function global should be .opaqueReference(.function)")
+        default:
+            XCTFail("Expected .opaqueReference(.function), got \(String(describing: value))")
+        }
+        // And it is discoverable by name.
+        XCTAssertTrue(engine.globalNames(includingStandardLibrary: false).contains("greet"))
+    }
+
+    func testGlobalValue_threadGlobal_isOpaqueReference() throws {
+        // A coroutine (thread) global reads as .opaqueReference(.thread).
+        let engine = try LuaEngine()
+        try engine.run("co = coroutine.create(function() end)")
+        let value = engine.globalValue("co")
+        XCTAssertEqual(value?.opaqueReferenceKind, .thread,
+                       "Thread global should be .opaqueReference(.thread), got \(String(describing: value))")
+    }
+
+    func testGlobalValue_opaqueReference_isNotReInjectable() throws {
+        // An opaqueReference carries no registry handle; pushing it back into the
+        // engine materialises as nil (it has no referent), and repeated reads do
+        // not leak registry slots.
+        let engine = try LuaEngine()
+        try engine.run("function f() end")
+        // Repeated introspection must not throw or grow unboundedly.
+        for _ in 0..<100 { _ = engine.globalValue("f") }
+        let value = engine.globalValue("f")
+        XCTAssertEqual(value?.opaqueReferenceKind, .function)
+    }
+
     // MARK: - Raw access: __index NOT fired
 
     /// A global table whose metatable has a side-effecting __index.

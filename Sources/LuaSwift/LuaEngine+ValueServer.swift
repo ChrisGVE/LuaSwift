@@ -344,5 +344,8 @@ private func pushValue(_ L: OpaquePointer, _ value: LuaValue, namespace: String,
     case .luaFunction(let ref):
         // Push the function from the registry
         _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
+    case .opaqueReference:
+        // Non-re-injectable introspection placeholder — nothing to push.
+        lua_pushnil(L)
     }
 }

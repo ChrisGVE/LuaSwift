@@ -106,7 +106,9 @@ jobs:
           LUASWIFT_INCLUDE_NUMERICSWIFT: ${{ matrix.numericswift }}
           LUASWIFT_INCLUDE_ARRAYSWIFT: ${{ matrix.arrayswift }}
           LUASWIFT_INCLUDE_PLOTSWIFT: ${{ matrix.plotswift }}
-        run: swift test
+        # Skip perf benchmarks here — they are report-only and run once in the
+        # dedicated `benchmarks` job below, not in every matrix cell.
+        run: swift test --skip Benchmark
 
   # Test all Lua versions with all dependencies enabled
   test-lua-versions:
@@ -146,7 +148,9 @@ jobs:
           LUASWIFT_INCLUDE_NUMERICSWIFT: "1"
           LUASWIFT_INCLUDE_ARRAYSWIFT: "1"
           LUASWIFT_INCLUDE_PLOTSWIFT: "1"
-        run: swift test
+        # Skip perf benchmarks here — they are report-only and run once in the
+        # dedicated `benchmarks` job below, not in every matrix cell.
+        run: swift test --skip Benchmark
 
   # Summary job that depends on all test combinations
   all-tests:
@@ -165,3 +169,30 @@ jobs:
             exit 1
           fi
           echo "All dependency combinations and Lua versions passed!"
+
+  # Report-only performance benchmarks. NOT in `all-tests` needs and runs with
+  # continue-on-error, so it surfaces hook/cancellation/debug overhead timings
+  # without ever gating the build. Runs once on the default Lua version with all
+  # optional dependencies enabled (so the dependency-gated module benchmarks run
+  # too). Tighten into a hard gate later if a stable baseline is established.
+  benchmarks:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone all dependencies
+        run: |
+          git clone --depth 1 https://github.com/ChrisGVE/NumericSwift.git ../NumericSwift
+          git clone --depth 1 https://github.com/ChrisGVE/ArraySwift.git ../ArraySwift
+          git clone --depth 1 https://github.com/ChrisGVE/PlotSwift.git ../PlotSwift
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+
+      - name: Run benchmarks (report-only)
+        continue-on-error: true
+        env:
+          LUASWIFT_INCLUDE_NUMERICSWIFT: "1"
+          LUASWIFT_INCLUDE_ARRAYSWIFT: "1"
+          LUASWIFT_INCLUDE_PLOTSWIFT: "1"
+        run: swift test --filter Benchmark

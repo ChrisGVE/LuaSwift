@@ -179,6 +179,21 @@ public enum LuaValue: Equatable, Sendable {
     /// ```
     case luaFunction(Int32)
 
+    /// A typed, **non-re-injectable** reference to a Lua value that cannot be
+    /// materialised inertly — a function, userdata, or thread (coroutine).
+    ///
+    /// Produced by read-only introspection (``LuaEngine/globalValue(_:)`` and the
+    /// raw global/table walk) so that a reference-typed value reads as *present
+    /// and typed* rather than absent. Unlike ``luaFunction(_:)`` it carries **no**
+    /// registry handle: there is nothing to release, and it cannot be pushed back
+    /// into any engine. It mirrors the debug inspector's
+    /// ``LuaInspectedValue/reference(kind:preview:children:)`` snapshot.
+    ///
+    /// - Note: To *call* a Lua function you still need a ``luaFunction(_:)`` —
+    ///   obtained when a function is passed to a Swift callback, not from
+    ///   introspection. `opaqueReference` is descriptive only.
+    case opaqueReference(LuaRefKind)
+
     // MARK: - Convenience Accessors
 
     /// Returns the string value if this is a string, nil otherwise.
@@ -266,6 +281,12 @@ public enum LuaValue: Equatable, Sendable {
         return false
     }
 
+    /// Returns the reference kind if this is an ``opaqueReference(_:)``, nil otherwise.
+    public var opaqueReferenceKind: LuaRefKind? {
+        if case .opaqueReference(let kind) = self { return kind }
+        return nil
+    }
+
     /// Returns the value as a string, converting if necessary.
     public var asString: String {
         switch self {
@@ -292,6 +313,8 @@ public enum LuaValue: Equatable, Sendable {
             return ""
         case .luaFunction(let ref):
             return "[function:\(ref)]"
+        case .opaqueReference(let kind):
+            return "[\(kind)]"
         }
     }
 
@@ -374,6 +397,8 @@ extension LuaValue: CustomStringConvertible {
             return "nil"
         case .luaFunction(let ref):
             return "function:\(ref)"
+        case .opaqueReference(let kind):
+            return "<\(kind)>"
         }
     }
 }

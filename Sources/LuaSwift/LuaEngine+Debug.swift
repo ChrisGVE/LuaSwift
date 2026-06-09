@@ -44,8 +44,9 @@
 //  ## No-debug overhead guarantee
 //
 //  Plain run/evaluate with no debug handler arms ONLY LUA_MASKCOUNT (existing
-//  behavior). armDebugHook is only called from runDebug; inside
-//  compositorHookCallback the debug branch is guarded by
+//  behavior). armDebugHook is called from runDebug and from resume() when a
+//  debug session is active (so the debugger steps into coroutine bodies, #26);
+//  inside compositorHookCallback the debug branch is guarded by
 //  `engine.debugHandler != nil` — when nil the branch compiles away entirely
 //  at -O (zero dead-code overhead). Non-debug tests remain unaffected.
 //
@@ -111,18 +112,19 @@ extension LuaEngine {
     /// `DebugSession` knows it issued `.stop` and treats the resulting
     /// `.cancelled` as a debugger-stop — no separate error case is required.
     ///
-    /// ## Coroutines (current limitation)
+    /// ## Coroutines
     ///
-    /// Debug events (`.line`/`.call`/`.ret`) fire only for code running on the
-    /// main VM thread of this `runDebug` call. Lua hooks are installed per
-    /// `lua_State` (per coroutine thread) in 5.4+, and the debug mask is armed
-    /// only on the main thread here, so code executing inside a coroutine —
-    /// whether resumed by an in-Lua `coroutine.resume` or by the host
-    /// ``resume(_:with:)`` API — does **not** deliver line/call/ret events and
-    /// is effectively stepped over by the debugger. Cooperative cancellation
-    /// and the instruction limit are unaffected for host-driven coroutines
-    /// (``resume(_:with:)`` arms the COUNT hook on the coroutine thread).
-    /// Stepping into coroutine bodies is tracked as a future enhancement.
+    /// Lua hooks are installed per `lua_State` (per coroutine thread) in 5.4+.
+    /// Debug events for code inside *this* `runDebug` call fire on its own thread
+    /// as expected. **Host-driven coroutines** resumed via ``resume(_:with:)``
+    /// also deliver `.line`/`.call`/`.ret` events while a debug session is active
+    /// (a handler is installed): `resume` arms the full debug mask on the
+    /// coroutine thread, so the debugger steps *into* the coroutine body.
+    ///
+    /// **Remaining limitation:** a coroutine created and resumed entirely *inside*
+    /// Lua via `coroutine.resume` runs on a thread the host never sees, so its
+    /// body is still stepped over. Cooperative cancellation and the instruction
+    /// limit likewise apply to host-driven coroutines but not to in-Lua resumes.
     ///
     /// - Parameters:
     ///   - source: Lua source code to execute.
@@ -209,9 +211,12 @@ extension LuaEngine {
     /// This enables line/call/return events while preserving the existing
     /// cancel/limit COUNT firing at the same interval.
     ///
-    /// Must be called at the start of every ``runDebug`` entry point.
+    /// Must be called at the start of every ``runDebug`` entry point, and from
+    /// ``resume(_:with:)`` when a debug session is active (so debug events fire
+    /// on the coroutine's own thread).
     ///
-    /// internal: called from runDebug(_:chunkName:) and runDebug(_:chunk)
+    /// internal: called from runDebug(_:chunkName:), runDebug(_:chunk), and
+    /// resume(_:with:).
     internal func armDebugHook(on state: OpaquePointer) {
         let count: Int32
         if instructionLimit > 0 {

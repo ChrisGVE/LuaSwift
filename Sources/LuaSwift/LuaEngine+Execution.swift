@@ -145,72 +145,19 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
-        // Reset per-run state. abortReason, accumulator, and structured-error
-        // stash must be clean so stale values from a prior run cannot fire spuriously.
-        abortReason.store(AbortReason.none, ordering: .releasing)
-        instructionAccumulator = 0
-        pendingRuntimeFailure = nil
-
-        // Clear any previous write error
-        lastWriteError = nil
-
-        // Load the code.
-        // When chunkName is nil we pass the source string as the name — that is
-        // exactly what luaL_loadstring does (luaL_loadstring(L,s) == luaL_loadbuffer(L,s,len,s)).
-        // When chunkName is provided we prefix it with "@" so Lua applies tail
-        // truncation in short_src rather than head truncation.
-        let loadResult = loadSourceChunk(L, code: code, chunkName: chunkName)
-        if loadResult != LUA_OK {
-            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(L, 1)
-            throw LuaError.syntaxError(message)
-        }
+        try resetStateAndLoadChunk(L, code: code, chunkName: chunkName)
 
         // Arm the compositor hook and install TLS so the C callback can find us.
         let previousEngine = setAsCurrentEngine()
         defer { restoreCurrentEngine(previousEngine) }
         armCompositorHook(on: L)
 
-        // lua_pcall requires the errfunc to sit BELOW the called function on the
-        // stack. loadSourceChunk already pushed the chunk function, so we push the
-        // handler on top and then use lua_insert to slide it one position down.
-        //
-        // Stack after loadSourceChunk:    [chunk(1)]
-        // After lua_pushcfunction:        [chunk(1), handler(2)]
-        // After lua_insert(L, 1):         [handler(1), chunk(2)]   ← desired
-        //
-        // lua_insert(L, 1) moves the TOP element to index 1, shifting everything
-        // else up. It is shimmed for all Lua versions in LuaHelpers.swift.
-        lua_pushcfunction(L, runtimeErrorHandler)
-        lua_insert(L, 1)
-        let handlerIdx: Int32 = 1
+        let handlerIdx = installErrorHandler(L)
 
-        // Execute with nresults=0 (discard any return values)
+        // Execute with nresults=0 (discard any return values).
         let callResult = lua_pcall(L, 0, 0, handlerIdx)
-
-        // On success: stack is [handler(1)].
-        // On error:   stack is [handler(1), error_obj(2)].
-        // Remove the handler unconditionally so the expected stack base is restored.
         lua_remove(L, handlerIdx)
-
-        if callResult != LUA_OK {
-            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(L, 1)
-
-            #if DEBUG
-            // After an abort the stack must be back at the pcall base (0 args,
-            // 0 results requested, handler removed). A non-zero top means a leak.
-            assert(lua_gettop(L) == 0, "Stack not clean after pcall abort: top=\(lua_gettop(L))")
-            #endif
-
-            // Check if this was a write error we generated
-            if let writeError = lastWriteError {
-                lastWriteError = nil
-                throw writeError
-            }
-
-            throw errorFromCode(callResult, message: message)
-        }
+        try throwIfPcallFailed(L, callResult: callResult)
     }
 
     /// Execute Lua code and return the result.
@@ -234,62 +181,109 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
-        // Reset per-run state (same reasoning as run(_:) above)
+        try resetStateAndLoadChunk(L, code: code, chunkName: chunkName)
+
+        // Arm the compositor hook and install TLS.
+        let previousEngine = setAsCurrentEngine()
+        defer { restoreCurrentEngine(previousEngine) }
+        armCompositorHook(on: L)
+
+        let handlerIdx = installErrorHandler(L)
+
+        // Execute with nresults=1 (expect one return value).
+        let callResult = lua_pcall(L, 0, 1, handlerIdx)
+        lua_remove(L, handlerIdx)
+        try throwIfPcallFailed(L, callResult: callResult)
+
+        // Convert result and pop it.
+        let result = valueFromStack(at: -1)
+        lua_pop(L, 1)
+        return result
+    }
+
+    // MARK: - Shared execution plumbing
+    // Reused by run/evaluate here and by loadAndExecuteBytecode
+    // (LuaEngine+Bytecode.swift); `internal` so they cross the extension-file
+    // boundary. callLuaFunction (LuaEngine+FunctionCalls.swift) deliberately
+    // does NOT use these — its re-entrant stack discipline (entryTop base,
+    // handler pushed before the function) differs.
+
+    /// Clear all per-run mutable state so a prior cancel/limit abort or
+    /// structured-error stash cannot fire spuriously into this execution.
+    /// Call with the engine lock held, before loading the chunk.
+    internal func resetPerRunState() {
         abortReason.store(AbortReason.none, ordering: .releasing)
         instructionAccumulator = 0
         pendingRuntimeFailure = nil
-
-        // Clear any previous write error
         lastWriteError = nil
+    }
 
-        // Load the code — same name-mapping convention as run(_:chunkName:).
+    /// Reset per-run state and load `code` as a chunk onto the stack.
+    ///
+    /// Must be called with the engine lock held and *before* TLS/hook setup.
+    /// On a load failure the error message is popped and a
+    /// ``LuaError/syntaxError(_:)`` is thrown.
+    ///
+    /// Chunk-name convention: when `chunkName` is `nil` the source string is
+    /// passed as the name — exactly what `luaL_loadstring` does
+    /// (`luaL_loadstring(L,s) == luaL_loadbuffer(L,s,len,s)`). When provided it
+    /// is `@`-prefixed so Lua applies tail (not head) truncation in `short_src`.
+    private func resetStateAndLoadChunk(
+        _ L: OpaquePointer, code: String, chunkName: String?
+    ) throws {
+        resetPerRunState()
+
         let loadResult = loadSourceChunk(L, code: code, chunkName: chunkName)
         if loadResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
             throw LuaError.syntaxError(message)
         }
+    }
 
-        // Arm the compositor hook and install TLS
-        let previousEngine = setAsCurrentEngine()
-        defer { restoreCurrentEngine(previousEngine) }
-        armCompositorHook(on: L)
-
-        // Same handler-placement pattern as run(_:chunkName:):
-        // push handler, slide it below the chunk with lua_insert(L, 1).
+    /// Push the runtime-error handler below the just-loaded chunk and return
+    /// its (fixed) stack index.
+    ///
+    /// `lua_pcall` requires the errfunc to sit BELOW the called function. The
+    /// chunk is already on the stack, so we push the handler on top and slide it
+    /// down with `lua_insert(L, 1)`:
+    ///
+    ///     before:                  [chunk(1)]
+    ///     after lua_pushcfunction: [chunk(1), handler(2)]
+    ///     after lua_insert(L, 1):  [handler(1), chunk(2)]   ← desired
+    ///
+    /// `lua_insert(L, 1)` moves the TOP element to index 1, shifting everything
+    /// up; it is shimmed for all Lua versions in LuaHelpers+CMacros.swift.
+    internal func installErrorHandler(_ L: OpaquePointer) -> Int32 {
         lua_pushcfunction(L, runtimeErrorHandler)
         lua_insert(L, 1)
-        let handlerIdx: Int32 = 1
+        return 1
+    }
 
-        // Execute with nresults=1 (expect one return value)
-        let callResult = lua_pcall(L, 0, 1, handlerIdx)
+    /// Throw the appropriate `LuaError` if a pcall (whose handler has already
+    /// been removed) failed; no-op on success.
+    ///
+    /// On entry after an error the stack is `[error_obj]`; this reads and pops
+    /// it. A write error generated by LuaSwift takes precedence over the generic
+    /// `errorFromCode` mapping.
+    internal func throwIfPcallFailed(_ L: OpaquePointer, callResult: Int32) throws {
+        guard callResult != LUA_OK else { return }
 
-        // On success: stack is [handler(1), result(2)].
-        // On error:   stack is [handler(1), error_obj(2)].
-        // Remove handler unconditionally.
-        lua_remove(L, handlerIdx)
+        let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
+        lua_pop(L, 1)
 
-        if callResult != LUA_OK {
-            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(L, 1)
+        #if DEBUG
+        // After an abort the stack must be back at the pcall base (handler
+        // removed, error object popped). A non-zero top means a leak.
+        assert(lua_gettop(L) == 0, "Stack not clean after pcall abort: top=\(lua_gettop(L))")
+        #endif
 
-            #if DEBUG
-            assert(lua_gettop(L) == 0, "Stack not clean after pcall abort: top=\(lua_gettop(L))")
-            #endif
-
-            // Check if this was a write error we generated
-            if let writeError = lastWriteError {
-                lastWriteError = nil
-                throw writeError
-            }
-
-            throw errorFromCode(callResult, message: message)
+        if let writeError = lastWriteError {
+            lastWriteError = nil
+            throw writeError
         }
 
-        // Convert result and pop it
-        let result = valueFromStack(at: -1)
-        lua_pop(L, 1)
-        return result
+        throw errorFromCode(callResult, message: message)
     }
 
     /// Load a Lua source string onto the stack, applying the chunk-name

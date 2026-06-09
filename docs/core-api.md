@@ -41,26 +41,45 @@ print(value.numberValue!) // 42.0
 try engine.seed(12345) // Reproducible math.random()
 ```
 
+`run`, `evaluate`, `precompile`, `createCoroutine`, and `runDebug` all accept an
+optional `chunkName:` label:
+
+```swift
+try engine.run("error('boom')", chunkName: "user-config")
+// → traceback references [string "user-config"] instead of [string "error('boom')"]
+```
+
+The name appears in error messages and tracebacks, making failures in many small
+scripts distinguishable. A `@`-prefixed name (e.g. `chunkName: "@/path/file.lua"`)
+is treated as a filename: Lua tail-truncates it in messages. When omitted, the
+chunk is named after a truncation of its own source, matching prior behavior.
+
 ### Precompiled Chunks
 
 Cache parsed Lua as a `CompiledChunk` to skip re-parsing on repeated execution:
 
 ```swift
-// Compile once...
-let chunk = try engine.precompile("return x * 2")
+// Compile once (optionally naming the chunk for tracebacks)...
+let chunk = try engine.precompile("return x * 2", chunkName: "doubler")
+print(chunk.chunkName) // Optional("doubler")
 
 // ...execute many times
 try engine.run(chunk)                      // discard result
 let value = try engine.evaluate(chunk)     // return result
 ```
 
-`CompiledChunk` is `Codable`, so it can be persisted (e.g. with `JSONEncoder`)
+`CompiledChunk` carries the `chunkName` it was compiled with as a public
+property. It is `Codable`, so it can be persisted (e.g. with `JSONEncoder`)
 and reloaded in a later launch. Each chunk is stamped with the provenance of the
 build that compiled it (Lua version, integer/number sizes, byte order); `run`/
 `evaluate` validate that metadata against the running engine and throw a
 descriptive `LuaError.runtimeError` on mismatch, so a stale cache fails cleanly
 instead of corrupting the VM. There is **no cryptographic integrity** protection
 of persisted caches — store them where untrusted code cannot write.
+
+The encoded format carries a `formatVersion`. Adding `chunkName` bumped it from
+`1` to `2`; a v1 cache (no chunk name) still decodes, so caches written by older
+LuaSwift releases load unchanged.
 
 > The former raw-`Data` API (`compile(_:)`, `runBytecode(_:)`,
 > `evaluateBytecode(_:)`) is deprecated. Migration: recompile sources with
@@ -90,6 +109,46 @@ let result = try engine.resume(handle, with: [.number(42)])
 let status = engine.coroutineStatus(handle)
 engine.destroy(handle)
 ```
+
+### Engine Introspection
+
+Read-only, raw inspection of live engine state — for tooling (debuggers, mock
+environment navigators) that needs to see what is registered or defined without
+executing user code:
+
+```swift
+engine.registeredValueServerNames      // [String] — servers from register(server:)
+engine.registeredFunctionNames         // [String] — callbacks from registerFunction(name:)
+engine.installedModuleNames            // [String] — modules from ModuleRegistry.install
+
+// Raw globals (no metamethods)
+engine.globalNames()                   // all globals
+engine.globalNames(includingStandardLibrary: false) // user-defined only
+engine.globalValue("myGlobal")         // LuaValue? — nil if absent/nil
+```
+
+Guarantees:
+
+- **Raw access at every depth.** `globalNames` uses `lua_next` (not `pairs`, so
+  no `__pairs`); `globalValue` uses `lua_rawget` (no `__index`). Nested tables in
+  a returned value are materialized raw too — a table's metamethods are never run.
+- **Globals-table identity.** Enumeration targets the registry globals table, not
+  the `_ENV` upvalue; code that rebinds `_ENV` does not change what is enumerated.
+- **`includingStandardLibrary: false`** subtracts a baseline snapshot taken at the
+  end of `init`, leaving only globals created by executed code. The filter is
+  version-agnostic (no hardcoded stdlib name list).
+- **Between-runs only.** Safe only when no run is executing or paused; the engine
+  lock is acquired before every access.
+- **Reference-typed globals.** A global whose value is a function, userdata, or
+  thread is returned as a typed, non-re-injectable `LuaValue.opaqueReference(kind)`
+  (`kind` is a `LuaRefKind`: `.function` / `.userdata` / `.thread`) — present and
+  typed, but carrying no registry handle. This keeps `globalValue` leak-free when
+  called after every run. To *call* a function you need a `.luaFunction` handle,
+  obtained by passing it to a Swift callback — not from introspection.
+- **No re-injection.** An `.opaqueReference` cannot be pushed back into any engine
+  (it has no referent — it materializes as `nil` if used as an argument).
+
+Works on Lua 5.1 through 5.5.
 
 ## LuaEngineConfiguration
 
@@ -177,7 +236,7 @@ See [Value Servers](value-servers.md) for detailed usage.
 ```swift
 public enum CoroutineResult {
     case yielded([LuaValue])    // Coroutine yielded values
-    case completed(LuaValue)    // Coroutine finished
+    case completed([LuaValue])  // Coroutine finished — all return values
     case error(LuaError)        // Error occurred
 }
 ```
@@ -288,6 +347,36 @@ engine.setDebugHandler(nil)
 
 CALL and RET events are suppressed while a step command (`.stepInto`,
 `.stepOver`, `.stepOut`) is active; only LINE events are delivered.
+
+### Inspecting untrusted code — breadth bound
+
+> **Security:** the inspector is **unbounded by default**, and that default is
+> unsafe for debugging untrusted Lua.
+
+`locals()`/`upvalues()`/`globals()` eagerly materialize one `LuaInspectedValue`
+per table entry, under the engine lock, while the VM is paused. Against trusted
+code this is the correct, faithful behavior — the host, not the library, owns the
+trust decision. But a **hostile** script can build a table (or `_G`) with millions
+of keys; inspecting it then allocates a `Child` per entry and can exhaust host
+memory — a debugger-only DoS (CWE-400, SEC-201).
+
+`LuaInspectedValue.maxInspectionBreadth` reports the active cap: `nil` (unbounded)
+in a default build. To bound it, compile LuaSwift with the opt-in flag:
+
+```
+LUASWIFT_BOUNDED_INSPECTION=1 swift build
+```
+
+(Package.swift reads the env var and defines the flag, like the other
+`LUASWIFT_*` build switches.)
+
+Each table (and `_G` itself) then materializes at most
+`LuaInspectedValue.boundedInspectionBreadth` (10,000) real children followed by a
+single breadth-limit sentinel child — detect it via `value.isBreadthLimited`
+rather than matching the preview string. The cap is generous enough never to
+truncate realistic debug data while stopping adversarial million-entry breadth
+bombs. **If you debug untrusted code, set this flag.** Trusted-code debugging
+needs no bound and keeps the faithful default.
 
 ## swift-atomics Dependency
 

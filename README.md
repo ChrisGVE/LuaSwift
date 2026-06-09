@@ -370,7 +370,9 @@ let engine = try LuaEngine(configuration: .unrestricted)
 
 **Structured errors:** Runtime errors during `run()` / `evaluate()` throw `LuaError.runtimeFailure(LuaRuntimeFailure)` with a stripped `message`, source `line`, full `traceback`, and a `frames` array. Coroutine errors (from `resume`) surface as the plain `LuaError.runtimeError(String)`.
 
-**Debug hook and introspection:** `engine.setDebugHandler { event, inspector in … }` installs a LINE/CALL/RET handler; `engine.runDebug(…)` activates it. The `inspector` gives read-only access to locals, upvalues, globals, and the call stack at each pause point. Use `LuaDebugCommand` to continue, step, or stop. See [Core API — Debug Hook API](docs/core-api.md#debug-hook-api) for details.
+**Debug hook:** `engine.setDebugHandler { event, inspector in … }` installs a LINE/CALL/RET handler; `engine.runDebug(…)` activates it. The `inspector` gives read-only access to locals, upvalues, globals, and the call stack at each pause point. Use `LuaDebugCommand` to continue, step, or stop. See [Core API — Debug Hook API](docs/core-api.md#debug-hook-api) for details. The inspector is **unbounded by default** — when debugging *untrusted* code, build with `LUASWIFT_BOUNDED_INSPECTION=1` to cap per-table breadth and avoid a debugger-only memory-exhaustion DoS ([details](docs/core-api.md#inspecting-untrusted-code--breadth-bound)).
+
+**Introspection:** Between runs, inspect live engine state without executing code — `engine.registeredValueServerNames`, `registeredFunctionNames`, `installedModuleNames`, and raw globals via `globalNames(includingStandardLibrary:)` / `globalValue(_:)` (no metamethods). See [Core API — Engine Introspection](docs/core-api.md#engine-introspection).
 
 **Chunk names:** `engine.precompile(_:chunkName:)` and `engine.run(_:chunkName:)` accept an optional `chunkName` that appears in error messages and tracebacks for easier debugging.
 

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-06-09
+
+### Added
+- **Coroutine debugging for host-driven resumes** ([#26](https://github.com/ChrisGVE/LuaSwift/issues/26)).
+  When a debug session is active (`setDebugHandler`), `resume(_:with:)` now arms
+  the full `LINE|CALL|RET` mask on the coroutine's thread instead of `COUNT` only,
+  so the debugger steps *into* a coroutine body resumed through the host API
+  rather than over it (`.line`/`.call`/`.ret` events fire; `.stop` aborts the
+  coroutine as `.cancelled`). Coroutines created and resumed entirely inside Lua
+  via `coroutine.resume` are still stepped over (a thread the host never arms) —
+  documented as the remaining limitation.
+- **`LuaValue.opaqueReference(LuaRefKind)`** — a typed, non-re-injectable
+  reference case ([#27](https://github.com/ChrisGVE/LuaSwift/issues/27), CR-107).
+  Read-only introspection (`globalValue(_:)` and the raw global/table walk) now
+  represents function/userdata/thread values as `.opaqueReference(.function/.userdata/.thread)`
+  instead of `.nil`, so a reference-typed global reads as *present and typed*
+  without creating a `luaL_ref` (no registry leak when called after every run).
+  It carries no handle: it cannot be called or pushed back into any engine
+  (materializes as `nil` if used as an argument). To call a function, obtain a
+  `.luaFunction` by passing it to a Swift callback. `LuaRefKind` is now `Equatable`.
+
+### Changed
+- **BREAKING:** `CoroutineResult.completed` now carries `[LuaValue]` instead of a
+  single `LuaValue` ([#26](https://github.com/ChrisGVE/LuaSwift/issues/26)). A
+  coroutine that returns multiple values on completion (`return 1, 2, 3`)
+  previously lost all but the last; `resume(_:with:)` now surfaces every return
+  value, in order, mirroring `.yielded`. A coroutine that returns nothing yields
+  `.completed([])`. Migration: replace `case .completed(let value)` with
+  `case .completed(let values)` and read `values.first` (or the full array).
+
 ## [1.11.0] - 2026-06-08
 
 ### Added

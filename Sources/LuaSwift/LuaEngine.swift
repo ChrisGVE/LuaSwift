@@ -173,6 +173,16 @@ public final class LuaEngine {
     /// internal: managed by LuaEngine+Callbacks.swift
     internal var callbacks: [String: ([LuaValue]) throws -> LuaValue] = [:]
 
+    /// Cleanup closures run once in `deinit`, before the Lua state is closed.
+    ///
+    /// Modules that own engine-scoped external resources (e.g. ``HTTPModule``'s
+    /// URLSession pairs) register a handler here at install time so the resource
+    /// is released when the engine is deallocated. Handlers MUST capture only
+    /// value types (such as `ObjectIdentifier(engine)`) — capturing the engine
+    /// itself would re-introduce the retain cycle this mechanism exists to avoid.
+    /// internal: appended by module install code; drained by deinit
+    internal var deinitCleanupHandlers: [() -> Void] = []
+
     /// Active coroutines (UUID -> registry reference for GC protection)
     /// internal: managed by LuaEngine+Coroutines.swift
     internal var coroutines: [UUID: Int32] = [:]
@@ -414,6 +424,12 @@ public final class LuaEngine {
     }
 
     deinit {
+        // Release engine-scoped module resources before tearing down the state.
+        // Handlers capture only value types, so running them here cannot keep
+        // the engine alive (see ``deinitCleanupHandlers``).
+        for cleanup in deinitCleanupHandlers {
+            cleanup()
+        }
         if let L = L {
             lua_close(L)
         }

@@ -286,15 +286,29 @@ private func materialiseTable(
     context.visited.insert(rawPtr)
     defer { context.visited.remove(rawPtr) }
 
+    var (children, truncated) = collectTableChildren(L, absIndex: absIndex, context: &context, depth: depth)
+    if truncated {
+        children.append(breadthLimitSentinelChild())
+    }
+    return .reference(kind: .table, preview: preview, children: children)
+}
+
+/// Walk the table at `absIndex`, materialising each string/number-keyed entry
+/// (recursing at `depth + 1`). Non-string/number keys are skipped. Stops early
+/// once ``LuaInspectedValue/maxInspectionBreadth`` is reached, returning
+/// `truncated: true` so the caller can append the breadth-limit sentinel; in the
+/// default unbounded build the cap is `nil` and the loop never fires (SEC-201).
+private func collectTableChildren(
+    _ L: OpaquePointer,
+    absIndex: Int32,
+    context: inout InspectionContext,
+    depth: Int
+) -> (children: [LuaInspectedValue.Child], truncated: Bool) {
     var children: [LuaInspectedValue.Child] = []
     var truncated = false
     lua_pushnil(L)
     while lua_next(L, absIndex) != 0 {
         // stack: [absIndex=table, ..., key@-2, value@-1]
-        // Breadth bound (opt-in): stop once the per-table cap is reached so an
-        // adversarially wide table cannot exhaust host memory (SEC-201). In the
-        // default unbounded build maxInspectionBreadth is nil and this never
-        // fires — zero behaviour change.
         if let cap = LuaInspectedValue.maxInspectionBreadth, children.count >= cap {
             lua_pop(L, 2)  // pop value AND key to abandon the traversal early
             truncated = true
@@ -315,10 +329,7 @@ private func materialiseTable(
         }
         lua_pop(L, 1)  // pop value, keep key
     }
-    if truncated {
-        children.append(breadthLimitSentinelChild())
-    }
-    return .reference(kind: .table, preview: preview, children: children)
+    return (children, truncated)
 }
 
 /// Sentinel child appended in place of the entries dropped when a table

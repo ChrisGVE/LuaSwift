@@ -109,6 +109,18 @@ extension LuaEngine {
 
 // MARK: - Lua C Callbacks
 
+/// Release the Lua registry refs pinned for any `.luaFunction` arguments in
+/// `args`.
+///
+/// Used when a callback invocation is abandoned **before delivery** (a later
+/// argument failed to convert), so function args already pinned by `luaL_ref`
+/// during this same invocation are not leaked into the registry.
+private func releaseArgumentFunctionRefs(_ L: OpaquePointer, _ args: [LuaValue]) {
+    for case .luaFunction(let ref) in args {
+        luaL_unref(L, LUA_REGISTRYINDEX, ref)
+    }
+}
+
 /// Callback trampoline for Swift function calls from Lua
 private func callbackTrampoline(_ L: OpaquePointer?) -> Int32 {
     guard let L = L else { return 0 }
@@ -137,12 +149,21 @@ private func callbackTrampoline(_ L: OpaquePointer?) -> Int32 {
         return 0
     }
 
-    // Collect arguments from stack
+    // Collect arguments from stack. Conversion can reject a cyclic table /
+    // non-representable numeric key; surface that as a Lua error rather than
+    // crashing across the C boundary.
     let nargs = lua_gettop(L)
     var arguments: [LuaValue] = []
     if nargs > 0 {
         for i in 1...nargs {
-            arguments.append(valueFromLuaStack(L, at: i))
+            do {
+                arguments.append(try valueFromLuaStack(L, at: i))
+            } catch {
+                releaseArgumentFunctionRefs(L, arguments)
+                lua_pushstring(L, "Invalid callback argument: \(error.localizedDescription)")
+                _ = lua_error(L)
+                return 0
+            }
         }
     }
 

@@ -129,13 +129,18 @@ public enum LuaValue: Equatable, Sendable {
     /// the table contains at least one non-integer key or when the
     /// integer keys don't form a contiguous sequence starting at 1.
     ///
-    /// - Important: **Numeric Key Conversion**: When Lua tables are converted
-    ///   to Swift, numeric keys are cast to `Int`. This has two implications:
-    ///   1. **Fractional keys are truncated**: A Lua key of `1.5` becomes `1`
-    ///   2. **Large keys may overflow**: Keys outside `Int` range may wrap
+    /// - Important: **Numeric Key Conversion**: When Lua tables are converted to
+    ///   Swift, numeric keys must be representable as a Swift `Int`. A key that
+    ///   is fractional (`1.5`), NaN, infinite, or outside the `Int` range is
+    ///   **rejected** with ``LuaError/numericKeyOutOfRange(_:)`` rather than
+    ///   silently truncated or wrapped (the previous behaviour, which could
+    ///   overwrite a sibling key or trap). If you need a non-integer numeric key,
+    ///   use a string key in your Lua code (e.g., `t["1.5"] = value` instead of
+    ///   `t[1.5] = value`).
     ///
-    ///   If you need to preserve non-integer numeric keys, use string keys
-    ///   in your Lua code (e.g., `t["1.5"] = value` instead of `t[1.5] = value`).
+    ///   Read-only introspection (``LuaEngine/globalValue(_:)``) is the one
+    ///   exception: as a total, non-throwing API it silently *skips* a
+    ///   non-representable numeric key instead of rejecting the whole conversion.
     case table([String: LuaValue])
 
     /// A table with integer keys (array).

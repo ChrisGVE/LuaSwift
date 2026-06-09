@@ -141,6 +141,27 @@ internal func rawValueFromStack(
     at index: Int32,
     pinFunctions: Bool = true
 ) -> LuaValue {
+    var visited = Set<UnsafeRawPointer>()
+    return rawValueFromStack(L, at: index, pinFunctions: pinFunctions, visited: &visited, depth: 0)
+}
+
+/// Cycle/depth-guarded worker for ``rawValueFromStack(_:at:pinFunctions:)``.
+///
+/// This path is **total** — it is reached from non-throwing public introspection
+/// (``LuaEngine/globalValue(_:)``) and from read-only stack walks, so it never
+/// throws. Instead it degrades gracefully, mirroring the debug inspector: a
+/// cyclic table (a node already on the current descent path) or one past
+/// ``luaMaxTableConversionDepth`` materialises as an empty `.table([:])` to break
+/// the back-edge, and a numeric key not representable as `Int` is skipped rather
+/// than truncated. The throwing materializers in LuaEngine+Bridging.swift /
+/// +Coroutines.swift reject these instead, because those feed `throws` APIs.
+private func rawValueFromStack(
+    _ L: OpaquePointer,
+    at index: Int32,
+    pinFunctions: Bool,
+    visited: inout Set<UnsafeRawPointer>,
+    depth: Int
+) -> LuaValue {
     let type = lua_type(L, index)
 
     switch type {
@@ -158,7 +179,7 @@ internal func rawValueFromStack(
         return .string(str)
 
     case LUA_TTABLE:
-        return rawTableFromStack(L, at: index, pinFunctions: pinFunctions)
+        return rawTableFromStack(L, at: index, pinFunctions: pinFunctions, visited: &visited, depth: depth)
 
     case LUA_TFUNCTION:
         if pinFunctions {
@@ -208,10 +229,25 @@ private func opaqueKind(forLuaType type: Int32) -> LuaRefKind? {
 private func rawTableFromStack(
     _ L: OpaquePointer,
     at index: Int32,
-    pinFunctions: Bool = true
+    pinFunctions: Bool,
+    visited: inout Set<UnsafeRawPointer>,
+    depth: Int
 ) -> LuaValue {
     // Normalise to an absolute index so it remains valid while we push/pop.
     let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
+
+    // Graceful cycle/depth guard (total read path — never throws): break a
+    // back-edge or an over-deep branch by materialising an empty table.
+    var token: UnsafeRawPointer?
+    if let ptr = lua_topointer(L, absIndex) {
+        let raw = UnsafeRawPointer(ptr)
+        if visited.contains(raw) || depth >= luaMaxTableConversionDepth {
+            return .table([:])
+        }
+        visited.insert(raw)
+        token = raw
+    }
+    defer { if let token = token { visited.remove(token) } }
 
     var dict: [String: LuaValue] = [:]
     var intKeyedValues: [Int: LuaValue] = [:]
@@ -222,11 +258,14 @@ private func rawTableFromStack(
         // stack: …, key@-2, value@-1
         let keyType = lua_type(L, -2)
         // Materialise the value via raw recursion before popping it.
-        let value = rawValueFromStack(L, at: -1, pinFunctions: pinFunctions)
+        let value = rawValueFromStack(L, at: -1, pinFunctions: pinFunctions, visited: &visited, depth: depth + 1)
 
         if keyType == LUA_TNUMBER {
-            let keyNum = Int(lua_tonumber(L, -2))
-            intKeyedValues[keyNum] = value
+            // Skip numeric keys not representable as Int rather than truncating
+            // (read-only introspection: dropping is safer than a wrong key).
+            if let keyNum = Int(exactly: lua_tonumber(L, -2)) {
+                intKeyedValues[keyNum] = value
+            }
         } else if keyType == LUA_TSTRING {
             hasStringKeys = true
             if let key = lua_getstring(L, -2) {

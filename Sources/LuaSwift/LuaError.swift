@@ -156,6 +156,27 @@ public enum LuaError: Error, LocalizedError {
     /// Sandbox installation failed — a dangerous global may still be live
     case sandboxInstallationFailed(String)
 
+    /// A Lua table could not be converted to a ``LuaValue`` because it contains
+    /// a reference cycle (a table reachable from itself).
+    ///
+    /// Ordinary table materialization (`run`/`evaluate` results, callback
+    /// arguments, coroutine yields, introspection) walks the table graph
+    /// recursively. A cyclic table — e.g. `t = {}; t.self = t` — would recurse
+    /// until the Swift stack is exhausted, so the walk tracks visited tables by
+    /// identity (`lua_topointer`) and raises this error on the back-edge instead
+    /// of crashing. The debug inspector uses the same cycle-detection model.
+    case cyclicTable
+
+    /// A numeric Lua table key was not representable as a Swift `Int` and was
+    /// therefore rejected during conversion.
+    ///
+    /// Lua numeric keys are double-precision. Keys that are fractional, NaN,
+    /// infinite, or outside the `Int` range cannot be losslessly represented and
+    /// previously either truncated silently or trapped. Conversion now validates
+    /// with `Int(exactly:)` and raises this error instead. Use string keys in
+    /// Lua (e.g. `t["1.5"] = v`) when a non-integer numeric key is intended.
+    case numericKeyOutOfRange(Double)
+
     /// Attempted to call a state-touching method while the engine is paused
     /// at a debug hook event.
     ///
@@ -209,6 +230,10 @@ public enum LuaError: Error, LocalizedError {
             return "Lua runtime error: \(failure.message)"
         case .sandboxInstallationFailed(let message):
             return "Sandbox installation failed: \(message)"
+        case .cyclicTable:
+            return "Cyclic Lua table cannot be converted to a LuaValue"
+        case .numericKeyOutOfRange(let key):
+            return "Lua numeric table key \(key) is not representable as an Int"
         case .enginePaused:
             return "Cannot call LuaEngine methods while a debug handler is executing; use the inspector instead"
         case .unknown(let code, let message):

@@ -196,7 +196,7 @@ extension LuaEngine {
         try throwIfPcallFailed(L, callResult: callResult)
 
         // Convert result and pop it.
-        let result = valueFromStack(at: -1)
+        let result = try valueFromStack(at: -1)
         lua_pop(L, 1)
         return result
     }

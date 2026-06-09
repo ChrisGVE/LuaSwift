@@ -565,4 +565,41 @@ final class LuaCallbackTests: XCTestCase {
 
         XCTAssertEqual(result.numberValue, 101, "Function should access upvalues correctly")
     }
+
+    // MARK: - Unsafe Callback Arguments
+
+    /// A cyclic table passed as a callback argument is rejected during argument
+    /// conversion (surfaced as a Lua error from the trampoline) rather than
+    /// recursing until the stack is exhausted.
+    func testCallbackCyclicArgRejected() throws {
+        let engine = try LuaEngine()
+        var observed: [LuaValue]?
+        engine.registerFunction(name: "inspect") { args in
+            observed = args
+            return .nil
+        }
+
+        XCTAssertThrowsError(try engine.evaluate("""
+            local t = {}
+            t.self = t
+            return inspect(t)
+        """)) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("cyclic"),
+                "Expected a cyclic-table rejection, got \(error)")
+        }
+        XCTAssertNil(observed, "Callback must not be invoked when an argument fails to convert")
+    }
+
+    /// A non-representable numeric key in a callback-argument table is rejected.
+    func testCallbackOutOfRangeKeyArgRejected() throws {
+        let engine = try LuaEngine()
+        engine.registerFunction(name: "inspect") { _ in .nil }
+        XCTAssertThrowsError(try engine.evaluate("return inspect({ [2^63] = 1 })")) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("representable")
+                    || error.localizedDescription.localizedCaseInsensitiveContains("argument"),
+                "Expected an out-of-range-key rejection, got \(error)")
+        }
+    }
 }

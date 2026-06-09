@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-06-09
+
 ### Added
 - **Coroutine debugging for host-driven resumes** ([#26](https://github.com/ChrisGVE/LuaSwift/issues/26)).
   When a debug session is active (`setDebugHandler`), `resume(_:with:)` now arms

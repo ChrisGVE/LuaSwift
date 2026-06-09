@@ -42,9 +42,13 @@ The sandbox also hardens the `require()` system to prevent bypass attempts:
 - `package.cpath` is cleared to prevent C library loading
 - `package.path` is cleared (unless `packagePath` is configured)
 - **Without `packagePath`**: File-based searchers are removed from `package.searchers`, keeping only the preload searcher. This completely prevents loading `.lua` files from disk.
-- **With `packagePath`**: File searchers are kept so modules can be loaded from the explicitly allowed directory. Only the configured path is searchable.
+- **With `packagePath`**: The default file searcher (and the C-library / all-in-one searchers) are replaced by a single *validating* searcher bound to the configured directory. Only the configured path is searchable.
 
 This ensures that even if a script attempts `require('io')`, it will fail rather than restoring the disabled library.
+
+> Important: With `packagePath` configured, `package.path` is set for visibility but is **not** authoritative. The validating searcher resolves modules only inside the configured directory and ignores `package.path` entirely, so a script **cannot** redirect module loading by reassigning `package.path` — not with a plain assignment, not with `rawset(package, "path", …)`, and not after replacing the `package` metatable. Module names are restricted to dot-separated `[A-Za-z0-9_]` segments (no path separators, no `..` traversal), and on Lua 5.2+ files are loaded text-only so untrusted bytecode cannot be loaded from disk.
+
+> Note: `package.preload` remains **writable** by sandboxed scripts (a script can register or overwrite preload entries). This is intentional and benign under LuaSwift's model, where Swift-backed modules are registered into `package.loaded` via the C API and do not rely on `package.preload`. A host that instead registers modules through `package.preload` should be aware that sandboxed Lua can overwrite those entries; if that matters, register via `package.loaded` (the C-API path used by the built-in modules) rather than `package.preload`. See issue #29 (CR-902).
 
 ### Available Safe Libraries
 

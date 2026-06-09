@@ -415,9 +415,11 @@ public final class LuaEngine {
             }
         }
 
-        // Set package path if provided
+        // Set package path if provided. Confinement (validating searcher) is a
+        // sandbox feature; an unsandboxed engine keeps normal package.path
+        // template semantics.
         if let packagePath = configuration.packagePath {
-            setPackagePath(packagePath)
+            setPackagePath(packagePath, confine: configuration.sandboxed)
         }
 
         // Snapshot the baseline global key set for includingStandardLibrary

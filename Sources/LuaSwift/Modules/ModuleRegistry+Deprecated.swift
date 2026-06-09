@@ -25,7 +25,7 @@ extension ModuleRegistry {
   /// Deprecated alias for ``install(in:)`` that swallows setup failures.
   ///
   /// - Parameter engine: The Lua engine to install modules in
-  @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; installModules(in:) swallows them.")
+  @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; installModules(in:) swallows them.", renamed: "install(in:)")
   public static func installModules(in engine: LuaEngine) {
     installSwallowingFailure("ModuleRegistry.install") { try install(in: engine) }
   }

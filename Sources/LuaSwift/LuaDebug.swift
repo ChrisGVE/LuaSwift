@@ -143,8 +143,9 @@ public enum LuaDebugCommand: Sendable {
 
 // MARK: - LuaRefKind
 
-/// The kind of a reference-typed Lua value as exposed by ``LuaInspectedValue``.
-public enum LuaRefKind: Sendable {
+/// The kind of a reference-typed Lua value as exposed by ``LuaInspectedValue``
+/// and ``LuaValue/opaqueReference(_:)``.
+public enum LuaRefKind: Sendable, Equatable {
     /// A Lua function (Lua closure or C function).
     case function
     /// A Lua table.

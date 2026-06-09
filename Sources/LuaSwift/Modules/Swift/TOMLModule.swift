@@ -183,8 +183,8 @@ public struct TOMLModule: LuaSwiftModule {
             complexTable["im"] = im
             return complexTable
 
-        case .luaFunction:
-            throw TOMLError.encodingFailed("TOML does not support function values")
+        case .luaFunction, .opaqueReference:
+            throw TOMLError.encodingFailed("TOML does not support function or reference values")
         }
     }
 

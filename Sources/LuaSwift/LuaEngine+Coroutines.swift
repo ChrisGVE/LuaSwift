@@ -301,6 +301,9 @@ extension LuaEngine {
         case .luaFunction(let ref):
             // Push the function from the registry
             _ = lua_rawgeti(thread, LUA_REGISTRYINDEX, lua_Integer(ref))
+        case .opaqueReference:
+            // Non-re-injectable introspection placeholder — nothing to push.
+            lua_pushnil(thread)
         }
     }
 

@@ -258,6 +258,10 @@ internal func pushSimpleValue(_ L: OpaquePointer, _ value: LuaValue) {
     case .luaFunction(let ref):
         // Push the function from the registry
         _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
+    case .opaqueReference:
+        // Non-re-injectable introspection placeholder — it carries no referent,
+        // so there is nothing to push. Materialise as nil.
+        lua_pushnil(L)
     }
 }
 

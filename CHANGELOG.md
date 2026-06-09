@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`LuaValue.opaqueReference(LuaRefKind)`** — a typed, non-re-injectable
+  reference case ([#27](https://github.com/ChrisGVE/LuaSwift/issues/27), CR-107).
+  Read-only introspection (`globalValue(_:)` and the raw global/table walk) now
+  represents function/userdata/thread values as `.opaqueReference(.function/.userdata/.thread)`
+  instead of `.nil`, so a reference-typed global reads as *present and typed*
+  without creating a `luaL_ref` (no registry leak when called after every run).
+  It carries no handle: it cannot be called or pushed back into any engine
+  (materializes as `nil` if used as an argument). To call a function, obtain a
+  `.luaFunction` by passing it to a Swift callback. `LuaRefKind` is now `Equatable`.
+
 ### Changed
 - **BREAKING:** `CoroutineResult.completed` now carries `[LuaValue]` instead of a
   single `LuaValue` ([#26](https://github.com/ChrisGVE/LuaSwift/issues/26)). A

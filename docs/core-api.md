@@ -139,9 +139,14 @@ Guarantees:
   version-agnostic (no hardcoded stdlib name list).
 - **Between-runs only.** Safe only when no run is executing or paused; the engine
   lock is acquired before every access.
-- **No re-injection.** A returned `.luaFunction` is bound to the engine it was read
-  from — re-injecting it into a different (especially sandboxed) engine is
-  prohibited.
+- **Reference-typed globals.** A global whose value is a function, userdata, or
+  thread is returned as a typed, non-re-injectable `LuaValue.opaqueReference(kind)`
+  (`kind` is a `LuaRefKind`: `.function` / `.userdata` / `.thread`) — present and
+  typed, but carrying no registry handle. This keeps `globalValue` leak-free when
+  called after every run. To *call* a function you need a `.luaFunction` handle,
+  obtained by passing it to a Swift callback — not from introspection.
+- **No re-injection.** An `.opaqueReference` cannot be pushed back into any engine
+  (it has no referent — it materializes as `nil` if used as an argument).
 
 Works on Lua 5.1 through 5.5.
 

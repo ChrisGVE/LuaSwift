@@ -134,6 +134,56 @@ final class MemoryLimitTests: XCTestCase {
         XCTAssertEqual(engine.allocatedBytes, 0)
     }
 
+    // MARK: - Config Hardening (#25, CR-026/028)
+
+    /// `LuaEngineConfiguration()` with no arguments equals `.default`
+    /// (all init parameters are defaulted).
+    func testConfigurationDefaultInitMatchesDefault() {
+        let bare = LuaEngineConfiguration()
+        XCTAssertEqual(bare.sandboxed, true)
+        XCTAssertNil(bare.packagePath)
+        XCTAssertEqual(bare.memoryLimit, 0)
+        XCTAssertEqual(bare.vmMemoryLimit, 0)
+
+        let def = LuaEngineConfiguration.default
+        XCTAssertEqual(bare.sandboxed, def.sandboxed)
+        XCTAssertEqual(bare.memoryLimit, def.memoryLimit)
+        XCTAssertEqual(bare.vmMemoryLimit, def.vmMemoryLimit)
+    }
+
+    /// A single overriding parameter leaves the rest at their defaults.
+    func testConfigurationPartialOverride() {
+        let config = LuaEngineConfiguration(memoryLimit: 4096)
+        XCTAssertEqual(config.sandboxed, true)
+        XCTAssertNil(config.packagePath)
+        XCTAssertEqual(config.memoryLimit, 4096)
+        XCTAssertEqual(config.vmMemoryLimit, 0)
+    }
+
+    /// A byte count that would overflow the running total surfaces as a
+    /// `memoryError` rather than wrapping to a small/negative total that would
+    /// silently defeat the limit (overflow-safe accumulation).
+    func testTrackAllocationOverflowThrows() throws {
+        let engine = try LuaEngine()  // no limit configured
+
+        // Push the running total near Int.max, then add enough to overflow.
+        try engine.trackAllocation(bytes: Int.max - 10)
+        XCTAssertThrowsError(try engine.trackAllocation(bytes: 100)) { error in
+            guard case LuaError.memoryError = error else {
+                return XCTFail("Expected .memoryError on overflow, got \(error)")
+            }
+        }
+        // The failed allocation must not have mutated the total.
+        XCTAssertEqual(engine.allocatedBytes, Int.max - 10)
+    }
+
+    /// A zero-byte allocation is valid and a no-op against any limit.
+    func testTrackAllocationZeroBytes() throws {
+        let engine = try LuaEngine(configuration: LuaEngineConfiguration(memoryLimit: 100))
+        XCTAssertNoThrow(try engine.trackAllocation(bytes: 0))
+        XCTAssertEqual(engine.allocatedBytes, 0)
+    }
+
     // MARK: - ArrayModule Memory Tracking
 
     #if LUASWIFT_ARRAYSWIFT

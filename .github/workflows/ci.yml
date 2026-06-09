@@ -152,10 +152,58 @@ jobs:
         # dedicated `benchmarks` job below, not in every matrix cell.
         run: swift test --skip Benchmark
 
+  # Test with Yams excluded (LUASWIFT_INCLUDE_YAMS=0).
+  # Yams is ON by default (the only opt-out dep), so this exercises the
+  # "no-YAML" build path that the main matrix never covers.
+  # YAMS and TOMLKit are pure SPM dependencies — no sibling checkout needed.
+  test-yams-off:
+    runs-on: macos-latest
+    name: "Test: YAMS=0 (no YAML)"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+
+      - name: Build without Yams
+        env:
+          LUASWIFT_INCLUDE_YAMS: "0"
+        run: swift build
+
+      - name: Run tests without Yams
+        env:
+          LUASWIFT_INCLUDE_YAMS: "0"
+        run: swift test --skip Benchmark
+
+  # Test with TOMLKit enabled (LUASWIFT_INCLUDE_TOMLKIT=1).
+  # TOMLKit is OFF by default, so this exercises the opt-in TOML build path
+  # that the main matrix never covers.
+  # Note: LUASWIFT_INCLUDE_NUMERICSWIFT and LUASWIFT_INCLUDE_THALES opt-in
+  # builds are currently known-broken (issues #8 and #18) and are intentionally
+  # excluded from this matrix until those issues are resolved.
+  test-tomlkit-on:
+    runs-on: macos-latest
+    name: "Test: TOMLKIT=1 (with TOML)"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+
+      - name: Build with TOMLKit
+        env:
+          LUASWIFT_INCLUDE_TOMLKIT: "1"
+        run: swift build
+
+      - name: Run tests with TOMLKit
+        env:
+          LUASWIFT_INCLUDE_TOMLKIT: "1"
+        run: swift test --skip Benchmark
+
   # Summary job that depends on all test combinations
   all-tests:
     runs-on: ubuntu-latest
-    needs: [test-combinations, test-lua-versions]
+    needs: [test-combinations, test-lua-versions, test-yams-off, test-tomlkit-on]
     if: always()
     steps:
       - name: Check test results
@@ -166,6 +214,14 @@ jobs:
           fi
           if [ "${{ needs.test-lua-versions.result }}" != "success" ]; then
             echo "One or more Lua version tests failed"
+            exit 1
+          fi
+          if [ "${{ needs.test-yams-off.result }}" != "success" ]; then
+            echo "Test without Yams (YAMS=0) failed"
+            exit 1
+          fi
+          if [ "${{ needs.test-tomlkit-on.result }}" != "success" ]; then
+            echo "Test with TOMLKit (TOMLKIT=1) failed"
             exit 1
           fi
           echo "All dependency combinations and Lua versions passed!"

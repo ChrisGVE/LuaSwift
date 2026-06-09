@@ -99,22 +99,36 @@ extension LuaEngine {
     /// If the allocation would exceed the configured memory limit, this throws
     /// a `memoryError`.
     ///
-    /// - Parameter bytes: Number of bytes to allocate
+    /// - Parameter bytes: Number of bytes to allocate. Must be non-negative —
+    ///   use ``trackDeallocation(bytes:)`` to record frees.
     /// - Throws: `LuaError.memoryError` if the allocation would exceed the limit
+    ///   or overflow the running total.
     public func trackAllocation(bytes: Int) throws {
+        precondition(bytes >= 0,
+                     "trackAllocation(bytes:) requires a non-negative byte count; got \(bytes). " +
+                     "Use trackDeallocation(bytes:) to record a free.")
         memoryLock.lock()
         defer { memoryLock.unlock() }
 
-        if configuration.memoryLimit > 0 {
-            if _allocatedBytes + bytes > configuration.memoryLimit {
-                throw LuaError.memoryError(
-                    "Memory limit exceeded: tried to allocate \(bytes) bytes, " +
-                    "limit is \(configuration.memoryLimit), " +
-                    "already allocated \(_allocatedBytes)"
-                )
-            }
+        // Overflow-safe accumulation. A pathological byte count must surface as a
+        // memory error, never wrap to a small or negative total that would
+        // silently defeat the limit check below.
+        let (newTotal, overflowed) = _allocatedBytes.addingReportingOverflow(bytes)
+        if overflowed {
+            throw LuaError.memoryError(
+                "Memory allocation overflow: tried to allocate \(bytes) bytes on top of " +
+                "\(_allocatedBytes) already allocated"
+            )
         }
-        _allocatedBytes += bytes
+
+        if configuration.memoryLimit > 0, newTotal > configuration.memoryLimit {
+            throw LuaError.memoryError(
+                "Memory limit exceeded: tried to allocate \(bytes) bytes, " +
+                "limit is \(configuration.memoryLimit), " +
+                "already allocated \(_allocatedBytes)"
+            )
+        }
+        _allocatedBytes = newTotal
     }
 
     /// Track a memory deallocation for Swift modules.

@@ -79,25 +79,7 @@ extension LuaEngine {
         instructionAccumulator = 0
         pendingRuntimeFailure = nil
 
-        // Push the structured-error handler FIRST, before the function and args,
-        // so its absolute stack index remains stable after the function/args push.
-        lua_pushcfunction(L, runtimeErrorHandler)
-        let handlerIdx = lua_gettop(L)
-
-        // Push the function from the registry
-        _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
-
-        // Verify it's a function; clean up both handler and the non-function.
-        if lua_type(L, -1) != LUA_TFUNCTION {
-            lua_pop(L, 1)              // pop the non-function
-            lua_remove(L, handlerIdx)  // pop the handler
-            throw LuaError.runtimeError("Invalid function reference")
-        }
-
-        // Push arguments
-        for arg in args {
-            pushSimpleValue(L, arg)
-        }
+        let handlerIdx = try pushLuaCallFrame(L, ref: ref, args: args)
 
         // Arm the compositor hook and install TLS.
         let previousEngine = setAsCurrentEngine()
@@ -106,10 +88,40 @@ extension LuaEngine {
 
         // Stack layout entering pcall: [... handler, function, arg0, ..., argN]
         let callResult = lua_pcall(L, Int32(args.count), 1, handlerIdx)
+        lua_remove(L, handlerIdx)  // remove handler unconditionally
+        return try finishLuaCall(L, callResult: callResult, entryTop: entryTop)
+    }
 
-        // Remove handler unconditionally.
-        lua_remove(L, handlerIdx)
+    /// Push the structured-error handler, then the function `ref` and its `args`,
+    /// in the layout `[… handler, function, arg0, …, argN]` for a protected call.
+    ///
+    /// The handler is pushed FIRST so its absolute stack index stays stable after
+    /// the function and arguments are pushed. Returns that handler index. Throws
+    /// (after cleaning up both the handler and the non-function value) when `ref`
+    /// does not resolve to a function.
+    private func pushLuaCallFrame(_ L: OpaquePointer, ref: Int32, args: [LuaValue]) throws -> Int32 {
+        lua_pushcfunction(L, runtimeErrorHandler)
+        let handlerIdx = lua_gettop(L)
 
+        _ = lua_rawgeti(L, LUA_REGISTRYINDEX, lua_Integer(ref))
+        if lua_type(L, -1) != LUA_TFUNCTION {
+            lua_pop(L, 1)              // pop the non-function
+            lua_remove(L, handlerIdx)  // pop the handler
+            throw LuaError.runtimeError("Invalid function reference")
+        }
+
+        for arg in args {
+            pushSimpleValue(L, arg)
+        }
+        return handlerIdx
+    }
+
+    /// Interpret a ``callLuaFunction(ref:args:)`` pcall result. On failure,
+    /// classify via ``errorFromCode(_:message:)`` (which reads `abortReason`
+    /// first, then the structured-error stash) and throw, asserting in debug that
+    /// the stack unwound back to `entryTop`. On success, pop and return the single
+    /// result value.
+    private func finishLuaCall(_ L: OpaquePointer, callResult: Int32, entryTop: Int32) throws -> LuaValue {
         if callResult != LUA_OK {
             let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
             lua_pop(L, 1)
@@ -120,11 +132,9 @@ extension LuaEngine {
                 + "top=\(lua_gettop(L)), entryTop=\(entryTop)")
             #endif
 
-            // Classify via errorFromCode (reads abortReason first, then stash).
             throw errorFromCode(callResult, message: message)
         }
 
-        // Get the result
         let result = valueFromStack(at: -1)
         lua_pop(L, 1)
         return result

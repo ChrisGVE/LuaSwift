@@ -141,7 +141,7 @@ extension LuaEngine {
     /// - Returns: Compiled bytecode as `Data`
     /// - Throws: `LuaError.syntaxError` if the source has syntax errors,
     ///   `LuaError.runtimeError` if the bytecode dump fails
-    @available(*, deprecated, message: """
+    @available(*, deprecated, renamed: "precompile(_:)", message: """
         Use precompile(_:) instead: it returns a provenance-typed \
         CompiledChunk that run(_:)/evaluate(_:) validate before loading. \
         Raw bytecode Data carries no provenance, and Lua's bytecode \

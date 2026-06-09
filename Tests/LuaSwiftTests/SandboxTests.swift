@@ -347,4 +347,154 @@ final class SandboxTests: XCTestCase {
 
         XCTAssertEqual(result.intValue, 42, "Preloaded modules should be loadable via require")
     }
+
+    // MARK: - Long-bracket injection in packagePath (CR-024)
+
+    /// A `packagePath` value containing the long-bracket-close sequence `]]`
+    /// must not break out of any Lua string context. `setPackagePath` uses the
+    /// C API (`lua_pushstring` + `lua_setfield`) which treats the path as raw
+    /// data rather than interpolating it into a Lua source string, so `]]`
+    /// cannot close an imaginary bracket level.
+    ///
+    /// This tests the contract: `package.path` must equal the raw value with
+    /// `/?.lua` appended, byte-for-byte, regardless of how many `]]` sequences
+    /// it contains.
+    func testPackagePathWithLongBracketCloseIsSetVerbatim() throws {
+        // A path whose name contains the two-character sequence ]] — the only
+        // sequence that closes a Lua long-bracket string of level 0.
+        let maliciousPath = "/tmp/dir]]evil"
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: maliciousPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        let result = try engine.evaluate("return package.path")
+        XCTAssertEqual(result.stringValue, "\(maliciousPath)/?.lua",
+                       "packagePath with ]] must be set verbatim, not interpreted as bracket close")
+    }
+
+    /// A `packagePath` containing `]]` in a deeply nested form (e.g. `]===]`)
+    /// must also be stored verbatim. The C-API path is data-safe for all
+    /// such sequences, not just level-0 long-brackets.
+    func testPackagePathWithNestedBracketSequenceIsSetVerbatim() throws {
+        let trickyPath = "/tmp/x]=]y"
+        let config = LuaEngineConfiguration(
+            sandboxed: true,
+            packagePath: trickyPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        let result = try engine.evaluate("return package.path")
+        XCTAssertEqual(result.stringValue, "\(trickyPath)/?.lua",
+                       "packagePath with ]=] must be set verbatim")
+    }
+
+    // MARK: - compat.bit32 on unsandboxed path
+
+    /// The `compat` Lua module provides a `bit32` shim on all Lua versions.
+    /// The existing tests exercise it via a sandboxed engine whose `packagePath`
+    /// is set to the LuaModules directory. This test verifies the shim is
+    /// equally functional on an **unsandboxed** engine (`.unrestricted`), where
+    /// `load()` is available and the 5.3+ bitwise-operator implementation path
+    /// inside `compat.lua` can use it rather than falling back to a stub.
+    func testCompatBit32WorksOnUnsandboxedEngine() throws {
+        // Build the path to LuaModules relative to this test file, matching
+        // the pattern from LuaModuleTests.createEngineWithLuaModules().
+        let sourceRoot = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()   // LuaSwiftTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // project root
+        let modulesPath = sourceRoot
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("LuaSwift")
+            .appendingPathComponent("LuaModules")
+            .path
+
+        guard FileManager.default.fileExists(atPath: modulesPath) else {
+            throw XCTSkip("LuaModules directory not found; skipping unsandboxed compat test")
+        }
+
+        // Unsandboxed engine with load() and io available — the richer code
+        // path inside compat.lua for 5.3+ is exercised because load() exists.
+        let config = LuaEngineConfiguration(
+            sandboxed: false,
+            packagePath: modulesPath,
+            memoryLimit: 0
+        )
+        let engine = try LuaEngine(configuration: config)
+
+        // Spot-check several bit32 functions to confirm the shim is complete.
+        let result = try engine.evaluate("""
+            local compat = require('compat')
+            local b = compat.bit32
+            return {
+                band  = b.band(0xFF, 0x0F),
+                bor   = b.bor(0xF0, 0x0F),
+                bxor  = b.bxor(0xFF, 0x0F),
+                lsh   = b.lshift(1, 4),
+                rsh   = b.rshift(16, 4),
+            }
+        """)
+        let t = result.tableValue
+        XCTAssertEqual(t?["band"]?.numberValue, 0x0F,  "bit32.band on unsandboxed engine")
+        XCTAssertEqual(t?["bor"]?.numberValue,  0xFF,  "bit32.bor on unsandboxed engine")
+        XCTAssertEqual(t?["bxor"]?.numberValue, 0xF0,  "bit32.bxor on unsandboxed engine")
+        XCTAssertEqual(t?["lsh"]?.numberValue,  16.0,  "bit32.lshift on unsandboxed engine")
+        XCTAssertEqual(t?["rsh"]?.numberValue,  1.0,   "bit32.rshift on unsandboxed engine")
+    }
+
+    // MARK: - package.preload writability under sandbox (CR-902)
+
+    /// Documents the current behavior of `package.preload` under the sandbox:
+    /// it is writable — a sandboxed Lua script can register new preload entries
+    /// and `require` them. This is intentional (the preload mechanism is the
+    /// safe, sandbox-approved module registration path), and the existing
+    /// `testPreloadSearcherWorks` already verifies the happy path.
+    ///
+    /// This test additionally asserts that a second write (overwriting an
+    /// existing preload entry) also succeeds — confirming that `package.preload`
+    /// is a plain writable table, not a locked metatable.
+    ///
+    /// SECURITY NOTE: `package.preload` being writable means a sandboxed script
+    /// can shadow any preloaded module with its own factory. This is acceptable
+    /// for the current LuaSwift use model (Swift modules are registered via the
+    /// C API into `package.loaded` and do not rely on the preload path), but
+    /// callers who register modules via `package.preload` from Swift should be
+    /// aware that sandboxed Lua code can overwrite those entries.
+    func testPackagePreloadIsWritableUnderSandbox() throws {
+        let engine = try LuaEngine()  // sandboxed by default
+
+        // First write: register a new module.
+        let firstResult = try engine.evaluate("""
+            package.preload['sandboxmod'] = function() return {x = 10} end
+            local m = require('sandboxmod')
+            return m.x
+        """)
+        XCTAssertEqual(firstResult.intValue, 10,
+                       "First preload write must succeed in sandboxed mode")
+
+        // Second write: overwrite an existing preload entry.
+        let secondResult = try engine.evaluate("""
+            package.preload['sandboxmod'] = function() return {x = 99} end
+            package.loaded['sandboxmod'] = nil  -- clear the cache so require re-runs
+            local m = require('sandboxmod')
+            return m.x
+        """)
+        XCTAssertEqual(secondResult.intValue, 99,
+                       "Overwriting a preload entry must also succeed (preload table is writable)")
+    }
+
+    /// In sandboxed mode, `package.preload` itself must exist as a table (not
+    /// nil) so that the preload mechanism remains functional for safe module
+    /// registration.
+    func testPackagePreloadExistsAsSandboxedTable() throws {
+        let engine = try LuaEngine()  // sandboxed by default
+
+        let result = try engine.evaluate("return type(package.preload)")
+        XCTAssertEqual(result.stringValue, "table",
+                       "package.preload must be a table in sandboxed mode")
+    }
 }

@@ -261,7 +261,7 @@ public struct MathExprModule: LuaSwiftModule {
     /// Deprecated alias for ``install(in:)`` that swallows setup failures.
     ///
     /// - Parameter engine: The Lua engine to register with
-    @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; register(in:) swallows them.")
+    @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; register(in:) swallows them.", renamed: "install(in:)")
     public static func register(in engine: LuaEngine) {
         do { try install(in: engine) } catch {
             #if DEBUG
@@ -922,7 +922,9 @@ public struct MathExprModule: LuaSwiftModule {
     end
 
     local function complex_pow(a, n)
-        -- For now, only support real exponent
+        -- Handles both real and complex exponents.
+        -- Complex exponent (n has a non-zero imaginary part): uses a^n = exp(n * log(a)).
+        -- Real exponent: uses De Moivre's formula r^n * (cos(n*theta) + i*sin(n*theta)).
         a = to_complex(a)
         if is_complex(n) then
             -- Complex exponent: a^n = exp(n * log(a))

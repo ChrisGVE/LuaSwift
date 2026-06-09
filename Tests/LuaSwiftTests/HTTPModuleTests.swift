@@ -498,6 +498,53 @@ final class HTTPModuleTests: XCTestCase {
         XCTAssertEqual(result2.boolValue, true, "Second engine request should succeed")
     }
 
+    // MARK: - Lifetime / Leak Regression (#24)
+
+    /// Installing the HTTP module must not create a retain cycle on the engine.
+    ///
+    /// The request callback is stored in the engine's callback table; before the
+    /// fix it captured the engine strongly, so the engine never deallocated and
+    /// its URLSession pair leaked. A weak reference must drop to `nil` once the
+    /// only strong reference is released.
+    func testInstallDoesNotRetainEngine() throws {
+        weak var weakEngine: LuaEngine?
+        try autoreleasepool {
+            let localEngine = try LuaEngine()
+            try HTTPModule.install(in: localEngine)
+            weakEngine = localEngine
+            XCTAssertNotNil(weakEngine, "Engine alive while strongly referenced")
+        }
+        XCTAssertNil(weakEngine, "Engine must deallocate after its last strong reference is gone (no retain cycle)")
+    }
+
+    /// Engine deinit must invalidate the engine's URLSession pair deterministically.
+    ///
+    /// A request populates the session pair; once the engine is released the
+    /// `deinit` cleanup handler must remove it from the shared manager — without
+    /// relying on the best-effort orphan sweep that only runs on the next request.
+    func testEngineDeinitInvalidatesSessions() throws {
+        let base = try Self.requireHTTPBase()
+
+        var engineId: ObjectIdentifier?
+        try autoreleasepool {
+            let localEngine = try LuaEngine()
+            try HTTPModule.install(in: localEngine)
+            engineId = ObjectIdentifier(localEngine)
+
+            let resp = try localEngine.evaluate("""
+                local http = luaswift.http
+                local resp = http.get("\(base)/get")
+                return resp.ok
+            """)
+            XCTAssertEqual(resp.boolValue, true, "Request should succeed and create a session pair")
+            XCTAssertTrue(HTTPModule.hasSessions(forEngineId: engineId!),
+                          "Session pair must exist while the engine is alive")
+        }
+
+        XCTAssertFalse(HTTPModule.hasSessions(forEngineId: engineId!),
+                       "Engine deinit must invalidate and remove its session pair")
+    }
+
     // MARK: - Helper Methods
 
     /// In-process httpbin-compatible server, started once for the whole test

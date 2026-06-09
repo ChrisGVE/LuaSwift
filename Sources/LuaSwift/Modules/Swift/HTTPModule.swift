@@ -137,14 +137,33 @@ public struct HTTPModule: LuaSwiftModule {
         }
 
         /// Invalidate sessions for a specific engine (call on engine deinit).
-        func invalidateSessions(for engine: LuaEngine) {
+        ///
+        /// Keyed by ``ObjectIdentifier`` rather than the engine itself so the
+        /// engine's `deinit` handler can release sessions without holding a
+        /// strong reference to the engine being deallocated.
+        func invalidateSessions(forEngineId engineId: ObjectIdentifier) {
             lock.lock()
             defer { lock.unlock() }
 
-            let engineId = ObjectIdentifier(engine)
             if let pair = sessions.removeValue(forKey: engineId) {
                 pair.invalidate()
             }
+        }
+
+        /// Number of engines that currently own a live session pair.
+        /// internal: observability hook for leak-regression tests
+        func activeEngineCount() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return sessions.count
+        }
+
+        /// Whether the given engine identity still owns a session pair.
+        /// internal: observability hook for leak-regression tests
+        func hasSessions(forEngineId engineId: ObjectIdentifier) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return sessions[engineId] != nil
         }
 
         /// Clean up sessions for engines that have been deallocated.
@@ -161,6 +180,27 @@ public struct HTTPModule: LuaSwiftModule {
 
     /// Shared session manager instance
     private static let sessionManager = SessionManager()
+
+    /// Release the URLSession pair owned by the given engine.
+    ///
+    /// Called from ``LuaEngine``'s `deinit` cleanup handler (registered in
+    /// ``install(in:)``). Takes an ``ObjectIdentifier`` so the handler captures
+    /// no strong engine reference.
+    internal static func invalidateSessions(forEngineId engineId: ObjectIdentifier) {
+        sessionManager.invalidateSessions(forEngineId: engineId)
+    }
+
+    /// Number of engines that currently own a live URLSession pair.
+    /// internal: observability hook for leak-regression tests
+    internal static func activeEngineSessionCount() -> Int {
+        sessionManager.activeEngineCount()
+    }
+
+    /// Whether the given engine identity still owns a URLSession pair.
+    /// internal: observability hook for leak-regression tests
+    internal static func hasSessions(forEngineId engineId: ObjectIdentifier) -> Bool {
+        sessionManager.hasSessions(forEngineId: engineId)
+    }
 
     // MARK: - Redirect Delegate
 
@@ -195,9 +235,24 @@ public struct HTTPModule: LuaSwiftModule {
     /// - Parameter engine: The Lua engine to register with
     /// - Throws: An error if the module's Lua setup code fails to run.
     public static func install(in engine: LuaEngine) throws {
-        // Register HTTP method callbacks with engine reference for session management
-        engine.registerFunction(name: "_luaswift_http_request") { args in
-            try requestCallback(args, engine: engine)
+        // Register HTTP method callbacks. The closure is stored in the engine's
+        // callback table, so it MUST capture the engine weakly — a strong
+        // capture would form a retain cycle (engine → callbacks → closure →
+        // engine) that prevents `deinit` and leaks the engine's URLSession pair.
+        engine.registerFunction(name: "_luaswift_http_request") { [weak engine] args in
+            guard let engine = engine else {
+                throw LuaError.callbackError("HTTP request issued after the owning engine was deallocated")
+            }
+            return try requestCallback(args, engine: engine)
+        }
+
+        // Release this engine's URLSession pair when it is deallocated. The
+        // handler captures only the engine's identity (a value type), so it does
+        // not keep the engine alive. `cleanupOrphanedSessions` is a best-effort
+        // sweep on the next request; this handler is the deterministic path.
+        let engineId = ObjectIdentifier(engine)
+        engine.deinitCleanupHandlers.append {
+            HTTPModule.invalidateSessions(forEngineId: engineId)
         }
 
         // Set up the luaswift.http namespace
@@ -236,7 +291,7 @@ public struct HTTPModule: LuaSwiftModule {
     /// Deprecated alias for ``install(in:)`` that swallows setup failures.
     ///
     /// - Parameter engine: The Lua engine to register with
-    @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; register(in:) swallows them.")
+    @available(*, deprecated, message: "Use install(in:) which surfaces setup failures; register(in:) swallows them.", renamed: "install(in:)")
     public static func register(in engine: LuaEngine) {
         do { try install(in: engine) } catch {
             #if DEBUG

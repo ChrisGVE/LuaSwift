@@ -223,68 +223,75 @@ public struct ModuleRegistry {
   /// - Parameter engine: The Lua engine to install in
   /// - Throws: An error if the Lua setup code fails to run
   private static func installExtendStdlib(in engine: LuaEngine) throws {
-    try engine.run(
-      """
-        if not luaswift then luaswift = {} end
-
-        -- Create top-level global aliases for all modules
-        json = luaswift.json
-        if luaswift.yaml then yaml = luaswift.yaml end
-        if luaswift.toml then toml = luaswift.toml end
-        regex = luaswift.regex
-        types = luaswift.types
-
-        -- Optional (NumericSwift/ArraySwift) modules may be absent; guard each
-        -- alias so it does not create an explicit nil global when missing.
-        if luaswift.linalg then linalg = luaswift.linalg end
-        if luaswift.array then array = luaswift.array end
-        if luaswift.geometry then geo = luaswift.geometry end
-        if luaswift.complex then complex = luaswift.complex end
-
-        -- Also create luaswift.geo as alias
-        if luaswift.geometry then luaswift.geo = luaswift.geometry end
-
-        -- extend_stdlib() imports all extensions into the standard library
-        function luaswift.extend_stdlib()
-            -- Import stringx into string
-            if luaswift.stringx and luaswift.stringx.import then
-                luaswift.stringx.import()
-            end
-
-            -- Import mathx into math
-            if luaswift.mathx and luaswift.mathx.import then
-                luaswift.mathx.import()
-            end
-
-            -- Import tablex into table
-            if luaswift.tablex and luaswift.tablex.import then
-                luaswift.tablex.import()
-            end
-
-            -- Import utf8x into utf8
-            if luaswift.utf8x and luaswift.utf8x.import then
-                luaswift.utf8x.import()
-            end
-
-            -- Create math subnamespaces for specialized modules
-            if luaswift.complex then
-                math.complex = luaswift.complex
-            end
-
-            if luaswift.linalg then
-                math.linalg = luaswift.linalg
-            end
-
-            if luaswift.geometry then
-                math.geo = luaswift.geometry
-            end
-
-            if luaswift.regress then
-                math.regress = luaswift.regress
-            end
-        end
-        """)
+    try engine.run(extendStdlibScript)
   }
+
+  /// Lua run once by ``installExtendStdlib(in:)``: it creates the top-level
+  /// module aliases (json/yaml/toml/regex/types and the optional
+  /// linalg/array/geo/complex) and defines `luaswift.extend_stdlib()`, which
+  /// imports the `*x` extensions into the standard library and adds the `math.*`
+  /// subnamespaces. Optional modules are each guarded so a missing one does not
+  /// create an explicit `nil` global.
+  private static let extendStdlibScript = """
+    if not luaswift then luaswift = {} end
+
+    -- Create top-level global aliases for all modules
+    json = luaswift.json
+    if luaswift.yaml then yaml = luaswift.yaml end
+    if luaswift.toml then toml = luaswift.toml end
+    regex = luaswift.regex
+    types = luaswift.types
+
+    -- Optional (NumericSwift/ArraySwift) modules may be absent; guard each
+    -- alias so it does not create an explicit nil global when missing.
+    if luaswift.linalg then linalg = luaswift.linalg end
+    if luaswift.array then array = luaswift.array end
+    if luaswift.geometry then geo = luaswift.geometry end
+    if luaswift.complex then complex = luaswift.complex end
+
+    -- Also create luaswift.geo as alias
+    if luaswift.geometry then luaswift.geo = luaswift.geometry end
+
+    -- extend_stdlib() imports all extensions into the standard library
+    function luaswift.extend_stdlib()
+        -- Import stringx into string
+        if luaswift.stringx and luaswift.stringx.import then
+            luaswift.stringx.import()
+        end
+
+        -- Import mathx into math
+        if luaswift.mathx and luaswift.mathx.import then
+            luaswift.mathx.import()
+        end
+
+        -- Import tablex into table
+        if luaswift.tablex and luaswift.tablex.import then
+            luaswift.tablex.import()
+        end
+
+        -- Import utf8x into utf8
+        if luaswift.utf8x and luaswift.utf8x.import then
+            luaswift.utf8x.import()
+        end
+
+        -- Create math subnamespaces for specialized modules
+        if luaswift.complex then
+            math.complex = luaswift.complex
+        end
+
+        if luaswift.linalg then
+            math.linalg = luaswift.linalg
+        end
+
+        if luaswift.geometry then
+            math.geo = luaswift.geometry
+        end
+
+        if luaswift.regress then
+            math.regress = luaswift.regress
+        end
+    end
+    """
 }
 
 /// Synthetic error recorded by ``ModuleRegistry/install(in:)`` for a module

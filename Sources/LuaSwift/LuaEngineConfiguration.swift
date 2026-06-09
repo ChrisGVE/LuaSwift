@@ -154,15 +154,38 @@ public struct LuaEngineConfiguration {
 
     /// Creates a new engine configuration.
     ///
+    /// Every parameter has a default, so `LuaEngineConfiguration()` is equivalent
+    /// to ``default`` and callers can override only the options they care about,
+    /// e.g. `LuaEngineConfiguration(memoryLimit: 1 << 20)`.
+    ///
+    /// ## Init-time consumption
+    ///
+    /// A configuration is a value type **consumed once** by
+    /// ``LuaEngine/init(configuration:)``, which copies it into the engine's
+    /// immutable ``LuaEngine/configuration``. Mutating a configuration value
+    /// after an engine has been created has **no effect** on that engine — the
+    /// stored fields are `var` only so a configuration can be assembled
+    /// incrementally before construction.
+    ///
     /// - Parameters:
     ///   - sandboxed: Whether to disable dangerous functions. Default `true`.
     ///   - packagePath: Custom path for Lua module loading. Default `nil`.
     ///   - memoryLimit: Maximum memory in bytes for Swift module allocations
-    ///     (0 = unlimited). Does not limit Lua VM allocations. Default `0`.
+    ///     (0 = unlimited). Does not limit Lua VM allocations. Must be
+    ///     non-negative. Default `0`.
     ///   - vmMemoryLimit: Ceiling in bytes on total Lua VM allocation,
-    ///     enforced by a custom allocator (0 = disabled). See
-    ///     ``vmMemoryLimit``. Default `0`.
-    public init(sandboxed: Bool, packagePath: String?, memoryLimit: Int, vmMemoryLimit: Int = 0) {
+    ///     enforced by a custom allocator (0 = disabled). Must be non-negative.
+    ///     See ``vmMemoryLimit``. Default `0`.
+    public init(
+        sandboxed: Bool = true,
+        packagePath: String? = nil,
+        memoryLimit: Int = 0,
+        vmMemoryLimit: Int = 0
+    ) {
+        precondition(memoryLimit >= 0,
+                     "LuaEngineConfiguration.memoryLimit must be non-negative (0 = unlimited); got \(memoryLimit)")
+        precondition(vmMemoryLimit >= 0,
+                     "LuaEngineConfiguration.vmMemoryLimit must be non-negative (0 = disabled); got \(vmMemoryLimit)")
         self.sandboxed = sandboxed
         self.packagePath = packagePath
         self.memoryLimit = memoryLimit

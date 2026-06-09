@@ -15,10 +15,11 @@
 //  status/destruction. Each resume re-arms the compositor hook
 //  (armCompositorHook, LuaEngine+Execution.swift) on the coroutine's
 //  own lua_State and consults abortReason to surface .cancelled or
-//  .instructionLimitExceeded. The private thread-stack push/extract
-//  helpers mirror the engine-state bridging in LuaEngine+Bridging.swift
-//  but target the coroutine's own lua_State;
-//  convertToArrayIfContiguous is shared from there.
+//  .instructionLimitExceeded. Resume arguments are pushed with the shared
+//  pushSimpleValue (LuaEngine+Bridging.swift), which already takes an
+//  explicit lua_State. The thread-targeted READ helpers (valueFromThread/
+//  tableFromThread) stay local because they intentionally differ from the
+//  engine-state readers; convertToArrayIfContiguous is shared from Bridging.
 //
 
 import Foundation
@@ -131,39 +132,18 @@ extension LuaEngine {
         }
 
         let thread = handle.threadPointer
+        resetResumeState()
 
-        // Reset per-run state so a prior cancel/limit abort or stale structured-
-        // error stash does not persist into this resume (consistent with all other
-        // entry points: run/evaluate/callLuaFunction/runDebug all reset this triple).
-        abortReason.store(AbortReason.none, ordering: .releasing)
-        instructionAccumulator = 0
-        pendingRuntimeFailure = nil
-
-        // Push values onto the thread's stack
+        // Push the resume arguments onto the thread's own stack.
         for value in values {
-            pushValueOnThread(thread, value)
+            pushSimpleValue(thread, value)
         }
 
-        // Arm the hook on the coroutine thread so code inside the coroutine is
-        // bounded too (hooks are per-lua_State in 5.4+; each coroutine thread
-        // needs its own hook installation).
-        //
-        // When a debug session is active (a handler is installed), arm the FULL
-        // LINE/CALL/RET mask so the debugger steps *into* the coroutine body
-        // (#26) — host-driven resume is no longer silently stepped over. The
-        // coroutine starts in breakpoint mode (stepState = nil); stepping is
-        // re-decided per resume from the handler's commands. With no debug
-        // session the COUNT-only hook is armed exactly as before.
         let previousEngine = setAsCurrentEngine()
         defer { restoreCurrentEngine(previousEngine) }
-        if debugHandler != nil {
-            stepState = nil
-            armDebugHook(on: thread)
-        } else {
-            armCompositorHook(on: thread)
-        }
+        armResumeHooks(on: thread)
+        defer { if let L = L { removeCoroutineDebugShims(on: L) } }
 
-        // Resume the coroutine
         var nresults: Int32 = 0
         let status = lua_resume(thread, L, Int32(values.count), &nresults)
 
@@ -178,6 +158,35 @@ extension LuaEngine {
 
         default:
             return classifyResumeError(thread)
+        }
+    }
+
+    /// Reset the per-run mutable state shared with every other entry point
+    /// (run/evaluate/callLuaFunction/runDebug) so a prior cancel/limit abort or a
+    /// stale structured-error stash does not leak into this resume.
+    private func resetResumeState() {
+        abortReason.store(AbortReason.none, ordering: .releasing)
+        instructionAccumulator = 0
+        pendingRuntimeFailure = nil
+    }
+
+    /// Arm the hook for a resume on the coroutine's own `lua_State` (hooks are
+    /// per-`lua_State` in 5.4+, so each thread needs its own installation).
+    ///
+    /// With a debug session active, arm the full LINE/CALL/RET mask so the
+    /// debugger steps *into* the coroutine body, and install the in-Lua
+    /// coroutine shims on the main state so coroutines this body creates are
+    /// stepped into as well (#26); the coroutine starts each resume in breakpoint
+    /// mode (`stepState = nil`). With no session, arm the COUNT-only compositor
+    /// hook exactly as a plain run does. Pairs with the `removeCoroutineDebugShims`
+    /// cleanup in `resume`'s defer.
+    private func armResumeHooks(on thread: OpaquePointer) {
+        if debugHandler != nil {
+            stepState = nil
+            armDebugHook(on: thread)
+            if let L = L { installCoroutineDebugShims(on: L) }
+        } else {
+            armCompositorHook(on: thread)
         }
     }
 
@@ -282,72 +291,6 @@ extension LuaEngine {
         }
         lua_pop(thread, nresults)
         return values
-    }
-
-    private func pushValueOnThread(_ thread: OpaquePointer, _ value: LuaValue) {
-        switch value {
-        case .string(let str):
-            lua_pushstring_binary(thread, str)
-        case .number(let num):
-            lua_pushnumber(thread, num)
-        case .complex(let re, let im):
-            // Push complex as table with marker - metatable will be set if complex module is loaded
-            pushComplexOnThread(thread, re: re, im: im)
-        case .bool(let b):
-            lua_pushboolean(thread, b ? 1 : 0)
-        case .nil:
-            lua_pushnil(thread)
-        case .table(let dict):
-            lua_newtable(thread)
-            for (k, v) in dict {
-                lua_pushstring_binary(thread, k)
-                pushValueOnThread(thread, v)
-                lua_settable(thread, -3)
-            }
-        case .array(let arr):
-            lua_newtable(thread)
-            for (i, v) in arr.enumerated() {
-                pushValueOnThread(thread, v)
-                lua_rawseti(thread, -2, lua_Integer(i + 1))
-            }
-        case .luaFunction(let ref):
-            // Push the function from the registry
-            _ = lua_rawgeti(thread, LUA_REGISTRYINDEX, lua_Integer(ref))
-        case .opaqueReference:
-            // Non-re-injectable introspection placeholder — nothing to push.
-            lua_pushnil(thread)
-        }
-    }
-
-    private func pushComplexOnThread(_ thread: OpaquePointer, re: Double, im: Double) {
-        // Try to use complex.new if available for proper metatable support
-        lua_getglobal(thread, "complex")
-        if lua_istable(thread, -1) {
-            lua_getfield(thread, -1, "new")
-            if lua_isfunction(thread, -1) {
-                lua_pushnumber(thread, re)
-                lua_pushnumber(thread, im)
-                if lua_pcall(thread, 2, 1, 0) == LUA_OK {
-                    // Remove the 'complex' table, keep the result
-                    lua_remove(thread, -2)
-                    return
-                }
-                // pcall failed, pop error and fall through
-                lua_pop(thread, 1)
-            } else {
-                lua_pop(thread, 1)  // pop non-function
-            }
-        }
-        lua_pop(thread, 1)  // pop complex table or nil
-
-        // Fallback: create table without metatable
-        lua_newtable(thread)
-        lua_pushnumber(thread, re)
-        lua_setfield(thread, -2, "re")
-        lua_pushnumber(thread, im)
-        lua_setfield(thread, -2, "im")
-        lua_pushstring(thread, "complex")
-        lua_setfield(thread, -2, "__luaswift_type")
     }
 
     private func valueFromThread(_ thread: OpaquePointer, at index: Int32) -> LuaValue {

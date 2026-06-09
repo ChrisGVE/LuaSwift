@@ -105,12 +105,15 @@ resumed through the host API. The coroutine starts each resume in breakpoint mod
 (no carried step state); the handler's returned `LuaDebugCommand`s drive stepping
 as usual.
 
-**Remaining limitation — in-Lua resumes.** A coroutine created and resumed
-entirely inside Lua (`co = coroutine.create(...); coroutine.resume(co)`) runs on a
-thread the host never arms, so its body is still stepped over. Cancellation and
-the instruction limit are likewise delivered for host-driven `resume(_:with:)`
-but not for in-Lua resumes. Hooking script-internal coroutine threads remains a
-deferred enhancement.
+**In-Lua coroutines are debuggable too.** A coroutine created and resumed
+entirely inside Lua (`co = coroutine.create(...); coroutine.resume(co)`, or
+`coroutine.wrap`) is also stepped *into* while a debug session is active. For the
+duration of each `runDebug`/`resume(_:with:)` call, `coroutine.create` and
+`coroutine.wrap` are transparently routed through a hook-arming shim so every new
+coroutine thread receives the full debug mask before it first runs; the standard
+library functions are restored when the call returns, so non-debug runs are
+untouched. Cancellation and the instruction limit are delivered for in-Lua
+coroutines on the same footing as host-driven ones while stepping.
 
 ## Native stepping with tail-call handling
 

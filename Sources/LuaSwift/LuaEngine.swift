@@ -173,6 +173,13 @@ public final class LuaEngine {
     /// internal: managed by LuaEngine+Callbacks.swift
     internal var callbacks: [String: ([LuaValue]) throws -> LuaValue] = [:]
 
+    /// Cleanup closures run once in `deinit` (before `lua_close`) to release
+    /// engine-scoped module resources, e.g. ``HTTPModule``'s URLSession pairs.
+    /// Handlers MUST capture only value types (such as `ObjectIdentifier(engine)`)
+    /// — capturing the engine would re-introduce the retain cycle this avoids.
+    /// internal: appended by module install code; drained by deinit
+    internal var deinitCleanupHandlers: [() -> Void] = []
+
     /// Active coroutines (UUID -> registry reference for GC protection)
     /// internal: managed by LuaEngine+Coroutines.swift
     internal var coroutines: [UUID: Int32] = [:]
@@ -297,6 +304,13 @@ public final class LuaEngine {
     /// internal: managed by compositorHookCallback and LuaEngine+Debug.swift
     internal var stepState: StepState?
 
+    /// Registry refs to the original `coroutine.create`/`wrap`, saved while the
+    /// in-Lua coroutine debug shims are installed (#26) so they can be restored
+    /// after the run. Non-`nil` only between ``installCoroutineDebugShims(on:)``
+    /// and ``removeCoroutineDebugShims(on:)``.
+    /// internal: managed by LuaEngine+CoroutineDebug.swift
+    internal var coroutineShimSavedRefs: (create: Int32, wrap: Int32)?
+
     // MARK: - Introspection Bookkeeping (#21)
 
     /// Names of modules successfully installed via ``ModuleRegistry/install(in:)``
@@ -414,6 +428,11 @@ public final class LuaEngine {
     }
 
     deinit {
+        // Release engine-scoped module resources before tearing down the state
+        // (handlers capture only value types — see ``deinitCleanupHandlers``).
+        for cleanup in deinitCleanupHandlers {
+            cleanup()
+        }
         if let L = L {
             lua_close(L)
         }

@@ -164,6 +164,85 @@ final class ModuleInstallTests: XCTestCase {
         XCTAssertEqual(StringXModule.moduleName, "StringXModule")
     }
 
+    // MARK: - extend_stdlib failure path
+
+    /// `extend_stdlib` runs last in `ModuleRegistry.install(in:)` as a
+    /// finalization step. If it fails, a `ModuleInstallError` is thrown and the
+    /// failure record names `"extend_stdlib"`, not a module.
+    ///
+    /// Freezing the `luaswift` global before install forces the finalization
+    /// Lua snippet to fail when it tries to write aliases into that table.
+    func testExtendStdlibFailureSurfacesInModuleInstallError() throws {
+        let engine = try LuaEngine()
+        // Make the luaswift table read-only so the extend_stdlib Lua snippet
+        // cannot set aliases (any write raises an error).
+        try engine.run("""
+            luaswift = setmetatable({}, {
+                __newindex = function(_, k, _)
+                    error("luaswift is frozen: cannot set " .. tostring(k))
+                end
+            })
+            """)
+
+        XCTAssertThrowsError(try ModuleRegistry.install(in: engine)) { error in
+            guard let installError = error as? ModuleInstallError else {
+                XCTFail("Expected ModuleInstallError, got \(error)")
+                return
+            }
+            let names = installError.failures.map { $0.module }
+            XCTAssertTrue(names.contains("extend_stdlib"),
+                          "extend_stdlib failure must be reported; failures: \(names)")
+        }
+    }
+
+    // MARK: - Idempotency
+
+    /// Installing all modules twice on the same engine must not crash or corrupt
+    /// state. The second install either succeeds silently or throws a
+    /// `ModuleInstallError`; either way the modules installed on the first pass
+    /// must still be functional afterwards.
+    func testModuleInstallIsIdempotent() throws {
+        let engine = try LuaEngine()
+
+        // First install: must succeed.
+        XCTAssertNoThrow(try ModuleRegistry.install(in: engine))
+        let afterFirst = try engine.evaluate("return luaswift.json.encode({v=1})")
+        XCTAssertNotNil(afterFirst.stringValue,
+                        "JSON must be functional after first install")
+
+        // Second install: allowed to succeed or throw, but must not crash.
+        // If it throws, catch and ignore.
+        _ = try? ModuleRegistry.install(in: engine)
+
+        // The module installed in the first pass must still work.
+        let afterSecond = try engine.evaluate("return luaswift.json.encode({v=2})")
+        XCTAssertNotNil(afterSecond.stringValue,
+                        "JSON must remain functional after a second install attempt")
+    }
+
+    // MARK: - Concrete error type assertion
+
+    /// `ModuleRegistry.install(in:)` must throw `ModuleInstallError` — not a
+    /// plain `LuaError` or opaque `Error` — when at least one module fails.
+    /// Callers relying on the typed API must be able to pattern-match on it.
+    func testThrownErrorIsConcreteModuleInstallError() throws {
+        let engine = try LuaEngine()
+        try engine.run(jsonPoison)
+
+        do {
+            try ModuleRegistry.install(in: engine)
+            XCTFail("Expected ModuleInstallError to be thrown")
+        } catch let installError as ModuleInstallError {
+            // Correct type: confirm the failure is structurally useful.
+            XCTAssertFalse(installError.failures.isEmpty,
+                           "ModuleInstallError must carry at least one failure")
+            XCTAssertNotNil(installError.errorDescription,
+                            "ModuleInstallError must have a non-nil errorDescription")
+        } catch {
+            XCTFail("Expected ModuleInstallError, got \(type(of: error)): \(error)")
+        }
+    }
+
     // MARK: - Prerequisite cascade
 
     #if LUASWIFT_NUMERICSWIFT

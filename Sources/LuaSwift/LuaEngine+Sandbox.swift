@@ -21,6 +21,67 @@
 import Foundation
 import CLua
 
+// MARK: - Sandbox Lua Snippets
+
+/// Lua that hardens a sandboxed engine, run once from ``LuaEngine/applySandbox(hasPackagePath:)``.
+///
+/// The multi-step hardening ensures: dangerous globals are removed;
+/// `package.loaded` entries for restricted libraries are cleared so `require()`
+/// cannot restore them; `package.loadlib` is disabled (no dynamic libraries, App
+/// Store compliance); and `package.path`/`cpath` are cleared (the configured
+/// path, if any, is set afterwards by ``LuaEngine/setPackagePath(_:)``). The
+/// removed-function list is mirrored in ``LuaEngineConfiguration``'s sandboxing
+/// documentation.
+private let sandboxHardeningScript = """
+    -- Remove dangerous globals
+    os.execute = nil
+    os.exit = nil
+    os.remove = nil
+    os.rename = nil
+    os.tmpname = nil
+    os.getenv = nil
+    os.setlocale = nil
+    io = nil
+    debug = nil
+    loadfile = nil
+    dofile = nil
+    load = nil
+    loadstring = nil
+
+    -- Remove warn (Lua 5.4+): combined with the wired warning handlers a
+    -- sandboxed script could enable warnings then flood stderr. The
+    -- guard makes this a no-op on 5.1-5.3 where warn does not exist.
+    if warn ~= nil then warn = nil end
+
+    -- Clear package.loaded for restricted libraries to prevent require() bypass
+    package.loaded.io = nil
+    package.loaded.debug = nil
+    -- Note: os is partially restricted, leave in loaded but with dangerous funcs removed
+
+    -- Disable dynamic library loading (App Store compliance)
+    package.loadlib = nil
+    package.cpath = ''
+
+    -- Clear package.path (will be set to configured path if packagePath provided)
+    package.path = ''
+"""
+
+/// Lua that strips the file-based `require()` searchers, keeping only the
+/// preload searcher. Run from ``LuaEngine/applySandbox(hasPackagePath:)`` ONLY
+/// when no `packagePath` is configured — with a path set, the file searchers are
+/// retained so modules can load from the explicitly allowed directory.
+private let sandboxRemoveSearchersScript = """
+    -- Clear file-based searchers, keeping only preload searcher
+    -- Lua 5.2+ uses package.searchers, Lua 5.1 uses package.loaders
+    local searchers = package.searchers or package.loaders
+    if searchers then
+        -- Keep only the preload searcher (index 1), remove file searchers
+        for i = #searchers, 2, -1 do
+            searchers[i] = nil
+        end
+    end
+"""
+
 extension LuaEngine {
 
     /// Remove dangerous functions and harden the package system.
@@ -37,68 +98,18 @@ extension LuaEngine {
     internal func applySandbox(hasPackagePath: Bool) throws {
         guard let L = L else { return }
 
-        // Remove dangerous functions and harden package system
-        // This multi-step approach ensures:
-        // 1. Dangerous globals are removed
-        // 2. package.loaded entries are cleared so require() can't restore them
-        // 3. package.loadlib is disabled to prevent dynamic library loading
-        // 4. If no packagePath configured, searchers are cleared to prevent disk loading
-        //    If packagePath configured, searchers kept but path cleared (will be set later)
-        let dangerous = """
-            -- Remove dangerous globals
-            os.execute = nil
-            os.exit = nil
-            os.remove = nil
-            os.rename = nil
-            os.tmpname = nil
-            os.getenv = nil
-            os.setlocale = nil
-            io = nil
-            debug = nil
-            loadfile = nil
-            dofile = nil
-            load = nil
-            loadstring = nil
-
-            -- Remove warn (Lua 5.4+): combined with the wired warning handlers a
-            -- sandboxed script could enable warnings then flood stderr. The
-            -- guard makes this a no-op on 5.1-5.3 where warn does not exist.
-            if warn ~= nil then warn = nil end
-
-            -- Clear package.loaded for restricted libraries to prevent require() bypass
-            package.loaded.io = nil
-            package.loaded.debug = nil
-            -- Note: os is partially restricted, leave in loaded but with dangerous funcs removed
-
-            -- Disable dynamic library loading (App Store compliance)
-            package.loadlib = nil
-            package.cpath = ''
-
-            -- Clear package.path (will be set to configured path if packagePath provided)
-            package.path = ''
-        """
-
-        if luaL_dostring(L, dangerous) != LUA_OK {
+        // Remove dangerous globals and harden the package system. A failure must
+        // surface (see the throws doc) rather than leave a "sandboxed" engine
+        // with live dangerous globals.
+        if luaL_dostring(L, sandboxHardeningScript) != LUA_OK {
             throw LuaError.sandboxInstallationFailed(Self.takeError(L))
         }
 
-        // If no packagePath is configured, also remove file-based searchers
-        // This prevents any file loading via require()
-        // If packagePath IS configured, keep searchers so files can be loaded from
-        // the explicitly allowed directory
+        // Without a configured packagePath, also strip the file-based searchers
+        // so require() cannot load from disk at all. With a path set, the
+        // searchers stay (the path is applied later by setPackagePath).
         if !hasPackagePath {
-            let removeSearchers = """
-                -- Clear file-based searchers, keeping only preload searcher
-                -- Lua 5.2+ uses package.searchers, Lua 5.1 uses package.loaders
-                local searchers = package.searchers or package.loaders
-                if searchers then
-                    -- Keep only the preload searcher (index 1), remove file searchers
-                    for i = #searchers, 2, -1 do
-                        searchers[i] = nil
-                    end
-                end
-            """
-            if luaL_dostring(L, removeSearchers) != LUA_OK {
+            if luaL_dostring(L, sandboxRemoveSearchersScript) != LUA_OK {
                 throw LuaError.sandboxInstallationFailed(Self.takeError(L))
             }
         }

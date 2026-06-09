@@ -12,9 +12,12 @@ JSON encoding and decoding with support for nested structures, Unicode, and pret
 
 | Function | Description |
 |----------|-------------|
-| [decode(string)](#decode) | Parse JSON string to Lua value |
+| [decode(string, options?)](#decode) | Parse JSON string to Lua value |
+| [decode_jsonc(string)](#decode_jsonc) | Parse JSONC (JSON with comments) string |
+| [decode_json5(string)](#decode_json5) | Parse JSON5 (relaxed JSON) string |
 | [encode(value, options?)](#encode) | Convert Lua value to JSON string |
-| [null](#null) | Sentinel value for JSON null |
+| [is_null(v)](#is_null) | Test whether a value is the JSON null sentinel |
+| [null](#null) | Sentinel value representing JSON null |
 
 ## Type Mapping
 
@@ -32,10 +35,16 @@ JSON encoding and decoding with support for nested structures, Unicode, and pret
 ## decode
 
 ```
-json.decode(string) -> value
+json.decode(string, options?) -> value
 ```
 
 Parse JSON string to Lua value.
+
+**Parameters:**
+- `string` - JSON string to parse
+- `options` (optional) - Table with decoding options:
+  - `format` (string): `"json"` (default), `"jsonc"`, or `"json5"`
+  - `comments` (boolean): shorthand for `format = "jsonc"` when `true`
 
 ```lua
 local data = json.decode('{"name": "John", "age": 30}')
@@ -49,9 +58,61 @@ print(arr[1])  -- 1
 -- Nested structures
 local complex = json.decode('{"users": [{"id": 1}, {"id": 2}]}')
 print(complex.users[1].id)  -- 1
+
+-- JSONC via options
+local data2 = json.decode('{"x": 1 /* comment */}', {format = "jsonc"})
+local data3 = json.decode('{"x": 1 // line comment\n}', {comments = true})
 ```
 
-**Errors:** Throws on invalid JSON syntax.
+**Errors:** Throws on invalid syntax for the chosen format.
+
+---
+
+## decode_jsonc
+
+```
+json.decode_jsonc(string) -> value
+```
+
+Parse a JSONC string (JSON with `//` line comments and `/* */` block comments).
+Equivalent to `json.decode(string, {format = "jsonc"})`.
+
+```lua
+local data = json.decode_jsonc([[
+{
+    // user record
+    "name": "John",
+    "age": 30  /* current age */
+}
+]])
+print(data.name)  -- "John"
+```
+
+**Errors:** Throws on invalid JSONC syntax.
+
+---
+
+## decode_json5
+
+```
+json.decode_json5(string) -> value
+```
+
+Parse a JSON5 string (relaxed JSON: unquoted keys, trailing commas, single-quoted
+strings, hex literals, `Infinity`, `NaN`, comments).
+
+```lua
+local data = json.decode_json5([[
+{
+    name: 'John',   // unquoted key, single-quoted string
+    age: 0x1E,      // hex literal (30)
+}
+]])
+print(data.name)  -- "John"
+print(data.age)   -- 30
+```
+
+**Errors:** Throws on invalid JSON5 syntax.
 
 ---
 
@@ -112,6 +173,35 @@ The HTTP module honors the same sentinel: a `json.null` value inside a request's
 > are **deprecated** (slated for removal in 2.0) — they were never bridged into
 > the Lua conversion paths. `json.null` (tested with `json.is_null`) is the one
 > canonical JSON-null representation.
+
+---
+
+## is_null
+
+```
+json.is_null(v) -> boolean
+```
+
+Return `true` if `v` is the JSON null sentinel or a value produced by decoding a
+JSON `null`.
+
+Prefer this over `v == json.null`: `json.decode` produces a fresh table instance
+for each decoded null, so identity comparison (`==`) would return `false` for
+decoded nulls. `is_null` checks the internal marker field and verifies it is the
+sole key, so ordinary objects that happen to contain the marker key are not treated
+as null.
+
+```lua
+local data = json.decode('{"a": null, "b": 1}')
+
+-- identity check FAILS for decoded nulls:
+print(data.a == json.null)   -- false (distinct table instances)
+
+-- is_null works correctly:
+print(json.is_null(data.a))  -- true
+print(json.is_null(data.b))  -- false
+print(json.is_null(json.null))  -- true
+```
 
 ---
 

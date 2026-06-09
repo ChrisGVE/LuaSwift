@@ -379,19 +379,25 @@ extension LuaEngine {
             }
         }
 
+        // Lua 5.3's luaL_Buffer reports an allocation failure (e.g. a denial by
+        // the vmMemoryLimit allocator during string.rep) as a *runtime* error
+        // with this exact lauxlib.c message instead of LUA_ERRMEM. Normalize it
+        // so memory exhaustion is .memoryError on every version. This MUST come
+        // before the structured-error stash below: the errfunc stashes every
+        // non-sentinel LUA_ERRRUN, so leaving it after would let the stash
+        // classify a genuine OOM as a plain .runtimeFailure (the failure mode
+        // this normalization exists to prevent). Clear the stash too, so it
+        // cannot bleed into a subsequent call.
+        if code == LUA_ERRRUN && message.contains("not enough memory for buffer allocation") {
+            pendingRuntimeFailure = nil
+            return .memoryError(message)
+        }
+
         // Step 3: Structured error captured by the errfunc handler (#19).
         // Consume and clear the stash so it cannot bleed into a subsequent call.
         if code == LUA_ERRRUN, let failure = pendingRuntimeFailure {
             pendingRuntimeFailure = nil
             return .runtimeFailure(failure)
-        }
-
-        // Lua 5.3's luaL_Buffer reports an allocation failure (e.g. a denial
-        // by the vmMemoryLimit allocator during string.rep) as a *runtime*
-        // error with this exact lauxlib.c message instead of LUA_ERRMEM.
-        // Normalize it so memory exhaustion is .memoryError on every version.
-        if code == LUA_ERRRUN && message.contains("not enough memory for buffer allocation") {
-            return .memoryError(message)
         }
 
         // Step 4: Plain string fallback (pre-#19 behavior, source-compatible).

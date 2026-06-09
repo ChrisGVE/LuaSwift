@@ -144,12 +144,24 @@ extension LuaEngine {
             pushValueOnThread(thread, value)
         }
 
-        // Arm the compositor hook on the coroutine thread so code inside the
-        // coroutine is bounded too (hooks are per-lua_State in 5.4+; each
-        // coroutine thread needs its own hook installation).
+        // Arm the hook on the coroutine thread so code inside the coroutine is
+        // bounded too (hooks are per-lua_State in 5.4+; each coroutine thread
+        // needs its own hook installation).
+        //
+        // When a debug session is active (a handler is installed), arm the FULL
+        // LINE/CALL/RET mask so the debugger steps *into* the coroutine body
+        // (#26) — host-driven resume is no longer silently stepped over. The
+        // coroutine starts in breakpoint mode (stepState = nil); stepping is
+        // re-decided per resume from the handler's commands. With no debug
+        // session the COUNT-only hook is armed exactly as before.
         let previousEngine = setAsCurrentEngine()
         defer { restoreCurrentEngine(previousEngine) }
-        armCompositorHook(on: thread)
+        if debugHandler != nil {
+            stepState = nil
+            armDebugHook(on: thread)
+        } else {
+            armCompositorHook(on: thread)
+        }
 
         // Resume the coroutine
         var nresults: Int32 = 0

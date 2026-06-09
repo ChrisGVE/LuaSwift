@@ -874,4 +874,79 @@ final class DebugTests: XCTestCase {
         // Pre-stepping CALL events (main chunk) are allowed: ≥0.
         _ = callsBeforeStepping  // documented, not asserted
     }
+
+    // MARK: - Coroutine debugging (host-driven resume, #26)
+
+    /// With a debug session active, a coroutine resumed via the host
+    /// `resume(_:with:)` API delivers LINE events from inside its body — the
+    /// debugger steps into the coroutine rather than over it.
+    func testHostResumedCoroutineDeliversLineEvents() throws {
+        let engine = try makeEngine()
+        var lines: [Int] = []
+
+        engine.setDebugHandler { event, _ in
+            if case .line(let n) = event { lines.append(n) }
+            return .continueRun
+        }
+
+        let handle = try engine.createCoroutine(code: """
+            local a = 1
+            local b = 2
+            return a + b
+            """)
+        let result = try engine.resume(handle)
+
+        if case .completed(let values) = result {
+            XCTAssertEqual(values.first?.numberValue, 3.0)
+        } else {
+            XCTFail("Expected completion, got \(result)")
+        }
+        // Body lines must have fired (previously the coroutine was stepped over).
+        XCTAssertEqual(lines, [1, 2, 3],
+            "Host-resumed coroutine must deliver LINE events for its body. Got \(lines).")
+
+        engine.destroy(handle)
+    }
+
+    /// Returning `.stop` from inside a host-resumed coroutine aborts it and
+    /// surfaces `.error(.cancelled)`.
+    func testStopInsideHostResumedCoroutine() throws {
+        let engine = try makeEngine()
+
+        engine.setDebugHandler { event, _ in
+            if case .line(let n) = event, n == 2 { return .stop }
+            return .continueRun
+        }
+
+        let handle = try engine.createCoroutine(code: """
+            local a = 1
+            local b = 2
+            return a + b
+            """)
+        let result = try engine.resume(handle)
+
+        if case .error(let err) = result {
+            guard case .cancelled = err else {
+                return XCTFail("Expected .cancelled, got \(err)")
+            }
+        } else {
+            XCTFail("Expected .error(.cancelled) after .stop, got \(result)")
+        }
+
+        engine.destroy(handle)
+    }
+
+    /// Without a debug session the coroutine resume path is unchanged: no handler,
+    /// no debug events, normal completion.
+    func testCoroutineResumeUnaffectedWithoutDebugSession() throws {
+        let engine = try makeEngine()
+        let handle = try engine.createCoroutine(code: "return 42")
+        let result = try engine.resume(handle)
+        if case .completed(let values) = result {
+            XCTAssertEqual(values.first?.numberValue, 42.0)
+        } else {
+            XCTFail("Expected completion, got \(result)")
+        }
+        engine.destroy(handle)
+    }
 }

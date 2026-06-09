@@ -167,6 +167,17 @@ public enum LuaError: Error, LocalizedError {
     /// of crashing. The debug inspector uses the same cycle-detection model.
     case cyclicTable
 
+    /// An HTTP response exceeded the configured maximum body size and the
+    /// download was cancelled before the whole body was buffered.
+    ///
+    /// The optional `http` module buffers a response body in host memory outside
+    /// the Lua ``LuaEngineConfiguration/vmMemoryLimit``. To stop a sandboxed
+    /// script from driving unbounded host-heap growth, the response size is
+    /// capped (default ``HTTPModule/defaultMaxResponseSizeBytes``, overridable
+    /// per request via the `max_response_size` option). `limit` is the byte cap
+    /// that was exceeded.
+    case responseTooLarge(limit: Int)
+
     /// A numeric Lua table key was not representable as a Swift `Int` and was
     /// therefore rejected during conversion.
     ///
@@ -230,6 +241,8 @@ public enum LuaError: Error, LocalizedError {
             return "Lua runtime error: \(failure.message)"
         case .sandboxInstallationFailed(let message):
             return "Sandbox installation failed: \(message)"
+        case .responseTooLarge(let limit):
+            return "HTTP response exceeded the maximum allowed size of \(limit) bytes"
         case .cyclicTable:
             return "Cyclic Lua table cannot be converted to a LuaValue"
         case .numericKeyOutOfRange(let key):

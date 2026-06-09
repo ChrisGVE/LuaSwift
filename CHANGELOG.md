@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-06-09
+
+### Added
+- **Coroutine debugging for in-Lua resumes** ([#26](https://github.com/ChrisGVE/LuaSwift/issues/26)).
+  A coroutine created and resumed entirely inside Lua via `coroutine.create` /
+  `coroutine.wrap` is now stepped *into* while a debug session is active,
+  completing the host-driven support added in 1.12.0. For the duration of each
+  `runDebug` / `resume(_:with:)` call, `coroutine.create`/`wrap` are transparently
+  routed through a hook-arming shim so each new coroutine thread receives the full
+  debug mask before it runs; the standard `coroutine` library is restored on exit,
+  so non-debug runs are unaffected. In-Lua coroutines now also observe cooperative
+  cancellation and the instruction limit while stepped.
+
+### Fixed
+- **HTTP module engine retain cycle** ([#24](https://github.com/ChrisGVE/LuaSwift/issues/24)).
+  `HTTPModule.install` captured the engine strongly in a callback stored on the
+  engine, forming a cycle that prevented `deinit` and leaked the engine's
+  `URLSession` pair for its whole lifetime. The callback now captures the engine
+  weakly, and a new `deinit` cleanup hook invalidates the engine's sessions
+  deterministically.
+- **Memory-exhaustion classification across Lua versions.** A `luaL_Buffer`
+  allocation failure (e.g. `string.rep` denied by the `vmMemoryLimit` allocator)
+  now surfaces as `LuaError.memoryError` on every Lua version. On 5.3 it was
+  reported as a `LUA_ERRRUN` whose message the structured-error stash shadowed,
+  so it previously surfaced as a plain `.runtimeFailure`.
+- **`LuaEngineConfiguration` memory-limit hardening.** `memoryLimit` /
+  `vmMemoryLimit` are validated non-negative at construction (a negative value was
+  silently treated as unlimited), and `trackAllocation(bytes:)` is now
+  overflow-safe and rejects negative byte counts, so a pathological allocation
+  surfaces as a `memoryError` instead of wrapping past the limit.
+
+### Changed
+- **Thales integration disabled** ([#18](https://github.com/ChrisGVE/LuaSwift/issues/18)).
+  The optional `LUASWIFT_INCLUDE_THALES` flag is now a no-op: the upstream Thales
+  API dropped `puiseuxSeries`/`residue`/`convergenceRadius`, breaking the opt-in
+  build. The Thales code is preserved but compiled out; `SeriesModule` keeps its
+  graceful no-Thales fallbacks. The integration will be re-enabled once the
+  upstream API stabilises.
+- `LuaEngineConfiguration` initializer parameters are now all defaulted, so
+  `LuaEngineConfiguration()` equals `.default` and callers can override only the
+  options they need.
+- Deprecated `register(in:)` / `installModules(in:)` / `compile(_:)` aliases now
+  carry a `renamed:` hint so the compiler offers a rename fix-it.
+
+### Notes
+- Internal readability refactors (deduplicated value-server metamethods and
+  coroutine bridging, split over-budget functions) with no behavior change.
+- Added CI jobs for the `LUASWIFT_INCLUDE_YAMS=0` and `LUASWIFT_INCLUDE_TOMLKIT=1`
+  dependency configurations, and filled audit-identified test-coverage gaps.
+
 ## [1.12.0] - 2026-06-09
 
 ### Added

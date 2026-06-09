@@ -271,14 +271,7 @@ extension LuaEngine {
             throw LuaError.initializationFailed
         }
 
-        // Reset per-run state so a prior cancel/limit abort or structured-error
-        // stash does not persist into this execution.
-        abortReason.store(AbortReason.none, ordering: .releasing)
-        instructionAccumulator = 0
-        pendingRuntimeFailure = nil
-
-        // Clear any previous write error
-        lastWriteError = nil
+        resetPerRunState()
 
         // Load bytecode — mode "b" accepts binary only
         let loadResult = bytecode.withUnsafeBytes { raw -> Int32 in
@@ -304,36 +297,13 @@ extension LuaEngine {
         defer { restoreCurrentEngine(previousEngine) }
         armCompositorHook(on: L)
 
-        // Same handler-placement pattern as run/evaluate: push handler, slide it
-        // below the already-loaded bytecode chunk using lua_insert(L, 1).
-        // Stack after push:   [chunk(1), handler(2)]
-        // Stack after insert: [handler(1), chunk(2)]
-        lua_pushcfunction(L, runtimeErrorHandler)
-        lua_insert(L, 1)
-        let handlerIdx: Int32 = 1
+        // Same handler-placement pattern as run/evaluate (shared helper).
+        let handlerIdx = installErrorHandler(L)
 
-        // Execute, keeping one return value only when the caller wants it
+        // Execute, keeping one return value only when the caller wants it.
         let callResult = lua_pcall(L, 0, returningValue ? 1 : 0, handlerIdx)
-
-        // Remove handler unconditionally.
         lua_remove(L, handlerIdx)
-
-        if callResult != LUA_OK {
-            let message = lua_tostring(L, -1).map { String(cString: $0) } ?? "Unknown error"
-            lua_pop(L, 1)
-
-            #if DEBUG
-            assert(lua_gettop(L) == 0,
-                "Stack not clean after pcall abort in bytecode path: top=\(lua_gettop(L))")
-            #endif
-
-            if let writeError = lastWriteError {
-                lastWriteError = nil
-                throw writeError
-            }
-
-            throw errorFromCode(callResult, message: message)
-        }
+        try throwIfPcallFailed(L, callResult: callResult)
 
         guard returningValue else { return .nil }
 

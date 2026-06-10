@@ -174,4 +174,32 @@ final class InstructionLimitTests: XCTestCase {
         let result = try engine.evaluate("return 6 * 7")
         XCTAssertEqual(result.numberValue, 42)
     }
+
+    // MARK: - Sentinel spoof-resistance (exact-match / abortReason gating)
+
+    /// An untrusted script that raises the private instruction-limit sentinel as
+    /// an ordinary `error(...)` must NOT be classified as
+    /// ``LuaError/instructionLimitExceeded``. Sentinel matching is gated behind
+    /// the out-of-band `abortReason` (set only by the hook on a real limit hit),
+    /// so a script cannot manufacture the limit outcome by echoing the string.
+    func testUserRaisedInstructionSentinelIsNotMisclassified() throws {
+        let engine = try LuaEngine()  // no instruction limit armed → abortReason stays .none
+        XCTAssertThrowsError(try engine.run("error('\(instructionLimitSentinel)')")) { error in
+            if case LuaError.instructionLimitExceeded = error {
+                XCTFail("A user error() echoing the sentinel was misclassified as instructionLimitExceeded")
+            }
+        }
+    }
+
+    /// Same guarantee for the cancellation sentinel: `error('<cancelledSentinel>')`
+    /// must not be classified as ``LuaError/cancelled`` when no cancellation was
+    /// requested.
+    func testUserRaisedCancelSentinelIsNotMisclassified() throws {
+        let engine = try LuaEngine()
+        XCTAssertThrowsError(try engine.run("error('\(cancelledSentinel)')")) { error in
+            if case LuaError.cancelled = error {
+                XCTFail("A user error() echoing the sentinel was misclassified as cancelled")
+            }
+        }
+    }
 }

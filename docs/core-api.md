@@ -181,12 +181,24 @@ Type-safe enum representing Lua values.
 public enum LuaValue {
     case string(String)
     case number(Double)
+    case complex(re: Double, im: Double)        // complex number (re + im·i)
     case bool(Bool)
     case table([String: LuaValue])
     case array([LuaValue])
     case `nil`
+    case luaFunction(Int32)                     // registry-backed, callable + releasable
+    case opaqueReference(LuaRefKind)            // typed, non-re-injectable: .function/.userdata/.thread
 }
 ```
+
+- `complex` — produced when a Lua table carries the complex metatable; carries `re`/`im`.
+- `luaFunction` — a Lua function captured from a callback argument, holding a Lua registry
+  reference. It is **callable** via ``callLuaFunction(ref:args:)`` and **must be released**
+  (see [Function references](#function-references) / `releaseLuaFunction(ref:)`).
+- `opaqueReference` — a typed but non-re-injectable reference (function/userdata/thread) returned
+  by read-only introspection (e.g. ``globalValue(_:)``). It carries no registry handle, so there
+  is nothing to release and it cannot be pushed back into an engine. `LuaRefKind` is one of
+  `.function`, `.userdata`, `.thread`.
 
 ### Accessors
 
@@ -194,14 +206,17 @@ public enum LuaValue {
 let value: LuaValue = .number(42)
 
 // Type-specific (return nil if wrong type)
-value.numberValue   // Optional(42.0)
-value.intValue      // Optional(42)
-value.stringValue   // nil
-value.boolValue     // nil
-value.tableValue    // nil
-value.arrayValue    // nil
+value.numberValue          // Optional(42.0)
+value.intValue             // Optional(42)
+value.stringValue          // nil
+value.boolValue            // nil
+value.tableValue           // nil
+value.arrayValue           // nil
+value.complexValue         // nil — (re, im) tuple when .complex
+value.opaqueReferenceKind  // nil — LuaRefKind when .opaqueReference
 
-// Always available
+// Predicates / always available
+value.isComplex     // false
 value.asString      // "42" - string representation
 value.isTruthy      // true - Lua truthiness (only nil and false are falsy)
 value.isNil         // false

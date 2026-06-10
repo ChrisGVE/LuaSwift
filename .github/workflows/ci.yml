@@ -178,9 +178,10 @@ jobs:
   # Test with TOMLKit enabled (LUASWIFT_INCLUDE_TOMLKIT=1).
   # TOMLKit is OFF by default, so this exercises the opt-in TOML build path
   # that the main matrix never covers.
-  # Note: LUASWIFT_INCLUDE_NUMERICSWIFT and LUASWIFT_INCLUDE_THALES opt-in
-  # builds are currently known-broken (issues #8 and #18) and are intentionally
-  # excluded from this matrix until those issues are resolved.
+  # Note: the LUASWIFT_INCLUDE_THALES opt-in build is currently disabled
+  # (issue #18) and is intentionally excluded from this matrix until the
+  # upstream API stabilises. NumericSwift (#8) builds again as of NumericSwift
+  # 0.2.1 and is exercised in the test-lua-versions matrix above.
   test-tomlkit-on:
     runs-on: macos-latest
     name: "Test: TOMLKIT=1 (with TOML)"

@@ -107,7 +107,8 @@ Expose Swift data to Lua with ``LuaValueServer``:
 
 ```swift
 class GameState: LuaValueServer {
-    var name = "Player"
+    // The namespace under which Lua accesses this server's values (game.*).
+    let namespace = "game"
     var playerHealth = 100
     var playerScore = 0
 
@@ -130,13 +131,13 @@ class GameState: LuaValueServer {
         case "score":
             playerScore = Int(value.numberValue ?? 0)
         default:
-            throw LuaError.valueServerWriteError("Unknown path")
+            throw LuaError.readOnlyAccess(path: "\(namespace).\(path.joined(separator: "."))")
         }
     }
 }
 
 let state = GameState()
-engine.register(server: state, name: "game")
+engine.register(server: state)
 
 try engine.run("""
     game.score = game.score + 100

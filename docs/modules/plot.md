@@ -6,6 +6,8 @@
 
 **Namespace:** `luaswift.plot` | **Global:** `plot`
 
+> ⚠️ **Opt-in, disabled by default.** This module requires the `PlotSwift` package and must be enabled at build time with `LUASWIFT_INCLUDE_PLOTSWIFT=1` (or the `LUASWIFT_PLOTSWIFT` compiler flag). Without it, `require("luaswift.plot")` is unavailable.
+
 A matplotlib/seaborn-compatible plotting library that generates high-quality visualizations using retained-mode vector graphics. Plots can be exported to SVG, PNG, or PDF formats.
 
 The Plot module uses a retained vector graphics architecture where all drawing commands are stored in memory as scale-free vector operations. This enables high-quality rendering at any resolution, export to multiple formats, integration with Swift host applications, and a matplotlib-compatible API for familiar workflow.

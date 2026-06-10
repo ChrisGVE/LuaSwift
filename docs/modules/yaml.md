@@ -6,6 +6,8 @@
 
 **Namespace:** `luaswift.yaml` | **Global:** `yaml`
 
+> ℹ️ **Enabled by default, can be opted out.** This module is powered by the `Yams` package, which is included by default. Builds that set `LUASWIFT_INCLUDE_YAMS=0` exclude it, in which case `require("luaswift.yaml")` is unavailable.
+
 YAML encoding and decoding for Lua tables. Powered by the Yams library, this module enables seamless conversion between Lua data structures and YAML format, including support for multi-document YAML files.
 
 ## Function Reference

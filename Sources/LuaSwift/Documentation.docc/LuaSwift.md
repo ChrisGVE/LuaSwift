@@ -128,6 +128,8 @@ try engine.run("""
 
 - <doc:TypesModule>
 - <doc:MathExprModule>
+- <doc:CompatModule>
+- <doc:SerializeModule>
 - <doc:DebugModule>
 
 ### Structured Errors

@@ -7,6 +7,31 @@
 //
 //  SPDX-License-Identifier: Apache-2.0
 //
+//  Location: Sources/LuaSwift/Modules/ModuleRegistry.swift
+//
+//  Context: Central installer/registry for the Swift-backed Lua modules.
+//  ModuleRegistry.install(in:) drives the whole module set: orderedModuleTypes()
+//  builds the install list from `[any LuaSwiftModule.Type]` under the same
+//  `#if LUASWIFT_*` gates that select the package's optional dependencies
+//  (Package.swift), so a module is present only when its backing dependency was
+//  compiled in. Each module's `install(in:)` registers its Swift callbacks and
+//  runs its Lua setup, which seeds `package.loaded["luaswift.<name>"]` so Lua
+//  `require("luaswift.<name>")` resolves; a trailing extend_stdlib step then
+//  wires the top-level aliases and the `luaswift.extend_stdlib()` helper. Install
+//  order is load-bearing (MathSci → MathExpr → Series) and a small prerequisite
+//  cascade skips a dependent whose prerequisite failed. Failures never abort the
+//  loop: every per-module failure (and synthetic prerequisite skip) is collected
+//  and surfaced once through ModuleInstallError, so one broken module cannot hide
+//  the state of the others; each success is also recorded in
+//  LuaEngine.installedModules for introspection (#21).
+//
+//  Neighbors:
+//    LuaSwiftModule.swift             — the protocol each module adopts (install(in:))
+//    ModuleInstallError.swift         — aggregated failure type install(in:) throws
+//    ModuleRegistry+Deprecated.swift  — older register(in:) entry points
+//    Modules/Swift/*.swift            — the concrete LuaSwiftModule conformers
+//    LuaEngine+Introspection.swift    — installedModules set populated on success
+//
 
 import Foundation
 

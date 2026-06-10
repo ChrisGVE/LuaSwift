@@ -8,6 +8,10 @@ LuaSwift is a lightweight Swift wrapper for embedding Lua in iOS and macOS appli
 
 ## Quick Navigation
 
+| Topic | Description |
+|-------|-------------|
+| [Architecture](architecture.md) | How LuaSwift is structured: the LuaEngine core and its extension files, the vendored C Lua targets and version selection, module install flow, value bridging, resource limits, the sandbox model, and the optional-dependency gates |
+
 ### Core Wrapper
 
 | Topic | Description |
@@ -72,6 +76,13 @@ try StringXModule.install(in: engine)
 ```
 
 ## Architecture
+
+For the full architecture — the `LuaEngine` core and its extension-file
+decomposition, the vendored C Lua targets and version-selection mechanism, the
+module install flow, value bridging, resource limits, the sandbox model, and the
+optional-dependency gates (with diagrams) — see the dedicated
+**[Architecture document](architecture.md)**. The tree below is a quick
+orientation only.
 
 ```
 LuaSwift

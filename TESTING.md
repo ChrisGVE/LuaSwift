@@ -5,7 +5,14 @@ This document explains how to run LuaSwift tests with different configurations.
 ## Quick Start
 
 ```bash
-# Run all tests with defaults (Lua 5.4, all optional dependencies)
+# Run all tests with the default dependency set (Lua 5.4; Yams ON, everything
+# else OFF). Only Yams is enabled by default — the other optional dependencies
+# are opt-in:
+#   LUASWIFT_INCLUDE_YAMS         default 1  (opt-out: set to 0)
+#   LUASWIFT_INCLUDE_TOMLKIT      default 0  (opt-in:  set to 1)
+#   LUASWIFT_INCLUDE_NUMERICSWIFT default 0  (opt-in:  set to 1)
+#   LUASWIFT_INCLUDE_ARRAYSWIFT   default 0  (opt-in:  set to 1)
+#   LUASWIFT_INCLUDE_PLOTSWIFT    default 0  (opt-in:  set to 1)
 swift test
 
 # Run a specific test class
@@ -76,7 +83,12 @@ LUASWIFT_INCLUDE_ARRAYSWIFT=1 \
 LUASWIFT_INCLUDE_PLOTSWIFT=0 \
 swift test
 
-# Test with all dependencies (default)
+# Test with every optional dependency enabled (NOT the default — the bare
+# `swift test` enables only Yams)
+LUASWIFT_INCLUDE_TOMLKIT=1 \
+LUASWIFT_INCLUDE_NUMERICSWIFT=1 \
+LUASWIFT_INCLUDE_ARRAYSWIFT=1 \
+LUASWIFT_INCLUDE_PLOTSWIFT=1 \
 swift test
 ```
 
@@ -106,11 +118,17 @@ See `OptionalDependencyTests.swift` for comprehensive examples.
 
 ## CI Test Matrix
 
-The CI runs two test matrices:
+The CI workflow (`.github/workflows/ci.yml`) runs the test suite across several
+jobs. A `setup-matrix` job first generates the dependency and Lua-version
+matrices from `scripts/test-matrix.json`; the test jobs then fan out from it.
+Every matrix cell runs `swift test --skip Benchmark` — the perf benchmarks run
+only in the dedicated report-only `benchmarks` job (below).
 
-### Dependency Combinations (8 jobs)
+### Dependency Combinations — `test-combinations` (8 jobs)
 
-Tests all permutations of optional dependencies with default Lua 5.4:
+Tests all permutations of the three sibling-checkout optional dependencies with
+the default Lua 5.4 (and the default Yams=ON / TOMLKit=OFF). `8 = 2³` (three
+optional deps):
 
 | Job | NumericSwift | ArraySwift | PlotSwift |
 |-----|--------------|------------|-----------|
@@ -123,9 +141,9 @@ Tests all permutations of optional dependencies with default Lua 5.4:
 | A+P | - | Yes | Yes |
 | N+A+P | Yes | Yes | Yes |
 
-### Lua Versions (5 jobs)
+### Lua Versions — `test-lua-versions` (5 jobs)
 
-Tests all Lua versions with full dependencies (N+A+P):
+Tests all Lua versions with full sibling dependencies (N+A+P):
 
 - Lua 5.1
 - Lua 5.2
@@ -133,7 +151,35 @@ Tests all Lua versions with full dependencies (N+A+P):
 - Lua 5.4
 - Lua 5.5
 
-Total: 13 CI jobs per push/PR.
+### Yams off — `test-yams-off` (1 job)
+
+`LUASWIFT_INCLUDE_YAMS=0`. Yams is the only opt-out dependency (ON by default),
+so this exercises the no-YAML build path that the `test-combinations` matrix
+never covers. Yams is a pure SPM dependency, so no sibling checkout is needed.
+
+### TOMLKit on — `test-tomlkit-on` (1 job)
+
+`LUASWIFT_INCLUDE_TOMLKIT=1`. TOMLKit is OFF by default, so this exercises the
+opt-in TOML build path. Also a pure SPM dependency (no sibling checkout). The
+`LUASWIFT_INCLUDE_THALES` opt-in build is currently disabled (issue #18) and is
+intentionally excluded until the upstream API stabilises.
+
+### Summary gate — `all-tests`
+
+Aggregates `test-combinations`, `test-lua-versions`, `test-yams-off`, and
+`test-tomlkit-on`; it fails the run if any of them failed. This is the job that
+gates a push/PR.
+
+### Benchmarks — `benchmarks` (report-only)
+
+Runs `swift test --filter Benchmark` once on the default Lua version with all
+optional dependencies enabled. It is **report-only**: it uses
+`continue-on-error` and is deliberately NOT in the `all-tests` `needs` list, so
+it surfaces hook/cancellation/debug overhead timings without ever gating the
+build (macOS-runner timing variance makes a hard gate unreliable for now).
+
+Total: 13 matrix jobs (`8 + 5`) plus the `test-yams-off`, `test-tomlkit-on`,
+`setup-matrix`, `all-tests`, and report-only `benchmarks` jobs per push/PR.
 
 ## Writing Version-Conditional Tests
 
@@ -399,3 +445,74 @@ Note: Benchmark tests may take longer. They measure operations like:
 - Many evaluations
 - Large table handling
 - Callback performance
+
+## Maintainer Runbook
+
+Operational notes for keeping the test suite and CI healthy.
+
+### Triaging flaky tests
+
+The suite is designed to be hermetic — there are no tests that depend on the
+network or on real filesystem state.
+
+- **HTTP tests are in-process.** `HTTPModuleTests.swift` runs against
+  `MockHTTPServer.swift`, an in-process HTTP server bound to `127.0.0.1` on an
+  ephemeral port — no external network and no live endpoint. A failure here is
+  a real regression, not flakiness. To debug one:
+  - Run the single test in isolation, e.g.
+    `swift test --filter HTTPModuleTests/<testName> 2>&1`.
+  - The mock server logs the requests it received and the canned responses it
+    returned; inspect that exchange to see whether the failure is on the
+    request side (module built the wrong request) or the response side (module
+    mis-parsed a well-formed response).
+  - If a test intermittently fails to bind, suspect a port/teardown race in the
+    mock server lifecycle (server not fully stopped between tests) rather than
+    the HTTP module itself.
+- **General flakiness.** Filesystem scenarios must always be mocked, never run
+  against the real filesystem; if a test touches the filesystem, fix the test
+  to mock it rather than retrying. Reproduce locally with the exact
+  `LUASWIFT_LUA_VERSION` and `LUASWIFT_INCLUDE_*` flags from the failing CI cell
+  (the job name encodes them) so the build configuration matches.
+
+### Benchmark regressions
+
+The `benchmarks` CI job is **intentionally report-only** (`continue-on-error`,
+and not part of the `all-tests` gate) because macOS-runner timing variance makes
+a hard pass/fail threshold unreliable. So a benchmark "regression" never fails
+CI on its own.
+
+- Treat the benchmark numbers as a trend, not a gate. A single slow run on a
+  shared CI runner is usually noise.
+- To investigate a suspected real regression, run the benchmarks locally on a
+  quiescent machine for a stable baseline:
+  `swift test --filter Benchmark` (enable the relevant `LUASWIFT_INCLUDE_*`
+  flags so the dependency-gated benchmarks run too).
+- If and when a stable baseline is established, the job can be tightened into a
+  hard gate (see the comment on the `benchmarks` job in `ci.yml`).
+
+### When the automated Lua-source-update PR fails
+
+The `lua-version-check` workflow (`.github/workflows/lua-version-check.yml`)
+runs weekly: it checks `lua.org/ftp` for new releases in each 5.x series, and if
+any are found it downloads the new sources into the matching `CLua*` directory,
+updates the version comments/tables, runs the suite with Lua 5.4 and 5.5, and
+opens a PR (branch `lua-version-update`, labels `lua-update`/`automated-pr`).
+
+If that workflow fails or the PR is red:
+
+- **Tests fail on the new sources.** The new Lua release likely changed an API
+  or behaviour. Check the upstream Lua release notes for the affected series,
+  reconcile the wrapper/module code, and update or add the affected tests —
+  fix the root cause, do not skip the test. Re-run the failing version locally
+  with `LUASWIFT_LUA_VERSION=<code> swift test`.
+- **The download/copy step fails.** Confirm the tarball exists at
+  `https://www.lua.org/ftp/lua-<version>.tar.gz` and that the `BUNDLED` map and
+  the `SERIES → TARGET_DIR` case in the workflow still cover the series.
+- **The root `LICENSE` was touched.** The workflow guards this explicitly (only
+  `CLua*/LICENSE` files are managed, never the repo-root `LICENSE`, which
+  GitHub uses for license detection). If the verify step reports a change, it
+  restores the file; ensure the restore actually ran before merging.
+- **Recovery.** The update is mechanical and reproducible — you can reproduce it
+  by hand by following the workflow steps for the affected `CLua*` directory, or
+  re-trigger the workflow via `workflow_dispatch` once the underlying issue is
+  fixed.

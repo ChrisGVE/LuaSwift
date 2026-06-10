@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Remediation of an independent code audit (2026-06-10 Round 2). All five findings
+were documentation drift — no code defect. Round 1's code/security fixes were
+re-confirmed intact.
+
+### Fixed
+- **Install snippets pinned to the current release.** The SwiftPM dependency
+  examples in `README.md` (`from: "1.4.0"`) and the DocC *Getting Started*
+  article (`from: "1.3.0"`) now use `from: "1.12.3"`, so new consumers pick up
+  the audited cancellation, sandbox, memory-limit, and documentation fixes
+  instead of a pre-remediation baseline.
+- **Configuration reference corrected (`docs/index.md`).** The reference wrongly
+  claimed only `vmMemoryLimit` carried an initializer default; all five
+  `LuaEngineConfiguration.init` parameters default. The sample signature now
+  shows every default and adds the `cooperativeCancellation` option.
+- **Testing guide aligned to current CI topology (`TESTING.md`).** Replaced the
+  stale `test-yams-off` / `test-tomlkit-on` job descriptions with the unified
+  data-driven `test-toggles` job, documented the required `docs` (DocC) gate,
+  corrected the `all-tests` dependency list, and fixed the quick-test
+  description (the `--quick` script enables all three sibling-clone optional
+  dependencies, not the default dependency set).
+
 ## [1.12.3] - 2026-06-10
 
 ### Added

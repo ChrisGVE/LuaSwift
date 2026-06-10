@@ -151,24 +151,36 @@ Tests all Lua versions with full sibling dependencies (N+A+P):
 - Lua 5.4
 - Lua 5.5
 
-### Yams off — `test-yams-off` (1 job)
+### Toggle dependencies — `test-toggles` (2 jobs)
 
-`LUASWIFT_INCLUDE_YAMS=0`. Yams is the only opt-out dependency (ON by default),
-so this exercises the no-YAML build path that the `test-combinations` matrix
-never covers. Yams is a pure SPM dependency, so no sibling checkout is needed.
+A single data-driven job that exercises the pure-SwiftPM toggle dependencies
+defined under `toggle_dependencies` in `scripts/test-matrix.json`. Each entry
+flips one dependency away from its default value and runs once:
 
-### TOMLKit on — `test-tomlkit-on` (1 job)
+- `LUASWIFT_INCLUDE_YAMS=0` — Yams is the only opt-out dependency (ON by
+  default), so this covers the no-YAML build path the `test-combinations`
+  matrix never reaches.
+- `LUASWIFT_INCLUDE_TOMLKIT=1` — TOMLKit is OFF by default, so this covers the
+  opt-in TOML build path.
 
-`LUASWIFT_INCLUDE_TOMLKIT=1`. TOMLKit is OFF by default, so this exercises the
-opt-in TOML build path. Also a pure SPM dependency (no sibling checkout). The
+Both are pure SPM dependencies (no sibling checkout). The
 `LUASWIFT_INCLUDE_THALES` opt-in build is currently disabled (issue #18) and is
 intentionally excluded until the upstream API stabilises.
 
+### Documentation — `docs` (required)
+
+Runs `swift package generate-documentation` for the `LuaSwift` target so broken
+article links or unresolved symbol references fail CI instead of slipping into
+the published docs. A single default-config build suffices — the public API
+surface is identical across Lua versions (the version is a build-time C-source
+swap), and optional dependencies only add symbols. This is a required gate,
+wired into `all-tests`.
+
 ### Summary gate — `all-tests`
 
-Aggregates `test-combinations`, `test-lua-versions`, `test-yams-off`, and
-`test-tomlkit-on`; it fails the run if any of them failed. This is the job that
-gates a push/PR.
+Aggregates `test-combinations`, `test-lua-versions`, `test-toggles`, and
+`docs`; it fails the run if any of them failed. This is the job that gates a
+push/PR.
 
 ### Benchmarks — `benchmarks` (report-only)
 
@@ -178,7 +190,7 @@ optional dependencies enabled. It is **report-only**: it uses
 it surfaces hook/cancellation/debug overhead timings without ever gating the
 build (macOS-runner timing variance makes a hard gate unreliable for now).
 
-Total: 13 matrix jobs (`8 + 5`) plus the `test-yams-off`, `test-tomlkit-on`,
+Total: 13 matrix jobs (`8 + 5`) plus the `test-toggles` (×2), `docs`,
 `setup-matrix`, `all-tests`, and report-only `benchmarks` jobs per push/PR.
 
 ## Writing Version-Conditional Tests
@@ -313,7 +325,10 @@ brew install jq
 
 ### Quick Test
 
-Run a quick test with default configuration (Lua 5.4, all dependencies):
+Run a quick test on the default Lua version (5.4) with all three
+sibling-clone optional dependencies enabled (NumericSwift, ArraySwift,
+PlotSwift). The pure-SwiftPM toggle dependencies stay at their `Package.swift`
+defaults (Yams ON, TOMLKit OFF):
 
 ```bash
 ./scripts/run-all-tests.sh --quick

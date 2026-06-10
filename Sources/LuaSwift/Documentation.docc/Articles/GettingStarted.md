@@ -14,7 +14,7 @@ Add LuaSwift to your `Package.swift` dependencies:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ChrisGVE/LuaSwift.git", from: "1.3.0")
+    .package(url: "https://github.com/ChrisGVE/LuaSwift.git", from: "1.12.3")
 ]
 ```
 

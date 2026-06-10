@@ -15,6 +15,7 @@ jobs:
     outputs:
       dep-matrix: ${{ steps.generate.outputs.dep-matrix }}
       lua-matrix: ${{ steps.generate.outputs.lua-matrix }}
+      toggle-matrix: ${{ steps.generate.outputs.toggle-matrix }}
       dependencies: ${{ steps.generate.outputs.dependencies }}
     steps:
       - uses: actions/checkout@v4
@@ -51,11 +52,22 @@ jobs:
           # Generate Lua versions matrix
           LUA_MATRIX=$(jq -c '[.lua_versions[] | {"lua-version": .code, "name": .name}]' "$CONFIG_FILE")
 
+          # Generate the toggle matrix from .toggle_dependencies. These are pure
+          # SwiftPM deps (no sibling clone): each is exercised once at its
+          # non-default `test_value`, covering the path the combinatorial matrix
+          # above never reaches (e.g. Yams default-ON -> build with it OFF).
+          TOGGLE_MATRIX=$(jq -c '[.toggle_dependencies[] | {
+            name: ("\(.env_var | sub("LUASWIFT_INCLUDE_"; ""))=\(.test_value) (\(.name))"),
+            env_var: .env_var,
+            value: .test_value
+          }]' "$CONFIG_FILE")
+
           # Extract dependency info for clone steps
           DEPS=$(jq -c '.optional_dependencies | map({name: .name, repo: .repo, env_var: .env_var})' "$CONFIG_FILE")
 
           echo "dep-matrix=$DEP_MATRIX" >> $GITHUB_OUTPUT
           echo "lua-matrix=$LUA_MATRIX" >> $GITHUB_OUTPUT
+          echo "toggle-matrix=$TOGGLE_MATRIX" >> $GITHUB_OUTPUT
           echo "dependencies=$DEPS" >> $GITHUB_OUTPUT
 
           # Debug output
@@ -63,6 +75,8 @@ jobs:
           echo "$DEP_MATRIX" | jq .
           echo "Lua version matrix:"
           echo "$LUA_MATRIX" | jq .
+          echo "Toggle matrix:"
+          echo "$TOGGLE_MATRIX" | jq .
 
   # Test all dependency combinations with default Lua version
   test-combinations:
@@ -152,59 +166,77 @@ jobs:
         # dedicated `benchmarks` job below, not in every matrix cell.
         run: swift test --skip Benchmark
 
-  # Test with Yams excluded (LUASWIFT_INCLUDE_YAMS=0).
-  # Yams is ON by default (the only opt-out dep), so this exercises the
-  # "no-YAML" build path that the main matrix never covers.
-  # YAMS and TOMLKit are pure SPM dependencies — no sibling checkout needed.
-  test-yams-off:
-    runs-on: macos-latest
-    name: "Test: YAMS=0 (no YAML)"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-
-      - name: Build without Yams
-        env:
-          LUASWIFT_INCLUDE_YAMS: "0"
-        run: swift build
-
-      - name: Run tests without Yams
-        env:
-          LUASWIFT_INCLUDE_YAMS: "0"
-        run: swift test --skip Benchmark
-
-  # Test with TOMLKit enabled (LUASWIFT_INCLUDE_TOMLKIT=1).
-  # TOMLKit is OFF by default, so this exercises the opt-in TOML build path
-  # that the main matrix never covers.
+  # Exercise the pure-SwiftPM toggle dependencies (Yams, TOMLKit) defined in
+  # scripts/test-matrix.json under `toggle_dependencies`. Each entry flips one
+  # dependency away from its default value (Yams default-ON -> build with it
+  # OFF, the "no-YAML" path; TOMLKit default-OFF -> build with it ON, the TOML
+  # path) — paths the combinatorial `test-combinations` matrix never reaches.
+  # These are pure SPM deps fetched from a registry, so no sibling checkout is
+  # needed (unlike the ChrisGVE clone dependencies).
+  #
   # Note: the LUASWIFT_INCLUDE_THALES opt-in build is currently disabled
-  # (issue #18) and is intentionally excluded from this matrix until the
-  # upstream API stabilises. NumericSwift (#8) builds again as of NumericSwift
-  # 0.2.1 and is exercised in the test-lua-versions matrix above.
-  test-tomlkit-on:
+  # (issue #18) and is intentionally excluded until the upstream API stabilises.
+  # NumericSwift (#8) builds again as of NumericSwift 0.2.1 and is exercised in
+  # the test-lua-versions matrix above.
+  test-toggles:
     runs-on: macos-latest
-    name: "Test: TOMLKIT=1 (with TOML)"
+    needs: setup-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup-matrix.outputs.toggle-matrix) }}
+
+    name: "Test: ${{ matrix.name }}"
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
 
-      - name: Build with TOMLKit
+      - name: Build with ${{ matrix.name }}
         env:
-          LUASWIFT_INCLUDE_TOMLKIT: "1"
-        run: swift build
+          # The matrix supplies the env var name and the non-default value to
+          # set; export it dynamically so one job body serves every toggle.
+          TOGGLE_ENV_VAR: ${{ matrix.env_var }}
+          TOGGLE_VALUE: ${{ matrix.value }}
+        run: |
+          export "$TOGGLE_ENV_VAR=$TOGGLE_VALUE"
+          swift build
 
-      - name: Run tests with TOMLKit
+      - name: Run tests with ${{ matrix.name }}
         env:
-          LUASWIFT_INCLUDE_TOMLKIT: "1"
-        run: swift test --skip Benchmark
+          TOGGLE_ENV_VAR: ${{ matrix.env_var }}
+          TOGGLE_VALUE: ${{ matrix.value }}
+        run: |
+          export "$TOGGLE_ENV_VAR=$TOGGLE_VALUE"
+          swift test --skip Benchmark
+
+  # Build the DocC documentation so broken article links or stale symbol
+  # references fail CI instead of slipping through to the published docs.
+  # A single default-config build is enough: the public API surface is the
+  # same across Lua versions (the version is a build-time C-source swap, not
+  # an API change), and optional dependencies only ADD symbols, so the default
+  # build covers every documented core symbol. This is a required gate — it is
+  # wired into `all-tests` below.
+  docs:
+    runs-on: macos-latest
+    name: "Docs: DocC build"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+
+      - name: Generate DocC documentation
+        # swift-docc-plugin is a package dependency (see Package.swift); this
+        # builds the documentation archive for the LuaSwift target and fails on
+        # broken links or unresolved symbol references.
+        run: swift package --allow-writing-to-directory ./docs-build generate-documentation --target LuaSwift --output-path ./docs-build
 
   # Summary job that depends on all test combinations
   all-tests:
     runs-on: ubuntu-latest
-    needs: [test-combinations, test-lua-versions, test-yams-off, test-tomlkit-on]
+    needs: [test-combinations, test-lua-versions, test-toggles, docs]
     if: always()
     steps:
       - name: Check test results
@@ -217,21 +249,33 @@ jobs:
             echo "One or more Lua version tests failed"
             exit 1
           fi
-          if [ "${{ needs.test-yams-off.result }}" != "success" ]; then
-            echo "Test without Yams (YAMS=0) failed"
+          if [ "${{ needs.test-toggles.result }}" != "success" ]; then
+            echo "One or more toggle-dependency tests (e.g. YAMS=0, TOMLKIT=1) failed"
             exit 1
           fi
-          if [ "${{ needs.test-tomlkit-on.result }}" != "success" ]; then
-            echo "Test with TOMLKit (TOMLKIT=1) failed"
+          if [ "${{ needs.docs.result }}" != "success" ]; then
+            echo "DocC documentation build failed"
             exit 1
           fi
           echo "All dependency combinations and Lua versions passed!"
 
-  # Report-only performance benchmarks. NOT in `all-tests` needs and runs with
-  # continue-on-error, so it surfaces hook/cancellation/debug overhead timings
-  # without ever gating the build. Runs once on the default Lua version with all
-  # optional dependencies enabled (so the dependency-gated module benchmarks run
-  # too). Tighten into a hard gate later if a stable baseline is established.
+  # Report-only performance benchmarks — DELIBERATELY NOT a required gate.
+  #
+  # Why report-only (and not in `all-tests` needs): macOS GitHub-hosted runners
+  # have high, unpredictable timing variance — they are shared VMs with no CPU
+  # pinning, variable neighbours, and thermal/scheduling noise. Any hard wall-
+  # clock threshold would flake constantly (fail on a slow run, pass on a fast
+  # one) for reasons unrelated to the code under review. So this job runs with
+  # continue-on-error and is excluded from `all-tests`: it surfaces hook /
+  # cancellation / debug-overhead timings as a trend you read, never a pass/fail
+  # the build depends on. Reintroduce a gate only against a stable, statistically
+  # characterised baseline (e.g. a benchmark service with regression detection),
+  # not a bare threshold here.
+  #
+  # Runs once on the default Lua version with all optional dependencies enabled
+  # so the dependency-gated module benchmarks run too. The output is captured to
+  # a file and uploaded as an artifact so each run leaves a readable baseline
+  # summary you can compare across runs.
   benchmarks:
     runs-on: macos-latest
     steps:
@@ -252,4 +296,27 @@ jobs:
           LUASWIFT_INCLUDE_NUMERICSWIFT: "1"
           LUASWIFT_INCLUDE_ARRAYSWIFT: "1"
           LUASWIFT_INCLUDE_PLOTSWIFT: "1"
-        run: swift test --filter Benchmark
+        # Tee the output to a file so it is both visible in the live log and
+        # captured for the uploaded artifact. `pipefail` keeps the swift exit
+        # code (not tee's) so continue-on-error reflects the real result.
+        run: |
+          set -o pipefail
+          swift test --filter Benchmark 2>&1 | tee benchmark-results.txt
+
+      - name: Summarise benchmark results
+        if: always()
+        # Echo the captured results clearly into the job summary so the baseline
+        # is readable directly from the run page without downloading anything.
+        run: |
+          echo "## Benchmark results (report-only)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat benchmark-results.txt >> "$GITHUB_STEP_SUMMARY" || echo "No benchmark output captured." >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results.txt
+          if-no-files-found: warn

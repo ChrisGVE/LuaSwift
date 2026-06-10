@@ -7,10 +7,13 @@
 //  SPDX-License-Identifier: Apache-2.0
 //
 //  Pins the runtime cost of LuaSwift's compositor hook on the VM hot path:
-//  the always-on COUNT hook (cancellation + instruction-limit accounting,
-//  including the per-fire `currentEngine` TLS lookup) and the additional
-//  LINE/CALL/RET dispatch armed by `runDebug` / a host-resumed coroutine
-//  during a debug session.
+//  the COUNT hook (cancellation + instruction-limit accounting, including the
+//  per-fire `currentEngine` TLS lookup) and the additional LINE/CALL/RET
+//  dispatch armed by `runDebug` / a host-resumed coroutine during a debug
+//  session. The COUNT hook is armed by default (cooperative cancellation on);
+//  an engine with cooperativeCancellation == false and no instruction limit
+//  skips it entirely (issue #30) — that opt-out path has no hook overhead and
+//  so is not benchmarked here.
 //
 //  These are XCTest `measure` benchmarks: they record wall-clock timings and
 //  never fail (no performance baseline is set), so they are report-only and
@@ -64,7 +67,7 @@ final class HookOverheadBenchmarkTests: XCTestCase {
     // MARK: - Baseline: COUNT hook only (plain run)
 
     /// Plain `run` arms only `LUA_MASKCOUNT` (cancellation + instruction-limit
-    /// accounting). This is the always-on hot-path cost, including the
+    /// accounting). This is the default hot-path cost, including the
     /// `currentEngine` TLS lookup performed on every COUNT fire.
     func testBaseline_plainRun_countHookOnly() throws {
         let engine = try makeEngine()

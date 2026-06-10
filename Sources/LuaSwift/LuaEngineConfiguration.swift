@@ -124,6 +124,32 @@ public struct LuaEngineConfiguration {
     /// exactly as before this option existed)
     public var vmMemoryLimit: Int
 
+    /// Whether the periodic cooperative-cancellation hook is armed when no
+    /// instruction limit is set.
+    ///
+    /// LuaSwift interrupts running Lua by installing a periodic VM count hook
+    /// (every ``LuaEngine/hookInterval`` instructions). That hook serves two
+    /// purposes: enforcing ``LuaEngine/setInstructionLimit(_:)`` and honoring
+    /// ``LuaEngine/requestCancellation()``. When an instruction limit is set the
+    /// hook is always armed. This flag controls only the **no-limit** path:
+    ///
+    /// - `true` (default): the hook is armed on every run even without a limit,
+    ///   so ``LuaEngine/requestCancellation()`` can interrupt a tight Lua loop.
+    ///   This is the behavior LuaSwift has always had.
+    /// - `false`: when no instruction limit is set, the hook is **not** armed.
+    ///   ``LuaEngine/requestCancellation()`` then cannot interrupt a running
+    ///   script, and no CPU/instruction bound applies. In exchange,
+    ///   instruction-heavy runs avoid the per-`hookInterval` callback overhead
+    ///   (~2× throughput on pure-Lua compute workloads; see issue #30).
+    ///
+    /// Set this to `false` only for engines that run trusted, bounded workloads
+    /// and never call ``LuaEngine/requestCancellation()`` — e.g. a synchronous
+    /// lint/validation pass. Setting an instruction limit re-arms the hook
+    /// regardless of this flag.
+    ///
+    /// Default: `true` (preserves cancellation on the no-limit path)
+    public var cooperativeCancellation: Bool
+
     /// Default configuration with sandboxing enabled.
     ///
     /// This is the recommended configuration for most use cases.
@@ -134,7 +160,8 @@ public struct LuaEngineConfiguration {
         sandboxed: true,
         packagePath: nil,
         memoryLimit: 0,
-        vmMemoryLimit: 0
+        vmMemoryLimit: 0,
+        cooperativeCancellation: true
     )
 
     /// Configuration with no restrictions (use with caution).
@@ -149,7 +176,8 @@ public struct LuaEngineConfiguration {
         sandboxed: false,
         packagePath: nil,
         memoryLimit: 0,
-        vmMemoryLimit: 0
+        vmMemoryLimit: 0,
+        cooperativeCancellation: true
     )
 
     /// Creates a new engine configuration.
@@ -176,11 +204,15 @@ public struct LuaEngineConfiguration {
     ///   - vmMemoryLimit: Ceiling in bytes on total Lua VM allocation,
     ///     enforced by a custom allocator (0 = disabled). Must be non-negative.
     ///     See ``vmMemoryLimit``. Default `0`.
+    ///   - cooperativeCancellation: Whether to arm the periodic cancellation
+    ///     hook when no instruction limit is set. See ``cooperativeCancellation``.
+    ///     Default `true`.
     public init(
         sandboxed: Bool = true,
         packagePath: String? = nil,
         memoryLimit: Int = 0,
-        vmMemoryLimit: Int = 0
+        vmMemoryLimit: Int = 0,
+        cooperativeCancellation: Bool = true
     ) {
         precondition(memoryLimit >= 0,
                      "LuaEngineConfiguration.memoryLimit must be non-negative (0 = unlimited); got \(memoryLimit)")
@@ -190,5 +222,6 @@ public struct LuaEngineConfiguration {
         self.packagePath = packagePath
         self.memoryLimit = memoryLimit
         self.vmMemoryLimit = vmMemoryLimit
+        self.cooperativeCancellation = cooperativeCancellation
     }
 }

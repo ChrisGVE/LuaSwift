@@ -158,6 +158,7 @@ Works on Lua 5.1 through 5.5.
 | `packagePath` | `String?` | `nil` | Custom path for `require()` to find Lua modules |
 | `memoryLimit` | `Int` | `0` | Memory limit in bytes (`0` = unlimited) |
 | `vmMemoryLimit` | `Int` | `0` | Ceiling in bytes on total Lua VM allocation enforced by a custom allocator; `0` = disabled. Complements `memoryLimit`, which bounds only Swift-backed module buffers. |
+| `cooperativeCancellation` | `Bool` | `true` | Arm the periodic cancellation hook when no instruction limit is set. Set `false` for trusted, bounded workloads that never call `requestCancellation()` to recover ~2× throughput on instruction-heavy runs (a live instruction limit re-arms the hook regardless). See [#30](https://github.com/ChrisGVE/LuaSwift/issues/30). |
 
 > **Note:** `setInstructionLimit` is a CPU-bound control only. It does **not** interrupt a single VM instruction that calls a C function (e.g. `string.rep('A', 1e9)`), which can allocate unbounded memory before returning. Pair it with `vmMemoryLimit` to also bound Lua VM memory. See the [Resource limits](../README.md#configuration) summary in the README.
 
@@ -329,6 +330,11 @@ after both `.cancelled` and `.instructionLimitExceeded` before running again.
 
 Instruction limits fire within `[limit, limit + hookInterval)` instructions due
 to hook granularity — not exactly at `limit`.
+
+> **Note:** `requestCancellation()` only works while the periodic hook is armed.
+> An engine created with `cooperativeCancellation: false` and no instruction
+> limit does not arm it, so cancellation is a no-op for that engine — set an
+> instruction limit (which re-arms the hook) if you need it. See [#30](https://github.com/ChrisGVE/LuaSwift/issues/30).
 
 ## Debug Hook API
 

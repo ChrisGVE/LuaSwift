@@ -49,6 +49,13 @@ extension LuaEngine {
     ///
     /// **No-op if idle:** Setting the flag while no run is active has no effect
     /// (the flag will be cleared by the next ``resetCancellation()`` call).
+    ///
+    /// **Requires the cancellation hook.** The flag is only observed while the
+    /// periodic count hook is armed. An engine created with
+    /// ``LuaEngineConfiguration/cooperativeCancellation`` set to `false` and no
+    /// instruction limit does **not** arm that hook, so this call cannot
+    /// interrupt its runs (issue #30). Setting an instruction limit re-arms the
+    /// hook and restores cancellation.
     public func requestCancellation() {
         cancellationRequested.store(true, ordering: .releasing)
     }

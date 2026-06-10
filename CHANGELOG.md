@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`LuaEngineConfiguration.cooperativeCancellation`** (default `true`). When set
+  to `false` and no instruction limit is configured, the engine no longer arms
+  the periodic VM count hook, recovering ~2× throughput on instruction-heavy
+  pure-Lua workloads. The trade-off: `requestCancellation()` cannot interrupt
+  such an engine's runs and no CPU bound applies. Setting an instruction limit
+  re-arms the hook regardless of this flag. Default preserves prior behavior.
+  ([#30](https://github.com/ChrisGVE/LuaSwift/issues/30))
+
+### Fixed
+- **Count hook no longer armed unconditionally (#30).** Previously the
+  cooperative-cancellation count hook was installed on every run even when
+  neither an instruction limit nor cancellation was in use, firing every 10 000
+  VM instructions for no benefit — a ~2× regression on instruction-heavy runs
+  versus pre-cancellation versions. The hook is now armed only when an
+  instruction limit is set or `cooperativeCancellation` is `true` (the default).
+
 ## [1.12.2] - 2026-06-10
 
 Remediation of an independent code audit (2026-06-09 Round 1). All 28 findings

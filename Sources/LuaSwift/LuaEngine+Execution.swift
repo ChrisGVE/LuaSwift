@@ -88,6 +88,11 @@ extension LuaEngine {
     /// cancellation flag first, then the instruction accumulator against the limit.
     /// Using `min` prevents overshooting a limit that is smaller than `hookInterval`.
     ///
+    /// When no instruction limit is set **and**
+    /// ``LuaEngineConfiguration/cooperativeCancellation`` is `false`, the hook is
+    /// not armed at all (and any hook a prior run left on a reused state is
+    /// cleared): nothing would consume its fires, so it is pure overhead (#30).
+    ///
     /// Must be called at the start of every run entry point so cancellation and
     /// the instruction limit apply to source execution, bytecode execution,
     /// stored-function calls, and coroutine resumes alike.
@@ -98,6 +103,16 @@ extension LuaEngine {
     ///
     /// internal: shared with +Bytecode, +FunctionCalls, +Coroutines
     internal func armCompositorHook(on state: OpaquePointer) {
+        // The periodic COUNT hook only earns its per-fire cost when something
+        // consumes its fires: an instruction limit, or cooperative cancellation.
+        // When neither is active, arming it is pure overhead (~2x throughput on
+        // instruction-heavy runs, issue #30), so skip it — and clear any hook a
+        // prior run on this reused state armed, so a stale callback cannot fire.
+        guard configuration.cooperativeCancellation || instructionLimit > 0 else {
+            armedHookCount = 0
+            lua_sethook(state, nil, 0, 0)
+            return
+        }
         // Arm count: use min(hookInterval, limit) when a limit is active so the
         // first fire cannot overshoot a limit smaller than hookInterval.
         // Store the armed count so the hook can accumulate exactly that many

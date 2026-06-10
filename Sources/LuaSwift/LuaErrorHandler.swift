@@ -250,7 +250,8 @@ private func extractRawMessage(_ L: OpaquePointer) -> String {
 
 /// Scan the Lua stack upward from level 1 to find the source line of the error.
 ///
-/// **Error-origin rules (PRD §F2):**
+/// **Error-origin rules** — which stack frame's line is attributed to an
+/// error, by error kind:
 ///
 /// - **VM-internal error** (`nil + 1`, type mismatch, etc.): level 1 is the
 ///   Lua frame where the error occurred (`what == "Lua"`). The line is read
@@ -264,7 +265,7 @@ private func extractRawMessage(_ L: OpaquePointer) -> String {
 /// - **Error from a Swift callback** (C trampoline raises `lua_error` after
 ///   a Swift `throw`): level 1 is the C trampoline (`what == "C"`, but
 ///   `name` is NOT "error"). The Lua call-site is at level 2 but it is the
-///   CALLER's line, not the error origin — per PRD §F2 the line must be
+///   CALLER's line, not the error origin — so the reported line must be
 ///   `nil` for Swift callback errors. We return nil in this case.
 ///
 /// - Returns: `(line, shortSrc)` — `line` is nil when no Lua source line
@@ -315,8 +316,8 @@ private func extractErrorLocation(_ L: OpaquePointer) -> (Int?, String) {
     }
 
     // Level 1 is a C frame that is NOT the error() builtin — this is a Swift
-    // callback trampoline or another C function. Per PRD §F2, Swift callback
-    // errors must yield line == nil (the error origin has no Lua source line).
+    // callback trampoline or another C function. Swift callback errors must
+    // yield line == nil (the error origin has no Lua source line).
     return (nil, "")
 }
 

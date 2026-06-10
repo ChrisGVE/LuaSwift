@@ -9,7 +9,7 @@
 //
 //  Location: Sources/LuaSwift/LuaEngine+Introspection.swift
 //
-//  Context: Read-only engine introspection API (F4 / #21). Exposes the
+//  Context: Read-only engine introspection API (#21). Exposes the
 //  engine's registered value servers, registered Swift callbacks, installed
 //  modules, and raw global variables for inspection by tooling such as
 //  MoonSwift's Mock Environment navigator.
@@ -223,9 +223,9 @@ private func opaqueKind(forLuaType type: Int32) -> LuaRefKind? {
 /// raw `lua_next` — `__pairs`, `__index`, and `__len` are never invoked.
 ///
 /// Nested tables are materialised recursively through `rawValueFromStack`,
-/// which applies the same raw guarantee at every depth. This satisfies
-/// PRD §F4 acceptance criterion: "a **nested** table with a side-effecting
-/// `__pairs` is enumerated WITHOUT invoking the metamethod."
+/// which applies the same raw guarantee at every depth. This upholds the
+/// introspection contract: a **nested** table with a side-effecting
+/// `__pairs` is enumerated WITHOUT invoking the metamethod.
 private func rawTableFromStack(
     _ L: OpaquePointer,
     at index: Int32,

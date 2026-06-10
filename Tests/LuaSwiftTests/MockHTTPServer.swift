@@ -133,6 +133,13 @@ final class MockHTTPServer {
             return
         }
 
+        // /bytes/{n} — respond with exactly n bytes of body (size-cap tests).
+        if components.count == 2, components[0] == "bytes", let n = Int(components[1]) {
+            let body = Data(repeating: UInt8(ascii: "x"), count: max(0, n))
+            send(HTTPResponse(status: 200, body: body), method: request.method, on: connection)
+            return
+        }
+
         // /delay/{n} — respond after n seconds (tests use this to force a timeout).
         if components.count == 2, components[0] == "delay", let n = Double(components[1]) {
             let body = self.jsonBody(["url": request.absoluteURL(base: baseURL)])

@@ -51,11 +51,16 @@ The compositor hook fires **on the VM thread** (which holds the engine's
 5. Sets `isPaused = false`.
 6. Processes the returned `LuaDebugCommand`.
 
-### Why synchronous (divergence from PRD literal wording)
+### Why synchronous (divergence from the originally specified pause model)
 
-The PRD §F5 Round-2 detail described releasing the lock before blocking on a
-semaphore. LuaSwift implements the same safety contract *without* releasing
-the lock:
+The debug-hook API was originally specified with a different pause model: the
+hook would **release the engine lock and block the engine thread on a
+semaphore** until the host issued the next command from another thread, with an
+`isPaused` guard fencing off the released lock so no other thread could call
+`run`/`evaluate`/`registerFunction` against the mid-execution `lua_State`.
+LuaSwift satisfies the same safety contract — the engine thread parks inside the
+hook and no other thread may touch `L` while paused — *without* releasing the
+lock:
 
 - **No deadlock.** Any concurrent `LuaEngine` method that would touch `L`
   reads `isPaused == true` *before* attempting `lock.lock()` and throws

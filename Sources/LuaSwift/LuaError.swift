@@ -156,6 +156,38 @@ public enum LuaError: Error, LocalizedError {
     /// Sandbox installation failed — a dangerous global may still be live
     case sandboxInstallationFailed(String)
 
+    /// A Lua table could not be converted to a ``LuaValue`` because it contains
+    /// a reference cycle (a table reachable from itself).
+    ///
+    /// Ordinary table materialization (`run`/`evaluate` results, callback
+    /// arguments, coroutine yields, introspection) walks the table graph
+    /// recursively. A cyclic table — e.g. `t = {}; t.self = t` — would recurse
+    /// until the Swift stack is exhausted, so the walk tracks visited tables by
+    /// identity (`lua_topointer`) and raises this error on the back-edge instead
+    /// of crashing. The debug inspector uses the same cycle-detection model.
+    case cyclicTable
+
+    /// An HTTP response exceeded the configured maximum body size and the
+    /// download was cancelled before the whole body was buffered.
+    ///
+    /// The optional `http` module buffers a response body in host memory outside
+    /// the Lua ``LuaEngineConfiguration/vmMemoryLimit``. To stop a sandboxed
+    /// script from driving unbounded host-heap growth, the response size is
+    /// capped (default ``HTTPModule/defaultMaxResponseSizeBytes``, overridable
+    /// per request via the `max_response_size` option). `limit` is the byte cap
+    /// that was exceeded.
+    case responseTooLarge(limit: Int)
+
+    /// A numeric Lua table key was not representable as a Swift `Int` and was
+    /// therefore rejected during conversion.
+    ///
+    /// Lua numeric keys are double-precision. Keys that are fractional, NaN,
+    /// infinite, or outside the `Int` range cannot be losslessly represented and
+    /// previously either truncated silently or trapped. Conversion now validates
+    /// with `Int(exactly:)` and raises this error instead. Use string keys in
+    /// Lua (e.g. `t["1.5"] = v`) when a non-integer numeric key is intended.
+    case numericKeyOutOfRange(Double)
+
     /// Attempted to call a state-touching method while the engine is paused
     /// at a debug hook event.
     ///
@@ -209,6 +241,12 @@ public enum LuaError: Error, LocalizedError {
             return "Lua runtime error: \(failure.message)"
         case .sandboxInstallationFailed(let message):
             return "Sandbox installation failed: \(message)"
+        case .responseTooLarge(let limit):
+            return "HTTP response exceeded the maximum allowed size of \(limit) bytes"
+        case .cyclicTable:
+            return "Cyclic Lua table cannot be converted to a LuaValue"
+        case .numericKeyOutOfRange(let key):
+            return "Lua numeric table key \(key) is not representable as an Int"
         case .enginePaused:
             return "Cannot call LuaEngine methods while a debug handler is executing; use the inspector instead"
         case .unknown(let code, let message):

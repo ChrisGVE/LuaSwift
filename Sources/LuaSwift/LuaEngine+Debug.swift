@@ -289,7 +289,7 @@ extension LuaEngine {
             throw errorFromCode(callResult, message: message)
         }
 
-        let result = valueFromStack(at: -1)
+        let result = try valueFromStack(at: -1)
         lua_pop(L, 1)
         return result
     }

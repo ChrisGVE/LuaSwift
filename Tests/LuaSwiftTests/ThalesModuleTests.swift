@@ -488,3 +488,37 @@
     }
   }
 #endif  // LUASWIFT_THALES
+
+// MARK: - Forced-off guarantee (always compiled)
+//
+// The Thales hardening suite above is gated behind `#if LUASWIFT_THALES`, which
+// is never defined while the integration is force-disabled in Package.swift
+// (`includeThales = false`, issue #18). That makes the suite unreachable, so
+// these tests — which compile and run unconditionally — prove the forced-off
+// contract instead and document the coverage gap.
+import XCTest
+@testable import LuaSwift
+
+final class ThalesForcedOffTests: XCTestCase {
+  /// Thales is force-disabled in Package.swift, so the `LUASWIFT_THALES` define
+  /// must never be set in a normal build — even with `LUASWIFT_INCLUDE_THALES=1`,
+  /// which is intentionally a no-op until the upstream API stabilises (#18). If
+  /// this fails, the force-off in Package.swift has regressed and the gated
+  /// `ThalesModuleTests` hardening suite (task-master task #2) must be revalidated.
+  func testThalesIsForceDisabled() throws {
+    #if LUASWIFT_THALES
+      XCTFail(
+        "LUASWIFT_THALES is defined, but the Thales integration is supposed to be "
+          + "force-disabled (Package.swift includeThales = false, issue #18). "
+          + "Re-validate the ThalesModuleTests hardening suite before shipping it enabled.")
+    #else
+      // Expected steady state: the integration is compiled out, so the `thales` /
+      // `luaswift.cas` module is not available even outside the sandbox.
+      let engine = try LuaEngine(
+        configuration: LuaEngineConfiguration(sandboxed: false))
+      XCTAssertThrowsError(
+        try engine.run("return require('thales')"),
+        "Thales must not be loadable while the integration is force-disabled (#18)")
+    #endif
+  }
+}

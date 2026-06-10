@@ -6,6 +6,8 @@
 
 **Namespace:** `luaswift.toml` | **Global:** `toml`
 
+> ⚠️ **Opt-in, disabled by default.** This module requires the `TOMLKit` package and must be enabled at build time with `LUASWIFT_INCLUDE_TOMLKIT=1` (or the `LUASWIFT_TOMLKIT` compiler flag). Without it, `require("luaswift.toml")` is unavailable.
+
 TOML encoding and decoding with support for nested structures, dates, times, and all standard TOML data types.
 
 ## Function Reference

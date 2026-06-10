@@ -172,8 +172,8 @@ final class StructuredErrorTests: XCTestCase {
 
     /// An error raised inside a registered Swift callback must yield `line == nil`.
     ///
-    /// PRD §F2: "For errors raised inside a Swift callback via `throw`, line is
-    /// nil (no Lua source line maps to Swift code)." The errfunc recognises
+    /// Contract: for errors raised inside a Swift callback via `throw`, line is
+    /// nil (no Lua source line maps to Swift code). The errfunc recognises
     /// Swift-callback errors by detecting that level 1 is a C frame whose name
     /// is NOT "error" (the Lua `error()` builtin) — i.e. it is a C trampoline
     /// — and returns nil for the line in that case.
@@ -186,7 +186,7 @@ final class StructuredErrorTests: XCTestCase {
             try engine.run("swiftError()")
         }) else { return }
         XCTAssertNil(failure.line,
-            "Swift callback errors must yield line==nil per PRD §F2. " +
+            "Swift callback errors must yield line==nil. " +
             "Got line=\(String(describing: failure.line))")
     }
 

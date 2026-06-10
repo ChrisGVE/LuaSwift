@@ -545,6 +545,76 @@ final class HTTPModuleTests: XCTestCase {
                        "Engine deinit must invalidate and remove its session pair")
     }
 
+    // MARK: - Response Size Cap
+
+    /// A response body larger than the per-request `max_response_size` is
+    /// cancelled mid-download and surfaced as ``LuaError/responseTooLarge``.
+    func testResponseSizeCapRejectsOversizedBody() throws {
+        let base = try Self.requireHTTPBase()
+        XCTAssertThrowsError(try engine.run("""
+            local http = luaswift.http
+            http.get("\(base)/bytes/200000", { max_response_size = 1024 })
+        """)) { error in
+            XCTAssertTrue(
+                String(describing: error).localizedCaseInsensitiveContains("maximum allowed size"),
+                "Expected a responseTooLarge rejection, got \(error)")
+        }
+    }
+
+    /// A body at/under the cap is returned intact.
+    func testResponseUnderCapSucceeds() throws {
+        let base = try Self.requireHTTPBase()
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("\(base)/bytes/512", { max_response_size = 4096 })
+            return {resp.status, #resp.body}
+        """)
+        XCTAssertEqual(result.arrayValue?[0].numberValue, 200)
+        XCTAssertEqual(result.arrayValue?[1].numberValue, 512)
+    }
+
+    // MARK: - Timeout Clamp
+
+    /// A timeout below ``HTTPModule/minTimeout`` is clamped up so a fast request
+    /// still succeeds instead of failing spuriously on a sub-second value.
+    func testTinyTimeoutClampedUpSucceeds() throws {
+        let base = try Self.requireHTTPBase()
+        let result = try engine.evaluate("""
+            local http = luaswift.http
+            local resp = http.get("\(base)/get", { timeout = 0.0001 })
+            return resp.status
+        """)
+        XCTAssertEqual(result.numberValue, 200)
+    }
+
+    // MARK: - Cancellation During a Stalled Request
+
+    /// `requestCancellation()` from another thread interrupts a request that is
+    /// stalled waiting on the network, surfacing as ``LuaError/cancelled``
+    /// instead of blocking until the timeout.
+    func testCancellationInterruptsStalledRequest() throws {
+        let base = try Self.requireHTTPBase()
+        let done = expectation(description: "request returns")
+        var thrown: Error?
+        DispatchQueue.global().async {
+            do {
+                _ = try self.engine.run("local http = luaswift.http; http.get('\(base)/delay/30')")
+            } catch {
+                thrown = error
+            }
+            done.fulfill()
+        }
+        // Let the request start, then cancel from this thread.
+        Thread.sleep(forTimeInterval: 0.3)
+        engine.requestCancellation()
+        wait(for: [done], timeout: 10)
+
+        guard case LuaError.cancelled? = thrown else {
+            return XCTFail("Expected .cancelled, got \(String(describing: thrown))")
+        }
+        engine.resetCancellation()
+    }
+
     // MARK: - Helper Methods
 
     /// In-process httpbin-compatible server, started once for the whole test

@@ -23,6 +23,56 @@
 import Foundation
 import CLua
 
+// MARK: - Table-conversion safety guards
+
+/// Maximum table-nesting depth materialised before conversion aborts.
+///
+/// A genuine reference cycle is caught earlier by the visited set
+/// (table identity via `lua_topointer`); this depth cap is only a secondary
+/// stack-safety backstop for pathologically deep *acyclic* tables that would
+/// otherwise overflow the Swift call stack. It is set far above any realistic
+/// data shape, so legitimate tables are never rejected. Reaching it is treated
+/// as a probable cycle and surfaced as ``LuaError/cyclicTable``.
+internal let luaMaxTableConversionDepth = 1000
+
+/// Validate a numeric Lua table key, rejecting any value not representable as a
+/// Swift `Int` (fractional, NaN, infinite, or out of `Int` range).
+///
+/// `Int(exactly:)` is the single source of truth for representability. See
+/// ``LuaError/numericKeyOutOfRange(_:)`` for the rationale and the
+/// string-key workaround.
+@inline(__always)
+internal func luaIntegerKey(_ value: Double) throws -> Int {
+    guard let key = Int(exactly: value) else {
+        throw LuaError.numericKeyOutOfRange(value)
+    }
+    return key
+}
+
+/// Enter the table at `absIndex` for cycle/depth-guarded recursion.
+///
+/// Returns the table's identity pointer after recording it in `visited`. Throws
+/// ``LuaError/cyclicTable`` when the table is already on the current descent
+/// path (a back-edge) or when `depth` has reached
+/// ``luaMaxTableConversionDepth``. The caller MUST `visited.remove(_:)` the
+/// returned pointer when it finishes the table (use `defer`), so sibling tables
+/// sharing structure are not misreported as cycles.
+@inline(__always)
+internal func enterLuaTable(
+    _ L: OpaquePointer,
+    absIndex: Int32,
+    visited: inout Set<UnsafeRawPointer>,
+    depth: Int
+) throws -> UnsafeRawPointer? {
+    guard let ptr = lua_topointer(L, absIndex) else { return nil }
+    let raw = UnsafeRawPointer(ptr)
+    if visited.contains(raw) || depth >= luaMaxTableConversionDepth {
+        throw LuaError.cyclicTable
+    }
+    visited.insert(raw)
+    return raw
+}
+
 // MARK: - Engine-state conversion
 
 extension LuaEngine {
@@ -30,10 +80,22 @@ extension LuaEngine {
     /// Convert the value at `index` on the engine's own stack to a
     /// ``LuaValue``. Functions are stored in the registry and returned as
     /// ``LuaValue/luaFunction(_:)`` references.
+    ///
+    /// Throws ``LuaError/cyclicTable`` for self-referential tables and
+    /// ``LuaError/numericKeyOutOfRange(_:)`` for non-representable numeric keys.
     /// internal: shared across LuaEngine extension files
-    internal func valueFromStack(at index: Int32) -> LuaValue {
+    internal func valueFromStack(at index: Int32) throws -> LuaValue {
         guard let L = L else { return .nil }
+        var visited = Set<UnsafeRawPointer>()
+        return try valueFromStack(L, at: index, visited: &visited, depth: 0)
+    }
 
+    private func valueFromStack(
+        _ L: OpaquePointer,
+        at index: Int32,
+        visited: inout Set<UnsafeRawPointer>,
+        depth: Int
+    ) throws -> LuaValue {
         let type = lua_type(L, index)
 
         switch type {
@@ -51,7 +113,7 @@ extension LuaEngine {
             return .string(str)
 
         case LUA_TTABLE:
-            return tableFromStack(at: index)
+            return try tableFromStack(L, at: index, visited: &visited, depth: depth)
 
         case LUA_TFUNCTION:
             // Store function in registry and return reference
@@ -64,34 +126,47 @@ extension LuaEngine {
         }
     }
 
-    private func tableFromStack(at index: Int32) -> LuaValue {
-        guard let L = L else { return .nil }
+    private func tableFromStack(
+        _ L: OpaquePointer,
+        at index: Int32,
+        visited: inout Set<UnsafeRawPointer>,
+        depth: Int
+    ) throws -> LuaValue {
+        // Normalize index to absolute
+        let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
+
+        let token = try enterLuaTable(L, absIndex: absIndex, visited: &visited, depth: depth)
+        defer { if let token = token { visited.remove(token) } }
 
         var dict: [String: LuaValue] = [:]
         var intKeyedValues: [Int: LuaValue] = [:]
         var hasStringKeys = false
 
-        // Normalize index to absolute
-        let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
-
+        // Restore the stack to here if a nested rejection unwinds mid-traversal,
+        // so the engine remains reusable after a cyclic/bad-key error.
+        let savedTop = lua_gettop(L)
         lua_pushnil(L)  // First key
-        while lua_next(L, absIndex) != 0 {
-            // Key is at -2, value is at -1
+        do {
+            while lua_next(L, absIndex) != 0 {
+                // Key is at -2, value is at -1
+                let keyType = lua_type(L, -2)
+                let value = try valueFromStack(L, at: -1, visited: &visited, depth: depth + 1)
 
-            let keyType = lua_type(L, -2)
-            let value = valueFromStack(at: -1)
-
-            if keyType == LUA_TNUMBER {
-                let keyNum = Int(lua_tonumber(L, -2))
-                intKeyedValues[keyNum] = value
-            } else if keyType == LUA_TSTRING {
-                hasStringKeys = true
-                if let key = lua_getstring(L, -2) {
-                    dict[key] = value
+                if keyType == LUA_TNUMBER {
+                    let keyNum = try luaIntegerKey(lua_tonumber(L, -2))
+                    intKeyedValues[keyNum] = value
+                } else if keyType == LUA_TSTRING {
+                    hasStringKeys = true
+                    if let key = lua_getstring(L, -2) {
+                        dict[key] = value
+                    }
                 }
-            }
 
-            lua_pop(L, 1)  // Pop value, keep key for next iteration
+                lua_pop(L, 1)  // Pop value, keep key for next iteration
+            }
+        } catch {
+            lua_settop(L, savedTop)  // discard any leftover key/value
+            throw error
         }
 
         // Check if integer keys form a contiguous array starting at 1
@@ -113,9 +188,24 @@ extension LuaEngine {
 
 // MARK: - Explicit-state conversion (for C callbacks)
 
-/// Get a LuaValue from the Lua stack (static version for use in callbacks)
+/// Get a LuaValue from the Lua stack (static version for use in callbacks).
+///
+/// Throws ``LuaError/cyclicTable`` / ``LuaError/numericKeyOutOfRange(_:)`` on
+/// unsafe tables. C-callback trampolines that cannot throw across the C boundary
+/// (LuaEngine+Callbacks.swift, LuaEngine+ValueServer.swift) catch and convert to
+/// `lua_error`.
 /// internal: shared across LuaEngine extension files
-internal func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue {
+internal func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) throws -> LuaValue {
+    var visited = Set<UnsafeRawPointer>()
+    return try valueFromLuaStack(L, at: index, visited: &visited, depth: 0)
+}
+
+private func valueFromLuaStack(
+    _ L: OpaquePointer,
+    at index: Int32,
+    visited: inout Set<UnsafeRawPointer>,
+    depth: Int
+) throws -> LuaValue {
     let type = lua_type(L, index)
 
     switch type {
@@ -133,7 +223,7 @@ internal func valueFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue
         return .string(str)
 
     case LUA_TTABLE:
-        return tableFromLuaStack(L, at: index)
+        return try tableFromLuaStack(L, at: index, visited: &visited, depth: depth)
 
     case LUA_TFUNCTION:
         // Store function in registry and return reference
@@ -177,32 +267,45 @@ internal func convertToArrayIfContiguous(_ intKeyedValues: [Int: LuaValue]) -> [
 }
 
 /// Get a table from the Lua stack (static version for use in callbacks)
-private func tableFromLuaStack(_ L: OpaquePointer, at index: Int32) -> LuaValue {
+private func tableFromLuaStack(
+    _ L: OpaquePointer,
+    at index: Int32,
+    visited: inout Set<UnsafeRawPointer>,
+    depth: Int
+) throws -> LuaValue {
+    // Normalize index to absolute
+    let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
+
+    let token = try enterLuaTable(L, absIndex: absIndex, visited: &visited, depth: depth)
+    defer { if let token = token { visited.remove(token) } }
+
     var dict: [String: LuaValue] = [:]
     var intKeyedValues: [Int: LuaValue] = [:]
     var hasStringKeys = false
 
-    // Normalize index to absolute
-    let absIndex = index < 0 ? lua_gettop(L) + index + 1 : index
-
+    let savedTop = lua_gettop(L)
     lua_pushnil(L)  // First key
-    while lua_next(L, absIndex) != 0 {
-        // Key is at -2, value is at -1
+    do {
+        while lua_next(L, absIndex) != 0 {
+            // Key is at -2, value is at -1
+            let keyType = lua_type(L, -2)
+            let value = try valueFromLuaStack(L, at: -1, visited: &visited, depth: depth + 1)
 
-        let keyType = lua_type(L, -2)
-        let value = valueFromLuaStack(L, at: -1)
-
-        if keyType == LUA_TNUMBER {
-            let keyNum = Int(lua_tonumber(L, -2))
-            intKeyedValues[keyNum] = value
-        } else if keyType == LUA_TSTRING {
-            hasStringKeys = true
-            if let key = lua_getstring(L, -2) {
-                dict[key] = value
+            if keyType == LUA_TNUMBER {
+                let keyNum = try luaIntegerKey(lua_tonumber(L, -2))
+                intKeyedValues[keyNum] = value
+            } else if keyType == LUA_TSTRING {
+                hasStringKeys = true
+                if let key = lua_getstring(L, -2) {
+                    dict[key] = value
+                }
             }
-        }
 
-        lua_pop(L, 1)  // Pop value, keep key for next iteration
+            lua_pop(L, 1)  // Pop value, keep key for next iteration
+        }
+    } catch {
+        lua_settop(L, savedTop)  // discard any leftover key/value
+        throw error
     }
 
     // Check for complex number (has __luaswift_type = "complex")

@@ -7,6 +7,26 @@
 //
 //  SPDX-License-Identifier: Apache-2.0
 //
+//  Location: Sources/LuaSwift/Modules/Swift/HTTPModule.swift
+//
+//  Context: Optional, opt-in HTTP client module (LuaSwiftModule). install(in:)
+//  registers a Swift callback (_luaswift_http_request) and wires the
+//  luaswift.http namespace; requests run synchronously inside that callback
+//  during a LuaEngine run, so the engine lock is held for their duration.
+//  A per-engine URLSession pair (follow / no-follow redirects) is pooled by
+//  SessionManager and torn down via the engine's deinitCleanupHandlers
+//  (LuaEngine.swift). HTTPSessionDelegate streams each response body and bounds
+//  it to maxResponseSize; the request timeout is clamped to [minTimeout,
+//  maxTimeout] and the wait polls LuaEngine.cancellationRequested
+//  (LuaEngine+Cancellation.swift) so a stall is interruptible. Value bridging
+//  uses LuaValue (LuaValue.swift); JSON helpers reuse JSONModule.
+//
+//  Neighbors:
+//    LuaSwiftModule.swift        — the module protocol install(in:) satisfies
+//    ModuleRegistry.swift        — opt-in installer that may include this module
+//    LuaEngine+Callbacks.swift   — registerFunction backing the Lua entry point
+//    JSONModule.swift            — encode/decode used by the json option + resp.json()
+//
 
 import Foundation
 
@@ -63,6 +83,27 @@ public struct HTTPModule: LuaSwiftModule {
     /// The module's stable identifier (see ``LuaSwiftModule/moduleName``).
     public static let moduleName = "HTTPModule"
 
+    // MARK: - Configurable limits
+
+    /// Default maximum response body size, in bytes (10 MiB).
+    ///
+    /// A response body is buffered in host memory and converted to a Lua string,
+    /// which happens **outside** the Lua ``LuaEngineConfiguration/vmMemoryLimit``.
+    /// This cap stops a script from driving unbounded host-heap growth. Override
+    /// per request with the `max_response_size` option; a download that exceeds
+    /// the effective cap is cancelled mid-stream and raises
+    /// ``LuaError/responseTooLarge(limit:)``.
+    public static let defaultMaxResponseSizeBytes = 10 * 1024 * 1024
+
+    /// Minimum request timeout, in seconds. A requested timeout below this is
+    /// clamped up so a tiny value cannot make requests fail spuriously.
+    public static let minTimeout: TimeInterval = 1
+
+    /// Maximum request timeout, in seconds. The script-supplied timeout is
+    /// clamped to this so untrusted Lua cannot pin the engine on a single
+    /// request for an unbounded duration.
+    public static let maxTimeout: TimeInterval = 120
+
 
     // MARK: - Session Management
 
@@ -79,8 +120,8 @@ public struct HTTPModule: LuaSwiftModule {
             weak var engine: LuaEngine?
             let followingSession: URLSession
             let nonFollowingSession: URLSession
-            let followingDelegate: RedirectDelegate
-            let nonFollowingDelegate: RedirectDelegate
+            let followingDelegate: HTTPSessionDelegate
+            let nonFollowingDelegate: HTTPSessionDelegate
 
             func invalidate() {
                 followingSession.invalidateAndCancel()
@@ -110,14 +151,14 @@ public struct HTTPModule: LuaSwiftModule {
             // Create new session pair for this engine
             let config = URLSessionConfiguration.default
 
-            let followingDelegate = RedirectDelegate(followRedirects: true)
+            let followingDelegate = HTTPSessionDelegate(followRedirects: true)
             let followingSession = URLSession(
                 configuration: config,
                 delegate: followingDelegate,
                 delegateQueue: nil
             )
 
-            let nonFollowingDelegate = RedirectDelegate(followRedirects: false)
+            let nonFollowingDelegate = HTTPSessionDelegate(followRedirects: false)
             let nonFollowingSession = URLSession(
                 configuration: config,
                 delegate: nonFollowingDelegate,
@@ -202,15 +243,45 @@ public struct HTTPModule: LuaSwiftModule {
         sessionManager.hasSessions(forEngineId: engineId)
     }
 
-    // MARK: - Redirect Delegate
+    // MARK: - Session Delegate
 
-    /// Delegate that controls redirect behavior for URLSession requests.
-    private class RedirectDelegate: NSObject, URLSessionTaskDelegate {
+    /// Delegate that controls redirect behaviour **and** bounds each response
+    /// body to a per-request byte cap.
+    ///
+    /// The body is streamed via the data-delegate callbacks rather than a
+    /// completion-handler `dataTask`, so the download is cancelled the moment it
+    /// exceeds the cap — the host heap never has to hold an oversized body. Per
+    /// in-flight task state (accumulated bytes, the cap, the overflow flag, and
+    /// the completion to fire) is keyed by `taskIdentifier` under `stateLock`,
+    /// so concurrent requests sharing one session do not interfere.
+    private final class HTTPSessionDelegate: NSObject, URLSessionDataDelegate {
         let followRedirects: Bool
+
+        /// Result delivered exactly once per task: body bytes received so far,
+        /// the response, a transport error (if any), and whether the cap was hit.
+        typealias Completion = (Data, URLResponse?, Error?, Bool) -> Void
+
+        private struct TaskState {
+            var data = Data()
+            let maxBytes: Int
+            var overflow = false
+            let completion: Completion
+        }
+
+        private var tasks: [Int: TaskState] = [:]
+        private let stateLock = NSLock()
 
         init(followRedirects: Bool) {
             self.followRedirects = followRedirects
             super.init()
+        }
+
+        /// Register a task's byte cap and the closure to fire when it finishes.
+        /// Call before `task.resume()`.
+        func register(taskId: Int, maxBytes: Int, completion: @escaping Completion) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            tasks[taskId] = TaskState(maxBytes: maxBytes, completion: completion)
         }
 
         func urlSession(
@@ -220,11 +291,60 @@ public struct HTTPModule: LuaSwiftModule {
             newRequest request: URLRequest,
             completionHandler: @escaping (URLRequest?) -> Void
         ) {
-            if followRedirects {
-                completionHandler(request)
-            } else {
-                completionHandler(nil)
+            completionHandler(followRedirects ? request : nil)
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            // Early-reject when the server declares an over-cap body, avoiding
+            // the download entirely. A missing/negative length (-1) is allowed
+            // through and bounded incrementally in didReceive(data:).
+            stateLock.lock()
+            let cap = tasks[dataTask.taskIdentifier]?.maxBytes
+            stateLock.unlock()
+            if let cap = cap, response.expectedContentLength > Int64(cap) {
+                stateLock.lock()
+                tasks[dataTask.taskIdentifier]?.overflow = true
+                stateLock.unlock()
+                completionHandler(.cancel)
+                return
             }
+            completionHandler(.allow)
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive data: Data
+        ) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard var state = tasks[dataTask.taskIdentifier], !state.overflow else { return }
+            // Bound memory: stop accumulating once the cap is crossed.
+            if state.data.count + data.count > state.maxBytes {
+                state.overflow = true
+                tasks[dataTask.taskIdentifier] = state
+                dataTask.cancel()
+                return
+            }
+            state.data.append(data)
+            tasks[dataTask.taskIdentifier] = state
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            didCompleteWithError error: Error?
+        ) {
+            stateLock.lock()
+            let state = tasks.removeValue(forKey: task.taskIdentifier)
+            stateLock.unlock()
+            guard let state = state else { return }
+            state.completion(state.data, task.response, error, state.overflow)
         }
     }
 
@@ -318,6 +438,7 @@ public struct HTTPModule: LuaSwiftModule {
         var body: Data?
         var timeout: TimeInterval = 30.0
         var followRedirects = true
+        var maxResponseSize = defaultMaxResponseSizeBytes
 
         if args.count > 2, let options = args[2].tableValue {
             // Parse headers
@@ -355,7 +476,18 @@ public struct HTTPModule: LuaSwiftModule {
             if let followValue = options["follow_redirects"]?.boolValue {
                 followRedirects = followValue
             }
+
+            // Parse max_response_size override (positive integer; non-positive
+            // or absent falls back to the module default).
+            if let sizeValue = options["max_response_size"]?.numberValue,
+               sizeValue >= 1, let size = Int(exactly: sizeValue.rounded(.down)) {
+                maxResponseSize = size
+            }
         }
+
+        // Clamp the timeout so untrusted Lua cannot pin the engine on one
+        // request for an unbounded (or near-zero, spuriously failing) duration.
+        timeout = min(max(timeout, minTimeout), maxTimeout)
 
         // Create request
         var request = URLRequest(url: url)
@@ -372,28 +504,55 @@ public struct HTTPModule: LuaSwiftModule {
             request.httpBody = body
         }
 
-        // Execute request synchronously
+        // Execute the request. The body is streamed through the session
+        // delegate and bounded to maxResponseSize, so an oversized body is
+        // cancelled mid-download instead of being fully buffered in host memory.
         let semaphore = DispatchSemaphore(value: 0)
-        var responseData: Data?
+        var responseData = Data()
         var httpResponse: HTTPURLResponse?
         var requestError: Error?
+        var overflowed = false
 
-        // Get shared session from session manager (reuses sessions per engine)
+        // Get shared session + its delegate (reused per engine).
         let session = sessionManager.session(for: engine, followRedirects: followRedirects)
+        guard let delegate = session.delegate as? HTTPSessionDelegate else {
+            throw LuaError.callbackError("HTTP session misconfigured (missing bounded delegate)")
+        }
 
-        let task = session.dataTask(with: request) { data, response, error in
+        let task = session.dataTask(with: request)
+        delegate.register(taskId: task.taskIdentifier, maxBytes: maxResponseSize) { data, response, error, overflow in
             responseData = data
             httpResponse = response as? HTTPURLResponse
             requestError = error
+            overflowed = overflow
             semaphore.signal()
         }
         task.resume()
 
-        // Wait for response with timeout
-        let result = semaphore.wait(timeout: .now() + timeout + 1)
-        if result == .timedOut {
-            task.cancel()
-            throw LuaError.callbackError("Request timed out")
+        // Wait cooperatively: poll so a cancellation requested from another
+        // thread (requestCancellation, a lock-free atomic) interrupts a network
+        // stall, and enforce the clamped timeout as a hard ceiling. The engine
+        // lock cannot be released mid-callback (the VM is on the C stack), but
+        // the wait no longer blocks indefinitely on an unresponsive server.
+        let deadline = DispatchTime.now() + timeout + 1
+        while semaphore.wait(timeout: .now() + 0.05) == .timedOut {
+            if engine.cancellationRequested.load(ordering: .acquiring) {
+                task.cancel()
+                // Drive the out-of-band abort reason so errorFromCode classifies
+                // this as .cancelled — the compositor hook cannot fire while the
+                // VM is parked in this C callback waiting on the network.
+                engine.abortReason.store(AbortReason.cancelled, ordering: .releasing)
+                throw LuaError.cancelled
+            }
+            if DispatchTime.now() >= deadline {
+                task.cancel()
+                throw LuaError.callbackError("Request timed out")
+            }
+        }
+
+        // The body was cancelled because it exceeded the size cap.
+        if overflowed {
+            throw LuaError.responseTooLarge(limit: maxResponseSize)
         }
 
         // Check for errors
@@ -423,15 +582,13 @@ public struct HTTPModule: LuaSwiftModule {
         }
         responseTable["headers"] = .table(headerDict)
 
-        // Response body
-        if let data = responseData, let bodyString = String(data: data, encoding: .utf8) {
+        // Response body (bounded to maxResponseSize by the session delegate).
+        if let bodyString = String(data: responseData, encoding: .utf8) {
             responseTable["body"] = .string(bodyString)
-        } else if let data = responseData {
-            // Binary data - encode as base64
-            responseTable["body"] = .string(data.base64EncodedString())
-            responseTable["body_is_base64"] = .bool(true)
         } else {
-            responseTable["body"] = .string("")
+            // Binary data - encode as base64
+            responseTable["body"] = .string(responseData.base64EncodedString())
+            responseTable["body_is_base64"] = .bool(true)
         }
 
         // URL (after redirects)

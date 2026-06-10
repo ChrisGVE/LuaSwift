@@ -209,35 +209,99 @@ final class LuaEngineTests: XCTestCase {
         XCTAssertEqual(array?[2].stringValue, "c")
     }
 
-    // MARK: - Numeric Table Key Behavior (Known Limitations)
+    // MARK: - Numeric Table Key Behavior
 
-    /// Documents that fractional numeric keys are truncated to Int.
-    ///
-    /// This is a known limitation: Lua allows any numeric value as a table key,
-    /// but when converting to Swift, numeric keys are cast to Int, truncating
-    /// any fractional part. Key 1.5 becomes key 1, potentially overwriting values.
-    func testNumericKeyFractionalTruncation() throws {
+    /// A fractional numeric key is not representable as an `Int`, so conversion
+    /// now rejects it with ``LuaError/numericKeyOutOfRange(_:)`` instead of
+    /// silently truncating `1.5` to `1` (which used to overwrite key `1`).
+    func testNumericKeyFractionalRejected() throws {
         let engine = try LuaEngine()
-        // Create table with fractional key 1.5 and integer key 1
-        let result = try engine.evaluate("""
+        XCTAssertThrowsError(try engine.evaluate("""
             local t = {}
             t[1] = "integer-one"
             t[1.5] = "fractional-one-point-five"
             return t
-        """)
-
-        // Due to truncation, both keys map to Int(1), and the second overwrites the first
-        // This documents current behavior, not necessarily desired behavior
-        // With only integer key (after truncation), it becomes a 1-element array
-        if let array = result.arrayValue {
-            // The table becomes a single-element array since 1.5 truncates to 1
-            XCTAssertEqual(array.count, 1, "Fractional key 1.5 truncates to 1, overwriting")
-            XCTAssertEqual(array[0].stringValue, "fractional-one-point-five")
-        } else if let table = result.tableValue {
-            XCTAssertEqual(table.count, 1, "Fractional key 1.5 truncates to 1, overwriting")
-        } else {
-            XCTFail("Expected table or array")
+        """)) { error in
+            guard case LuaError.numericKeyOutOfRange(let key) = error else {
+                return XCTFail("Expected .numericKeyOutOfRange, got \(error)")
+            }
+            XCTAssertEqual(key, 1.5)
         }
+    }
+
+    /// A numeric key beyond the `Int` range is rejected rather than wrapping.
+    func testNumericKeyOutOfRangeRejected() throws {
+        let engine = try LuaEngine()
+        // 2^63 = 9223372036854775808 is one past Int.max.
+        XCTAssertThrowsError(try engine.evaluate("return { [2^63] = 1 }")) { error in
+            guard case LuaError.numericKeyOutOfRange = error else {
+                return XCTFail("Expected .numericKeyOutOfRange, got \(error)")
+            }
+        }
+    }
+
+    // MARK: - Cyclic Table Conversion
+
+    /// A self-referential table (`t.self = t`) returned to Swift is rejected with
+    /// ``LuaError/cyclicTable`` instead of recursing until the stack is exhausted.
+    func testReturnCyclicTableThrows() throws {
+        let engine = try LuaEngine()
+        XCTAssertThrowsError(try engine.evaluate("""
+            local t = {}
+            t.self = t
+            return t
+        """)) { error in
+            guard case LuaError.cyclicTable = error else {
+                return XCTFail("Expected .cyclicTable, got \(error)")
+            }
+        }
+    }
+
+    /// A cycle through an array slot (`t[1] = t`) is also rejected.
+    func testReturnCyclicArrayThrows() throws {
+        let engine = try LuaEngine()
+        XCTAssertThrowsError(try engine.evaluate("""
+            local t = {}
+            t[1] = t
+            return t
+        """)) { error in
+            guard case LuaError.cyclicTable = error else {
+                return XCTFail("Expected .cyclicTable, got \(error)")
+            }
+        }
+    }
+
+    /// The globals table references itself (`_G._G == _G`); returning it used to
+    /// recurse without bound. It must now reject cleanly with ``LuaError/cyclicTable``.
+    func testReturnGlobalsTableThrows() throws {
+        let engine = try LuaEngine()
+        XCTAssertThrowsError(try engine.evaluate("return _G")) { error in
+            guard case LuaError.cyclicTable = error else {
+                return XCTFail("Expected .cyclicTable, got \(error)")
+            }
+        }
+    }
+
+    /// A shared (diamond) sub-table reachable by two distinct paths is NOT a
+    /// cycle and must convert successfully — the visited set is unwound per
+    /// branch, so sibling references to the same table are allowed.
+    func testSharedSubtableIsNotCycle() throws {
+        let engine = try LuaEngine()
+        let result = try engine.evaluate("""
+            local shared = { v = 7 }
+            return { a = shared, b = shared }
+        """)
+        XCTAssertEqual(result.tableValue?["a"]?.tableValue?["v"]?.numberValue, 7)
+        XCTAssertEqual(result.tableValue?["b"]?.tableValue?["v"]?.numberValue, 7)
+    }
+
+    /// After a cyclic-table rejection the engine's Lua stack stays balanced, so
+    /// it remains usable for subsequent evaluations.
+    func testEngineReusableAfterCyclicRejection() throws {
+        let engine = try LuaEngine()
+        XCTAssertThrowsError(try engine.evaluate("local t = {}; t.self = t; return t"))
+        let result = try engine.evaluate("return 1 + 1")
+        XCTAssertEqual(result.numberValue, 2)
     }
 
     /// Documents that integer numeric keys work correctly.

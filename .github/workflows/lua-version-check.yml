@@ -49,7 +49,17 @@ jobs:
               else
                 UPDATES_JSON="$UPDATES_JSON,"
               fi
-              UPDATES_JSON="$UPDATES_JSON{\"series\":\"$series\",\"old\":\"$CURRENT\",\"new\":\"$LATEST\"}"
+              # Capture the SHA256 lua.org publishes for the new tarball. The
+              # FTP listing already fetched above carries a `checksum (sha256)`
+              # column: each tarball row is immediately followed by a
+              # `<TD CLASS="sum">…</TD>` cell holding the official checksum. We
+              # grab the line after the tarball link and strip the HTML tags.
+              # This is the source of truth the download step verifies against.
+              SHA256=$(grep -A3 "lua-${LATEST}.tar.gz\"" /tmp/lua_ftp.html \
+                | grep 'CLASS="sum"' \
+                | sed -E 's/.*CLASS="sum">([a-f0-9]{64}).*/\1/' \
+                | head -1)
+              UPDATES_JSON="$UPDATES_JSON{\"series\":\"$series\",\"old\":\"$CURRENT\",\"new\":\"$LATEST\",\"sha256\":\"$SHA256\"}"
             fi
           done
 
@@ -90,6 +100,7 @@ jobs:
             SERIES=$(echo "$update" | jq -r '.series')
             OLD_VERSION=$(echo "$update" | jq -r '.old')
             NEW_VERSION=$(echo "$update" | jq -r '.new')
+            EXPECTED_SHA256=$(echo "$update" | jq -r '.sha256')
 
             echo "Updating Lua $SERIES: $OLD_VERSION -> $NEW_VERSION"
 
@@ -105,6 +116,46 @@ jobs:
             # Download new version
             TARBALL="lua-${NEW_VERSION}.tar.gz"
             curl -LO "https://www.lua.org/ftp/$TARBALL"
+
+            # Supply-chain integrity gate: verify the downloaded tarball against
+            # the SHA256 lua.org publishes for it (captured in the check job from
+            # the FTP listing's `checksum (sha256)` column) BEFORE it is allowed
+            # to replace any vendored source. lua.org does not provide a hardcode-
+            # able pinned checksum ahead of release, so we pin against the
+            # official published checksum for the exact version we are pulling,
+            # which is the most robust check this auto-discovering flow allows.
+            # Any mismatch (or a missing/garbled published checksum) fails the job.
+            if [ -z "$EXPECTED_SHA256" ] || ! echo "$EXPECTED_SHA256" | grep -qE '^[a-f0-9]{64}$'; then
+              echo "ERROR: no valid published SHA256 for lua-${NEW_VERSION}.tar.gz; refusing to replace sources."
+              exit 1
+            fi
+            ACTUAL_SHA256=$(shasum -a 256 "$TARBALL" | awk '{print $1}')
+            if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+              echo "ERROR: SHA256 mismatch for $TARBALL"
+              echo "  expected (lua.org): $EXPECTED_SHA256"
+              echo "  actual (download):  $ACTUAL_SHA256"
+              exit 1
+            fi
+            echo "Verified $TARBALL against lua.org SHA256: $EXPECTED_SHA256"
+
+            # Record provenance for this series in the vendored-Lua manifest.
+            # The manifest table row for the series is rewritten with the new
+            # version, source URL, the verified SHA256, and today's UTC date.
+            MANIFEST="Sources/VENDORED-LUA.md"
+            UPDATE_DATE=$(date -u +%Y-%m-%d)
+            TARBALL_URL="https://www.lua.org/ftp/$TARBALL"
+            # Match the manifest row by its leading "| <series> |" cell and
+            # replace the whole row. Column widths are normalised to single
+            # spaces; the table stays valid GFM (alignment is cosmetic).
+            awk -v series="$SERIES" -v ver="$NEW_VERSION" -v dir="$TARGET_DIR" \
+                -v url="$TARBALL_URL" -v sha="$EXPECTED_SHA256" -v dt="$UPDATE_DATE" '
+              $0 ~ ("^\\| " series " ") {
+                printf "| %s | %s | `%s` | %s | `%s` | %s |\n", series, ver, dir, url, sha, dt
+                next
+              }
+              { print }
+            ' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+            echo "Recorded provenance for Lua $SERIES in $MANIFEST"
 
             # Extract to temp directory
             tar xzf "$TARBALL"
@@ -250,7 +301,9 @@ jobs:
 
             ### Changes
             - Downloaded new Lua source tarballs from lua.org
+            - Verified each tarball against the SHA256 published by lua.org before replacing sources
             - Updated CLua* directories with new sources
+            - Recorded source URL, verified SHA256, and update date in Sources/VENDORED-LUA.md
             - Updated version references in Package.swift
             - Updated CHANGELOG.md with new versions
 

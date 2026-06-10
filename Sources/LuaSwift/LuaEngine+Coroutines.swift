@@ -150,11 +150,11 @@ extension LuaEngine {
         switch status {
         case LUA_OK:
             // Coroutine completed normally — return ALL of its return values.
-            return .completed(collectThreadResults(thread, count: nresults))
+            return .completed(try collectThreadResults(thread, count: nresults))
 
         case LUA_YIELD:
             // Coroutine yielded — return every yielded value.
-            return .yielded(collectThreadResults(thread, count: nresults))
+            return .yielded(try collectThreadResults(thread, count: nresults))
 
         default:
             return classifyResumeError(thread)
@@ -282,18 +282,24 @@ extension LuaEngine {
     /// bottom-to-top order (`-nresults, …, -1`) and pop them all. Returns an
     /// empty array when `nresults <= 0`. Shared by the completed and yielded
     /// resume paths so both surface every value the coroutine produced.
-    private func collectThreadResults(_ thread: OpaquePointer, count nresults: Int32) -> [LuaValue] {
+    private func collectThreadResults(_ thread: OpaquePointer, count nresults: Int32) throws -> [LuaValue] {
         guard nresults > 0 else { return [] }
         var values: [LuaValue] = []
         values.reserveCapacity(Int(nresults))
+        var visited = Set<UnsafeRawPointer>()
         for i in 0..<nresults {
-            values.append(valueFromThread(thread, at: -nresults + i))
+            values.append(try valueFromThread(thread, at: -nresults + i, visited: &visited, depth: 0))
         }
         lua_pop(thread, nresults)
         return values
     }
 
-    private func valueFromThread(_ thread: OpaquePointer, at index: Int32) -> LuaValue {
+    private func valueFromThread(
+        _ thread: OpaquePointer,
+        at index: Int32,
+        visited: inout Set<UnsafeRawPointer>,
+        depth: Int
+    ) throws -> LuaValue {
         let type = lua_type(thread, index)
 
         switch type {
@@ -311,37 +317,51 @@ extension LuaEngine {
             return .string(str)
 
         case LUA_TTABLE:
-            return tableFromThread(thread, at: index)
+            return try tableFromThread(thread, at: index, visited: &visited, depth: depth)
 
         default:
             return .nil
         }
     }
 
-    private func tableFromThread(_ thread: OpaquePointer, at index: Int32) -> LuaValue {
+    private func tableFromThread(
+        _ thread: OpaquePointer,
+        at index: Int32,
+        visited: inout Set<UnsafeRawPointer>,
+        depth: Int
+    ) throws -> LuaValue {
+        // Normalize index to absolute
+        let absIndex = index < 0 ? lua_gettop(thread) + index + 1 : index
+
+        let token = try enterLuaTable(thread, absIndex: absIndex, visited: &visited, depth: depth)
+        defer { if let token = token { visited.remove(token) } }
+
         var dict: [String: LuaValue] = [:]
         var intKeyedValues: [Int: LuaValue] = [:]
         var hasStringKeys = false
 
-        // Normalize index to absolute
-        let absIndex = index < 0 ? lua_gettop(thread) + index + 1 : index
-
+        let savedTop = lua_gettop(thread)
         lua_pushnil(thread)
-        while lua_next(thread, absIndex) != 0 {
-            let keyType = lua_type(thread, -2)
-            let value = valueFromThread(thread, at: -1)
+        do {
+            while lua_next(thread, absIndex) != 0 {
+                let keyType = lua_type(thread, -2)
+                let value = try valueFromThread(thread, at: -1, visited: &visited, depth: depth + 1)
 
-            if keyType == LUA_TNUMBER {
-                let keyNum = Int(lua_tonumber(thread, -2))
-                intKeyedValues[keyNum] = value
-            } else if keyType == LUA_TSTRING {
-                hasStringKeys = true
-                if let key = lua_getstring(thread, -2) {
-                    dict[key] = value
+                if keyType == LUA_TNUMBER {
+                    let keyNum = try luaIntegerKey(lua_tonumber(thread, -2))
+                    intKeyedValues[keyNum] = value
+                } else if keyType == LUA_TSTRING {
+                    hasStringKeys = true
+                    if let key = lua_getstring(thread, -2) {
+                        dict[key] = value
+                    }
                 }
-            }
 
-            lua_pop(thread, 1)
+                lua_pop(thread, 1)
+            }
+        } catch {
+            lua_settop(thread, savedTop)
+            throw error
         }
 
         // Check for complex number (has __luaswift_type = "complex")

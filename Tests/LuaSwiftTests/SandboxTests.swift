@@ -497,4 +497,70 @@ final class SandboxTests: XCTestCase {
         XCTAssertEqual(result.stringValue, "table",
                        "package.preload must be a table in sandboxed mode")
     }
+
+    // MARK: - packagePath confinement (package.path mutability)
+
+    /// Build two sibling temp directories: `allowed` (the configured
+    /// packagePath) holds `allowed.lua`; `outside` holds `evil.lua`. Returns
+    /// (allowedDir, outsideDir); both are removed in the returned cleanup.
+    private func makeConfinementDirs() throws -> (allowed: String, outside: String, cleanup: () -> Void) {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("luaswift-confine-\(UUID().uuidString)")
+        let allowed = root.appendingPathComponent("allowed")
+        let outside = root.appendingPathComponent("outside")
+        try fm.createDirectory(at: allowed, withIntermediateDirectories: true)
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        try "return { who = 'allowed' }".write(
+            to: allowed.appendingPathComponent("allowed.lua"), atomically: true, encoding: .utf8)
+        try "return { who = 'evil' }".write(
+            to: outside.appendingPathComponent("evil.lua"), atomically: true, encoding: .utf8)
+        return (allowed.path, outside.path, { try? fm.removeItem(at: root) })
+    }
+
+    private func confinedEngine(packagePath: String) throws -> LuaEngine {
+        try LuaEngine(configuration: LuaEngineConfiguration(
+            sandboxed: true, packagePath: packagePath, memoryLimit: 0))
+    }
+
+    /// A module inside the configured packagePath loads normally via the
+    /// validating searcher.
+    func testConfinedRequireLoadsFromConfiguredDir() throws {
+        let dirs = try makeConfinementDirs()
+        defer { dirs.cleanup() }
+        let engine = try confinedEngine(packagePath: dirs.allowed)
+        let result = try engine.evaluate("return require('allowed').who")
+        XCTAssertEqual(result.stringValue, "allowed")
+    }
+
+    /// Reassigning `package.path` to an outside directory must NOT let a script
+    /// load a module from there — the validating searcher ignores package.path.
+    func testReassigningPackagePathCannotEscape() throws {
+        let dirs = try makeConfinementDirs()
+        defer { dirs.cleanup() }
+        let engine = try confinedEngine(packagePath: dirs.allowed)
+        XCTAssertThrowsError(try engine.evaluate("""
+            package.path = "\(dirs.outside)/?.lua"
+            return require('evil').who
+        """), "Loading 'evil' from outside the configured dir must fail")
+    }
+
+    /// The freeze cannot be bypassed with `rawset(package, "path", ...)`.
+    func testRawsetPackagePathCannotEscape() throws {
+        let dirs = try makeConfinementDirs()
+        defer { dirs.cleanup() }
+        let engine = try confinedEngine(packagePath: dirs.allowed)
+        XCTAssertThrowsError(try engine.evaluate("""
+            rawset(package, "path", "\(dirs.outside)/?.lua")
+            return require('evil').who
+        """), "rawset of package.path must not redirect module loading")
+    }
+
+    /// A module name with `..` traversal is rejected by the validating searcher.
+    func testTraversalModuleNameRejected() throws {
+        let dirs = try makeConfinementDirs()
+        defer { dirs.cleanup() }
+        let engine = try confinedEngine(packagePath: dirs.allowed)
+        XCTAssertThrowsError(try engine.evaluate("return require('../outside/evil')"),
+                             "A traversal module name must be rejected")
+    }
 }

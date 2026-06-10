@@ -445,6 +445,30 @@ final class IntrospectionTests: XCTestCase {
         let after = engine.globalNames(includingStandardLibrary: false)
         XCTAssertTrue(after.contains("freshVar"), "Expected 'freshVar' as user-defined after run")
     }
+
+    // MARK: - Cyclic-value introspection (graceful, total — never throws)
+
+    /// Reading a self-referential global must NOT crash and must NOT throw —
+    /// the read-only introspection path breaks the cycle by materialising the
+    /// back-edge as an empty table, unlike the throwing result path.
+    func testGlobalValue_cyclicTable_degradesGracefully() throws {
+        let engine = try LuaEngine()
+        try engine.run("g = {}; g.self = g; g.v = 7")
+        let value = engine.globalValue("g")
+        guard case .table(let dict)? = value else {
+            return XCTFail("Expected a .table for cyclic global g, got \(String(describing: value))")
+        }
+        XCTAssertEqual(dict["v"]?.numberValue, 7)
+        // The back-edge `g.self` is materialised as an empty table (cycle broken).
+        XCTAssertEqual(dict["self"]?.tableValue?.isEmpty, true)
+    }
+
+    /// The self-referential globals table `_G` is inspectable without crashing.
+    func testGlobalValue_globalsTable_doesNotCrash() throws {
+        let engine = try LuaEngine()
+        let value = engine.globalValue("_G")
+        XCTAssertNotNil(value, "Expected _G to be present and inspectable")
+    }
 }
 
 // MARK: - Test Helpers

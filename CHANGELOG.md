@@ -5,7 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.2] - 2026-06-10
+
+Remediation of an independent code audit (2026-06-09 Round 1). All 28 findings
+addressed; full verification matrix green (Lua 5.1–5.5, YAMS=0, TOMLKIT=1, iOS
+Simulator build).
+
+### Security
+- **Cyclic tables and non-representable numeric keys are rejected.** Converting a
+  Lua value to a `LuaValue` (run/evaluate results, callback arguments, coroutine
+  yields/returns) now tracks table identity and raises `LuaError.cyclicTable` on
+  a reference cycle instead of recursing until the Swift stack is exhausted, and
+  validates numeric table keys with `Int(exactly:)`, raising
+  `LuaError.numericKeyOutOfRange(_:)` for fractional / out-of-range keys instead
+  of silently truncating, wrapping, or trapping. Read-only introspection
+  (`globalValue(_:)`) degrades gracefully instead (breaks cycles, skips bad keys)
+  since it is a total, non-throwing API.
+- **HTTP responses are size-bounded.** The optional HTTP module streams response
+  bodies through a bounded delegate and cancels mid-download once the body
+  exceeds a cap (`HTTPModule.defaultMaxResponseSizeBytes`, 10 MiB; overridable
+  per request via the `max_response_size` option), raising
+  `LuaError.responseTooLarge(limit:)`. This stops sandboxed Lua from driving
+  unbounded host-heap growth outside `vmMemoryLimit`.
+- **HTTP request timeout is clamped** to `[HTTPModule.minTimeout, maxTimeout]`
+  (1–120 s) so untrusted Lua cannot pin the engine on a single request, and the
+  synchronous wait is now cooperative: `requestCancellation()` from another
+  thread interrupts a stalled request (surfaces as `LuaError.cancelled`).
+- **Sandboxed `packagePath` confinement is now robust.** With a `packagePath`
+  configured, a sandboxed engine installs a validating `require` searcher bound
+  to the configured directory and ignores `package.path` entirely, so a script
+  can no longer escape confinement by reassigning `package.path` (including via
+  `rawset` or after replacing the `package` metatable). Module names are
+  validated (no path separators / `..`) and files load text-only on 5.2+.
+  Unsandboxed engines keep normal `package.path` semantics. `package.preload`
+  remains intentionally script-writable under the sandbox (documented as benign
+  for the `package.loaded`-based module model; see [#29](https://github.com/ChrisGVE/LuaSwift/issues/29)).
+
+### Added
+- `LuaError` cases: `cyclicTable`, `numericKeyOutOfRange(Double)`,
+  `responseTooLarge(limit:)`.
+- `HTTPModule.defaultMaxResponseSizeBytes`, `HTTPModule.minTimeout`,
+  `HTTPModule.maxTimeout`, and the `max_response_size` request option.
+- `docs/architecture.md` — a top-level architecture document (with Mermaid
+  diagrams) covering the `LuaEngine` extension decomposition, the vendored CLua
+  targets, module install flow, value bridging, resource limits, the sandbox
+  model, and the optional-dependency gates.
+- `Sources/VENDORED-LUA.md` — provenance manifest (source URL, verified SHA256,
+  date) for the bundled Lua sources.
+
+### Fixed
+- **Callback function-argument refs no longer leak on the abandon path.** When a
+  later callback argument fails to convert, function refs already pinned for the
+  call are released before the error is raised (the callback never runs). The
+  receiver-owns-and-must-release contract for accepted function arguments is now
+  documented on `registerFunction`.
+- NumericSwift opt-in build works again (verified against NumericSwift 0.2.1);
+  removed the stale README "compile failure" limitation
+  ([#8](https://github.com/ChrisGVE/LuaSwift/issues/8) resolved upstream).
+- Documentation accuracy: the value-server GettingStarted example now compiles,
+  the `LuaValue` API reference lists all public cases/accessors, the DocC topic
+  tree includes the previously-orphaned Compat/Serialize articles, opt-in module
+  docs carry availability banners, and `TESTING.md` reflects the real CI topology.
+
+### CI / Infrastructure
+- A required DocC documentation-build job gates CI.
+- The Lua source-updater workflow verifies each downloaded tarball against the
+  SHA256 published by lua.org before replacing vendored sources, and records
+  provenance.
+- The local test matrix folds the Yams/TOMLKit toggles into a single source of
+  truth; CI uses one data-driven toggle job. Performance benchmarks remain
+  report-only (macOS-runner timing variance), now with baseline artifacts.
 
 ## [1.12.1] - 2026-06-09
 

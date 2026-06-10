@@ -1,4 +1,6 @@
 {
+  "_comment": "Single source of truth for the LuaSwift test matrix, shared by scripts/test-config.sh (local runs) and the GitHub CI workflow (.github/workflows/ci.yml). Two dependency groups model the two distinct testing shapes the build needs.",
+
   "lua_versions": [
     {"code": "51", "name": "Lua 5.1"},
     {"code": "52", "name": "Lua 5.2"},
@@ -7,24 +9,54 @@
     {"code": "55", "name": "Lua 5.5"}
   ],
   "default_lua_version": "54",
+
+  "_optional_dependencies_comment": "Sibling-clone dependencies (ChrisGVE Swift packages consumed from a checkout next to LuaSwift, not from a registry). These drive the combinatorial 2^n on/off matrix because each is an independently optional module whose interactions matter. All are default-OFF (opt-in). 'needs_clone: true' means a sibling git checkout is required before building.",
   "optional_dependencies": [
     {
       "short": "N",
       "name": "NumericSwift",
       "env_var": "LUASWIFT_INCLUDE_NUMERICSWIFT",
-      "repo": "https://github.com/ChrisGVE/NumericSwift.git"
+      "repo": "https://github.com/ChrisGVE/NumericSwift.git",
+      "default": "0",
+      "needs_clone": true
     },
     {
       "short": "A",
       "name": "ArraySwift",
       "env_var": "LUASWIFT_INCLUDE_ARRAYSWIFT",
-      "repo": "https://github.com/ChrisGVE/ArraySwift.git"
+      "repo": "https://github.com/ChrisGVE/ArraySwift.git",
+      "default": "0",
+      "needs_clone": true
     },
     {
       "short": "P",
       "name": "PlotSwift",
       "env_var": "LUASWIFT_INCLUDE_PLOTSWIFT",
-      "repo": "https://github.com/ChrisGVE/PlotSwift.git"
+      "repo": "https://github.com/ChrisGVE/PlotSwift.git",
+      "default": "0",
+      "needs_clone": true
+    }
+  ],
+
+  "_toggle_dependencies_comment": "Pure SwiftPM dependencies fetched from a registry — no sibling clone needed (needs_clone: false, no repo). These are NOT folded into the 2^n combinatorial matrix: each is exercised as a single explicit toggle that flips it away from its default, which is the path the default matrix never covers. Yams is default-ON (opt-out via LUASWIFT_INCLUDE_YAMS=0); TOMLKit is default-OFF (opt-in via LUASWIFT_INCLUDE_TOMLKIT=1). 'test_value' is the non-default value to exercise.",
+  "toggle_dependencies": [
+    {
+      "short": "Y",
+      "name": "Yams",
+      "env_var": "LUASWIFT_INCLUDE_YAMS",
+      "default": "1",
+      "test_value": "0",
+      "needs_clone": false,
+      "description": "YAML support; default-ON, this toggle builds the no-YAML path"
+    },
+    {
+      "short": "T",
+      "name": "TOMLKit",
+      "env_var": "LUASWIFT_INCLUDE_TOMLKIT",
+      "default": "0",
+      "test_value": "1",
+      "needs_clone": false,
+      "description": "TOML support; default-OFF, this toggle builds the with-TOML path"
     }
   ]
 }

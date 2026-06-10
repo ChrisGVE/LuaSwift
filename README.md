@@ -329,11 +329,7 @@ The environment variable approach is used for maximum compatibility. Future vers
 
 ### Known Limitations of Optional Dependencies
 
-Two optional dependencies have open issues that affect opt-in builds. Default builds (all flags off) are unaffected.
-
-**NumericSwift (`LUASWIFT_INCLUDE_NUMERICSWIFT=1`) — compile failure ([#8](https://github.com/ChrisGVE/LuaSwift/issues/8))**
-
-Enabling NumericSwift currently fails to build with a compiler type-check timeout in NumericSwift's `SpecialFunctions.swift` (line 104): "the compiler is unable to type-check this expression in reasonable time." The flag is off by default, so standard builds are unaffected. A fix is tracked upstream in [ChrisGVE/NumericSwift](https://github.com/ChrisGVE/NumericSwift).
+One optional dependency has an open issue affecting its opt-in build. Default builds (all flags off) are unaffected.
 
 **Thales (`LUASWIFT_INCLUDE_THALES=1`) — integration disabled ([#18](https://github.com/ChrisGVE/LuaSwift/issues/18))**
 

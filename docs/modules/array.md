@@ -6,6 +6,8 @@
 
 **Namespace:** `luaswift.array` | **Global:** `array`
 
+> ⚠️ **Opt-in, disabled by default.** This module requires the `ArraySwift` package and must be enabled at build time with `LUASWIFT_INCLUDE_ARRAYSWIFT=1` (or the `LUASWIFT_ARRAYSWIFT` compiler flag). Without it, `require("luaswift.array")` is unavailable.
+
 N-dimensional arrays with broadcasting and element-wise operations.
 
 ## Function Reference

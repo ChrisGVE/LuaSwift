@@ -151,8 +151,17 @@ private func serverIndexCallback(_ L: OpaquePointer?) -> Int32 {
 private func serverNewIndexCallback(_ L: OpaquePointer?) -> Int32 {
     guard let L = L, let ctx = extractServerContext(L) else { return 0 }
 
-    // The value being assigned is at stack index 3.
-    let value = valueFromLuaStack(L, at: 3)
+    // The value being assigned is at stack index 3. Conversion can reject a
+    // cyclic table / non-representable numeric key — surface that as a Lua error
+    // rather than crashing across the C boundary.
+    let value: LuaValue
+    do {
+        value = try valueFromLuaStack(L, at: 3)
+    } catch {
+        lua_pushstring(L, "cannot assign value: \(error.localizedDescription)")
+        _ = lua_error(L)
+        return 0
+    }
     let success = ctx.engine.writeServerPath(namespace: ctx.namespace, path: ctx.path, value: value)
     if !success {
         let errorPath = "\(ctx.namespace).\(ctx.path.joined(separator: "."))"

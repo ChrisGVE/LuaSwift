@@ -581,4 +581,43 @@ final class LuaCoroutineTests: XCTestCase {
         // Destroy without ever resuming - should not crash
         engine.destroy(handle)
     }
+
+    // MARK: - Unsafe Coroutine Results
+
+    /// A coroutine that completes by returning a cyclic table must reject with
+    /// ``LuaError/cyclicTable`` instead of recursing without bound.
+    func testCoroutineReturnCyclicTableThrows() throws {
+        let engine = try LuaEngine()
+        let handle = try engine.createCoroutine(code: "local t = {}; t.self = t; return t")
+        XCTAssertThrowsError(try engine.resume(handle)) { error in
+            guard case LuaError.cyclicTable = error else {
+                return XCTFail("Expected .cyclicTable, got \(error)")
+            }
+        }
+        engine.destroy(handle)
+    }
+
+    /// A coroutine that *yields* a cyclic table is rejected on the yield path too.
+    func testCoroutineYieldCyclicTableThrows() throws {
+        let engine = try LuaEngine()
+        let handle = try engine.createCoroutine(code: "local t = {}; t.self = t; coroutine.yield(t)")
+        XCTAssertThrowsError(try engine.resume(handle)) { error in
+            guard case LuaError.cyclicTable = error else {
+                return XCTFail("Expected .cyclicTable, got \(error)")
+            }
+        }
+        engine.destroy(handle)
+    }
+
+    /// A coroutine yielding a table with a non-representable numeric key is rejected.
+    func testCoroutineYieldOutOfRangeKeyThrows() throws {
+        let engine = try LuaEngine()
+        let handle = try engine.createCoroutine(code: "coroutine.yield({ [2^63] = 1 })")
+        XCTAssertThrowsError(try engine.resume(handle)) { error in
+            guard case LuaError.numericKeyOutOfRange = error else {
+                return XCTFail("Expected .numericKeyOutOfRange, got \(error)")
+            }
+        }
+        engine.destroy(handle)
+    }
 }

@@ -9,8 +9,8 @@
 //
 //  Location: Tests/LuaSwiftTests/DebugTests.swift
 //
-//  Context: Acceptance tests for the public debug-hook API (F5 / #20).
-//  Covers the full PRD §F5 acceptance criteria:
+//  Context: Acceptance tests for the public debug-hook API (#20).
+//  Covers the full debug-hook acceptance criteria:
 //
 //  - Line events fired in order; .stop at line 2 aborts before line 3
 //  - Inspector.locals at pause returns correct value
